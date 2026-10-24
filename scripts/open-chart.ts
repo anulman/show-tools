@@ -2,7 +2,6 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Schema } from 'effect';
-import { columnName } from '../lib/performance/columns.js';
 
 export const ChartSelectionSchema = Schema.Struct({
   spreadsheetId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{20,}$/)),
@@ -104,6 +103,8 @@ const sameSpreadsheet = (url: string, id: string): boolean => {
   try { const address = new URL(url); return address.origin === 'https://docs.google.com' && address.pathname.startsWith(`/spreadsheets/d/${id}/`); }
   catch { return false; }
 };
+const columnOffsets = new Map<string, Map<number, number>>();
+const releaseViewportExpression = `(() => { window.__showToolsReleaseViewport?.(); return true; })()`;
 const sleep = (milliseconds: number) => new Promise<void>(done => setTimeout(done, milliseconds));
 
 export async function openChart(address: string, input: unknown, connect: (address: string) => Promise<CDPConnection> = CDP.connect): Promise<{ ok: true; selectedRange: string; url: string }> {
@@ -149,28 +150,32 @@ export async function openChart(address: string, input: unknown, connect: (addre
       if (!correctSheet) throw new Error('Google Sheets did not open the requested song sheet');
     }
     const selectRange = async (range: string) => {
-      const fragment = new URLSearchParams({ gid: String(selection.sheetId), range }).toString();
-      await evaluate(`(() => { location.hash = ${JSON.stringify(fragment)}; return true; })()`);
-      let selected = false;
-      let current = await state();
+      const focused = await evaluate(`(() => { const box = document.querySelector('#t-name-box'); if (!box) return false;
+        window.__showToolsReleaseViewport?.();
+        const scrollbar = document.getElementById('${selection.sheetId}-grid-container')?.querySelector('.native-scrollbar-x');
+        if (!scrollbar) return false;
+        const vertical = document.getElementById('${selection.sheetId}-grid-container')?.querySelector('.native-scrollbar-y');
+        const left = scrollbar.scrollLeft;
+        const top = vertical?.scrollTop;
+        const preserve = () => {
+          if (scrollbar.scrollLeft !== left) scrollbar.scrollLeft = left;
+          if (vertical && vertical.scrollTop !== top) vertical.scrollTop = top;
+        };
+        const timeout = setTimeout(() => window.__showToolsReleaseViewport?.(), 5000);
+        window.__showToolsReleaseViewport = () => { clearTimeout(timeout); scrollbar.removeEventListener('scroll', preserve); vertical?.removeEventListener('scroll', preserve); delete window.__showToolsReleaseViewport; };
+        scrollbar.addEventListener('scroll', preserve);
+        vertical?.addEventListener('scroll', preserve);
+        box.focus({preventScroll:true}); box.select(); return true; })()`);
+      if (focused !== true) throw new Error('Google Sheets Name box is unavailable');
+      await connection.request('Input.insertText', { text: range }, sessionId);
+      await connection.request('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }, sessionId);
+      await connection.request('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }, sessionId);
       for (let attempt = 0; attempt < 12; attempt++) {
-        if (current.range === range && current.activeSheetId === selection.sheetId) { selected = true; break; }
-        await sleep(100); current = await state();
+        const current = await state();
+        if (current.range === range && current.activeSheetId === selection.sheetId) return;
+        await sleep(100);
       }
-      if (!selected) {
-        const focused = await evaluate(`(() => { const box = document.querySelector('#t-name-box'); if (!box) return false; box.focus(); box.select(); return true; })()`);
-        if (focused !== true) throw new Error('Google Sheets Name box is unavailable');
-        await connection.request('Input.insertText', { text: range }, sessionId);
-        await connection.request('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }, sessionId);
-        await connection.request('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Enter', code: 'Enter', windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 }, sessionId);
-        for (let attempt = 0; attempt < 12; attempt++) {
-          current = await state();
-          if (current.range === range && current.activeSheetId === selection.sheetId) { selected = true; break; }
-          await sleep(100);
-        }
-      }
-      if (!selected) throw new Error(`Google Sheets did not confirm ${range}`);
-      return current;
+      throw new Error(`Google Sheets did not confirm ${range}`);
     };
     const viewport = async (scrollLeft?: number) => {
       const value = await evaluate(viewportExpression(selection.sheetId, scrollLeft));
@@ -178,17 +183,27 @@ export async function openChart(address: string, input: unknown, connect: (addre
     };
     const letters = selection.range.split(':')[0];
     const column = Array.from(letters).reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0);
-    let contextScroll = 0;
-    if (column > 3) {
-      const anchor = columnName(column - 2);
-      await selectRange(`${anchor}:${anchor}`);
-      await sleep(50);
-      const measured = await viewport();
-      if (!measured) throw new Error('Google Sheets column viewport is unavailable');
-      contextScroll = Math.max(0, measured.scrollLeft + measured.selectedLeft - measured.left);
-    }
     await selectRange(selection.range);
-    // Selecting the range scrolls again, so apply the measured context afterward.
+    // Sheets resets horizontal scroll even for a visible Name box selection.
+    // Preserve it through that event, then move once to the intended context.
+    await sleep(50);
+    const measured = await viewport();
+    if (!measured) throw new Error('Google Sheets column viewport is unavailable');
+    const cacheKey = `${address}/${targetId}/${selection.sheetId}`;
+    let offsets = columnOffsets.get(cacheKey);
+    if (!offsets) {
+      offsets = new Map();
+      const oldestKey = columnOffsets.keys().next().value;
+      if (columnOffsets.size >= 32 && oldestKey !== undefined) columnOffsets.delete(oldestKey);
+      columnOffsets.set(cacheKey, offsets);
+    }
+    const absoluteLeft = measured.scrollLeft + measured.selectedLeft - measured.left;
+    const previous = offsets.get(column);
+    if (previous !== undefined && Math.abs(previous - absoluteLeft) > 2) offsets.clear();
+    offsets.set(column, absoluteLeft);
+    const width = measured.selectedRight - measured.selectedLeft;
+    const contextScroll = column <= 3 ? 0 : Math.max(0, offsets.get(column - 2) ?? absoluteLeft - 2 * width);
+    await evaluate(releaseViewportExpression);
     await viewport(contextScroll);
     await sleep(50);
     let visible = await viewport();
@@ -206,7 +221,10 @@ export async function openChart(address: string, input: unknown, connect: (addre
     if (selection.activate !== false) await connection.request('Target.activateTarget', { targetId });
     return { ok: true, selectedRange: selection.range, url: final.url };
   } finally {
-    if (sessionId) await connection.request('Target.detachFromTarget', { sessionId }).catch(() => {});
+    if (sessionId) {
+      await connection.request('Runtime.evaluate', { expression: releaseViewportExpression, returnByValue: true }, sessionId).catch(() => {});
+      await connection.request('Target.detachFromTarget', { sessionId }).catch(() => {});
+    }
     connection.close();
   }
 }

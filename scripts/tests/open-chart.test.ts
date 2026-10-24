@@ -13,9 +13,13 @@ const selection = { spreadsheetId, sheetId: 101, range: 'D:D' };
 const parseExpression = Schema.decodeUnknownSync(Schema.Struct({ expression: Schema.String }));
 const parseText = Schema.decodeUnknownSync(Schema.Struct({ text: Schema.String }));
 
-function chromeFixture({ existing = true, hashWorks = true, sheetId = 101, delayedSheet = false,
+let fixtureSerial = 0;
+function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false,
   widths = [150], viewportWidth = 600, maxScroll = 100000 } = {}) {
   const calls: { method: string; params: object; sessionId?: string }[] = [];
+  const targetId = `chart-${++fixtureSerial}`;
+  let preserved = false;
+  const scrolls: number[] = [];
   let closed = false;
   let range = 'A1';
   let text = '';
@@ -33,46 +37,36 @@ function chromeFixture({ existing = true, hashWorks = true, sheetId = 101, delay
     async request(method, params = {}, sessionId) {
       calls.push({ method, params, ...(sessionId ? { sessionId } : {}) });
       switch (method) {
-        case 'Target.getTargets': return { targetInfos: existing ? [{ targetId: 'existing-chart', type: 'page', url }] : [] };
-        case 'Target.createTarget': return { targetId: 'new-chart' };
+        case 'Target.getTargets': return { targetInfos: existing ? [{ targetId, type: 'page', url }] : [] };
+        case 'Target.createTarget': return { targetId };
         case 'Page.navigate': activeSheetId = sheetId; range = 'A1'; return {};
         case 'Target.attachToTarget': return { sessionId: 'chart-session' };
         case 'Target.detachFromTarget':
         case 'Target.activateTarget': return {};
         case 'Runtime.evaluate': {
           const { expression } = parseExpression(params);
+          if (expression.includes('box.focus(')) { preserved = true; return { result: { value: true } }; }
           if (expression.includes('native-scrollbar-x')) {
             const assigned = /scrollbar.scrollLeft = ([\d.]+);/.exec(expression);
-            if (assigned) scrollLeft = Math.min(maxScroll, Math.max(0, Number(assigned[1])));
+            if (assigned) { scrollLeft = Math.min(maxScroll, Math.max(0, Number(assigned[1]))); scrolls.push(scrollLeft); }
             const selected = selectedPosition();
             return { result: { value: JSON.stringify({ scrollLeft, left: 200, right: 200 + viewportWidth,
               selectedLeft: selected.left, selectedRight: selected.left + selected.width }) } };
           }
-          if (expression.includes('location.hash =')) {
-            const literal = /location.hash = ("(?:\\.|[^"])*")/.exec(expression)?.[1];
-            assert(literal);
-            const fragment = Schema.decodeUnknownSync(Schema.String)(JSON.parse(literal));
-            const requestedRange = new URLSearchParams(fragment).get('range');
-            assert(requestedRange);
-            url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit?pli=1#${fragment}`;
-            if (hashWorks) range = requestedRange;
-            scrollLeft = 0;
-            if (!delayedSheet) activeSheetId = sheetId;
-            return { result: { value: true } };
-          }
-          if (expression.includes('box.focus()')) return { result: { value: true } };
+          assert(!expression.includes('location.hash ='), 'selecting a column must not navigate its hash');
+          if (expression.includes('window.__showToolsReleaseViewport?.()')) { preserved = false; return { result: { value: true } }; }
           const state = { ready: true, range, activeSheetId, url };
           if (delayedSheet && range === 'D:D') activeSheetId = sheetId;
           return { result: { value: JSON.stringify(state) } };
         }
         case 'Input.insertText': text = parseText(params).text; return {};
-        case 'Input.dispatchKeyEvent': range = text; return {};
+        case 'Input.dispatchKeyEvent': range = text; if (!preserved) { scrollLeft = 0; scrolls.push(0); } return {};
         default: throw new Error(`Unexpected CDP command ${method}`);
       }
     },
     close() { closed = true; },
   };
-  return { connection, calls, isClosed: () => closed, viewport: () => ({ range, scrollLeft, ...selectedPosition() }) };
+  return { connection, calls, scrolls, isClosed: () => closed, viewport: () => ({ range, scrollLeft, ...selectedPosition() }) };
 }
 
 test('selects an existing chart and confirms the Name box before acknowledging', async () => {
@@ -85,13 +79,13 @@ test('selects an existing chart and confirms the Name box before acknowledging',
   assert(fixture.isClosed());
 });
 
-test('new charts load first and trusted keyboard input recovers from ignored range fragments', async () => {
-  const fixture = chromeFixture({ existing: false, hashWorks: false });
+test('new charts load first and trusted keyboard input selects only the requested column', async () => {
+  const fixture = chromeFixture({ existing: false });
   const result = await openChart('http://127.0.0.1:9222', selection, async () => fixture.connection);
   assert.equal(result.selectedRange, 'D:D');
   assert(fixture.calls.some(call => call.method === 'Target.createTarget'));
   assert(fixture.calls.some(call => call.method === 'Input.insertText'));
-  assert.equal(fixture.calls.filter(call => call.method === 'Input.dispatchKeyEvent').length, 4);
+  assert.equal(fixture.calls.filter(call => call.method === 'Input.dispatchKeyEvent').length, 2);
   assert(fixture.isClosed());
 });
 
@@ -102,16 +96,18 @@ test('song changes navigate to the requested visible sheet before selecting its 
   assert(fixture.calls.some(call => call.method === 'Page.navigate'), 'changed the actual song instead of only its URL fragment');
 });
 
-test('column positioning keeps two measured previous columns visible after final selection resets scroll', async () => {
+test('following preserves scrolling and uses cached unequal column widths without intermediate selections', async () => {
   const fixture = chromeFixture({ widths: [150, 40, 180, 90, 110, 70] });
-  const result = await openChart('http://127.0.0.1:9222', { ...selection, range: 'F:F', activate: false }, async () => fixture.connection);
-  assert.equal(result.selectedRange, 'F:F');
+  for (const range of ['C:C', 'D:D', 'E:E', 'F:F']) {
+    await openChart('http://127.0.0.1:9222', { ...selection, range, activate: false }, async () => fixture.connection);
+  }
   assert.deepEqual(fixture.viewport(), { range: 'F:F', scrollLeft: 220, left: 400, width: 70 });
   assert(!fixture.calls.some(call => call.method === 'Target.activateTarget'));
-  const hashes = fixture.calls.filter(call => call.method === 'Runtime.evaluate')
-    .map(call => parseExpression(call.params).expression).filter(expression => expression.includes('location.hash ='));
-  assert(hashes[0]?.includes('D%3AD'));
-  assert(hashes[1]?.includes('F%3AF'));
+  assert.deepEqual(fixture.calls.filter(call => call.method === 'Input.insertText').map(call => parseText(call.params).text),
+    ['C:C', 'D:D', 'E:E', 'F:F']);
+  const positive = fixture.scrolls.findIndex(scroll => scroll > 0);
+  assert(positive >= 0);
+  assert(fixture.scrolls.slice(positive).every(scroll => scroll > 0), 'visible incremental selections never reset to zero');
 });
 
 test('early columns reset to the start and late columns retain their current selection', async () => {
@@ -126,6 +122,7 @@ test('early columns reset to the start and late columns retain their current sel
 
 test('a narrow viewport prioritizes the selected column when two previous columns do not fit', async () => {
   const fixture = chromeFixture({ widths: [150, 300, 300, 80], viewportWidth: 500 });
+  await openChart('http://127.0.0.1:9222', { ...selection, range: 'B:B' }, async () => fixture.connection);
   await openChart('http://127.0.0.1:9222', selection, async () => fixture.connection);
   assert.equal(fixture.viewport().range, 'D:D');
   assert.equal(fixture.viewport().left + fixture.viewport().width, 700);
