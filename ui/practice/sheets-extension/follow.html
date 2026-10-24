@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chart follow · Show tools</title>
+<link rel="stylesheet" href="follow.css">
+<main>
+  <p class="eyebrow">SHOW TOOLS / CHART FOLLOW</p>
+  <h1>Keep the chart<br>on the beat.</h1>
+  <p>Leave this tab open. The follower selects each bar's column in the chart tab you opened it from. It never edits cell values.</p>
+  <form id="connect">
+    <label>Practice page URL <input id="practice-url" type="url" value="http://127.0.0.1:8082/ui/practice/" required></label>
+    <button id="start" type="submit">Start following</button>
+    <button id="stop" type="button" disabled>Stop following</button>
+  </form>
+  <p id="status" role="status">Not connected.</p>
+  <p class="small">Open the practice desk in this browser. Beat events travel directly between your tabs through the extension. No relay server is needed. Reopen the follower from the toolbar while viewing the song chart if the target tab is unavailable.</p>
+</main>
+<script type="module" src="follow.js"></script>
+</html>

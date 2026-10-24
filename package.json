@@ -1,0 +1,27 @@
+{
+  "name": "show-tools",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "python3 -m http.server 8082 --bind 127.0.0.1 --directory dist",
+    "start:relay": "node --import tsx lib/relay/server.ts --no-ui",
+    "start:sheets": "node --import tsx scripts/open-chart.ts",
+    "build": "npm run build:wasm && npm run build:ui",
+    "build:ui": "node --import tsx scripts/build-ui.ts",
+    "build:wasm": "bash lib/beat-tracker/scripts/build-manual-wasm.sh",
+    "test": "node --import tsx --test lib/sampler/tests/*.test.mjs lib/sequencer/tests/*.test.mjs ui/practice/tests/*.test.mjs lib/beat-tracker/tests/manual_wasm_tests.mjs scripts/tests/*.test.ts",
+    "test:follower": "SHOW_TOOLS_FOLLOWER_TESTS=1 npm test",
+    "typecheck": "tsc --noEmit",
+    "check:layout": "node --import tsx scripts/check-ui-layout.ts"
+  },
+  "dependencies": {
+    "effect": "4.0.6"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.3.6",
+    "@types/node": "26.6.5",
+    "esbuild": "0.28.2",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2"
+  }
+}

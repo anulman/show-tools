@@ -1,0 +1,11 @@
+{
+  "name": "Show tools practice desk",
+  "short_name": "Practice desk",
+  "description": "A pocket rehearsal desk for samples and song charts.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#161817",
+  "theme_color": "#191b1a",
+  "icons": [{ "src": "./icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

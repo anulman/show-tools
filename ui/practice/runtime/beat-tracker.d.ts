@@ -1,0 +1,14 @@
+export interface TrackerState { source: { kind: string }; lifecycle: string; error?: string | null }
+export class BeatTracker {
+  static create(options: { startingBpm?: number; wasmUrl?: URL; workletUrl?: URL; processorName?: string; outputChannels?: number; processorOptions?: object }): Promise<BeatTracker>;
+  context: AudioContext;
+  node: AudioWorkletNode;
+  lifecycle: string;
+  setManual(): Promise<unknown>;
+  setManualBpm(bpm: number): Promise<unknown>;
+  resume(): Promise<void>;
+  startListening(): Promise<void>;
+  stopListening(): Promise<void>;
+  subscribe(listener: (state: TrackerState) => void): () => void;
+  dispose(): Promise<void>;
+}

@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Show tools · chart follow",
+  "version": "0.1.0",
+  "description": "Follow sequencer bars in an open Google Sheet with deterministic range links.",
+  "permissions": ["activeTab", "scripting"],
+  "host_permissions": ["http://127.0.0.1/*", "http://localhost/*"],
+  "optional_host_permissions": ["https://*/*", "http://*/*"],
+  "action": { "default_title": "Follow this song chart" },
+  "background": { "service_worker": "background.js", "type": "module" }
+}
