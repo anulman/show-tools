@@ -13,12 +13,21 @@ const selection = { spreadsheetId, sheetId: 101, range: 'D:D' };
 const parseExpression = Schema.decodeUnknownSync(Schema.Struct({ expression: Schema.String }));
 const parseText = Schema.decodeUnknownSync(Schema.Struct({ text: Schema.String }));
 
-function chromeFixture({ existing = true, hashWorks = true, sheetId = 101, delayedSheet = false } = {}) {
+function chromeFixture({ existing = true, hashWorks = true, sheetId = 101, delayedSheet = false,
+  widths = [150], viewportWidth = 600, maxScroll = 100000 } = {}) {
   const calls: { method: string; params: object; sessionId?: string }[] = [];
   let closed = false;
   let range = 'A1';
   let text = '';
   let activeSheetId = 101;
+  let scrollLeft = 0;
+  const selectedColumn = () => Array.from(range.split(':')[0]).reduce((column, letter) => column * 26 + letter.charCodeAt(0) - 64, 0);
+  const selectedPosition = () => {
+    const column = selectedColumn();
+    let offset = 0;
+    for (let index = 2; index < column; index++) offset += widths[index - 1] ?? 60;
+    return { left: column === 1 ? 50 : 200 + offset - scrollLeft, width: widths[column - 1] ?? 60 };
+  };
   let url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit?pli=1#gid=101`;
   const connection: CDPConnection = {
     async request(method, params = {}, sessionId) {
@@ -32,9 +41,22 @@ function chromeFixture({ existing = true, hashWorks = true, sheetId = 101, delay
         case 'Target.activateTarget': return {};
         case 'Runtime.evaluate': {
           const { expression } = parseExpression(params);
+          if (expression.includes('native-scrollbar-x')) {
+            const assigned = /scrollbar.scrollLeft = ([\d.]+);/.exec(expression);
+            if (assigned) scrollLeft = Math.min(maxScroll, Math.max(0, Number(assigned[1])));
+            const selected = selectedPosition();
+            return { result: { value: JSON.stringify({ scrollLeft, left: 200, right: 200 + viewportWidth,
+              selectedLeft: selected.left, selectedRight: selected.left + selected.width }) } };
+          }
           if (expression.includes('location.hash =')) {
-            url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit?pli=1#gid=${sheetId}&range=D%3AD`;
-            if (hashWorks) range = 'D:D';
+            const literal = /location.hash = ("(?:\\.|[^"])*")/.exec(expression)?.[1];
+            assert(literal);
+            const fragment = Schema.decodeUnknownSync(Schema.String)(JSON.parse(literal));
+            const requestedRange = new URLSearchParams(fragment).get('range');
+            assert(requestedRange);
+            url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit?pli=1#${fragment}`;
+            if (hashWorks) range = requestedRange;
+            scrollLeft = 0;
             if (!delayedSheet) activeSheetId = sheetId;
             return { result: { value: true } };
           }
@@ -50,7 +72,7 @@ function chromeFixture({ existing = true, hashWorks = true, sheetId = 101, delay
     },
     close() { closed = true; },
   };
-  return { connection, calls, isClosed: () => closed };
+  return { connection, calls, isClosed: () => closed, viewport: () => ({ range, scrollLeft, ...selectedPosition() }) };
 }
 
 test('selects an existing chart and confirms the Name box before acknowledging', async () => {
@@ -69,7 +91,7 @@ test('new charts load first and trusted keyboard input recovers from ignored ran
   assert.equal(result.selectedRange, 'D:D');
   assert(fixture.calls.some(call => call.method === 'Target.createTarget'));
   assert(fixture.calls.some(call => call.method === 'Input.insertText'));
-  assert.equal(fixture.calls.filter(call => call.method === 'Input.dispatchKeyEvent').length, 2);
+  assert.equal(fixture.calls.filter(call => call.method === 'Input.dispatchKeyEvent').length, 4);
   assert(fixture.isClosed());
 });
 
@@ -78,6 +100,41 @@ test('song changes navigate to the requested visible sheet before selecting its 
   const result = await openChart('http://127.0.0.1:9222', { ...selection, sheetId: 102 }, async () => fixture.connection);
   assert.equal(result.selectedRange, 'D:D');
   assert(fixture.calls.some(call => call.method === 'Page.navigate'), 'changed the actual song instead of only its URL fragment');
+});
+
+test('column positioning keeps two measured previous columns visible after final selection resets scroll', async () => {
+  const fixture = chromeFixture({ widths: [150, 40, 180, 90, 110, 70] });
+  const result = await openChart('http://127.0.0.1:9222', { ...selection, range: 'F:F', activate: false }, async () => fixture.connection);
+  assert.equal(result.selectedRange, 'F:F');
+  assert.deepEqual(fixture.viewport(), { range: 'F:F', scrollLeft: 220, left: 400, width: 70 });
+  assert(!fixture.calls.some(call => call.method === 'Target.activateTarget'));
+  const hashes = fixture.calls.filter(call => call.method === 'Runtime.evaluate')
+    .map(call => parseExpression(call.params).expression).filter(expression => expression.includes('location.hash ='));
+  assert(hashes[0]?.includes('D%3AD'));
+  assert(hashes[1]?.includes('F%3AF'));
+});
+
+test('early columns reset to the start and late columns retain their current selection', async () => {
+  const fixture = chromeFixture();
+  for (const range of ['AZ:AZ', 'C:C', 'B:B', 'A:A']) {
+    await openChart('http://127.0.0.1:9222', { ...selection, range }, async () => fixture.connection);
+    assert.equal(fixture.viewport().range, range);
+    if (range !== 'AZ:AZ') assert.equal(fixture.viewport().scrollLeft, 0);
+    else assert.equal(fixture.viewport().left, 320);
+  }
+});
+
+test('a narrow viewport prioritizes the selected column when two previous columns do not fit', async () => {
+  const fixture = chromeFixture({ widths: [150, 300, 300, 80], viewportWidth: 500 });
+  await openChart('http://127.0.0.1:9222', selection, async () => fixture.connection);
+  assert.equal(fixture.viewport().range, 'D:D');
+  assert.equal(fixture.viewport().left + fixture.viewport().width, 700);
+});
+
+test('end-of-sheet scroll clamping retains the active column and available context', async () => {
+  const fixture = chromeFixture({ maxScroll: 2460 });
+  await openChart('http://127.0.0.1:9222', { ...selection, range: 'AZ:AZ' }, async () => fixture.connection);
+  assert.deepEqual(fixture.viewport(), { range: 'AZ:AZ', scrollLeft: 2460, left: 740, width: 60 });
 });
 
 test('rejects malformed ranges before connecting and closes on CDP failures', async () => {
