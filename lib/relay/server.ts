@@ -1,24 +1,18 @@
 import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import https from 'node:https';
 import { randomBytes } from 'node:crypto';
-import { readFile, realpath, stat } from 'node:fs/promises';
-import { resolve, extname, sep } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Effect, Schema } from 'effect';
 import { parseControlMessage, parseProducer, validateEnvelope, type PerformanceEnvelope } from './controls.js';
 
-const repoRoot = fileURLToPath(new URL('../../', import.meta.url));
-const assetRoot = resolve(repoRoot, 'dist');
-const mime: Readonly<Record<string, string>> = { '.html': 'text/html', '.js': 'text/javascript',
-  '.json': 'application/json', '.css': 'text/css', '.svg': 'image/svg+xml', '.wasm': 'application/wasm',
-  '.webmanifest': 'application/manifest+json', '.md': 'text/plain; charset=utf-8' };
-
-interface RelayOptions { token?: string; serveUI?: boolean; tls?: https.ServerOptions }
+interface RelayOptions { token?: string; tls?: https.ServerOptions }
 class RequestError extends Error {
   constructor(message: string, readonly status: number) { super(message); }
 }
 
-export function createRelay({ token = randomBytes(24).toString('base64url'), serveUI = true, tls }: RelayOptions = {}) {
+export function createRelay({ token = randomBytes(24).toString('base64url'), tls }: RelayOptions = {}) {
   const observers = new Set<ServerResponse>();
   const producers = new Set<ServerResponse>();
   const commandIds = new Map<string, string>();
@@ -64,7 +58,7 @@ export function createRelay({ token = randomBytes(24).toString('base64url'), ser
     try {
       const path = new URL(req.url || '/', 'http://relay.local').pathname;
       if (path === '/api/health' && req.method === 'GET') {
-        json(res, 200, { v: 1, producerConnected: producers.size > 0, observers: observers.size, serveUI }); return;
+        json(res, 200, { v: 1, producerConnected: producers.size > 0, observers: observers.size }); return;
       }
       if (path.startsWith('/api/')) {
         if (req.headers.authorization !== `Bearer ${token}`) { json(res, 401, { error: 'Relay token required' }); return; }
@@ -133,23 +127,10 @@ export function createRelay({ token = randomBytes(24).toString('base64url'), ser
         }
         json(res, 404, { error: 'Unknown endpoint' }); return;
       }
-      if (!serveUI || req.method !== 'GET') { json(res, 404, { error: 'Not found' }); return; }
-      if (path === '/') { res.writeHead(302, { Location: '/ui/practice/' }); res.end(); return; }
-      const decoded = decodeURIComponent(path);
-      if (!decoded.startsWith('/ui/practice/') || decoded.split('/').some(part => part.startsWith('.'))) {
-        json(res, 404, { error: 'Not found' }); return;
-      }
-      let target = resolve(assetRoot, `.${decoded}`);
-      if ((await stat(target)).isDirectory()) target = resolve(target, 'index.html');
-      target = await realpath(target);
-      if (!target.startsWith(assetRoot + sep)) { json(res, 404, { error: 'Not found' }); return; }
-      const data = await readFile(target);
-      res.writeHead(200, { 'Content-Type': mime[extname(target)] || 'application/octet-stream', 'Cache-Control': 'no-cache' });
-      res.end(data);
+      json(res, 404, { error: 'Not found' });
     } catch (error) {
-      const missing = error instanceof Error && 'code' in error && error.code === 'ENOENT';
-      const status = missing ? 404 : error instanceof RequestError ? error.status : 400;
-      const message = missing ? 'Not found' : error instanceof Error ? error.message : 'Request failed';
+      const status = error instanceof RequestError ? error.status : 400;
+      const message = error instanceof Error ? error.message : 'Request failed';
       if (!res.headersSent) json(res, status, { error: message });
       else res.destroy();
     }
@@ -184,11 +165,8 @@ const runRelay = Effect.fn('Relay.run')(function*(options: RelayOptions & { host
     catch: cause => new StartupError({ cause }),
   });
   yield* Effect.sync(() => {
-    process.stdout.write(`Practice desk ${options.tls ? 'https' : 'http'}://${options.host}:${options.port}/ui/practice/\n`);
+    process.stdout.write(`Hardware relay ${options.tls ? 'https' : 'http'}://${options.host}:${options.port}\n`);
     process.stdout.write(`Relay token ${relay.token}\n`);
-    if (!['localhost', '127.0.0.1', '::1'].includes(options.host) && !options.tls) {
-      process.stdout.write('Phone audio needs HTTPS. Supply --cert and --key using a certificate trusted by the phone.\n');
-    }
   });
   yield* Effect.callback<void>(resume => {
     const stop = () => resume(Effect.void);
@@ -213,5 +191,5 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   const key = option('--key');
   if (Boolean(cert) !== Boolean(key)) throw new Error('--cert and --key must be supplied together');
   const tls = cert && key ? { cert: await readFile(cert), key: await readFile(key) } : undefined;
-  await Effect.runPromise(runRelay({ token: process.env.SHOW_TOOLS_TOKEN, serveUI: !args.includes('--no-ui'), host, port, tls }).pipe(Effect.scoped));
+  await Effect.runPromise(runRelay({ token: process.env.SHOW_TOOLS_TOKEN, host, port, tls }).pipe(Effect.scoped));
 }

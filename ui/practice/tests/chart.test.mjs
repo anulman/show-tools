@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { parseChart, columnName, rangeForBar, sheetURL } from '../../../lib/performance/chart.js';
+import { parseChart, columnName, rangeForBar } from '../../../lib/performance/chart.js';
 import { selectionFromEvent, selectionURL } from '../sheets-extension/selection.js';
 
 const source = JSON.parse(await readFile(new URL('../../../songs/dance-yrself-clean.chart.json', import.meta.url)));
@@ -34,7 +34,6 @@ test('Sheets follower selects the explicit column and preserves the current load
   const selected = new URL(selectionURL(current, selection));
   assert.equal(selected.search, '?pli=1&gid=101');
   assert.equal(new URLSearchParams(selected.hash.slice(1)).get('range'), 'D:D');
-  assert.equal(new URL(sheetURL(chart, 2)).hash, '#gid=101&range=D%3AD');
   assert.equal(new URLSearchParams(new URL(selectionURL(current.replace('gid=101#gid=101', 'gid=102#gid=102'), selection)).hash.slice(1)).get('gid'), '101');
   assert.throws(() => selectionURL('https://example.com/', selection), /different spreadsheet/);
   assert.equal(selectionFromEvent({ ...event, state: { ...event.state, phase: 'idle' } }), null);

@@ -2,12 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createRelay } from '../../../lib/relay/server.ts';
-import { readEvents } from '../../../lib/relay/event-stream.js';
+import { readEvents } from './support/event-stream.ts';
+import { validateEnvelope } from '../../../lib/relay/controls.ts';
 
 const event = (runId, seq) => ({ v: 1, runId, seq, type: 'beat', state: { phase: 'playing', bar: 1, beat: 1, countInRemaining: 0, bpm: 98, startBar: 1, endBar: 76, loop: true, automatic: true, click: true, selectedChannel: 'R1', runId, seq, channels: [], looping: [], recording: null, microphone: false, error: null } });
 
 test('relay enforces a producer, delivers controls once, initializes late followers, and rejects stale runs', async () => {
-  const relay = createRelay({ token: 'test-token', serveUI: false });
+  const relay = createRelay({ token: 'test-token' });
   relay.server.listen(0, '127.0.0.1');
   await once(relay.server, 'listening');
   const url = `http://127.0.0.1:${relay.server.address().port}`;
@@ -20,6 +21,7 @@ test('relay enforces a producer, delivers controls once, initializes late follow
   };
   const post = (path, value, extra = {}) => fetch(url + path, { method: 'POST', headers: { ...headers, ...extra }, body: JSON.stringify(value) });
   try {
+    assert.equal((await fetch(url + '/ui/practice/')).status, 404);
     assert.equal((await fetch(url + '/api/events')).status, 401);
     assert.equal((await fetch(url + '/ui/practice/')).status, 404, 'headless relay serves no UI');
     assert.equal((await post('/api/events', event('run-one', 1))).status, 409);
@@ -51,6 +53,24 @@ test('relay enforces a producer, delivers controls once, initializes late follow
     assert.equal((await fetch(url + '/api/producer', { method: 'DELETE', headers })).status, 200);
     assert.equal((await post('/api/controls', { commandId: 'command-456', control: { id: 'L2' } })).status, 503);
   } finally { abort.abort(); await relay.close(); }
+});
+
+test('relay preserves pad-light states and rejects invalid release durations', () => {
+  const input = event('run-12345', 1);
+  input.state.channels = [{ id: 'R1', gain: 0.8, muted: false, looping: true, ready: true, status: 'looping', light: { kind: 'releasing', remainingMs: 500 } }];
+  assert.deepEqual(validateEnvelope(input).state.channels[0].light, input.state.channels[0].light);
+  input.state.channels[0].light.remainingMs = -1;
+  assert.throws(() => validateEnvelope(input));
+});
+
+test('aborting an idle SSE reader cancels a pending read', async () => {
+  let cancelled = false;
+  const response = new Response(new ReadableStream({ cancel() { cancelled = true; } }));
+  const controller = new AbortController();
+  const reading = readEvents(response, () => {}, controller.signal);
+  controller.abort();
+  await reading;
+  assert.equal(cancelled, true);
 });
 
 test('SSE parser handles split frames and multiline JSON data', async () => {

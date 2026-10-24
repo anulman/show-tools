@@ -1,5 +1,7 @@
 # Sequencer verification
 
+Historical POC record. Current behavior and supported APIs are documented in [README.md](README.md).
+
 ## Automated checks
 
 Run from the repository root.

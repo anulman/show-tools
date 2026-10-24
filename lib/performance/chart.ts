@@ -68,8 +68,3 @@ export function rangeForBar(chart: Chart, bar: number | null, phase = 'playing')
   const name = columnName(column);
   return `${name}:${name}`;
 }
-
-export function sheetURL(chart: Chart, bar = 1, phase = 'playing'): string {
-  const range = rangeForBar(chart, bar, phase);
-  return `https://docs.google.com/spreadsheets/d/${chart.spreadsheetId}/edit#gid=${chart.sheetId}&range=${encodeURIComponent(range)}`;
-}

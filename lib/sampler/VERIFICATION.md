@@ -1,5 +1,7 @@
 # Sampler verification
 
+Historical POC record. Current behavior and supported APIs are documented in [README.md](README.md).
+
 Verified on 2026-10-21.
 
 ## Automated behavior

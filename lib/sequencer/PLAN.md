@@ -1,5 +1,7 @@
 # Position-aware sequencer
 
+Historical POC record. Current behavior and supported APIs are documented in [README.md](README.md).
+
 ## Requested behavior
 
 A song defines configurable actions by musical position. Programmed moments, mouse buttons, keyboard keys, and future keyboard-emulating arcade buttons activate the same logical buttons. One resolver chooses the action from the section at that activation's beat. Program timing uses bars and beats, represented internally by zero-based whole-beat offsets. The first version supports a configurable positive integer beatsPerBar, default four.

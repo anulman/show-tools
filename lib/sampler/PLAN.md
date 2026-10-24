@@ -1,5 +1,7 @@
 # Sampler and quantized performance
 
+Historical POC record. Current behavior and supported APIs are documented in [README.md](README.md).
+
 ## Outcome
 
 Separate reusable sampler and musical sequence engines, integrated with the existing tracker in one AudioWorklet. A performance page prepares a sample bank, fires immediate one-shots, queues patterns for the next beat or bar, sets the next beat as 1, controls configured or live-following tempo, and stops all playback. Keyboard-emulating pedals and arcade controls use the same command bindings. Existing visual sequencer and tracker demos keep working.

@@ -4,7 +4,7 @@ The standalone relay forwards sequencer events and simulated controls. Its TypeS
 
 The current WASM practice UI does not use this relay. `npm start` serves only the static practice files. The relay remains available for a future EliteDesk audio producer.
 
-## Start without UI files
+## Start the API
 
 From the repository root, run:
 
@@ -12,10 +12,10 @@ From the repository root, run:
 npm run start:relay
 ```
 
-This script supplies `--no-ui` and binds `127.0.0.1:8082`. Stop the development static server first if it uses that port. To choose another port:
+This API-only server binds `127.0.0.1:8082`. Stop the development static server first if it uses that port. To choose another port:
 
 ```sh
-node --import tsx lib/relay/server.ts --no-ui --port 8083
+node --import tsx lib/relay/server.ts --port 8083
 ```
 
 The native hardware audio producer is not implemented yet.
@@ -27,7 +27,7 @@ Set `SHOW_TOOLS_TOKEN` before starting to reuse a chosen token. Otherwise each p
 Use `--host` and `--port` to change the listen address. Supply both `--cert` and `--key` to serve HTTPS.
 
 ```sh
-node --import tsx lib/relay/server.ts --no-ui --host 0.0.0.0 --port 8083 --cert /path/to/cert.pem --key /path/to/key.pem
+node --import tsx lib/relay/server.ts --host 0.0.0.0 --port 8083 --cert /path/to/cert.pem --key /path/to/key.pem
 ```
 
 These settings apply to future relay clients. Mobile practice only needs the generated website on an HTTPS static host.
@@ -38,7 +38,7 @@ Send `Authorization: Bearer <token>` on API requests. The health endpoint is pub
 
 | Request | Behavior |
 | --- | --- |
-| `GET /api/health` | Reports protocol version, listener count, producer connection, and UI mode |
+| `GET /api/health` | Reports protocol version, listener count and producer connection |
 | `POST /api/producer` | Claims the single producer lease with `{ "producerId": "..." }` |
 | `DELETE /api/producer` | Releases the caller's producer lease |
 | `GET /api/events` | Streams `performance` SSE events and sends the latest state on connection |
@@ -46,7 +46,7 @@ Send `Authorization: Bearer <token>` on API requests. The health endpoint is pub
 | `GET /api/controls` | Streams controls to the claimed producer |
 | `POST /api/controls` | Submits `{ "commandId": "...", "control": { "id": "L1" } }` |
 
-Control IDs are `L1`, `L2`, `R1`, `R2`, `pedal`, `mushroom`, and `knob`. A knob control includes a finite `value` between zero and one.
+Control IDs are `L1`, `L2`, `R1`, `R2`, `mushroom`, and `knob`. A knob control includes a finite `value` between zero and one.
 
 Use a unique command ID for each action. A repeated ID with the same control is a duplicate. Reusing an ID for another control returns a conflict. A 202 receipt means accepted for delivery. The producer's later `control` event reports `applied: true` or `applied: false` and any error.
 
