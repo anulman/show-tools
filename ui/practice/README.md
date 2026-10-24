@@ -16,7 +16,7 @@ Sample slots start empty. Use headphones so speaker output does not enter the mi
 
 1. Select **Dance Yrself Clean**.
 2. Press **Start practice** and allow microphone access when prompted.
-3. The demo recorder starts automatically before the lead-in.
+3. The demo recorder waits through the lead-in, then starts automatically with the song.
 4. During the count-in, press **R1** or **W** while its cue is `rb`.
 5. Perform the drums and clap phrase from bar 1.
 6. During bar 2, press **R1** or **W** while its cue is `cb`.
@@ -63,11 +63,11 @@ To load a file instead of capturing a take, stop practice and press **LOAD** on 
 
 ## Record a demo
 
-1. Press **Start practice**. Microphone access and stereo output recording start automatically on every run.
+1. Press **Start practice**. Microphone access starts immediately. Stereo output recording starts automatically when the song begins, after the lead-in.
 2. Perform the chart's capture and playback cues.
 3. Press **Stop** to finish the take and release the microphone, then **Download take**. **Finish take** can end the demo recording while practice continues.
 
-The download contains your main live voice, click, and sample output. The voice is centered in both recording channels without adding microphone monitoring to speaker playback. Mono microphone input keeps unity gain; stereo input is downmixed to mono. Sample stereo stays unchanged. The browser chooses WebM with Opus or MP4 when supported. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
+The download contains your main live voice, song click, and sample output, starting with the song. The practice lead-in is excluded. The voice is centered in both recording channels without adding microphone monitoring to speaker playback. Mono microphone input keeps unity gain; stereo input is downmixed to mono. Sample stereo stays unchanged. The browser chooses WebM with Opus or MP4 when supported. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
 
 ## Choose a song and range
 

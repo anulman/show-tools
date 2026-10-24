@@ -106,7 +106,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
   assert.equal(recorders, 1);
 });
 
-function startupHarness(microphone = async () => {}) {
+function startupHarness(microphone = async () => {}, { autoPlay = true } = {}) {
   const commands = [];
   class Element {
     constructor(selector) {
@@ -129,9 +129,9 @@ function startupHarness(microphone = async () => {}) {
     async enableMicrophone() { commands.push('microphone'); await microphone(); },
     async disableMicrophone() { commands.push('microphone-off'); },
     async setClick(enabled) { commands.push(`click:${enabled}`); },
-    async start() { commands.push('start'); },
-    async stop() { commands.push('stop'); },
-    async control() { commands.push('panic'); },
+    async start() { commands.push('start'); context.controls.phase(autoPlay ? 'playing' : 'count-in'); },
+    async stop() { commands.push('stop'); context.controls.phase('idle'); },
+    async control() { commands.push('panic'); context.controls.phase('idle'); },
     async dispose() { this.disposed = true; commands.push('dispose'); },
   };
   let creations = 0;
@@ -145,20 +145,57 @@ function startupHarness(microphone = async () => {}) {
     playableBars: () => 76, PracticeAudio: { create: async () => { creations++; return audio; } },
   };
   vm.createContext(context);
-  vm.runInContext(`${uiSource}\nfunction render() {}\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording };`, context);
+  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
   return { commands, controls: context.controls, audio, get creations() { return creations; } };
 }
 
 test('Start opens the microphone and records by default on every run, with song click off', async () => {
   const { commands, controls } = startupHarness();
   await controls.startPractice();
-  assert.deepEqual(commands, ['microphone', 'record-start', 'click:false', 'start']);
+  assert.deepEqual(commands, ['microphone', 'click:false', 'start', 'record-start']);
   await controls.stopPractice();
   assert.deepEqual(commands.slice(-3), ['record-stop', 'stop', 'microphone-off']);
   await controls.startPractice();
-  assert.deepEqual(commands.slice(-4), ['microphone', 'record-start', 'click:false', 'start']);
+  assert.deepEqual(commands.slice(-4), ['microphone', 'click:false', 'start', 'record-start']);
   await controls.panic();
   assert.deepEqual(commands.slice(-3), ['record-stop', 'panic', 'microphone-off']);
+});
+
+test('demo recording excludes count-in and starts once at the first playing state', async () => {
+  const { commands, controls } = startupHarness(undefined, { autoPlay: false });
+  await controls.startPractice();
+  controls.phase('count-in');
+  assert(!commands.includes('record-start'));
+  controls.phase('playing');
+  controls.phase('playing');
+  assert.equal(commands.filter(command => command === 'record-start').length, 1);
+  await controls.stopPractice();
+  assert(commands.includes('record-stop'));
+});
+
+test('stopping during count-in cancels the pending take without starting a recorder', async () => {
+  const { commands, controls } = startupHarness(undefined, { autoPlay: false });
+  await controls.startPractice();
+  await controls.stopPractice();
+  controls.phase('playing');
+  assert(!commands.includes('record-start'));
+  assert(!commands.includes('record-stop'));
+});
+
+test('recording toggled on during playback begins immediately', async () => {
+  const { commands, controls } = startupHarness();
+  await controls.startPractice();
+  await controls.toggleOutputRecording();
+  await controls.toggleOutputRecording();
+  assert.equal(commands.filter(command => command === 'record-start').length, 2);
+});
+
+test('cancelling a waiting take cannot resume recording at the downbeat', async () => {
+  const { commands, controls } = startupHarness(undefined, { autoPlay: false });
+  await controls.startPractice();
+  await controls.toggleOutputRecording();
+  controls.phase('playing');
+  assert(!commands.includes('record-start'));
 });
 
 test('Stop while microphone access is pending cannot start a recorder or transport later', async () => {

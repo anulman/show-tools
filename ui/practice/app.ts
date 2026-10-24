@@ -58,7 +58,7 @@ let chart: Chart | undefined;
 let song: SongScript | undefined;
 let songGeneration = 0;
 let switching = false;
-let outputCapture: 'idle' | 'starting' | 'recording' | 'stopping' = 'idle';
+let outputCapture: 'idle' | 'starting' | 'waiting' | 'recording' | 'stopping' = 'idle';
 let audio: PracticeAudio | undefined;
 let preparing: Promise<PracticeAudio> | null = null;
 let starting = false;
@@ -293,6 +293,7 @@ function makePads() {
 function render(next: Partial<PracticeState>) {
   const ended = next.phase === 'ended' && state.phase !== 'ended';
   state = { ...state, ...next };
+  beginOutputRecording(state.phase);
   if (ended) {
     finishOutputRecording();
     if (audio) void audio.disableMicrophone().catch(showError);
@@ -382,7 +383,24 @@ function render(next: Partial<PracticeState>) {
   if (state.error) showError(new Error(state.error));
 }
 
+function beginOutputRecording(phase: PracticeState['phase']) {
+  if (outputCapture !== 'waiting' || phase !== 'playing' || !recorder) return;
+  recorder.start();
+  outputCapture = 'recording';
+  recordLabel.textContent = 'Finish take';
+  elements['recording-hint'].textContent = 'Recording the desk output.';
+  elements['download-demo'].hidden = true;
+}
+
 function finishOutputRecording() {
+  if (outputCapture === 'waiting') {
+    recorder = undefined;
+    outputCapture = 'idle';
+    elements['record-demo'].setAttribute('aria-pressed', 'false');
+    recordLabel.textContent = 'Record demo';
+    elements['recording-hint'].textContent = 'Recording cancelled before the song started.';
+    return;
+  }
   if (recorder?.state !== 'recording') return;
   outputCapture = 'stopping';
   recorder.stop();
@@ -390,7 +408,7 @@ function finishOutputRecording() {
 
 async function toggleOutputRecording() {
   if (outputCapture === 'starting' || outputCapture === 'stopping') return;
-  if (recorder?.state === 'recording') { finishOutputRecording(); render(state); return; }
+  if (outputCapture === 'waiting' || recorder?.state === 'recording') { finishOutputRecording(); render(state); return; }
   const generation = transportGeneration;
   outputCapture = 'starting';
   render(state);
@@ -417,13 +435,11 @@ async function toggleOutputRecording() {
       render(state);
     });
     recorder.addEventListener('error', event => showError('error' in event ? event.error : new Error('Output recording failed.')));
-    recorder.start();
-    outputCapture = 'recording';
-    render(state);
+    outputCapture = 'waiting';
     elements['record-demo'].setAttribute('aria-pressed', 'true');
-    recordLabel.textContent = 'Finish take';
-    elements['recording-hint'].textContent = 'Recording the desk output.';
-    elements['download-demo'].hidden = true;
+    recordLabel.textContent = 'Cancel take';
+    elements['recording-hint'].textContent = 'Recording starts with the song. Lead-in is excluded.';
+    beginOutputRecording(state.phase);
   } finally {
     if (outputCapture === 'starting') outputCapture = 'idle';
     render(state);
