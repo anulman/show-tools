@@ -25,7 +25,7 @@ export interface RecordingSlot {
   maxSeconds: number;
   peak: number;
   onsetFound: boolean;
-  windows: { begin: number; end: number; score: number; startFrame: number; endFrame: number; quietFrames: number; level: number; slice: HitSlice }[];
+  windows: { begin: number; end: number; score: number; startFrame: number; endFrame: number; quietFrames: number; level: number; noiseFloor: number; slice: HitSlice }[];
   envelope: number;
   reason: string | null;
 }
