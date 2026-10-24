@@ -1,6 +1,6 @@
 export interface TransientHints { expectedFrames: number[]; radiusFrames: number; key?: string }
 export interface HitSlice { startFrame: number; endFrame: number; targetFrame: number }
-export interface RecordingOptions { maxSeconds?: number; transients?: TransientHints }
+export interface RecordingOptions { maxSeconds?: number; variantKey?: string; transients?: TransientHints }
 
 export interface RecordingSample {
   id: string;

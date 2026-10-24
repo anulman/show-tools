@@ -33,14 +33,18 @@ test('pad grid follows physical Q/W above A/S and preserves the left-hand column
   assert.deepEqual(CONTROLS.map(control => [control.id, control.shortcut]), [['L1', 'Q'], ['R1', 'W'], ['L2', 'A'], ['R2', 'S']]);
 });
 
-test('sparse capture settings belong to recording cues in the loadable song script', async () => {
+test('cowbell uses whole-bar takes and automatic chart playback in its loadable script', async () => {
   const song = await loadSong('dance-yrself-clean');
   const controls = song.program.controls;
-  const capture = { kind: 'sparse', beats: [3.5, 3.75], radiusBeats: 0.2 };
+  const capture = { kind: 'bar', variantKey: 'cowbell-double' };
   assert.deepEqual(controls.bars[1].R2.capture, capture);
-  assert.deepEqual(controls.bars[2].R2.capture, { ...capture, beats: [3.5] });
+  assert.deepEqual(controls.bars[2].R2.capture, { kind: 'bar', variantKey: 'cowbell-single' });
   assert.equal(controls.bars[3].R2.capture, undefined);
   assert.equal(controls.leadIn.R1.capture, undefined);
+  assert.deepEqual(song.program.barPlayback.filter(cue => cue.variantKey === 'cowbell-double').map(cue => cue.bar), [8, 10]);
+  assert.equal(controls.bars[7].R2.kind, 'none');
+  assert.equal(controls.bars[9].R2.kind, 'none');
+  assert.equal(controls.bars[10].R2.kind, 'stop');
   const other = await loadSong('drunk-girls');
   assert(!other.program.controls.bars.some(row => Object.values(row).some(cue => cue.capture)));
 });

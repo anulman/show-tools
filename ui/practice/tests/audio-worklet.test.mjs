@@ -8,6 +8,7 @@ import { AudioSequenceEngine } from '../../../lib/sequencer/audio-sequence-engin
 import { PracticeEngine } from '../practice-engine.js';
 import { CONTROL_IDS } from '../../../lib/performance/model.js';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
+import { loadSong } from '../../../songs/index.ts';
 
 const rate = 8000;
 const program = { lengthBeats: 16, events: Array.from({ length: 16 }, (_, atBeat) => [
@@ -30,7 +31,7 @@ const sources = await Promise.all(['../runtime/beat-worklet.js', '../runtime/per
   .map(async path => (await sourceForVM(new URL(path, import.meta.url))).replace(/^import .*;\n/gm, '').replace(/export class /g, 'class ')));
 
 class Harness {
-  constructor({ bpm = 120, countInBars = 1, automatic = false, loop = true, preload = false, chartControls = controls(), audibleClick = false } = {}) {
+  constructor({ bpm = 120, countInBars = 1, automatic = false, loop = true, preload = false, chartControls = controls(), audibleClick = false, barPlayback = [], barCount = 8 } = {}) {
     this.frame = 0;
     this.sequence = 0;
     this.request = 0;
@@ -44,14 +45,14 @@ class Harness {
       registerProcessor: (name, processor) => processors.set(name, processor) };
     vm.createContext(this.sandbox);
     vm.runInContext(sources.join('\n'), this.sandbox);
-    this.processor = new (processors.get('practice'))({ processorOptions: { module: wasm, practice: { barCount: 8, endBar: 8, program: { ...program, controls: chartControls } } } });
+    this.processor = new (processors.get('practice'))({ processorOptions: { module: wasm, practice: { barCount, endBar: barCount, program: { ...program, controls: chartControls, barPlayback } } } });
     assert.equal(messages[0].type, 'ready', messages[0].message);
     if (!audibleClick) for (const click of this.processor.clicks) click.fill(0);
     this.port = { start() {}, close() {}, postMessage: message => this.performance.push(message) };
     this.processor.receive({ type: 'performance-connect', port: this.port });
     if (preload) for (const sampleId of CONTROL_IDS) this.command('sample.load', { sampleId, channels: [Float32Array.from([0.5, 0.25, 0])], sampleRate: rate });
     this.tracker(2, bpm);
-    this.command('practice.start', { runId: 'first', bpm, countInBars, automatic, loop, endBar: 8 });
+    this.command('practice.start', { runId: 'first', bpm, countInBars, automatic, loop, endBar: barCount });
     this.command('practice.click', { enabled: false });
   }
 
@@ -449,5 +450,41 @@ test('stop clears armed chart captures and restart waits through a fresh count-i
   t.command('practice.start', { runId: 'second', bpm: 120, countInBars: 1, automatic: false, endBar: 8 });
   assert(t.render(rate * 6).every(value => value === 0));
   assert.equal(t.state().recording, null);
+  t.dispose();
+});
+
+test('three cowbell presses capture whole bars and replay quiet double takes automatically where charted', async () => {
+  const song = await loadSong('dance-yrself-clean');
+  const t = new Harness({ countInBars: 0, barCount: 12, chartControls: song.program.controls, barPlayback: song.program.barPlayback });
+  t.command('practice.microphone', { enabled: true });
+  t.until(20100, 0);
+  t.command('practice.control', { control: { id: 'R2' } });
+  t.until(36100, 0);
+  t.command('practice.control', { control: { id: 'R2' } });
+  const pair = new Float32Array(16000);
+  pair.fill(0.002, 13700, 13780);
+  pair.fill(0.003, 14850, 14930);
+  t.render(pair.length, { input: pair });
+  t.command('practice.control', { control: { id: 'R2' } });
+  const single = new Float32Array(16000);
+  single.fill(0.0015, 13950, 14030);
+  t.render(single.length, { input: single });
+  const doubleTake = t.processor.sampler.sampleFor('R2', 'cowbell-double');
+  const singleTake = t.processor.sampler.sampleFor('R2', 'cowbell-single');
+  assert.equal(doubleTake.slices.length, 0);
+  assert.equal(singleTake.slices.length, 0);
+  const doubleAt = doubleTake.channels[0].findIndex(value => value !== 0);
+  const singleAt = singleTake.channels[0].findIndex(value => value !== 0);
+  const start = t.frame;
+  const output = t.until(164100, 0);
+  for (const bar of [5, 6, 7, 8, 9, 10]) {
+    const downbeat = Math.ceil(t.performance.find(message => message.event?.type === 'beat' && message.event.state.bar === bar && message.event.state.beat === 1).event.frame);
+    const isDouble = bar === 8 || bar === 10;
+    assert.equal(output[downbeat + (isDouble ? doubleAt : singleAt) - start], Math.fround(isDouble ? 0.002 : 0.0015), `bar ${bar} selects its full take`);
+    if (isDouble) assert.equal(output[downbeat + doubleAt + 1150 - start], Math.fround(0.003), 'the captured second hit plays without a second press');
+  }
+  t.command('practice.control', { control: { id: 'R2' } });
+  assert.equal(t.state().channels.find(channel => channel.id === 'R2').looping, false);
+  assert(t.until(325000, 0).every(value => value === 0), 'automatic take changes never restart a stopped channel');
   t.dispose();
 });

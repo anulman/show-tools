@@ -38,7 +38,9 @@ The supported action notation is:
 
 For example, `rb`, `cb`, `crb`, and `xb` queue their actions for the next bar. In R2, bar 2's `rb` starts capture at bar 3. Bar 3's `crb` commits that take at bar 4 and starts another capture while the first take plays. Bar 4's `cb` commits the replacement at bar 5.
 
-Numbers indicate beats. `e`, `&`, and `a` divide a beat into sixteenths, and a closing square bracket marks the phrase end. A cue without an action letter is performed with manual taps. For `&a]`, tap at 4& and 4a. Each press plays one hit. The desk does not generate a second hit automatically. If no tap arrives, the normal loop continues. If a loop was running, manual hits replace it until the next bar, when the normal loop resumes.
+Numbers indicate beats. `e`, `&`, and `a` divide a beat into sixteenths, and a closing square bracket marks the phrase end. Generic tap cues play one hit per press. A song script can instead replay a recorded bar automatically; the pad then shows **Auto · recorded bar**.
+
+Dance Yrself Clean's cowbell uses full-bar recordings without extraction. During bar 2, press **R2** or **S** to arm bar 3 and perform the double sound. During bar 3, press again to commit it and arm bar 4 for the single sound. During bar 4, press again to commit. The single take plays on normal bars. Bars 8 and 10 automatically use the recorded double take where `&a` is marked, then return to the single take. No double tapping is needed. The explicit stop cue still stops the cowbell.
 
 Captures are limited to 30 seconds. Reaching the limit commits and loops the take. **Stop** and the mushroom commit active captures while silencing playback and canceling pending actions. Microphone input is not monitored directly. Captured takes stay in memory and disappear when you leave or reload the page.
 

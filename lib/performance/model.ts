@@ -95,11 +95,14 @@ export type CueAction = { kind: 'none' } | { kind: 'unsupported'; notation: stri
   | { kind: 'arm' | 'commit-arm'; timing: 'now' | 'bar'; capture?: CaptureHint }
   | { kind: 'commit' | 'stop' | 'play'; timing: 'now' | 'bar' };
 export interface ChartControls { leadIn: Record<ChannelId, CueAction>; bars: Record<ChannelId, CueAction>[] }
-export interface CaptureHint { kind: 'sparse'; beats: number[]; radiusBeats: number }
+export type CaptureHint = { kind: 'sparse'; beats: number[]; radiusBeats: number }
+  | { kind: 'bar'; variantKey: string };
+export interface BarPlaybackCue { bar: number; channelId: ChannelId; variantKey: string }
 export interface Program {
   lengthBeats: number;
   events: ProgramEvent[];
   controls?: ChartControls;
+  barPlayback?: BarPlaybackCue[];
 }
 export interface SongScript {
   id: string;

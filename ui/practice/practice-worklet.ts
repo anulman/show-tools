@@ -2,7 +2,7 @@ import { PerformanceProcessor } from './runtime/performance-worklet.js';
 import { PracticeEngine } from './practice-engine.js';
 import type { EventDetails, EventType } from './practice-engine.js';
 import { CONTROL_IDS } from '../../lib/performance/model.js';
-import type { ChannelId, ChannelSettings, ChartControls, Control, CueAction, PadLight, PracticeEvent, PracticeState, RecordingState, StartOptions } from '../../lib/performance/model.js';
+import type { BarPlaybackCue, ChannelId, ChannelSettings, ChartControls, Control, CueAction, PadLight, PracticeEvent, PracticeState, RecordingState, StartOptions } from '../../lib/performance/model.js';
 
 type ExecutableCue = Extract<CueAction, { timing: 'now' | 'bar' }>;
 type PendingCue = { action: ExecutableCue; targetBeatId: number };
@@ -28,11 +28,13 @@ export class PracticeProcessor extends PerformanceProcessor {
   declare clockBeatFrame: number;
   declare usedCues: Set<ChannelId>;
   declare tapPositions: Map<ChannelId, number>;
+  declare barPlayback: BarPlaybackCue[];
 
   initializeOutput(options: { practice?: ConstructorParameters<typeof PracticeEngine>[0] }) {
     super.initializeOutput(options);
     this.practice = new PracticeEngine(options.practice);
     this.controls = options.practice?.program?.controls;
+    this.barPlayback = options.practice?.program?.barPlayback || [];
     this.tapPositions = new Map();
     this.pendingCues = new Map();
     this.resumeLoops = new Map();
@@ -189,7 +191,7 @@ export class PracticeProcessor extends PerformanceProcessor {
       if (!this.microphoneReady) throw new Error('Enable the microphone before recording');
       const hint = action.capture;
       const framesPerBeat = sampleRate * 60 / this.practice.bpm;
-      const options = { maxSeconds: 30, ...(hint ? { transients: {
+      const options = { maxSeconds: 30, ...(hint?.kind === 'bar' ? { variantKey: hint.variantKey } : {}), ...(hint?.kind === 'sparse' ? { transients: {
         key: hint.beats.join(','),
         expectedFrames: hint.beats.map(beat => Math.round(beat * framesPerBeat)),
         radiusFrames: Math.round(hint.radiusBeats * framesPerBeat),
@@ -329,6 +331,12 @@ export class PracticeProcessor extends PerformanceProcessor {
       if (id < pending.targetBeatId) continue;
       this.pendingCues.delete(channelId);
       this.executeCue(channelId, pending.action, frame);
+    }
+    if (!result.stopped && result.downbeat) for (const cue of this.barPlayback) {
+      if (cue.bar !== this.practice.bar || this.suppressedChannels.has(cue.channelId)
+        || this.recorder.isRecording(cue.channelId) || !this.sampler.hasVariant(cue.channelId, cue.variantKey)) continue;
+      const playing = this.sampler.voices.some(voice => voice.sample?.id === cue.channelId && voice.loop);
+      if (playing) this.sampler.trigger(cue.channelId, Math.ceil(frame), 1, { loop: true, variant: cue.variantKey });
     }
     if (result.stopped) this.silence();
     else for (const trigger of result.triggers) {

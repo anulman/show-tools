@@ -39,7 +39,7 @@ export default {
 
 The action letters are `r` for arm, `c` for commit, `cr` for commit-and-arm, `x` for stop, and `p` for play. A `b` suffix applies the action at the next bar. Commit starts the captured take looping. Commit-and-arm records a replacement while the committed take plays. A blank cell is no action, never an implicit exit.
 
-Notation without an action letter is a manual tap cue. Beats are numbered 1 through 4. `e`, `&`, and `a` divide a beat into sixteenths. A closing square bracket marks the phrase end, so `&a]` means the last bar's 4& and 4a. The performer supplies both taps. The script does not automatically generate the missing hit. Without a tap, normal loop playback continues.
+Notation without an action letter defaults to a manual tap cue. Beats are numbered 1 through 4. `e`, `&`, and `a` divide a beat into sixteenths. A closing square bracket marks the phrase end, so `&a]` means the last bar's 4& and 4a. A script can replace those manual cues with full-bar playback using `program.barPlayback`.
 
 All current scripts have empty scheduled-event lists and preload no samples. Captures and explicit file loads supply each channel's audio. The shared engine also defaults to an empty program. Song-specific action assignments belong here, rather than in UI handlers.
 
@@ -54,6 +54,8 @@ controls: compileChartControls(chart, [
 
 Use one position for a single hit. Sparse capture detects attacks near those positions, trims quiet tails, and plays only the extracted clips. Normal loops place their onsets on the expected beat grid. Later manual taps play the clips in order, restarting that order each bar. A missing hit stays silent in the loop and reports an error if tapped. Continuous captures without hints retain the complete recording.
 
-Detection uses amplitude attacks, not source separation. Competing loud sounds inside a search window can be selected. Keep the source close to the microphone. Dance Yrself Clean captures a cowbell pair near 4& and 4a in bar 3, then a single hit near 4& in bar 4. Both takes are retained. Normal loops use the latest take; later tap cues select the matching beat pattern. These settings live in its song script.
+Detection uses amplitude attacks, not source separation. Competing loud sounds inside a search window can be selected. Sparse capture remains optional.
+
+Dance Yrself Clean bypasses extraction for cowbell. Its recording cues use `{ kind: 'bar', variantKey: 'cowbell-double' }` and `{ kind: 'bar', variantKey: 'cowbell-single' }`, retaining all PCM and silence from bars 3 and 4. Its `barPlayback` entries select the full double take in bars 8 and 10 and the single take in normal bars, based on the chart's cowbell row. Playback changes only an already-running loop. It does not restart a stopped channel or invent a missing recording. These assignments live entirely in the song script.
 
 The bundled charts are Dance Yrself Clean at 98 BPM, Drunk Girls at 144 BPM, and I Can Change at 117 BPM. Only the first chart has filled pad-action rows. The other two retain their chart timing and sections but create no actions from blank cells.

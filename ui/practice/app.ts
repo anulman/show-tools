@@ -341,7 +341,9 @@ function render(next: Partial<PracticeState>) {
     const cue = (inCountIn ? chart.leadInCues : currentBar?.cues)?.[control.id] || '';
     const compiledCue = (inCountIn ? song?.program.controls?.leadIn : song?.program.controls?.bars[displayBar - 1])?.[control.id];
     const capture = compiledCue && (compiledCue.kind === 'arm' || compiledCue.kind === 'commit-arm') ? compiledCue.capture : undefined;
-    const action = cueLabel(cue) + (capture ? ` · Extract ${capture.beats.map(beatName).join(' + ')}` : '');
+    const replay = song?.program.barPlayback?.some(entry => entry.bar === displayBar && entry.channelId === control.id);
+    const action = (replay && compiledCue?.kind === 'none' ? 'Auto · recorded bar' : cueLabel(cue))
+      + (capture?.kind === 'sparse' ? ` · Extract ${capture.beats.map(beatName).join(' + ')}` : capture?.kind === 'bar' ? ' · Full-bar take' : '');
     const sampleStatus = channel?.status || 'empty';
     pad.shell.classList.toggle('selected', control.id === state.selectedChannel);
     pad.shell.classList.toggle('muted', Boolean(channel?.muted));
