@@ -24,6 +24,7 @@ export class PracticeAudio {
   latest: PracticeState;
   error: string | null = null;
   microphone = false;
+  recordingVoice: { stream: MediaStream; node: MediaStreamAudioSourceNode } | null = null;
   disposed = false;
   runCounter = 0;
   startGeneration = 0;
@@ -60,9 +61,12 @@ export class PracticeAudio {
     this.sampler = new Sampler({ audioContext: tracker.context, endpoint });
     this.latest = { phase: 'idle', bar: null, beat: null, countInRemaining: 0, bpm: chart.bpm,
       startBar: 1, endBar: chart.annotatedThroughBar || chart.bars.length, loop: true, automatic: true, click: false,
-      selectedChannel: 'R1', runId: `${sessionId}-ready`, seq: 0, channels: CONTROL_IDS.map(id => ({ id, gain: 0.8, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })),
+      selectedChannel: 'R1', runId: `${sessionId}-ready`, seq: 0, channels: CONTROL_IDS.map(id => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })),
       looping: [], recording: null, microphone: false, error: null };
     this.sessionId = sessionId;
+    this.recordDestination = tracker.context.createMediaStreamDestination();
+    tracker.node.connect(this.recordDestination);
+    this.outputStream = this.recordDestination.stream;
     this.chartMetadata = { spreadsheetId: chart.spreadsheetId, sheetId: chart.sheetId,
       columns: chart.bars.map(bar => bar.column), leadInColumn: chart.leadInColumn };
     this.onMessage = ({ data }) => {
@@ -82,15 +86,24 @@ export class PracticeAudio {
     this.detachTracker = tracker.subscribe(state => {
       const wasMicrophone = this.microphone;
       this.microphone = state.source?.kind === 'microphone';
+      this.syncRecordingVoice();
       if (wasMicrophone && !this.microphone && !this.disposed) {
         endpoint.request('practice.microphone', { enabled: false }).catch(error => this.fail(error));
       }
       if (state.lifecycle === 'faulted') this.fail(new Error(state.error || 'Audio processing stopped'));
       this.publish();
     });
-    this.recordDestination = tracker.context.createMediaStreamDestination();
-    tracker.node.connect(this.recordDestination);
-    this.outputStream = this.recordDestination.stream;
+  }
+
+  syncRecordingVoice() {
+    const stream = this.disposed ? null : this.tracker.microphoneStream;
+    if (this.recordingVoice?.stream === stream) return;
+    this.recordingVoice?.node.disconnect();
+    this.recordingVoice = null;
+    if (!stream) return;
+    const node = this.tracker.context.createMediaStreamSource(stream);
+    node.connect(this.recordDestination);
+    this.recordingVoice = { stream, node };
   }
 
   snapshot(): PracticeState {
@@ -185,6 +198,7 @@ export class PracticeAudio {
     if (this.disposed) return;
     this.startGeneration++;
     this.disposed = true;
+    this.syncRecordingVoice();
     this.detachState?.();
     this.detachTracker?.();
     this.endpoint.port.removeEventListener('message', this.onMessage);

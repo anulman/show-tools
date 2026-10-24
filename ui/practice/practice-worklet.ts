@@ -50,7 +50,7 @@ export class PracticeProcessor extends PerformanceProcessor {
         this.sampler.trigger(slot.id, slot.startFrame + slot.frames, 1, { loop: true });
       }
     };
-    for (const id of CONTROL_IDS) this.sampler.setChannel(id, { gain: 0.8 });
+    for (const id of CONTROL_IDS) this.sampler.setChannel(id, { gain: 1 });
   }
 
   practiceState(): PracticeState {
@@ -71,7 +71,7 @@ export class PracticeProcessor extends PerformanceProcessor {
         light = { kind: 'releasing', remainingMs: Math.max(0, frames * 1000 / sampleRate) };
       } else if (active || pending || this.recorder.isRecording(id)) light = { kind: 'steady' };
       else if (!this.usedCues.has(id) && !['none', 'unsupported'].includes(this.currentCue(id).kind)) light = { kind: 'cue' };
-      return { id, gain: channel?.gain ?? 0.8, muted: channel?.muted ?? false,
+      return { id, gain: channel?.gain ?? 1, muted: channel?.muted ?? false,
         looping: active, ready, status, light };
     });
     const active = channels.find(channel => channel.status === 'armed' || channel.status === 'recording' || channel.status === 'stopping');

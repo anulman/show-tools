@@ -101,7 +101,7 @@ test('actual manual WASM renders four count-in beats before first song PCM witho
     assert(Math.abs(beats[4].frame - 5 * 60 / 123 * rate) < 1e-5);
     assert(audio.subarray(0, firstFrame).every(value => value === 0));
     const age = firstFrame - beats[4].frame;
-    assert(Math.abs(audio[firstFrame] - 3 * 0.8 * (0.5 - age * 0.25)) < 1e-5);
+    assert(Math.abs(audio[firstFrame] - 3 * (0.5 - age * 0.25)) < 1e-5);
     assert.equal(t.processor.sampler.lateTriggers, 0);
     assert(t.performance.filter(message => message.event).every((message, index, all) => index === 0 || message.event.seq > all[index - 1].event.seq));
     t.dispose();
@@ -152,6 +152,7 @@ test('count-in click renders audibly and mushroom clears click, voices, arms, an
 test('samples start empty and chart arm/commit/stop actions run at exact crossings without UI polls', () => {
   const t = new Harness();
   assert(t.state().channels.every(channel => !channel.ready && channel.status === 'empty'));
+  assert(t.state().channels.every(channel => channel.gain === 1), 'every sample starts at 100% volume');
   t.render(4100);
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').light.kind, 'cue');
   t.command('practice.microphone', { enabled: true });
@@ -170,7 +171,7 @@ test('samples start empty and chart arm/commit/stop actions run at exact crossin
   const output = t.until(53000);
   const commitFrame = Math.ceil(t.performance.find(message => message.event?.type === 'beat' && message.event.state.bar === 3 && message.event.state.beat === 1).event.frame);
   assert(output.subarray(0, commitFrame - before).every(value => value === 0));
-  assert(output.subarray(commitFrame - before).every(value => value === Math.fround(0.125 * 0.8)));
+  assert(output.subarray(commitFrame - before).every(value => value === Math.fround(0.125)));
   assert.equal(t.processor.recorder.slots.get('R1').frames, 32000);
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, true);
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').light.kind, 'steady');
@@ -181,7 +182,7 @@ test('samples start empty and chart arm/commit/stop actions run at exact crossin
   const stopStart = t.frame;
   const ending = t.until(85000);
   const stopFrame = Math.ceil(t.performance.find(message => message.event?.type === 'beat' && message.event.state.bar === 5 && message.event.state.beat === 1).event.frame);
-  assert(ending.subarray(0, stopFrame - stopStart).every(value => value === Math.fround(0.125 * 0.8)));
+  assert(ending.subarray(0, stopFrame - stopStart).every(value => value === Math.fround(0.125)));
   assert(ending.subarray(stopFrame - stopStart).every(value => value === 0));
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, false);
   t.dispose();
@@ -226,15 +227,15 @@ test('commit-and-arm loops the first take while the next capture records, then r
   t.command('practice.control', { control: { id: 'R1' } });
   t.until(52001, 0.125);
   const playing = t.until(68100, 0.25);
-  assert(playing.every(value => value === Math.fround(0.125 * 0.8)));
+  assert(playing.every(value => value === Math.fround(0.125)));
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').status, 'recording');
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, true);
   t.command('practice.control', { control: { id: 'R1' } });
   const before = t.frame;
   const replacement = t.until(85000, 0.25);
   const replacementFrame = Math.ceil(t.performance.find(message => message.event?.type === 'beat' && message.event.state.bar === 5 && message.event.state.beat === 1).event.frame);
-  assert(replacement.subarray(0, replacementFrame - before).every(value => value === Math.fround(0.125 * 0.8)));
-  assert(replacement.subarray(replacementFrame - before).every(value => value === Math.fround(0.25 * 0.8)));
+  assert(replacement.subarray(0, replacementFrame - before).every(value => value === Math.fround(0.125)));
+  assert(replacement.subarray(replacementFrame - before).every(value => value === Math.fround(0.25)));
   t.command('practice.control', { control: { id: 'R1' } });
   assert(t.render(1000).every(value => value === 0), 'x stops the loop immediately');
   t.dispose();
@@ -271,17 +272,17 @@ test('subdivision cues play only on physical taps and resume an existing loop on
   assert.equal(t.processor.sampler.voices.find(voice => voice.sample?.id === 'R1').frame, 18017);
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, false);
   const first = t.until(19007);
-  assert.deepEqual(first.subarray(0, 3), Float32Array.from([0.4, 0.2, 0]));
+  assert.deepEqual(first.subarray(0, 3), Float32Array.from([0.5, 0.25, 0]));
   assert(first.subarray(3).every(value => value === 0), 'no generated second hit');
   t.command('practice.control', { control: { id: 'R1' } });
   assert.equal(t.processor.sampler.triggeredVoices, before + 2);
   const second = t.until(20000);
-  assert.deepEqual(second.subarray(0, 3), Float32Array.from([0.4, 0.2, 0]));
+  assert.deepEqual(second.subarray(0, 3), Float32Array.from([0.5, 0.25, 0]));
   assert(second.subarray(3).every(value => value === 0));
   const resumed = t.until(20100);
   const downbeat = Math.ceil(t.performance.find(message => message.event?.type === 'beat' && message.event.state.bar === 2 && message.event.state.beat === 1).event.frame);
   assert(resumed.subarray(0, downbeat - 20000).every(value => value === 0));
-  assert.deepEqual(resumed.subarray(downbeat - 20000, downbeat - 20000 + 3), Float32Array.from([0.4, 0.2, 0]));
+  assert.deepEqual(resumed.subarray(downbeat - 20000, downbeat - 20000 + 3), Float32Array.from([0.5, 0.25, 0]));
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, true);
   t.dispose();
 });
@@ -297,7 +298,7 @@ test('manual subdivision taps start at the recorded sound while loops preserve l
   t.processor.sampler.trigger('R1', t.frame, 1, { loop: true });
   assert(t.render(100).every(value => value === 0), 'ordinary loops preserve their bar phase');
   t.command('practice.control', { control: { id: 'R1' } });
-  assert.deepEqual(t.render(3), Float32Array.from([0.4, 0.2, 0]));
+  assert.deepEqual(t.render(3), Float32Array.from([0.5, 0.25, 0]));
   t.dispose();
 });
 
@@ -320,16 +321,16 @@ test('hinted live capture maps two late-bar sounds to successive manual taps', (
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, true);
   t.command('practice.control', { control: { id: 'R1' } });
   const first = t.render(1200);
-  assert.equal(first[0], Math.fround(0.4));
+  assert.equal(first[0], Math.fround(0.5));
   assert(first.subarray(80).every(value => value === 0), 'the first tap never plays the second sound');
   t.command('practice.control', { control: { id: 'R1' } });
-  assert.equal(t.render(1)[0], Math.fround(0.2));
+  assert.equal(t.render(1)[0], Math.fround(0.25));
   t.command('practice.control', { control: { id: 'R1' } });
-  assert.equal(t.render(1)[0], Math.fround(0.4));
+  assert.equal(t.render(1)[0], Math.fround(0.5));
   t.until(164100, 0);
   assert.equal(t.state().bar, 2);
   t.command('practice.control', { control: { id: 'R1' } });
-  assert.equal(t.render(1)[0], Math.fround(0.4), 'a repeated bar starts from the first hit again');
+  assert.equal(t.render(1)[0], Math.fround(0.5), 'a repeated bar starts from the first hit again');
   t.dispose();
 });
 
@@ -368,12 +369,12 @@ test('a single sparse replacement loops cleanly while later pair cues retain the
   t.render(single.length, { input: single });
   const loop = t.until(67200, 0);
   const commitFrame = Math.ceil(t.performance.find(message => message.event?.type === 'beat' && message.event.state.bar === 3 && message.event.state.beat === 1).event.frame);
-  assert.equal(loop[commitFrame + 14000 - 52100], Math.fround(0.6), 'single sound snaps to 4&');
+  assert.equal(loop[commitFrame + 14000 - 52100], Math.fround(0.75), 'single sound snaps to 4&');
   assert(loop.subarray(67000 - 52100).every(value => value === 0), 'unrequested later audio is excluded');
   t.command('practice.control', { control: { id: 'R1' } });
-  assert.equal(t.render(100)[0], Math.fround(0.4));
+  assert.equal(t.render(100)[0], Math.fround(0.5));
   t.command('practice.control', { control: { id: 'R1' } });
-  assert.equal(t.render(1)[0], Math.fround(0.2));
+  assert.equal(t.render(1)[0], Math.fround(0.25));
   t.dispose();
 });
 
@@ -432,7 +433,7 @@ test('recording duration limit commits and starts its loop on the exact limit fr
   const onset = slot.startFrame + slot.frames - begin;
   assert.equal(slot.reason, 'limit');
   assert(audio.subarray(0, onset).every(value => value === 0));
-  assert(audio.subarray(onset).every(value => value === Math.fround(0.25 * 0.8)));
+  assert(audio.subarray(onset).every(value => value === Math.fround(0.25)));
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, true);
   t.dispose();
 });

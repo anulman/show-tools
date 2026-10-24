@@ -4,6 +4,7 @@ export class BeatTracker {
   context: AudioContext;
   node: AudioWorkletNode;
   lifecycle: string;
+  readonly microphoneStream: MediaStream | null;
   setManual(): Promise<unknown>;
   setManualBpm(bpm: number): Promise<unknown>;
   resume(): Promise<void>;

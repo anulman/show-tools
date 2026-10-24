@@ -255,6 +255,10 @@ export class BeatTracker {
     if (this.lifecycle !== 'disposed' && this.lifecycle !== 'faulted') await this.command('fresh');
   }
 
+  get microphoneStream() {
+    return this.source.kind === 'microphone' ? this.source.stream : null;
+  }
+
   async startFixture(samples, sampleRate = this.context.sampleRate, { loop = false, kind = 'fixture', bpm } = {}) {
     const resumed = this.resume();
     this.releaseSource();

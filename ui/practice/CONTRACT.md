@@ -48,7 +48,7 @@ Arm and commit-and-arm cues may carry a sparse capture hint with expected beat p
 
 The knob controls selected-channel gain between zero and one. Mute changes active voices without resetting loop phase. Start requests microphone access and starts output recording before launching transport. Stop, panic, and range completion finish the output take and release the microphone. Song changes dispose the old audio session before another program loads. Song click defaults off; lead-in clicks are mandatory and do not change that preference.
 
-`outputStream` contains rendered stereo output for MediaRecorder. Microphone input is not directly monitored into that stream. A recording start in progress cannot create a second recorder.
+`outputStream` mixes rendered stereo output with the main live microphone at unity gain for MediaRecorder. The microphone branch connects only to the recording destination. It does not add live voice monitoring to speaker output. Stopping or replacing microphone input and disposing the audio session disconnect this branch. A recording start in progress cannot create a second recorder.
 
 ## Events and desktop chart control
 
