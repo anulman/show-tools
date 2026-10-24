@@ -168,8 +168,12 @@ export class PracticeAudio {
   }
 
   async disableMicrophone() {
-    await this.request('practice.microphone', { enabled: false });
-    await this.tracker.stopListening();
+    const [stopped, notified] = await Promise.allSettled([
+      this.tracker.stopListening(),
+      this.request('practice.microphone', { enabled: false }),
+    ]);
+    if (notified.status === 'rejected') throw notified.reason;
+    if (stopped.status === 'rejected') throw stopped.reason;
   }
 
   async loadFile(id: ChannelId, file: File) {
@@ -180,17 +184,15 @@ export class PracticeAudio {
   async dispose() {
     if (this.disposed) return;
     this.startGeneration++;
-    try { await this.endpoint.request('practice.stop'); } catch {}
     this.disposed = true;
     this.detachState?.();
     this.detachTracker?.();
     this.endpoint.port.removeEventListener('message', this.onMessage);
     this.recordDestination.stream.getTracks().forEach(track => track.stop());
-    this.tracker.node.disconnect(this.recordDestination);
+    this.tracker.node.disconnect();
     this.recordDestination.disconnect();
-    await this.sampler.dispose();
     this.endpoint.dispose();
-    await this.tracker.dispose();
+    await Promise.all([this.sampler.dispose(), this.tracker.dispose()]);
     this.listeners.clear();
     this.eventListeners.clear();
   }

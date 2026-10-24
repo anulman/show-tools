@@ -132,7 +132,9 @@ function startupHarness(microphone = async () => {}) {
     async start() { commands.push('start'); },
     async stop() { commands.push('stop'); },
     async control() { commands.push('panic'); },
+    async dispose() { this.disposed = true; commands.push('dispose'); },
   };
+  let creations = 0;
   const context = {
     Map, Set, Blob, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} },
     window: { isSecureContext: true, MediaRecorder: Recorder }, MediaRecorder: Recorder, CONTROLS: [],
@@ -140,11 +142,11 @@ function startupHarness(microphone = async () => {}) {
     HTMLDivElement: Element, HTMLButtonElement: Element, HTMLParagraphElement: Element, HTMLInputElement: Element,
     HTMLSelectElement: Element, HTMLOutputElement: Element, HTMLDetailsElement: Element,
     document: { querySelector: selector => new Element(selector), querySelectorAll: () => [] },
-    playableBars: () => 76, PracticeAudio: { create: async () => audio },
+    playableBars: () => 76, PracticeAudio: { create: async () => { creations++; return audio; } },
   };
   vm.createContext(context);
   vm.runInContext(`${uiSource}\nfunction render() {}\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording };`, context);
-  return { commands, controls: context.controls };
+  return { commands, controls: context.controls, audio, get creations() { return creations; } };
 }
 
 test('Start opens the microphone and records by default on every run, with song click off', async () => {
@@ -152,11 +154,11 @@ test('Start opens the microphone and records by default on every run, with song 
   await controls.startPractice();
   assert.deepEqual(commands, ['microphone', 'record-start', 'click:false', 'start']);
   await controls.stopPractice();
-  assert.deepEqual(commands.slice(-3), ['stop', 'record-stop', 'microphone-off']);
+  assert.deepEqual(commands.slice(-3), ['record-stop', 'stop', 'microphone-off']);
   await controls.startPractice();
   assert.deepEqual(commands.slice(-4), ['microphone', 'record-start', 'click:false', 'start']);
   await controls.panic();
-  assert.deepEqual(commands.slice(-3), ['panic', 'record-stop', 'microphone-off']);
+  assert.deepEqual(commands.slice(-3), ['record-stop', 'panic', 'microphone-off']);
 });
 
 test('Stop while microphone access is pending cannot start a recorder or transport later', async () => {
@@ -171,4 +173,79 @@ test('Stop while microphone access is pending cannot start a recorder or transpo
   assert(!commands.includes('start'));
   assert(!commands.includes('record-start'));
   assert.equal(commands.at(-1), 'microphone-off');
+});
+
+for (const [action, method] of [['stopPractice', 'stop'], ['panic', 'control']]) {
+  test(`${action} finishes recording and releases the microphone even when the backend fails`, async () => {
+    const harness = startupHarness();
+    await harness.controls.startPractice();
+    const failure = new Error('Audio worklet failed');
+    harness.audio[method] = async () => { throw failure; };
+    await assert.rejects(harness.controls[action](), error => error === failure);
+    assert.deepEqual(harness.commands.slice(-3), ['record-stop', 'microphone-off', 'dispose']);
+    await harness.controls.startPractice();
+    assert.equal(harness.creations, 2, 'a failed session is replaced on the next Start');
+  });
+
+  test(`${action} stops local recording and microphone acquisition before backend acknowledgment`, async () => {
+    const harness = startupHarness();
+    await harness.controls.startPractice();
+    const waiting = deferred();
+    harness.audio[method] = () => waiting.promise;
+    const stopping = harness.controls[action]();
+    assert.deepEqual(harness.commands.slice(-2), ['record-stop', 'microphone-off']);
+    waiting.resolve();
+    await stopping;
+  });
+}
+
+test('microphone tracks release before a failed worklet notification settles', async () => {
+  const waiting = deferred();
+  let released = false;
+  const audio = Object.assign(Object.create(PracticeAudio.prototype), {
+    tracker: { async stopListening() { released = true; } },
+    request() { return waiting.promise; },
+  });
+  const disabling = audio.disableMicrophone();
+  assert.equal(released, true);
+  const failure = new Error('Microphone worklet unavailable');
+  waiting.resolve(Promise.reject(failure));
+  await assert.rejects(disabling, error => error === failure);
+});
+
+test('disposing failed audio disconnects every output without waiting for a worklet reply', async () => {
+  const released = [];
+  const audio = Object.assign(Object.create(PracticeAudio.prototype), {
+    startGeneration: 0, disposed: false,
+    detachState() {}, detachTracker() {},
+    endpoint: { port: { removeEventListener() {} }, dispose() { released.push('endpoint'); }, request() { throw new Error('Must not wait for an acknowledgment'); } },
+    recordDestination: { stream: { getTracks: () => [{ stop() { released.push('recording-track'); } }] }, disconnect() { released.push('recording-node'); } },
+    tracker: { node: { disconnect(...targets) { assert.equal(targets.length, 0); released.push('all-output'); } }, async dispose() { released.push('microphone'); } },
+    sampler: { async dispose() { released.push('sampler'); } },
+    listeners: new Set(), eventListeners: new Set(),
+  });
+  await audio.dispose();
+  assert(released.includes('all-output'));
+  assert(released.includes('microphone'));
+  assert.equal(audio.disposed, true);
+});
+
+test('Escape triggers Panic with an input focused while pad shortcuts still ignore editing', async () => {
+  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const keyboardSource = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('window.addEventListener("keyup"'));
+  let keydown;
+  let panicCalls = 0;
+  let padCalls = 0;
+  class Element { closest() { return true; } }
+  const context = { Element, heldKeys: new Set(), CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+    window: { addEventListener(_type, listener) { keydown = listener; } },
+    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: () => padCalls++,
+  };
+  vm.createContext(context);
+  vm.runInContext(keyboardSource, context);
+  const event = { target: new Element(), repeat: false, preventDefault() {} };
+  keydown({ ...event, code: 'KeyQ' });
+  keydown({ ...event, code: 'Escape' });
+  assert.equal(padCalls, 0);
+  assert.equal(panicCalls, 1);
 });

@@ -13,7 +13,6 @@ function requiredElement<T extends Element>(selector: string, constructor: { new
 
 const elements = {
   'practice-desk': requiredElement('#practice-desk', HTMLElement),
-  'connection': requiredElement('#connection', HTMLSpanElement),
   'song-title': requiredElement('#song-title', HTMLHeadingElement),
   'song-select': requiredElement('#song-select', HTMLSelectElement),
   'song-description': requiredElement('#song-description', HTMLParagraphElement),
@@ -36,7 +35,6 @@ const elements = {
   'current-section': requiredElement('#current-section', HTMLElement),
   'next-section': requiredElement('#next-section', HTMLElement),
   'section-progress': requiredElement('#section-progress', HTMLDivElement),
-  'sound-source': requiredElement('#sound-source', HTMLSpanElement),
   'pads': requiredElement('#pads', HTMLDivElement),
   'click': requiredElement('#click', HTMLInputElement),
   'channel-controls': requiredElement('#channel-controls', HTMLElement),
@@ -190,21 +188,31 @@ async function startPractice() {
   } finally { starting = false; render(state); }
 }
 
-async function stopPractice() {
+async function stopPerformance(command: 'stop' | 'panic') {
   transportGeneration++;
-  if (audio) await audio.stop();
   finishOutputRecording();
-  if (audio) await audio.disableMicrophone();
   releasePresses();
+  const instance = audio;
+  if (!instance) return;
+  const results = await Promise.allSettled([
+    command === 'stop' ? instance.stop() : instance.control({ id: 'mushroom' }),
+    instance.disableMicrophone(),
+  ]);
+  const failure = results.find(result => result.status === 'rejected');
+  if (failure?.status === 'rejected') {
+    if (audio === instance) audio = undefined;
+    await instance.dispose().catch(() => {});
+    sources.clear();
+    render({ phase: 'idle', looping: [], recording: null, microphone: false,
+      channels: state.channels.map(channel => ({ ...channel, looping: false,
+        ready: false, status: 'empty', light: { kind: 'off' } })) });
+    throw failure.reason;
+  }
 }
 
-async function panic() {
-  transportGeneration++;
-  if (audio) await audio.control({ id: 'mushroom' });
-  finishOutputRecording();
-  if (audio) await audio.disableMicrophone();
-  releasePresses();
-}
+function stopPractice() { return stopPerformance('stop'); }
+
+function panic() { return stopPerformance('panic'); }
 
 function makePads() {
   for (const control of CONTROLS) {
@@ -468,13 +476,20 @@ elements['start-section'].addEventListener('change', () => {
 for (const element of [elements['count-in'], elements['end-bar']]) element.addEventListener('change', () => render(state));
 
 window.addEventListener('keydown', event => {
-  if (event.repeat || heldKeys.has(event.code) || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || (event.target instanceof Element && event.target.closest('input,select,textarea,[contenteditable=true]'))) return;
+  if (event.repeat || heldKeys.has(event.code)) return;
+  if (event.code === 'Escape') {
+    event.preventDefault();
+    heldKeys.add(event.code);
+    flash('mushroom', true);
+    act(panic);
+    return;
+  }
+  if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || (event.target instanceof Element && event.target.closest('input,select,textarea,[contenteditable=true]'))) return;
   const control = CONTROLS.find(control => control.key === event.code);
-  if (!control && !['Space', 'Escape'].includes(event.code)) return;
+  if (!control && event.code !== 'Space') return;
   event.preventDefault();
   heldKeys.add(event.code);
   if (control) { flash(control.id, true); act(() => triggerPad(control.id)); }
-  else if (event.code === 'Escape') { flash('mushroom', true); act(panic); }
   else act(() => isRunning() ? stopPractice() : startPractice());
 });
 window.addEventListener('keyup', event => {
