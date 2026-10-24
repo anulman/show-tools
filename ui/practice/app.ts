@@ -3,7 +3,7 @@ import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
 import { CONTROL_IDS, type ChannelId, type Chart, type PracticeState, type PracticeEvent, type SongScript } from '../../lib/performance/model.js';
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
-import { openCurrentChart } from './open-chart.js';
+import { createChartFollower, openCurrentChart } from './open-chart.js';
 
 function requiredElement<T extends Element>(selector: string, constructor: { new(): T }, root: ParentNode = document): T {
   const element = root.querySelector(selector);
@@ -74,6 +74,8 @@ type DisplayState = Pick<PracticeState, 'phase' | 'bar' | 'beat' | 'selectedChan
 let state: DisplayState = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
 let recorder: MediaRecorder | undefined;
 let recordingURL: string | undefined;
+let chartFollower: ReturnType<typeof createChartFollower> | undefined;
+let chartFollowOptIn = false;
 
 function showError(error: unknown) {
   elements.error.textContent = error instanceof Error ? error.message : String(error);
@@ -190,6 +192,7 @@ async function startPractice() {
 
 async function stopPerformance(command: 'stop' | 'panic') {
   transportGeneration++;
+  chartFollower?.stop();
   finishOutputRecording();
   releasePresses();
   const instance = audio;
@@ -423,6 +426,7 @@ elements['sheet-link'].addEventListener('click', () => act(async () => {
   elements['sheet-status'].textContent = 'Selecting column…';
   try {
     const result = await openCurrentChart(currentChart, currentBar, phase);
+    chartFollowOptIn = true;
     elements['sheet-status'].textContent = `Selected ${result.selectedRange}`;
   } catch (error) {
     elements['sheet-status'].textContent = '';
@@ -500,6 +504,10 @@ window.addEventListener('keyup', event => {
 });
 function postPerformanceEvent(event: PracticeEvent): void {
   window.postMessage({ kind: 'show-tools-performance', event }, location.origin);
+  if (!chartFollowOptIn && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) return;
+  if (event.state.phase !== 'playing' && event.state.phase !== 'count-in') { chartFollower?.stop(); return; }
+  chartFollower ??= createChartFollower({ onStatus: status => { elements['sheet-status'].textContent = status; } });
+  chartFollower.receive(event);
 }
 
 window.addEventListener('message', event => {
@@ -524,6 +532,7 @@ for (const entry of SONGS) {
 elements.start.disabled = true;
 async function switchSong(id: string): Promise<void> {
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
+  chartFollower?.stop();
   const generation = ++songGeneration;
   transportGeneration++;
   switching = true;

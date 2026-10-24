@@ -56,6 +56,6 @@ The knob controls selected-channel gain between zero and one. Mute changes activ
 
 The main thread posts `{ kind: 'show-tools-performance', event }` to its own window origin. A same-window `show-tools-state-request` message returns the current snapshot envelope when audio exists.
 
-The Chrome extension receives events through a direct tab port. It selects changed bar columns with programmed range links and checks the Sheet's Name box. A separate local CDP helper can drive the desktop chart page. Neither integration owns the musical clock or serves as a dependency of mobile practice.
+The local CDP helper follows changed bar columns automatically for localhost practice pages. Hosted pages opt in by using **Open current bar in Sheets**. Following keeps only the latest pending column and does not activate Chrome. The Chrome extension provides a separate direct-tab option. Both implementations verify the visible song sheet and Name box. Neither integration owns the musical clock or serves as a dependency of mobile practice.
 
 The standalone relay under `lib/relay/` retains a future hardware event contract. It is not connected to this WASM practice UI.

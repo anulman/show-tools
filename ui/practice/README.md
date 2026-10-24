@@ -83,7 +83,7 @@ Set **Tempo**, **Count-in**, **Start at**, and **End at bar** while stopped. Tur
 
 ## Open or follow the chart
 
-**Open current bar in Sheets** selects the actual column through a separate local Chrome helper. It does not participate in audio timing. See [local helper setup](../../scripts/open-chart.md). The helper is running in this session and was checked against real Sheets selections. The button reports the confirmed selection, rather than opening an unverified range link.
+With the [local Chrome helper](../../scripts/open-chart.md) running, localhost practice follows the lead-in and current bar automatically in Sheets. Changed columns are verified against the visible song sheet and Name box. Updates keep Chrome in the background and do not participate in audio timing. **Open current bar in Sheets** selects and brings forward the current column manually. On a hosted practice page, this button also opts into automatic following for that session. Hosted mobile practice makes no automatic helper requests by default.
 
 The [Chrome Sheets follower](sheets-extension/README.md) can continuously follow position events directly from the practice tab. It remains a separate extension installation.
 

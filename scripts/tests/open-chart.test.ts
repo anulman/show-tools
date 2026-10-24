@@ -1,8 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import vm from 'node:vm';
 import { Schema } from 'effect';
 import { createChartHelper, openChart, parseChartSelection, type CDPConnection } from '../open-chart.js';
+import { createChartFollower } from '../../ui/practice/open-chart.js';
+import { selectionURL } from '../../ui/practice/sheets-extension/selection.js';
+import { sourceForVM } from '../source-for-vm.js';
 
 const spreadsheetId = '1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg';
 const selection = { spreadsheetId, sheetId: 101, range: 'D:D' };
@@ -115,5 +119,133 @@ test('loopback helper validates origins and serializes selection requests', asyn
   } finally {
     server.closeAllConnections();
     await new Promise<void>((resolveClose, rejectClose) => server.close(error => error ? rejectClose(error) : resolveClose()));
+  }
+});
+
+test('automatic selections do not activate the chart window', async () => {
+  const fixture = chromeFixture({ existing: false });
+  await openChart('http://127.0.0.1:9222', { ...selection, activate: false }, async () => fixture.connection);
+  assert(!fixture.calls.some(call => call.method === 'Target.activateTarget'));
+  assert.deepEqual(fixture.calls.find(call => call.method === 'Target.createTarget')?.params, {
+    url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit?gid=101#gid=101`, background: true,
+  });
+});
+
+function position(bar: number | null, seq: number, runId = 'run-one') {
+  return { v: 1, runId, seq, state: { phase: bar === null ? 'count-in' : 'playing', bar,
+    chart: { spreadsheetId, sheetId: 101, leadInColumn: 2, columns: [3, 4, 5, 6] } } };
+}
+const settled = () => new Promise<void>(done => setImmediate(done));
+const selectionReply = (range: string) => new Response(JSON.stringify({ ok: true, selectedRange: range,
+  url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit` }));
+
+function requestSelection(options?: RequestInit) {
+  assert.equal(typeof options?.body, 'string');
+  if (typeof options?.body !== 'string') throw new Error('Missing request body');
+  return parseChartSelection(JSON.parse(options.body));
+}
+
+test('automatic following sends lead-in and changed columns only, coalescing stale pending bars', async () => {
+  const requested: string[] = [];
+  const statuses: string[] = [];
+  let release: () => void = () => {};
+  const waiting = new Promise<void>(done => { release = done; });
+  const follower = createChartFollower({ onStatus: status => statuses.push(status), fetch: async (_url, options) => {
+    const selected = requestSelection(options);
+    assert.equal(selected.activate, false);
+    requested.push(selected.range);
+    if (requested.length === 1) await waiting;
+    return selectionReply(selected.range);
+  } });
+  follower.receive(position(null, 1));
+  follower.receive(position(null, 2));
+  follower.receive(position(1, 3));
+  follower.receive(position(2, 4));
+  follower.receive(position(4, 5));
+  release();
+  await settled();
+  assert.deepEqual(requested, ['B:B', 'F:F']);
+  assert.equal(statuses.at(-1), 'Following F:F');
+  follower.receive(position(4, 6));
+  follower.receive(position(2, 4));
+  await settled();
+  assert.equal(requested.length, 2);
+  follower.stop();
+});
+
+test('stopping automatic follow aborts requests and the same position works on a new run', async () => {
+  const requested: string[] = [];
+  const statuses: string[] = [];
+  let aborted = false;
+  const follower = createChartFollower({ onStatus: status => statuses.push(status), fetch: async (_url, options) => {
+    const selected = requestSelection(options);
+    requested.push(selected.range);
+    if (requested.length === 1) await new Promise<void>((_done, reject) => {
+      options?.signal?.addEventListener('abort', () => { aborted = true; reject(new Error('Aborted')); }, { once: true });
+    });
+    return selectionReply(selected.range);
+  } });
+  follower.receive(position(1, 1));
+  follower.receive(position(2, 2));
+  follower.stop();
+  await settled();
+  assert(aborted);
+  assert.deepEqual(requested, ['C:C']);
+  assert.deepEqual(statuses, []);
+  follower.receive(position(1, 1, 'run-two'));
+  await settled();
+  assert.deepEqual(requested, ['C:C', 'C:C']);
+  assert.deepEqual(statuses, ['Following C:C']);
+  follower.stop();
+});
+
+test('unavailable automatic helper reports status without rejecting practice events and retries the next bar', async () => {
+  let requests = 0;
+  const statuses: string[] = [];
+  const follower = createChartFollower({ onStatus: status => statuses.push(status), fetch: async () => {
+    requests++; throw new Error('Connection refused');
+  } });
+  assert.doesNotThrow(() => follower.receive(position(1, 1)));
+  await settled();
+  follower.receive(position(1, 2));
+  follower.receive(position(2, 3));
+  await settled();
+  assert.equal(requests, 2);
+  assert.equal(statuses.length, 2);
+  assert(statuses.every(status => status.includes('does not affect practice audio')));
+  follower.stop();
+});
+
+test('extension checks the visible song sheet even when the previous Name box already matches', async () => {
+  const followerSource = (await sourceForVM(new URL('../../ui/practice/sheets-extension/follow.ts', import.meta.url))).replace(/^import .*;\n/gm, '');
+  for (const navigates of [true, false]) {
+    class Element { value = ''; disabled = false; textContent = ''; addEventListener() {} }
+    const elements = new Map<string, Element>();
+    const updates: string[] = [];
+    let checks = 0;
+    const context = vm.createContext({ URL, AbortController, selectionURL,
+      setTimeout: (callback: () => void) => setImmediate(callback),
+      HTMLParagraphElement: Element, HTMLButtonElement: Element, HTMLInputElement: Element, HTMLFormElement: Element,
+      document: { querySelector(selector: string) {
+        let element = elements.get(selector);
+        if (!element) { element = new Element(); elements.set(selector, element); }
+        return element;
+      } },
+      location: { href: 'chrome-extension://test/follow.html?tabId=123' }, window: { addEventListener() {} },
+      chrome: {
+        tabs: {
+          async get() { return { url: `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit?gid=101#gid=101&range=D%3AD` }; },
+          async update(_target: number, update: { url: string }) { updates.push(update.url); },
+        },
+        scripting: { async executeScript() { checks++; return [{ result: { range: 'D:D', activeSheetId: navigates && checks > 2 ? 102 : 101 } }]; } },
+      },
+    });
+    vm.runInContext(`${followerSource}\nglobalThis.checkSong = async (selection) => { const controller = new AbortController(); connection = controller; pending = {controller, selection}; await applyPending(); };`, context);
+    const checkSong = vm.runInContext('checkSong', context);
+    await checkSong({ spreadsheetId, sheetId: 102, range: 'D:D' });
+    assert.equal(new URL(updates[0] || '').searchParams.get('gid'), '102', 'a song change performs a real navigation');
+    assert(checks >= 3, 'a matching range on the old sheet is not sufficient');
+    if (navigates) assert.equal(elements.get('#status')?.textContent, 'Following D:D directly from the practice tab.');
+    else assert.match(elements.get('#status')?.textContent || '', /did not confirm/);
   }
 });

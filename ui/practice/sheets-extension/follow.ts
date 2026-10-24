@@ -18,6 +18,17 @@ let lastKey = '';
 let runId: string | null = null;
 let seq = -1;
 
+async function chartState() {
+  const results = await chrome.scripting.executeScript({ target: { tabId: targetId }, func: () => {
+    const box = document.querySelector('#t-name-box');
+    const grid = Array.from(document.querySelectorAll('[id$="-grid-container"]')).find(element =>
+      /^\d+-grid-container$/.test(element.id) && element.getBoundingClientRect().width > 0 && element.getBoundingClientRect().height > 0);
+    return { range: box instanceof HTMLInputElement ? box.value : null,
+      activeSheetId: grid ? Number.parseInt(grid.id, 10) : null };
+  } });
+  return results[0]?.result;
+}
+
 function disconnect(message = 'Following stopped.'): void {
   connection?.abort(); connection = null;
   sourcePort?.disconnect(); sourcePort = null;
@@ -35,15 +46,18 @@ async function applyPending(): Promise<void> {
       if (connection !== controller) continue;
       const target = await chrome.tabs.get(targetId);
       if (connection !== controller) continue;
-      await chrome.tabs.update(targetId, { url: selectionURL(target.url || '', selection) });
+      const before = await chartState();
+      if (connection !== controller) continue;
+      await chrome.tabs.update(targetId, { url: selectionURL(target.url || '', selection, before?.activeSheetId !== selection.sheetId) });
       let selected = false;
-      for (let attempt = 0; attempt < 10 && connection === controller; attempt++) {
-        const results = await chrome.scripting.executeScript({ target: { tabId: targetId }, func: () => {
-          const box = document.querySelector('#t-name-box');
-          return box instanceof HTMLInputElement ? box.value : null;
-        } });
-        if (results[0]?.result === selection.range) { selected = true; break; }
-        await new Promise(resolve => setTimeout(resolve, 50));
+      for (let attempt = 0; attempt < 80 && connection === controller; attempt++) {
+        try {
+          const current = await chartState();
+          if (current?.range === selection.range && current.activeSheetId === selection.sheetId) { selected = true; break; }
+        } catch (error) {
+          if (!(error instanceof Error) || !/frame|context|navigat|document/i.test(error.message)) throw error;
+        }
+        await new Promise(resolve => setTimeout(resolve, 125));
       }
       if (connection !== controller) continue;
       if (!selected) throw new Error('Sheets did not confirm the column selection. Stop editing and try again.');

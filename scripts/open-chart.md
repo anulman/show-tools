@@ -20,6 +20,8 @@ npm run start:sheets
 
 Leave both processes running. Press **Open current bar in Sheets** in the practice desk. Chrome selects the requested column and the desk reports the confirmed range.
 
+Practice pages on localhost automatically send changed bar columns while the sequencer counts, including the lead-in column. These updates keep Chrome in the background and retain only the newest pending column if Sheets is slow. Stop, Panic, and song changes stop following. For a hosted practice page, first press **Open current bar in Sheets** to opt into following for that session, and allow its origin as described below. Hosted mobile practice sends no automatic helper requests by default.
+
 The helper uses `127.0.0.1:9223`, with Chrome's debugging connection at `127.0.0.1:9222`. Its default allowed practice origins are `http://127.0.0.1:8082` and `http://localhost:8082`. Add another explicit origin with `npm run start:sheets -- --origin https://your-practice-host.example`.
 
 The temporary profile is separate from your normal Chrome profile. If the spreadsheet requires authentication, sign in within that window. No sign-in was needed for the supplied public chart. The helper changes selection only; it never writes cell values.

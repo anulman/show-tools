@@ -7,6 +7,7 @@ export const ChartSelectionSchema = Schema.Struct({
   spreadsheetId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{20,}$/)),
   sheetId: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   range: Schema.String.check(Schema.isPattern(/^([A-Z]{1,3}):\1$/)),
+  activate: Schema.optionalKey(Schema.Boolean),
 });
 export type ChartSelection = typeof ChartSelectionSchema.Type;
 export const parseChartSelection = Schema.decodeUnknownSync(ChartSelectionSchema);
@@ -99,7 +100,7 @@ export async function openChart(address: string, input: unknown, connect: (addre
     const matching = targets.targetInfos.find(target => target.type === 'page' && sameSpreadsheet(target.url, selection.spreadsheetId));
     const base = `https://docs.google.com/spreadsheets/d/${selection.spreadsheetId}/edit`;
     const sheetURL = `${base}?gid=${selection.sheetId}#gid=${selection.sheetId}`;
-    const targetId = matching?.targetId || parseTarget(await connection.request('Target.createTarget', { url: sheetURL })).targetId;
+    const targetId = matching?.targetId || parseTarget(await connection.request('Target.createTarget', { url: sheetURL, background: selection.activate === false })).targetId;
     sessionId = parseSession(await connection.request('Target.attachToTarget', { targetId, flatten: true })).sessionId;
     const evaluate = async (expression: string): Promise<unknown> => {
       const result = parseEvaluation(await connection.request('Runtime.evaluate', { expression, returnByValue: true }, sessionId));
@@ -153,7 +154,7 @@ export async function openChart(address: string, input: unknown, connect: (addre
       }
     }
     if (!selected) throw new Error(`Google Sheets did not confirm ${selection.range}`);
-    await connection.request('Target.activateTarget', { targetId });
+    if (selection.activate !== false) await connection.request('Target.activateTarget', { targetId });
     return { ok: true, selectedRange: selection.range, url: current.url };
   } finally {
     if (sessionId) await connection.request('Target.detachFromTarget', { sessionId }).catch(() => {});
