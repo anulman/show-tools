@@ -1,6 +1,6 @@
 import { PracticeAudio } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
-import { CONTROL_IDS, type ChannelId, type Chart, type PracticeState, type PracticeEvent, type SongScript } from '../../lib/performance/model.js';
+import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript } from '../../lib/performance/model.js';
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
 import { createChartFollower, openCurrentChart } from './open-chart.js';
@@ -37,16 +37,6 @@ const elements = {
   'section-progress': requiredElement('#section-progress', HTMLDivElement),
   'pads': requiredElement('#pads', HTMLDivElement),
   'click': requiredElement('#click', HTMLInputElement),
-  'channel-controls': requiredElement('#channel-controls', HTMLElement),
-  'selected-id': requiredElement('#selected-id', HTMLSpanElement),
-  'selected-channel': requiredElement('#selected-channel', HTMLSelectElement),
-  'knob': requiredElement('#knob', HTMLDivElement),
-  'volume-output': requiredElement('#volume-output', HTMLOutputElement),
-  'volume': requiredElement('#volume', HTMLInputElement),
-  'mute-selected': requiredElement('#mute-selected', HTMLButtonElement),
-  'sample-status': requiredElement('#sample-status', HTMLParagraphElement),
-  'load-sound': requiredElement('#load-sound', HTMLButtonElement),
-  'sample-file': requiredElement('#sample-file', HTMLInputElement),
   'mushroom': requiredElement('#mushroom', HTMLButtonElement),
   'record-demo': requiredElement('#record-demo', HTMLButtonElement),
   'download-demo': requiredElement('#download-demo', HTMLAnchorElement),
@@ -56,8 +46,11 @@ const elements = {
 const startLabel = requiredElement('#start span:last-child', HTMLSpanElement);
 const recordLabel = requiredElement('#record-demo span:last-child', HTMLSpanElement);
 const sectionProgress = requiredElement('#section-progress > span', HTMLSpanElement);
-const knobNeedle = requiredElement('#knob > span', HTMLSpanElement);
-interface PadElements { shell: HTMLElement; button: HTMLButtonElement; mute: HTMLButtonElement; status: HTMLSpanElement; cue: HTMLElement; sampleStatus: HTMLSpanElement }
+interface PadElements {
+  shell: HTMLElement; button: HTMLButtonElement; mute: HTMLButtonElement; status: HTMLSpanElement;
+  cue: HTMLElement; sampleStatus: HTMLSpanElement; volume: HTMLInputElement;
+  volumeOutput: HTMLOutputElement; load: HTMLButtonElement;
+}
 const pads = new Map<ChannelId, PadElements>();
 const heldKeys = new Set<string>();
 const sources = new Map<ChannelId, string>();
@@ -135,7 +128,6 @@ async function ensureAudio() {
   return preparing;
 }
 
-function selectedId(): ChannelId { return state.selectedChannel || 'R1'; }
 function controlName(id: ChannelId): string { return chart?.controlNames[id] || id; }
 
 function flash(id: ChannelId | 'mushroom', held = false) {
@@ -229,6 +221,37 @@ function makePads() {
     button.dataset.control = control.id;
     button.setAttribute('aria-label', `${control.id} ${controlName(control.id)}`);
     button.innerHTML = `<span class="pad-top"><span class="pad-id">${control.id}</span><kbd>${control.shortcut}</kbd></span><span class="pad-name-row"><strong class="pad-name"></strong><span class="pad-cue" aria-label="Chart cue"><code></code><i class="pad-led" aria-hidden="true"></i></span></span><span class="pad-sample-state">Empty slot</span>`;
+    const volumeRow = document.createElement('label');
+    volumeRow.className = 'pad-volume';
+    const volumeLabel = document.createElement('span');
+    volumeLabel.textContent = 'VOLUME';
+    const volume = document.createElement('input');
+    volume.type = 'range';
+    volume.min = '0'; volume.max = '1'; volume.step = '0.01'; volume.value = '1';
+    const volumeOutput = document.createElement('output');
+    volumeOutput.textContent = '100%';
+    volumeRow.append(volumeLabel, volume, volumeOutput);
+    volume.addEventListener('input', () => act(async () => {
+      const gain = Number(volume.value);
+      volumeOutput.textContent = `${Math.round(gain * 100)}%`;
+      volume.style.setProperty('--volume', `${gain * 100}%`);
+      const instance = await ensureAudio();
+      await instance.setChannel(control.id, { gain });
+    }));
+    const file = document.createElement('input');
+    file.type = 'file'; file.accept = 'audio/*'; file.hidden = true;
+    const load = document.createElement('button');
+    load.type = 'button'; load.className = 'channel-load'; load.textContent = 'LOAD';
+    load.addEventListener('click', () => file.click());
+    file.addEventListener('change', () => act(async () => {
+      const sound = file.files?.[0];
+      if (!sound) return;
+      const instance = await ensureAudio();
+      await instance.loadFile(control.id, sound);
+      sources.set(control.id, sound.name);
+      file.value = '';
+      render(state);
+    }));
     const footer = document.createElement('div');
     footer.className = 'pad-footer';
     const status = document.createElement('span');
@@ -244,10 +267,11 @@ function makePads() {
       const channel = state.channels?.find(channel => channel.id === control.id);
       await instance.setChannel(control.id, { muted: !channel?.muted });
     }));
-    footer.append(status, mute);
-    shell.append(button, footer);
+    footer.append(status, load, mute);
+    shell.append(button, volumeRow, footer, file);
     elements.pads.append(shell);
-    pads.set(control.id, { shell, button, mute, status, cue: requiredElement('code', HTMLElement, button), sampleStatus: requiredElement('.pad-sample-state', HTMLSpanElement, button) });
+    pads.set(control.id, { shell, button, mute, status, cue: requiredElement('code', HTMLElement, button),
+      sampleStatus: requiredElement('.pad-sample-state', HTMLSpanElement, button), volume, volumeOutput, load });
     button.addEventListener('pointerdown', event => {
       if (event.button !== 0 || !event.isPrimary) return;
       event.preventDefault();
@@ -263,10 +287,6 @@ function makePads() {
       flash(control.id);
       act(() => triggerPad(control.id));
     });
-    const option = document.createElement('option');
-    option.value = control.id;
-    option.textContent = `${control.id} · ${controlName(control.id)}`;
-    elements['selected-channel'].append(option);
   }
 }
 
@@ -284,9 +304,6 @@ function render(next: Partial<PracticeState>) {
   const currentSection = chart.sections.find(section => section.id === currentBar?.sectionId);
   const nextSection = chart.sections.find(section => section.startBar > displayBar);
   const inCountIn = state.phase === 'count-in';
-  const selected = CONTROLS.find(control => control.id === selectedId()) || { id: 'R1', color: '#dfbe78' };
-  const selectedChannel = state.channels?.find(channel => channel.id === selected.id) || { gain: 1, muted: false };
-  const gain = Number.isFinite(selectedChannel.gain) ? selectedChannel.gain : 1;
   const recording = state.channels.some(channel => ['armed', 'recording', 'stopping'].includes(channel.status));
   elements['practice-desk'].dataset.phase = state.phase;
   elements['practice-desk'].dataset.bar = state.bar === null ? '' : String(state.bar);
@@ -326,7 +343,7 @@ function render(next: Partial<PracticeState>) {
     const capture = compiledCue && (compiledCue.kind === 'arm' || compiledCue.kind === 'commit-arm') ? compiledCue.capture : undefined;
     const action = cueLabel(cue) + (capture ? ` · Extract ${capture.beats.map(beatName).join(' + ')}` : '');
     const sampleStatus = channel?.status || 'empty';
-    pad.shell.classList.toggle('selected', control.id === selected.id);
+    pad.shell.classList.toggle('selected', control.id === state.selectedChannel);
     pad.shell.classList.toggle('muted', Boolean(channel?.muted));
     pad.shell.dataset.sampleStatus = sampleStatus;
     const light = channel?.light || { kind: 'off' };
@@ -339,8 +356,17 @@ function render(next: Partial<PracticeState>) {
     if (padName) padName.textContent = name;
     pad.button.setAttribute('aria-label', `${control.id} ${name}, ${action}`);
     pad.mute.setAttribute('aria-label', `Mute ${control.id} ${name}`);
-    const option = Array.from(elements['selected-channel'].options).find(option => option.value === control.id);
-    if (option) option.textContent = `${control.id} · ${name}`;
+    pad.volume.setAttribute('aria-label', `${control.id} ${name} volume`);
+    pad.load.setAttribute('aria-label', `Load sound for ${control.id} ${name}`);
+    pad.load.disabled = running || Boolean(recording);
+    if (document.activeElement !== pad.volume) pad.volume.value = String(channel?.gain ?? 1);
+    const gain = Number(pad.volume.value);
+    const percentage = `${Math.round(gain * 100)}%`;
+    pad.volume.setAttribute('aria-valuetext', percentage);
+    pad.volume.style.setProperty('--volume', percentage);
+    pad.volumeOutput.textContent = percentage;
+    if (sampleStatus === 'recording' || sampleStatus === 'armed') sources.delete(control.id);
+    pad.sampleStatus.title = sources.get(control.id) || '';
     pad.button.setAttribute('aria-pressed', looping ? 'true' : 'false');
     pad.mute.setAttribute('aria-pressed', String(Boolean(channel?.muted)));
     pad.mute.textContent = channel?.muted ? 'UNMUTE' : 'MUTE';
@@ -351,20 +377,6 @@ function render(next: Partial<PracticeState>) {
     pad.cue.textContent = cue || '·';
     pad.cue.title = 'Original chart notation';
   }
-  elements['selected-channel'].value = selected.id;
-  elements['selected-id'].textContent = selected.id;
-  elements['channel-controls']?.style.setProperty('--selected', selected.color);
-  elements.volume.style.setProperty('--selected', selected.color);
-  elements.knob.style.setProperty('--selected', selected.color);
-  knobNeedle.style.transform = `rotate(${-135 + gain * 270}deg)`;
-  if (document.activeElement !== elements.volume) elements.volume.value = String(gain);
-  elements['volume-output'].innerHTML = `${Math.round(gain * 100)}<span>%</span>`;
-  elements['mute-selected'].setAttribute('aria-pressed', String(Boolean(selectedChannel.muted)));
-  elements['mute-selected'].textContent = selectedChannel.muted ? 'Unmute channel' : 'Mute channel';
-  const channel = state.channels.find(channel => channel.id === selected.id);
-  if (channel?.status === 'recording' || channel?.status === 'armed') sources.delete(selected.id);
-  elements['sample-status'].textContent = channel?.ready ? sources.get(selected.id) || 'Captured microphone sample' : 'Empty slot · capture from the chart';
-  elements['load-sound'].disabled = running || Boolean(recording);
   if (state.error) showError(new Error(state.error));
 }
 
@@ -438,37 +450,8 @@ elements['song-select'].addEventListener('change', () => act(() => switchSong(el
 elements.stop.addEventListener('click', () => act(stopPractice));
 elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic); });
 elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording));
-elements['selected-channel'].addEventListener('change', () => act(async () => {
-  const instance = await ensureAudio();
-  const id = CONTROL_IDS.find(id => id === elements['selected-channel'].value);
-  if (!id) throw new Error('Choose a known channel');
-  await instance.selectChannel(id);
-}));
-elements.volume.addEventListener('input', () => act(async () => {
-  const value = Number(elements.volume.value);
-  knobNeedle.style.transform = `rotate(${-135 + value * 270}deg)`;
-  elements['volume-output'].innerHTML = `${Math.round(value * 100)}<span>%</span>`;
-  const instance = await ensureAudio();
-  await instance.control({ id: 'knob', value });
-}));
-elements['mute-selected'].addEventListener('click', () => act(async () => {
-  const instance = await ensureAudio();
-  const channel = state.channels?.find(channel => channel.id === selectedId());
-  await instance.setChannel(selectedId(), { muted: !channel?.muted });
-}));
 elements.click.addEventListener('change', () => act(async () => {
   if (audio) await audio.setClick(elements.click.checked);
-}));
-elements['load-sound'].addEventListener('click', () => elements['sample-file'].click());
-elements['sample-file'].addEventListener('change', () => act(async () => {
-  const file = elements['sample-file'].files?.[0];
-  if (!file) return;
-  const id = selectedId();
-  const instance = await ensureAudio();
-  await instance.loadFile(id, file);
-  sources.set(id, file.name);
-  elements['sample-file'].value = '';
-  render(state);
 }));
 elements['start-section'].addEventListener('change', () => {
   if (!chart) return;
@@ -550,7 +533,7 @@ async function switchSong(id: string): Promise<void> {
     chart = loaded.chart;
     sources.clear();
     state = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', recording: null, microphone: false,
-      looping: [], error: null, channels: CONTROLS.map(({ id }) => ({ id, gain: 0.8, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
+      looping: [], error: null, channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
     elements['song-select'].value = loaded.id;
     elements['song-title'].textContent = loaded.chart.title;
     elements['song-description'].textContent = loaded.description;

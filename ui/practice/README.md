@@ -53,11 +53,11 @@ These names come from Dance Yrself Clean's chart notes. Each song supplies its o
 | Q · L1 · Whistle | W · R1 · Drums & Claps |
 | A · L2 · Bing Bong | S · R2 · Cowbell |
 
-Touch and mouse presses use the same actions. **Space** starts or stops transport. **Escape** presses the mushroom and stops everything. Typing in an input or selector does not fire shortcuts, and held keys do not retrigger controls.
+Touch and mouse presses use the same actions. **Space** starts or stops transport. **Escape** presses the mushroom and stops everything, including while a slider or other input has focus. Other shortcuts ignore inputs and selectors. Held keys do not retrigger controls.
 
-Select a channel with its pad or **Select channel**. Move its volume slider to operate the knob. Use **Mute channel** or its **MUTE** button to silence it. Unmuting preserves a running loop's phase. **Song click** defaults off and controls clicks during the song. The lead-in always clicks.
+Each sample starts at 100%. Use the horizontal volume slider beneath its pad to adjust that channel, and **MUTE** to silence it. Unmuting preserves a running loop's phase. **LOAD** chooses an optional audio file for that pad while stopped. **Song click** defaults off and controls clicks during the song. The lead-in always clicks.
 
-To load a file instead of capturing a take, stop practice, select a pad, and press **Load your own sound**. Loading a file does not change the chart action behind that pad. Supported audio formats depend on the browser.
+To load a file instead of capturing a take, stop practice and press **LOAD** on that pad. Loading a file does not change the chart action behind the pad. Supported audio formats depend on the browser.
 
 ## Record a demo
 
@@ -65,7 +65,7 @@ To load a file instead of capturing a take, stop practice, select a pad, and pre
 2. Perform the chart's capture and playback cues.
 3. Press **Stop** to finish the take and release the microphone, then **Download take**. **Finish take** can end the demo recording while practice continues.
 
-The download contains click and sample output. It excludes direct microphone monitoring. The browser chooses WebM with Opus or MP4 when supported. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
+The download contains your main live voice, click, and sample output. The voice is mixed at 100% into the recording without adding microphone monitoring to speaker playback. The browser chooses WebM with Opus or MP4 when supported. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
 
 ## Choose a song and range
 

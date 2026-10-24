@@ -53,14 +53,6 @@
         <div class="capture-options"><label class="switch" title="The lead-in always clicks. This controls the click during the song."><input id="click" type="checkbox"><span class="switch-track"></span><span>Song click</span></label><span class="capture-note">Lead-in always clicks. Press a pad for its chart cue.</span></div>
       </div>
 
-      <aside id="channel-controls" class="channel-controls" aria-label="Selected channel controls">
-        <div class="section-heading"><h2>Channel</h2><span id="selected-id" class="channel-badge">R1</span></div>
-        <label class="channel-select-label" for="selected-channel">Select channel</label><select id="selected-channel" aria-label="Selected channel"></select>
-        <div class="knob-wrap"><div id="knob" class="knob" aria-hidden="true"><span></span></div><output id="volume-output" for="volume">100<span>%</span></output></div>
-        <label class="volume-label" for="volume">VOLUME <span>KNOB</span></label><input id="volume" class="volume-range" type="range" min="0" max="1" step="0.01" value="1" aria-label="Selected channel volume">
-        <button id="mute-selected" class="secondary mute-selected" type="button" aria-pressed="false">Mute channel</button>
-        <div class="sample-source"><p id="sample-status">Empty slot</p><button id="load-sound" class="file-button" type="button">Load your own sound <span aria-hidden="true">↗</span></button><input id="sample-file" type="file" accept="audio/*" hidden></div>
-      </aside>
     </section>
 
     <section class="auxiliary" aria-label="Recording and stop controls">
