@@ -50,7 +50,7 @@ A `{ kind: 'bar', variantKey }` capture hint retains a named whole-bar take with
 
 Each pad has a volume slider that controls its channel gain between zero and one. Samples initialize at unity gain. Hardware knob events still control the selected channel. Mute changes active voices without resetting loop phase. Start requests microphone access and starts output recording before launching transport. Stop, panic, and range completion finish the output take and release the microphone. Song changes dispose the old audio session before another program loads. Song click defaults off; lead-in clicks are mandatory and do not change that preference.
 
-`outputStream` mixes rendered stereo output with the main live microphone at unity gain for MediaRecorder. The microphone branch connects only to the recording destination. It does not add live voice monitoring to speaker output. Stopping or replacing microphone input and disposing the audio session disconnect this branch. A recording start in progress cannot create a second recorder.
+`outputStream` mixes rendered stereo output with the main live microphone for MediaRecorder. The voice branch downmixes microphone input to mono and feeds both recording channels. Mono input keeps unity gain; stereo input uses the standard left/right average. Sample stereo remains unchanged. The microphone branch connects only to the recording destination and does not add live voice monitoring to speaker output. Stopping or replacing microphone input and disposing the audio session disconnect this branch. A recording start in progress cannot create a second recorder.
 
 ## Events and desktop chart control
 

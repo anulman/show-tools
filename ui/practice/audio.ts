@@ -24,7 +24,7 @@ export class PracticeAudio {
   latest: PracticeState;
   error: string | null = null;
   microphone = false;
-  recordingVoice: { stream: MediaStream; node: MediaStreamAudioSourceNode } | null = null;
+  recordingVoice: { stream: MediaStream; node: MediaStreamAudioSourceNode; mono: GainNode } | null = null;
   disposed = false;
   runCounter = 0;
   startGeneration = 0;
@@ -99,11 +99,17 @@ export class PracticeAudio {
     const stream = this.disposed ? null : this.tracker.microphoneStream;
     if (this.recordingVoice?.stream === stream) return;
     this.recordingVoice?.node.disconnect();
+    this.recordingVoice?.mono.disconnect();
     this.recordingVoice = null;
     if (!stream) return;
     const node = this.tracker.context.createMediaStreamSource(stream);
-    node.connect(this.recordDestination);
-    this.recordingVoice = { stream, node };
+    const mono = this.tracker.context.createGain();
+    mono.channelCount = 1;
+    mono.channelCountMode = 'explicit';
+    mono.channelInterpretation = 'speakers';
+    node.connect(mono);
+    mono.connect(this.recordDestination);
+    this.recordingVoice = { stream, node, mono };
   }
 
   snapshot(): PracticeState {

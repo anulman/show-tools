@@ -67,7 +67,7 @@ To load a file instead of capturing a take, stop practice and press **LOAD** on 
 2. Perform the chart's capture and playback cues.
 3. Press **Stop** to finish the take and release the microphone, then **Download take**. **Finish take** can end the demo recording while practice continues.
 
-The download contains your main live voice, click, and sample output. The voice is mixed at 100% into the recording without adding microphone monitoring to speaker playback. The browser chooses WebM with Opus or MP4 when supported. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
+The download contains your main live voice, click, and sample output. The voice is centered in both recording channels without adding microphone monitoring to speaker playback. Mono microphone input keeps unity gain; stereo input is downmixed to mono. Sample stereo stays unchanged. The browser chooses WebM with Opus or MP4 when supported. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
 
 ## Choose a song and range
 
