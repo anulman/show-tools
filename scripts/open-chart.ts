@@ -48,21 +48,25 @@ class CDP implements CDPConnection {
   private serial = 0;
   private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timeout: ReturnType<typeof setTimeout> }>();
 
-  static async connect(address: string): Promise<CDP> {
+  static async connect(address: string, signal?: AbortSignal): Promise<CDP> {
     const endpoint = new URL(address);
     if (endpoint.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(endpoint.hostname)) throw new Error('CDP must use a local HTTP address');
     let response: Response;
-    try { response = await fetch(new URL('/json/version', endpoint), { signal: AbortSignal.timeout(3000) }); }
-    catch { throw new Error(`Chrome CDP is unavailable at ${endpoint.origin}. Start Chrome with remote debugging enabled.`); }
+    try { response = await fetch(new URL('/json/version', endpoint), { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(3000)]) : AbortSignal.timeout(3000) }); }
+    catch (cause) { throw new Error(`Chrome CDP is unavailable at ${endpoint.origin}. Start Chrome with remote debugging enabled.`, { cause }); }
     if (!response.ok) throw new Error(`Chrome CDP returned ${response.status}`);
     const version = parseVersion(await response.json());
     const websocket = new URL(version.webSocketDebuggerUrl);
     if (websocket.protocol !== 'ws:' || !['localhost', '127.0.0.1', '[::1]'].includes(websocket.hostname)) throw new Error('Chrome returned a non-local CDP socket');
     const socket = new WebSocket(websocket.href);
     await new Promise<void>((ready, reject) => {
-      const timeout = setTimeout(() => { socket.close(); reject(new Error('Chrome CDP connection timed out')); }, 3000);
-      socket.addEventListener('open', () => { clearTimeout(timeout); ready(); }, { once: true });
-      socket.addEventListener('error', () => { clearTimeout(timeout); reject(new Error('Could not connect to Chrome CDP')); }, { once: true });
+      const abort = () => { clean(); socket.close(); reject(signal?.reason); };
+      signal?.addEventListener('abort', abort, { once: true });
+      const timeout = setTimeout(() => { clean(); socket.close(); reject(new Error('Chrome CDP connection timed out')); }, 3000);
+      const clean = () => { clearTimeout(timeout); signal?.removeEventListener('abort', abort); };
+      socket.addEventListener('open', () => { clean(); ready(); }, { once: true });
+      socket.addEventListener('error', () => { clean(); reject(new Error('Could not connect to Chrome CDP')); }, { once: true });
+      if (signal?.aborted) { clean(); abort(); }
     });
     return new CDP(socket);
   }
@@ -89,6 +93,7 @@ class CDP implements CDPConnection {
   }
 
   request(method: string, params: object = {}, sessionId?: string): Promise<unknown> {
+    if (this.socket.readyState !== WebSocket.OPEN) return Promise.reject(new Error('Chrome CDP connection is closed'));
     const id = ++this.serial;
     return new Promise((resolveReply, reject) => {
       const timeout = setTimeout(() => { this.pending.delete(id); reject(new Error(`Chrome CDP timed out during ${method}`)); }, 5000);
@@ -108,11 +113,52 @@ const columnOffsets = new Map<string, Map<number, number>>();
 const releaseViewportExpression = `(() => { window.__showToolsReleaseViewport?.(); return true; })()`;
 const sleep = (milliseconds: number) => new Promise<void>(done => setTimeout(done, milliseconds));
 
-export async function openChart(address: string, input: unknown, connect: (address: string) => Promise<CDPConnection> = CDP.connect): Promise<{ ok: true; selectedRange: string; url: string }> {
-  const selection = parseChartSelection(input);
+const parseBrowser = Schema.decodeUnknownSync(Schema.Struct({ product: Schema.String }));
+
+export async function inspectCDP(address: string, signal?: AbortSignal): Promise<string> {
+  const connection = await CDP.connect(address, signal);
+  const abort = () => connection.close();
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    signal?.throwIfAborted();
+    const browser = parseBrowser(await connection.request('Browser.getVersion'));
+    if (!/^(HeadlessChrome|Chrome|Chromium)\//.test(browser.product)) throw new Error(`Unsupported CDP browser: ${browser.product}`);
+    parseTargets(await connection.request('Target.getTargets'));
+    return browser.product;
+  } finally { signal?.removeEventListener('abort', abort); connection.close(); }
+}
+
+export async function openSetList(address: string, url: string, signal?: AbortSignal,
+  connect: (address: string) => Promise<CDPConnection> = address => CDP.connect(address, signal)): Promise<void> {
+  const spreadsheet = new URL(url);
+  const id = spreadsheet.pathname.split('/')[3];
+  if (spreadsheet.origin !== 'https://docs.google.com' || spreadsheet.username || spreadsheet.password || !/^\/spreadsheets\/d\/[A-Za-z0-9_-]{20,}\/edit\/?$/.test(spreadsheet.pathname)) throw new Error('Expected a Google Sheets spreadsheet edit URL');
   const connection = await connect(address);
+  const abort = () => connection.close();
+  signal?.addEventListener('abort', abort, { once: true });
+  try {
+    signal?.throwIfAborted();
+    const targets = parseTargets(await connection.request('Target.getTargets'));
+    const matching = targets.targetInfos.find(target => target.type === 'page' && sameSpreadsheet(target.url, id));
+    const targetId = matching?.targetId || parseTarget(await connection.request('Target.createTarget', { url })).targetId;
+    const gid = new URLSearchParams(spreadsheet.hash.slice(1)).get('gid') ?? spreadsheet.searchParams.get('gid');
+    if (matching && gid !== null) {
+      const session = parseSession(await connection.request('Target.attachToTarget', { targetId, flatten: true }));
+      try { await connection.request('Page.navigate', { url }, session.sessionId); }
+      finally { if (!signal?.aborted) await connection.request('Target.detachFromTarget', { sessionId: session.sessionId }).catch(() => {}); }
+    }
+    await connection.request('Target.activateTarget', { targetId });
+  } finally { signal?.removeEventListener('abort', abort); connection.close(); }
+}
+
+export async function openChart(address: string, input: unknown, connect: ((address: string) => Promise<CDPConnection>) | undefined = undefined, signal?: AbortSignal): Promise<{ ok: true; selectedRange: string; url: string }> {
+  const selection = parseChartSelection(input);
+  const connection = await (connect ? connect(address) : CDP.connect(address, signal));
+  const abort = () => connection.close();
+  signal?.addEventListener('abort', abort, { once: true });
   let sessionId: string | undefined;
   try {
+    signal?.throwIfAborted();
     const targets = parseTargets(await connection.request('Target.getTargets'));
     const matching = targets.targetInfos.find(target => target.type === 'page' && sameSpreadsheet(target.url, selection.spreadsheetId));
     const base = `https://docs.google.com/spreadsheets/d/${selection.spreadsheetId}/edit`;
@@ -222,7 +268,8 @@ export async function openChart(address: string, input: unknown, connect: (addre
     if (selection.activate !== false) await connection.request('Target.activateTarget', { targetId });
     return { ok: true, selectedRange: selection.range, url: final.url };
   } finally {
-    if (sessionId) {
+    signal?.removeEventListener('abort', abort);
+    if (sessionId && !signal?.aborted) {
       await connection.request('Runtime.evaluate', { expression: releaseViewportExpression, returnByValue: true }, sessionId).catch(() => {});
       await connection.request('Target.detachFromTarget', { sessionId }).catch(() => {});
     }
@@ -257,9 +304,15 @@ export function createChartHelper({ cdp = 'http://127.0.0.1:9222', origins = ['h
       const previous = queue;
       let finish: () => void = () => {};
       queue = new Promise<void>(resolveQueue => { finish = resolveQueue; });
-      await previous;
-      try { json(200, await select(cdp, selection)); }
-      finally { finish(); }
+      const controller = new AbortController();
+      const abort = () => { if (!response.writableEnded) controller.abort(); };
+      response.on('close', abort);
+      try {
+        await previous;
+        controller.signal.throwIfAborted();
+        json(200, await select(cdp, selection, undefined, controller.signal));
+      }
+      finally { response.removeListener('close', abort); finish(); }
     } catch (error) { json(400, { error: error instanceof Error ? error.message : 'Could not select the song chart' }); }
   });
   server.requestTimeout = 20000;

@@ -10,7 +10,7 @@ Commit each verified milestone during implementation.
 
 The operator manages the Sheets helper and Chrome CDP lifecycle. Start or restart those processes only when explicitly requested. Practice audio does not require either process.
 
-Use `npm run start:cdp` for the Chromium launcher. Keep `.envrc` ignored; `.envrc.example` documents optional overrides. The Bash launcher supplies missing defaults and discovers an installed browser. The helper reads the same CDP port environment variable. Start processes only on explicit operator request.
+Use `./show-tools sheets [song-slug-or-1-indexed-number] [--no-cdp] [--skip-open]` for combined Sheets following. Keep `npm run start:cdp` available for standalone browser management. Keep `.envrc` ignored; `.envrc.example` documents optional overrides. The Bash launcher supplies missing defaults and discovers an installed browser. The helper reads the same CDP port environment variable. Start processes only on explicit operator request.
 
 Use Effect where it improves asynchronous workflows, resource cleanup, error handling, and external input validation. Keep audio-thread DSP and beat dispatch synchronous and free of Effect runtime work.
 

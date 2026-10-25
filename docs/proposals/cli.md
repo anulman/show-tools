@@ -1,6 +1,6 @@
 # A CLI for Sheets following
 
-Status: README-driven prototype. The `show-tools` commands below are proposed and do not run yet. Today's working commands remain documented in [Select the current chart column](../../scripts/open-chart.md).
+Status: historical README-driven prototype. The implemented interface uses `--no-cdp` and `--skip-open`, accepts a song slug or 1-indexed set-list number, opens `SHOW_TOOLS_SET_LIST_URL` when no song is supplied, and binds the helper before acquiring a browser. See the [current CLI guide](../../scripts/open-chart.md) for commands that run today. The examples below preserve the original proposal.
 
 ## Start Sheets following
 

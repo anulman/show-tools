@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+entry="${BASH_SOURCE[0]}"
+while [[ -L "$entry" ]]; do
+  directory="$(cd -P "$(dirname "$entry")" && pwd)"
+  entry="$(readlink "$entry")"
+  [[ "$entry" = /* ]] || entry="$directory/$entry"
+done
+cd "$(dirname "$entry")"
+source scripts/chart-env.sh
+exec node --import tsx scripts/show-tools.ts "$@"

@@ -4,3 +4,4 @@
 # export SHOW_TOOLS_CDP_PORT="9222"
 # export SHOW_TOOLS_CDP_PROFILE="/tmp/show-tools-sheets-cdp"
 # export SHOW_TOOLS_PRACTICE_ORIGIN="http://127.0.0.1:8082"
+# export SHOW_TOOLS_SET_LIST_URL="https://docs.google.com/spreadsheets/d/1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg/edit"

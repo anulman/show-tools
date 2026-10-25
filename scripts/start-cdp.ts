@@ -14,22 +14,26 @@ export function chromiumCommand(env: NodeJS.ProcessEnv = process.env) {
     `--user-data-dir=${profile}`, '--no-first-run', '--no-default-browser-check'] };
 }
 
-export async function startCDP(env: NodeJS.ProcessEnv = process.env) {
+export async function spawnCDP(env: NodeJS.ProcessEnv = process.env) {
   const command = chromiumCommand(env);
   await mkdir(command.profile, { recursive: true });
   const child = spawn(command.executable, command.args, { stdio: 'inherit' });
+  const exited = new Promise<Error>(done => {
+    child.once('error', done);
+    child.once('exit', (code, signal) => done(new Error(`Chromium exited with ${signal || code}.`)));
+  });
+  return { child, exited };
+}
+
+export async function startCDP(env: NodeJS.ProcessEnv = process.env) {
+  const { child, exited } = await spawnCDP(env);
   const interrupt = () => { child.kill('SIGINT'); };
   const terminate = () => { child.kill('SIGTERM'); };
   process.on('SIGINT', interrupt);
   process.on('SIGTERM', terminate);
   try {
-    await new Promise<void>((done, reject) => {
-      child.once('error', reject);
-      child.once('exit', (code, signal) => {
-        if (code === 0 || signal === 'SIGINT' || signal === 'SIGTERM') done();
-        else reject(new Error(`Chromium exited with ${signal || code}.`));
-      });
-    });
+    const error = await exited;
+    if (child.exitCode !== 0 && child.signalCode !== 'SIGINT' && child.signalCode !== 'SIGTERM') throw error;
   } finally {
     process.removeListener('SIGINT', interrupt);
     process.removeListener('SIGTERM', terminate);
