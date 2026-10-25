@@ -6,7 +6,7 @@ extern "C" {
 #endif
 
 typedef struct st_engine st_engine;
-enum { ST_CHANNELS = 32, ST_VARIANTS = 16, ST_HITS = 16 };
+enum { ST_CHANNELS = 32, ST_VARIANTS = 16, ST_HITS = 16, ST_MAX_VOICES = 128 };
 enum st_sample_rate_limits { ST_MIN_SAMPLE_RATE = 1, ST_MAX_SAMPLE_RATE = 384000 };
 enum st_trigger_flags { ST_LOOP = 1, ST_TRIM_START = 2 };
 enum st_reason { ST_ACTIVE = 0, ST_PREPARED = 1, ST_LIMIT = 2 };

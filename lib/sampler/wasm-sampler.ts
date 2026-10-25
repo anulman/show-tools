@@ -10,6 +10,7 @@ export class SampleEngine {
   readonly sampleRate: number;
   readonly maxVoices: number;
   readonly handle: number;
+  readonly ownsHandle: boolean;
   readonly ids: string[] = [];
   readonly variantKeys = new Map<string, string[]>();
   readonly scratch: number;
@@ -21,19 +22,20 @@ export class SampleEngine {
   readonly right: Float32Array;
   disposed = false;
 
-  constructor({ api, sampleRate, maxVoices = 32, maxSlots = 8, maxSeconds = 30 }: {
-    api: WebAssembly.Exports; sampleRate: number; maxVoices?: number; maxSlots?: number; maxSeconds?: number;
+  constructor({ api, sampleRate, maxVoices = 32, maxSlots = 8, maxSeconds = 30, handle }: {
+    api: WebAssembly.Exports; sampleRate: number; maxVoices?: number; maxSlots?: number; maxSeconds?: number; handle?: number;
   }) {
     if (!Number.isFinite(sampleRate) || sampleRate < ST.MIN_SAMPLE_RATE || sampleRate > ST.MAX_SAMPLE_RATE) throw new Error('Invalid sample rate');
-    if (!Number.isInteger(maxVoices) || maxVoices < 1) throw new Error('Invalid voice limit');
-    if (!Number.isInteger(maxSlots) || maxSlots < 1) throw new Error('Invalid recording slot limit');
+    if (!Number.isInteger(maxVoices) || maxVoices < 1 || maxVoices > ST.MAX_VOICES) throw new Error('Invalid voice limit');
+    if (!Number.isInteger(maxSlots) || maxSlots < 1 || maxSlots > ST.CHANNELS) throw new Error('Invalid recording slot limit');
     if (!Number.isFinite(maxSeconds) || maxSeconds <= 0 || maxSeconds > 30) throw new Error('Invalid recording limit');
     if (!(api.memory instanceof WebAssembly.Memory)) throw new Error('Sampler WASM memory is unavailable');
     this.api = api;
     this.memory = api.memory;
     this.sampleRate = sampleRate;
     this.maxVoices = maxVoices;
-    this.handle = this.call('st_create', sampleRate, maxVoices, maxSlots, maxSeconds);
+    this.ownsHandle = handle === undefined;
+    this.handle = handle ?? this.call('st_create', sampleRate, maxVoices, maxSlots, maxSeconds);
     if (!this.handle) throw new Error('Could not create C++ sampler');
     const allocated: number[] = [];
     try {
@@ -47,7 +49,7 @@ export class SampleEngine {
       this.right = new Float32Array(this.memory.buffer, this.rightPointer, BLOCK);
     } catch (error) {
       for (const pointer of allocated) this.invoke('free', pointer);
-      this.invoke('st_destroy', this.handle);
+      if (this.ownsHandle) this.invoke('st_destroy', this.handle);
       throw error;
     }
   }
@@ -131,7 +133,7 @@ export class SampleEngine {
   isLooping(id: string) { const index = this.index(id, false); return index >= 0 && this.call('st_is_looping', this.handle, index) === 1; }
   hasVariant(id: string, key: string) { const index = this.index(id, false), variant = this.variant(id, key); return index >= 0 && variant >= 0 && this.call('st_has', this.handle, index, variant) === 1; }
   sliceSlots(id: string, key?: string) { const index = this.index(id, false), variant = this.variant(id, key); return index < 0 || variant === -2 ? 0 : this.call('st_slice_count', this.handle, index, variant); }
-  hasSlice(id: string, slice: number, key?: string) { const index = this.index(id, false), variant = this.variant(id, key); return index >= 0 && variant !== -2 && Number.isInteger(slice) && slice >= 0 && this.call('st_has_slice', this.handle, index, slice, variant) === 1; }
+  hasSlice(id: string, slice: number, key?: string) { const index = this.index(id, false), variant = this.variant(id, key); return index >= 0 && variant !== -2 && Number.isInteger(slice) && slice >= 0 && slice < ST.HITS && this.call('st_has_slice', this.handle, index, slice, variant) === 1; }
 
   sampleFor(id: string, key?: string) {
     const index = this.index(id, false), variant = this.variant(id, key);
@@ -216,7 +218,7 @@ export class SampleEngine {
 
   dispose() {
     if (this.disposed) return;
-    this.invoke('st_destroy', this.handle);
+    if (this.ownsHandle) this.invoke('st_destroy', this.handle);
     for (const pointer of [this.scratch, this.inputPointer, this.leftPointer, this.rightPointer]) this.invoke('free', pointer);
     this.disposed = true;
   }
@@ -227,7 +229,7 @@ export class SampleRecorder {
   readonly sampleRate: number;
   readonly maxSeconds: number;
   readonly maxSlots: number;
-  readonly reasons: (string | null)[] = [null, 'prepared', 'limit'];
+  readonly reasons: (string | null)[] = [null, 'prepared', 'limit', 'stopped', 'reset', 'microphone-off', 'disposed'];
 
   constructor({ sampleRate, sampler, maxSeconds = 30, maxSlots = 8 }: { sampleRate: number; sampler: SampleEngine; maxSeconds?: number; maxSlots?: number }) {
     if (!Number.isFinite(sampleRate) || sampleRate <= 0 || sampleRate !== sampler.sampleRate) throw new Error('Invalid recording sample rate');

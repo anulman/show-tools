@@ -7,7 +7,7 @@
 #include <new>
 
 namespace {
-constexpr int kMaxVoices = 128;
+constexpr int kMaxVoices = ST_MAX_VOICES;
 constexpr double kMaxFrame = 9007199254740991.0;
 struct Slice { bool present = false; double start = 0, end = 0, target = 0; };
 struct Window {

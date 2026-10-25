@@ -1,17 +1,13 @@
 export class PerformanceProcessor extends AudioWorkletProcessor {
   sampler: import('../../../lib/sampler/wasm-sampler.js').SampleEngine;
   recorder: import('../../../lib/sampler/wasm-sampler.js').SampleRecorder;
-  sequencer: import('../../../lib/sequencer/audio-sequence-engine.js').AudioSequenceEngine;
+  sequencer: import('../../../lib/sequencer/wasm-sequencer.js').AudioSequenceEngine;
+  native: import('../../../lib/performance/wasm-performance.js').NativePerformance;
   performancePort: MessagePort | null;
   disposed: boolean;
-  clickEnabled: boolean;
-  clickStartFrame: number;
   processedFrames: number;
-  activeClick: Float32Array;
-  clicks: Float32Array[];
+  nativeMode(): number;
   initializeOutput(options: object): void;
   performanceState(): object;
   command(message: { id: number; command: string; payload?: unknown }): void;
-  onBeat(id: number, frame: number, epoch: number): void;
-  onTimelineReset(epoch: number, beatId: number): void;
 }

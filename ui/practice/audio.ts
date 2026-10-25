@@ -35,12 +35,11 @@ export class PracticeAudio {
     let tracker: BeatTracker | undefined;
     const sessionId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try {
-      tracker = await BeatTracker.create({ startingBpm: chart.bpm,
+      tracker = await BeatTracker.create({
         wasmUrl: new URL('./wasm/manual-clock.wasm', import.meta.url),
         workletUrl: new URL('./practice-worklet.js', import.meta.url), processorName: 'practice', outputChannels: 2,
         processorOptions: { practice: { bpm: chart.bpm, beatsPerBar: chart.beatsPerBar, runId: `${sessionId}-ready`,
           barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program } } });
-      await tracker.setManual();
       const channel = new MessageChannel();
       tracker.node.port.postMessage({ type: 'performance-connect', port: channel.port2 }, [channel.port2]);
       const endpoint = new AudioEndpoint(channel.port1);
@@ -159,8 +158,6 @@ export class PracticeAudio {
     if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Tempo must be between 40 and 240 BPM');
     const generation = ++this.startGeneration;
     await this.tracker.resume();
-    if (generation !== this.startGeneration) return this.snapshot();
-    await this.tracker.setManualBpm(bpm);
     if (generation !== this.startGeneration) return this.snapshot();
     return this.request('practice.start', { ...options, bpm, runId: `${this.sessionId}-${++this.runCounter}` });
   }

@@ -6,6 +6,8 @@ deps_dir="$module_dir/deps"
 build_dir="$module_dir/build-wasm"
 dist_dir="$module_dir/dist"
 sampler_dir="$module_dir/../sampler"
+sequencer_dir="$module_dir/../sequencer"
+performance_dir="$module_dir/../performance"
 repo_dir="$module_dir/../.."
 aubio_version=0.4.9
 aubio_sha256=d48282ae4dab83b3dc94c16cf011bcb63835c1c02b515490e1883049c3d1f3da
@@ -18,7 +20,9 @@ done
 mkdir -p "$deps_dir" "$build_dir/aubio" "$build_dir/include/aubio" "$dist_dir"
 export EM_CACHE="${EM_CACHE:-$build_dir/emscripten-cache}"
 node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts"
-exports="$(node --import tsx "$repo_dir/scripts/wasm-exports.ts" "$module_dir/include/beat_tracker.h" "$sampler_dir/include/sample_engine.h")"
+node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$sequencer_dir/include/audio_sequence_engine.h" "$sequencer_dir/wasm-abi.ts" SQ
+node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$performance_dir/include/performance_engine.h" "$performance_dir/wasm-abi.ts" PF
+exports="$(node --import tsx "$repo_dir/scripts/wasm-exports.ts" "$module_dir/include/beat_tracker.h" "$sampler_dir/include/sample_engine.h" "$sequencer_dir/include/audio_sequence_engine.h" "$performance_dir/include/performance_engine.h")"
 if [[ ! -f "$archive" ]]; then
     curl --fail --location --retry 2 "https://aubio.org/pub/aubio-$aubio_version.tar.bz2" -o "$archive.part"
     mv "$archive.part" "$archive"
@@ -63,8 +67,8 @@ for relative in "${engine_sources[@]}"; do
     sources+=("$module_dir/src/$relative")
 done
 em++ -O3 -std=c++17 -fno-exceptions \
-    -I"$module_dir/include" -I"$sampler_dir/include" -I"$build_dir/include" -I"$aubio_dir/src" \
-    "${sources[@]}" "$sampler_dir/src/sample_engine.cpp" "$build_dir/libaubio.a" \
+    -I"$module_dir/include" -I"$sampler_dir/include" -I"$sequencer_dir/include" -I"$performance_dir/include" -I"$build_dir/include" -I"$aubio_dir/src" \
+    "${sources[@]}" "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$build_dir/libaubio.a" \
     --no-entry -sSTANDALONE_WASM=1 -sFILESYSTEM=0 -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 \
     -sINITIAL_MEMORY=268435456 -sSTACK_SIZE=1048576 \
     "-sEXPORTED_FUNCTIONS=$exports" \
@@ -73,7 +77,7 @@ em++ -O3 -std=c++17 -fno-exceptions \
 emcc --version > "$dist_dir/compiler.txt"
 cp "$aubio_dir/COPYING" "$dist_dir/aubio-COPYING.txt"
 cat > "$dist_dir/build.json" <<EOF
-{"aubio":"$aubio_version","aubioArchiveSha256":"$aubio_sha256","fft":"ooura","precision":"float","sampler":"cpp","initialMemory":268435456,"memoryGrowth":false}
+{"aubio":"$aubio_version","aubioArchiveSha256":"$aubio_sha256","fft":"ooura","precision":"float","sampler":"cpp","performance":"cpp","initialMemory":268435456,"memoryGrowth":false}
 EOF
 node --input-type=module - "$dist_dir/beat-tracker.wasm" <<'EOF'
 import { readFileSync } from 'node:fs';

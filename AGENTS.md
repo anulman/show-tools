@@ -4,9 +4,11 @@ Read `docs/architecture.md` for current ownership and audio flow. Use `docs/deve
 
 Use TypeScript for new JavaScript scripting. Keep browser UIs under `ui/` and low-level audio modules and hardware services under `lib/`. The practice desk is the supported browser UI. Do not restore the retired demo pages.
 
-The audio engine owns sample storage, capture, triggering, and playback in shared C++ under `lib/sampler/`, compiled into the clock WASM module for browser practice and as a native library for the EliteDesk. `lib/sampler/wasm-sampler.ts` is a bridge, not a second PCM engine. Keep sample DSP in C++. Generic sequencing and song transport remain JavaScript and TypeScript worklet code. Native device hosting and hardware controls remain future work.
+The complete musical engine runs in shared C++ under `lib/performance/`, `lib/sequencer/`, `lib/sampler/`, and `lib/beat-tracker/`. It owns clock advancement, transport, sequencing, chart actions, capture, playback, mixing, and click generation. Browser worklets pass blocks and controls to `pf_process()` through TypeScript bridges. Keep musical decisions and DSP in C++; do not restore JavaScript beat handlers or scheduling fallbacks. Song scripts supply declarative instructions. Native device hosting, compiled-song loading, and hardware controls remain future work.
 
 Commit each verified milestone during implementation.
+
+The operator manages the Sheets helper and Chrome CDP lifecycle. Start or restart those processes only when explicitly requested. Practice audio does not require either process.
 
 Use Effect where it improves asynchronous workflows, resource cleanup, error handling, and external input validation. Keep audio-thread DSP and beat dispatch synchronous and free of Effect runtime work.
 

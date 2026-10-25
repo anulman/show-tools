@@ -7,14 +7,16 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const generator = fileURLToPath(new URL('../generate-sampler-abi.ts', import.meta.url));
-const header = fileURLToPath(new URL('../../lib/sampler/include/sample_engine.h', import.meta.url));
 
-test('browser query constants match the authoritative C header', () => {
+test('browser query constants match the sampler, sequencer, and performance C headers', () => {
   const directory = mkdtempSync(join(tmpdir(), 'show-tools-abi-'));
   try {
     const output = join(directory, 'abi.ts');
-    execFileSync(process.execPath, ['--import', 'tsx', generator, header, output]);
-    assert.equal(readFileSync(output, 'utf8'), readFileSync(new URL('../../lib/sampler/wasm-abi.ts', import.meta.url), 'utf8'));
+    for (const [module, filename, prefix] of [['sampler', 'sample_engine.h', 'ST'], ['sequencer', 'audio_sequence_engine.h', 'SQ'], ['performance', 'performance_engine.h', 'PF']]) {
+      const header = fileURLToPath(new URL(`../../lib/${module}/include/${filename}`, import.meta.url));
+      execFileSync(process.execPath, ['--import', 'tsx', generator, header, output, prefix]);
+      assert.equal(readFileSync(output, 'utf8'), readFileSync(new URL(`../../lib/${module}/wasm-abi.ts`, import.meta.url), 'utf8'));
+    }
   } finally { rmSync(directory, { recursive: true }); }
 });
 

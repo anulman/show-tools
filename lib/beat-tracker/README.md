@@ -10,9 +10,9 @@ Install Node.js and Emscripten, then run this command from the repository root.
 npm run build:wasm
 ```
 
-The build writes `ui/practice/wasm/manual-clock.wasm` and runs its real-WASM clock tests. That module contains both the C++ clock and the [shared C++ sampler](../sampler/README.md). This target uses a no-op detector and does not link or download aubio. Microphone capture remains available in the practice desk, but it does not infer tempo from microphone input.
+The build writes `ui/practice/wasm/manual-clock.wasm` and runs its real-WASM clock tests. That module contains the [complete C++ performance engine](../performance/README.md), including the clock, sequencer, sampler, song transport, and click renderer. This target uses a no-op detector and does not link or download aubio. Microphone capture remains available in the practice desk, but it does not infer tempo from microphone input.
 
-The practice desk passes this WASM URL explicitly to its browser adapter and selects manual tempo. The combined WASM heap is fixed at 256 MiB. The audio callback does not grow memory. Sample preparation and loading report allocation failure without aborting the module or replacing the prior take.
+The practice desk passes this WASM URL explicitly to its browser adapter. Native `pf_start()` selects manual tempo and applies the starting BPM. The combined WASM heap is fixed at 256 MiB. The audio callback does not grow memory. Sample preparation and loading report allocation failure without aborting the module or replacing the prior take.
 
 ## Build the optional tempo follower
 
@@ -22,7 +22,7 @@ The full build includes aubio under GPL-3.0-or-later. Install Emscripten, Node.j
 bash lib/beat-tracker/scripts/build-wasm.sh
 ```
 
-The build downloads aubio 0.4.9, verifies its SHA-256, and builds a PCM-only static library with Ooura FFT. It writes `lib/beat-tracker/dist/beat-tracker.wasm`, includes the same C++ sampler, and retains the dependency license. Dependencies, caches, and compiled artifacts stay outside Git.
+The build downloads aubio 0.4.9, verifies its SHA-256, and builds a PCM-only static library with Ooura FFT. It writes `lib/beat-tracker/dist/beat-tracker.wasm`, includes the same complete C++ performance engine, and retains the dependency license. Dependencies, caches, and compiled artifacts stay outside Git.
 
 The full follower keeps its last accepted tempo through silence or uncertain detection. Taps, Apply BPM, and Manual take persistent control. Only Follow hands control back to audio. The practice UI does not expose automatic following.
 
@@ -40,7 +40,7 @@ lib/beat-tracker/build/beat-tracker recording.wav --bpm 120 > beats.csv
 
 Omit `--bpm` for automatic acquisition. Add `--manual` with a seed to compare detector output against a fixed clock.
 `--chunk N` changes processing block size for replay checks.
-The runner folds file channels to mono. File decoding belongs to the executable; the shared library consumes float PCM. This tracker target does not include a live device host. The sampler has a [separate native library and tests](../sampler/README.md#build-and-test-the-native-sampler).
+The runner folds file channels to mono. File decoding belongs to the executable; the shared library consumes float PCM. This tracker target does not include a live device host. The [complete native performance target](../performance/README.md#build-and-test-the-native-engine) includes a manual clock without aubio or libsndfile. The sampler also has a [separate native library and tests](../sampler/README.md#build-and-test-the-native-sampler).
 
 CSV event kinds are 1 for clock beats, 2 for raw detections, 3 for accepted observations, 4 for command acknowledgments, and 5 for state snapshots.
 Frame timestamps use the file sample rate. Raw detector time and report time are separate columns.
@@ -81,7 +81,7 @@ Create or resume audio from a user gesture. `tap()` accepts a DOM event timestam
 The adapter owns its microphone tracks and any AudioContext it creates. A supplied AudioContext remains the caller's resource.
 Clock events report immutable phase crossings. The next beat in a snapshot is a forecast that newer snapshots replace.
 `setClickEnabled(boolean)` acknowledges the output setting through `snapshot().clickEnabled`.
-The worklet synthesizes clicks from actual clock crossings, independently of main-thread polling and animation.
+The C++ performance engine synthesizes clicks from actual clock crossings, independently of main-thread polling and animation. The browser worklet transfers the rendered blocks.
 Click output never enters the detector internally. Speaker audio can still reach a physical microphone.
 Reset retains the click preference and cancels the old click tail.
 
@@ -91,8 +91,8 @@ Run the native test command above, then build the full WASM target and run these
 
 ```sh
 node lib/beat-tracker/tests/wasm_tests.mjs
-node lib/beat-tracker/tests/browser_adapter_tests.mjs
-node lib/beat-tracker/tests/worklet_audio_tests.mjs
+node --import tsx lib/beat-tracker/tests/browser_adapter_tests.mjs
+node --import tsx lib/beat-tracker/tests/worklet_audio_tests.mjs
 python3 lib/beat-tracker/scripts/generate-fixtures.py lib/beat-tracker/build/fixtures
 python3 lib/beat-tracker/scripts/verify-fixtures.py
 ```

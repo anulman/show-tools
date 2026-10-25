@@ -3,6 +3,7 @@ export const ST = Object.freeze({
   CHANNELS: 32,
   VARIANTS: 16,
   HITS: 16,
+  MAX_VOICES: 128,
   MIN_SAMPLE_RATE: 1,
   MAX_SAMPLE_RATE: 384000,
   LOOP: 1,

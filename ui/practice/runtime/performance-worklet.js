@@ -1,20 +1,13 @@
 import { BeatProcessor } from './beat-worklet.js';
-import { SampleEngine, SampleRecorder } from '../../../lib/sampler/wasm-sampler.js';
-import { AudioSequenceEngine } from '../../../lib/sequencer/audio-sequence-engine.js';
 
 export class PerformanceProcessor extends BeatProcessor {
-  initializeOutput(options) {
+  nativeMode() { return 1; }
+
+  initializeOutput() {
     this.performancePort = null;
-    this.sampler = new SampleEngine({ api: this.api, sampleRate, maxVoices: options.maxVoices ?? 32, maxSeconds: options.maxSeconds ?? 30 });
-    this.recorder = new SampleRecorder({ sampleRate, sampler: this.sampler, maxSeconds: options.maxSeconds ?? 30 });
-    this.sequencer = new AudioSequenceEngine({ beatsPerBar: options.beatsPerBar ?? 4,
-      play: (id, frame, gain, options) => this.sampler.trigger(id, frame, gain, options),
-      stopSample: id => this.sampler.stop(id),
-      hasSample: id => this.sampler.has(id),
-      prepareRecording: (id, options) => this.recorder.prepare(id, options),
-      startRecording: (id, frame) => this.recorder.start(id, frame),
-      stopRecording: (id, frame) => this.recorder.stop(id, frame),
-      isRecording: id => this.recorder.isRecording(id) });
+    this.sampler = this.native.sampler;
+    this.recorder = this.native.recorder;
+    this.sequencer = this.native.sequencer;
   }
 
   receive(message) {
@@ -91,25 +84,7 @@ export class PerformanceProcessor extends BeatProcessor {
     }
   }
 
-  onBeat(id, frame, epoch) { this.sequencer.onBeat(id, frame, epoch); }
-
-  processAudio(input, output, offset, begin, end, frameStart) {
-    this.recorder.capture(input, offset + begin, end - begin, frameStart + begin);
-    super.processAudio(input, output, offset, begin, end, frameStart);
-    this.sampler.render(output, frameStart + begin, offset + begin, end - begin);
-  }
-
-  onTimelineReset(epoch, beatId) {
-    this.sequencer.reset(beatId);
-    this.recorder.stopAll('reset');
-    this.sampler.stopAll();
-  }
-
   disposeOutput() {
-    this.sequencer.stop();
-    this.recorder.stopAll('disposed');
-    this.sampler.stopAll();
-    this.sampler.dispose();
     this.performancePort?.close();
     this.performancePort = null;
   }

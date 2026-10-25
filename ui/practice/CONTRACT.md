@@ -4,7 +4,7 @@ The practice desk is a static website. Browser audio controls and state use the 
 
 ## Timing ownership
 
-The C++ WASM clock supplies authoritative beat crossings. The same WASM module contains the C++ sampler, which owns sample PCM, capture buffers, sparse extraction, variants, active voices, and playback mixing. The worklet's JavaScript and TypeScript code owns count-in, song position, chart-action scheduling, and generic sequencing. It calls the native sampler at the selected audio frames. Rendering does not depend on UI timers or network responses.
+The C++ performance engine owns clock advancement, beat crossings, count-in, song position, chart-action execution, generic sequencing, sample capture, playback mixing, and click generation. The browser worklet transfers input and output blocks through `pf_process()` and publishes native events. It does not dispatch per-beat JavaScript callbacks. Rendering does not depend on UI timers or network responses.
 
 Transport `phase` is `idle`, `count-in`, `playing`, or `ended`. Count-in uses the chart's lead-in column and has no numbered song bar. Displayed bars and beats start at one. Program beat offsets start at zero. Every Start begins a fresh count-in. A range loop wraps without another count-in. Tempo changes are accepted while stopped.
 
@@ -12,11 +12,11 @@ Transport `phase` is `idle`, `count-in`, `playing`, or `ended`. Count-in uses th
 
 `SongScript` in `lib/performance/model.ts` contains an ID, parsed chart, `Program`, default practice range, and description. The registry in `songs/index.ts` loads each module on demand.
 
-The current scripts compile their chart's lead-in and numbered-bar control rows with `compileChartControls`. The result is `Program.controls`, containing a `CueAction` for each channel in each column. Scheduled `Program.events` are empty. Samples are not preloaded.
+The current scripts compile their chart's lead-in and numbered-bar control rows with `compileChartControls`. The result is `Program.controls`, containing a `CueAction` for each channel in each column. `NativePerformance` converts the program to copied native instruction tables while stopped. Configuration is atomic; invalid replacement data preserves the previous program. The current scripts have empty scheduled `Program.events`. Samples are not preloaded.
 
 Supported chart actions are arm, commit, commit-and-arm, stop, play, manual tap, and no action. During playback, `b` queues an action at the next bar crossing. During count-in, it targets the first song bar, including when count-in spans multiple bars. A blank cell is no action and cannot implicitly stop or play a channel. Unsupported notation is an explicit error.
 
-Manual tap cues retain their notation and beat offsets for display. They play one hit per actual control press. `&a]` identifies the final half-beat and quarter-beat of the bar, 4& and 4a. It does not schedule two automatic hits. A missed tap leaves normal loop playback unchanged. If a loop was running before a tap, the worklet resumes it at the next bar after the manual phrase.
+Manual tap cues retain their notation and beat offsets for display. They play one hit per actual control press. `&a]` identifies the final half-beat and quarter-beat of the bar, 4& and 4a. It does not schedule two automatic hits. A missed tap leaves normal loop playback unchanged. If a loop was running before a tap, C++ resumes it at the next bar after the manual phrase.
 
 ## Audio adapter
 
@@ -40,11 +40,11 @@ await audio.dispose();
 
 A pad press resolves its action from the active column. It is not a generic record toggle or loop toggle. Q/W form the upper row for L1/R1. A/S form the lower row for L2/R2. There is no foot control in the UI or control union.
 
-Each channel's `light` comes from worklet state. An unused cue pulses when its loop is inactive. Armed actions, recording, and active loops glow steadily. A queued loop stop publishes a release duration so the glow pulses with diminishing strength until the stop boundary. Completed stops and transport stops extinguish the glow. Reduced-motion mode shows static indicators instead of pulses.
+Each channel's `light` comes from native engine state. An unused cue pulses when its loop is inactive. Armed actions, recording, and active loops glow steadily. A queued loop stop publishes a release duration so the glow pulses with diminishing strength until the stop boundary. Completed stops and transport stops extinguish the glow. Reduced-motion mode shows static indicators instead of pulses.
 
 Commit starts the captured take looping at its exact boundary. Commit-and-arm also swaps in a preallocated capture buffer, so the prior take can play while the next take records. Explicit `x` stops immediately. `xb` stops at the next bar. Stop and mushroom cancel pending actions, commit active takes, and silence sample output and click. Stop also cancels a Start waiting for audio preparation.
 
-Arm and commit-and-arm cues may carry a sparse capture hint with expected beat positions and a search radius. The worklet converts these to recording-relative frames using the active BPM. The recorder detects and trims each hit during capture. Sparse loops render only extracted clips, aligned to their expected positions. Manual taps select successive clips independently. Missing clips preserve their positions and report an error before a tap interrupts the running loop. Single-hit and multi-hit cues use the same path. Continuous captures have no sparse hint.
+Arm and commit-and-arm cues may carry a sparse capture hint with expected beat positions and a search radius. C++ converts these to recording-relative frames using the active BPM. The recorder detects and trims each hit during capture. Sparse loops render only extracted clips, aligned to their expected positions. Manual taps select successive clips independently. Missing clips preserve their positions and report an error before a tap interrupts the running loop. Single-hit and multi-hit cues use the same path. Continuous captures have no sparse hint.
 
 A `{ kind: 'bar', variantKey }` capture hint retains a named whole-bar take without extraction or silence trimming. `program.barPlayback` selects retained variants at the corresponding bar downbeats. It only replaces active loops and respects recording, mute, explicit stop, and missing takes. Dance Yrself Clean uses this path for its cowbell pair and single, with automatic double-bar playback at the charted `&a` marks.
 
@@ -52,13 +52,13 @@ Each pad has a volume slider that controls its channel gain between zero and one
 
 `outputStream` mixes rendered stereo output with the main live microphone for MediaRecorder. The voice branch downmixes microphone input to mono and feeds both recording channels. Mono input keeps unity gain; stereo input uses the standard left/right average. Sample stereo remains unchanged. The microphone branch connects only to the recording destination and does not add live voice monitoring to speaker output. Stopping or replacing microphone input and disposing the audio session disconnect this branch. A recording start in progress cannot create a second recorder.
 
-The `SampleEngine` and `SampleRecorder` classes in `lib/sampler/wasm-sampler.ts` bridge audio blocks and commands to C++. They do not retain a separate JavaScript sample bank. The combined WASM heap is fixed at 256 MiB. Capture preparation or file loading can fail when that heap is full, preserving the installed take. Native render, capture, trigger, start, and commit calls do not allocate or reclaim sample memory. Preparation and loading perform allocation and deferred reclamation. JavaScript snapshots still allocate objects and arrays.
+The `NativePerformance` class in `lib/performance/wasm-performance.ts` transfers complete audio blocks and declarative song data to C++. The sampler and sequencer bridges map names and metadata to their native APIs. None retain a JavaScript musical scheduler or sample bank. `pf_abi_version()` rejects an incompatible WASM binary instead of using a JavaScript fallback. The combined WASM heap is fixed at 256 MiB. Capture preparation or file loading can fail when that heap is full, preserving the installed take. Native block processing and beat dispatch do not allocate or reclaim sample or pattern memory. Song configuration, pattern definition, capture preparation, and loading may allocate and perform deferred reclamation. JavaScript snapshots still allocate objects and arrays.
 
 Completed native WebM or MP4 recordings convert locally to stereo 192 kb/s MP3 in a separate worker. The browser capture state remains `stopping` through conversion, blocking another take and song switching. A successful export replaces the previous download. A failed export preserves the previous completed download. The lead-in is excluded by delayed recorder startup, while any enabled song click remains in the recording. Exported files and captured samples are memory-only.
 
 ## Events and desktop chart control
 
-`PracticeEvent` contains `v: 1`, `runId`, increasing `seq`, `type`, and complete practice state. Types are `state`, `beat`, `control`, and `fault`. Beat events retain their source `frame` and `sampleRate`. The adapter adds spreadsheet ID, sheet ID, numbered-bar columns, and lead-in column metadata.
+The native engine queues up to 512 immutable events containing sequence numbers, transport state, and four channel states. `NativePerformance` formats them as `PracticeEvent` with `v: 1`, a host run ID, increasing `seq`, `type`, and complete practice state. Start resets the native event sequence for the new run. Native control deduplication retains command IDs as UTF-16 code units, including Unicode and embedded NUL identity. Types are `state`, `beat`, `control`, and `fault`. Beat events retain their source `frame` and `sampleRate`. The adapter adds spreadsheet ID, sheet ID, numbered-bar columns, and lead-in column metadata.
 
 The main thread posts `{ kind: 'show-tools-performance', event }` to its own window origin. A same-window `show-tools-state-request` message returns the current snapshot envelope when audio exists.
 

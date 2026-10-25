@@ -2,7 +2,7 @@
 
 The C++ engine in [src/sample_engine.cpp](src/sample_engine.cpp) owns sample PCM, capture buffers, retained variants, active voices, resampling, gain, mute, and mixing. Its public C interface is [include/sample_engine.h](include/sample_engine.h).
 
-The [practice desk](../../ui/practice/README.md) uses that engine inside its shared audio worklet. Both WASM build scripts link it into the same module as the C++ clock. The standalone native library builds the same source without aubio.
+The [practice desk](../../ui/practice/README.md) uses that engine inside its shared audio worklet. Both WASM build scripts link it into the same module as the C++ clock, sequencer, and performance engine. The standalone native library builds the same source without aubio.
 
 ## Browser integration
 
@@ -10,7 +10,7 @@ The [practice desk](../../ui/practice/README.md) uses that engine inside its sha
 
 `AudioEndpoint` sends acknowledged commands over a MessagePort. `Sampler` attaches to an existing endpoint to decode and load audio files. Disposing that client does not close its borrowed endpoint or AudioContext.
 
-`ui/practice/audio.ts` owns microphone acquisition and demo recording output. `ui/practice/practice-worklet.ts` resolves chart actions and their musical timing. Samples begin empty and are recorded during practice. Commits start loops at the capture boundary. Generic sequencing and practice transport remain JavaScript and TypeScript code.
+`ui/practice/audio.ts` owns microphone acquisition and demo recording output. The [C++ performance engine](../performance/README.md) resolves chart actions and musical timing. Its `pf_process()` call executes capture, sequencing, playback, and click rendering. The practice worklet routes commands and formats native events. Samples begin empty and are recorded during practice. Commits start loops at the capture boundary.
 
 Loop playback keeps the source speed. It does not stretch after a tempo change. Sparse capture detects attacks near hinted positions, trims tails against the pre-hit noise floor, and renders extracted clips at the expected beat positions. Competing sources or a sudden noise change can still confuse detection. Whole-bar capture hints retain all PCM and silence. Dance Yrself Clean uses those hints for its cowbell variants.
 

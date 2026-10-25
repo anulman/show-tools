@@ -2,13 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { SampleEngine, SampleRecorder } from '../../../lib/sampler/wasm-sampler.ts';
-import { AudioSequenceEngine } from '../../../lib/sequencer/audio-sequence-engine.js';
-import { PracticeEngine } from '../practice-engine.js';
+import { NativePerformance } from '../../../lib/performance/wasm-performance.ts';
 import { CONTROL_IDS } from '../../../lib/performance/model.js';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
 import { loadSong } from '../../../songs/index.ts';
 import { SampleEngine as TestSampleEngine } from '../../../lib/sampler/tests/support/wasm-runtime.ts';
+import { withoutPerformanceExports } from './support/wasm-exports.ts';
 
 const rate = 8000;
 const program = { lengthBeats: 16, events: Array.from({ length: 16 }, (_, atBeat) => [
@@ -26,7 +25,8 @@ const controls = () => {
   return { leadIn, bars };
 };
 const origin = 13579;
-const wasm = await WebAssembly.compile(await readFile(new URL('../wasm/manual-clock.wasm', import.meta.url)));
+const wasmBytes = await readFile(new URL('../wasm/manual-clock.wasm', import.meta.url));
+const wasm = await WebAssembly.compile(wasmBytes);
 const sources = await Promise.all(['../runtime/beat-worklet.js', '../runtime/performance-worklet.js', '../practice-worklet.ts']
   .map(async path => (await sourceForVM(new URL(path, import.meta.url))).replace(/^import .*;\n/gm, '').replace(/export class /g, 'class ')));
 
@@ -40,16 +40,15 @@ class Harness {
     const processors = new Map();
     const messages = this.messages;
     this.sandbox = { currentFrame: origin, sampleRate: rate, WebAssembly, Float32Array, Float64Array, DataView,
-      SampleEngine, SampleRecorder, AudioSequenceEngine, PracticeEngine, CONTROL_IDS,
+      NativePerformance, CONTROL_IDS,
       AudioWorkletProcessor: class { constructor() { this.port = { postMessage: message => messages.push(message) }; } },
       registerProcessor: (name, processor) => processors.set(name, processor) };
     vm.createContext(this.sandbox);
     vm.runInContext(sources.join('\n'), this.sandbox);
-    this.processor = new (processors.get('practice'))({ processorOptions: { module: wasm, practice: { barCount, endBar: barCount, program: { ...program, controls: chartControls, barPlayback } } } });
+    this.processor = new (processors.get('practice'))({ processorOptions: { module: wasm, clickGain: audibleClick ? 1 : 0, practice: { barCount, endBar: barCount, program: { ...program, controls: { ...chartControls, bars: chartControls.bars.slice(0, barCount) }, barPlayback: barPlayback.filter(cue => cue.bar <= barCount) } } } });
     assert.equal(messages[0].type, 'ready', messages[0].message);
     assert.equal(this.processor.sampler.api.memory.buffer, this.processor.api.memory.buffer, 'sample storage shares the actual clock WASM instance');
     assert.equal(this.processor.sampler.snapshot().metadata.backend, 'cpp-wasm');
-    if (!audibleClick) for (const click of this.processor.clicks) click.fill(0);
     this.port = { start() {}, close() {}, postMessage: message => this.performance.push(message) };
     this.processor.receive({ type: 'performance-connect', port: this.port });
     if (preload) for (const sampleId of CONTROL_IDS) this.command('sample.load', { sampleId, channels: [Float32Array.from([0.5, 0.25, 0])], sampleRate: rate });
@@ -488,5 +487,64 @@ test('three cowbell presses capture whole bars and replay quiet double takes aut
   t.command('practice.control', { control: { id: 'R2' } });
   assert.equal(t.state().channels.find(channel => channel.id === 'R2').looping, false);
   assert(t.until(325000, 0).every(value => value === 0), 'automatic take changes never restart a stopped channel');
+  t.dispose();
+});
+
+
+test('a sampler-only WASM artifact fails instead of falling back to JavaScript orchestration', () => {
+  const oldModule = new WebAssembly.Module(withoutPerformanceExports(wasmBytes));
+  const exports = WebAssembly.Module.exports(oldModule).map(entry => entry.name);
+  assert(exports.includes('bt_process'));
+  assert(exports.includes('st_render'));
+  assert(!exports.includes('pf_process'));
+  const messages = [];
+  const processors = new Map();
+  const sandbox = { currentFrame: origin, sampleRate: rate, WebAssembly, Float32Array, Float64Array, DataView,
+    NativePerformance, CONTROL_IDS,
+    AudioWorkletProcessor: class { constructor() { this.port = { postMessage: message => messages.push(message) }; } },
+    registerProcessor: (name, processor) => processors.set(name, processor) };
+  vm.createContext(sandbox);
+  vm.runInContext(sources.join('\n'), sandbox);
+  new (processors.get('practice'))({ processorOptions: { module: oldModule, practice: { barCount: 8, program: { lengthBeats: 4, events: [] } } } });
+  const fault = messages.find(message => message.type === 'fault');
+  assert(fault, 'missing native performance code must prevent startup');
+  assert.match(fault.message, /pf_|performance.*(?:export|unavailable|missing)/i);
+  assert(!messages.some(message => message.type === 'ready'));
+});
+
+test('a bar-quantized arm during a multi-bar count-in waits for the first song bar', () => {
+  const t = new Harness({ countInBars: 2 });
+  t.render(4100);
+  t.command('practice.microphone', { enabled: true });
+  t.command('practice.control', { control: { id: 'R1' } });
+  t.until(35000, 0.25);
+  assert.equal(t.state().channels.find(channel => channel.id === 'R1').status, 'armed');
+  assert.equal(t.processor.recorder.slots.get('R1').frames, 0);
+  t.until(36100, 0.25);
+  const slot = t.processor.recorder.slots.get('R1');
+  const firstSongBeat = t.performance.find(message => message.event?.type === 'beat' && message.event.state.bar === 1 && message.event.state.beat === 1).event.frame;
+  assert(Math.abs(firstSongBeat - 36000) < 1e-6);
+  assert.equal(slot.startFrame, Math.ceil(firstSongBeat));
+  assert.equal(slot.frames, 36100 - Math.ceil(firstSongBeat));
+  assert.equal(t.state().bar, 1);
+  assert.equal(t.state().channels.find(channel => channel.id === 'R1').status, 'recording');
+  t.dispose();
+});
+
+test('native chart instructions remain unchanged when the uploaded JS definition is edited', () => {
+  const chartControls = controls();
+  const t = new Harness({ chartControls });
+  chartControls.leadIn.R1 = { kind: 'stop', timing: 'now' };
+  chartControls.bars[1].R1 = { kind: 'stop', timing: 'now' };
+  t.render(4100);
+  t.command('practice.microphone', { enabled: true });
+  t.command('practice.control', { control: { id: 'R1' } });
+  assert.equal(t.state().channels.find(channel => channel.id === 'R1').status, 'armed');
+  t.until(36100);
+  t.command('practice.control', { control: { id: 'R1' } });
+  assert.equal(t.state().channels.find(channel => channel.id === 'R1').status, 'stopping');
+  const rendered = t.until(53000);
+  assert(rendered.some(value => value === Math.fround(0.125)), 'the original native commit cue starts its captured loop');
+  assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, true);
   t.dispose();
 });

@@ -7,7 +7,3 @@ declare class AudioWorkletProcessor {
 }
 
 declare function registerProcessor(name: string, processor: typeof AudioWorkletProcessor): void;
-
-interface LegacySequencerSnapshot {
-  recordArms: { sampleId: string; action: 'start' | 'stop' }[];
-}

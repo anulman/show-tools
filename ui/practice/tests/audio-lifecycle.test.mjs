@@ -10,7 +10,7 @@ function deferred() {
   return { promise, resolve };
 }
 
-for (const gate of ['resume', 'tempo']) for (const action of ['stop', 'panic']) {
+for (const gate of ['resume']) for (const action of ['stop', 'panic']) {
   test(`${action} cancels a start waiting for ${gate}`, async () => {
     const waiting = deferred();
     const entered = deferred();

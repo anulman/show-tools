@@ -1,0 +1,47 @@
+# Use the native performance engine
+
+The shared C++ performance engine executes the complete instrument. It owns the clock, song transport, chart actions, generic sequencing, capture, playback, mixing, and click generation. The browser uses the same source through WASM. Read [how the instrument fits together](../../docs/architecture.md) for the audio and control flow.
+
+The public interface is [include/performance_engine.h](include/performance_engine.h). Its implementation is [src/performance_engine.cpp](src/performance_engine.cpp). The TypeScript [wasm-performance.ts](wasm-performance.ts) bridge converts declarative song data and browser blocks to that interface. It also formats native state and adds host run IDs. It does not execute musical decisions.
+
+## Build and test the native engine
+
+Install a C++17 compiler and CMake 3.20 or newer. From the repository root, run these commands.
+
+```sh
+cmake -S lib/performance -B /tmp/show-tools-performance -DCMAKE_BUILD_TYPE=Release
+cmake --build /tmp/show-tools-performance
+ctest --test-dir /tmp/show-tools-performance --output-on-failure
+```
+
+This target links a manual-tempo clock, sequencer, and sampler. It requires neither aubio nor libsndfile. Its tests process PCM without opening audio devices. The target is a library and test executable, not an EliteDesk device service.
+
+## Configure and process a song
+
+1. Create one engine with `pf_create()` in `PF_PRACTICE` mode for chart-driven performance. Practice supports four beats per bar. The tracker and generic performance modes expose narrower clock and pattern behavior. Generic sequencing accepts a configured meter.
+2. While stopped, upload the song through `pf_configure()`. The interface copies scheduled events, lead-in and numbered-bar cues, capture hints, and whole-bar variant playback assignments. Invalid replacement data preserves the previous configuration.
+3. Pass device readiness through `pf_set_microphone()`. Submit controls through `pf_control()` and channel settings through `pf_set_channel()`.
+4. Start with `pf_start()`. The engine selects manual tempo, applies the starting BPM, and begins the requested count-in and range.
+5. Clear each output block, then call `pf_process()` with mono microphone PCM and output pointers. A null input supplies silence. The engine advances time, splits the block at clock crossings, executes actions, and adds rendered PCM to the outputs.
+6. On the engine's owning thread, drain native events and tracker telemetry into a bounded host queue. Serialize and publish copied records outside the device callback. Do not use receipt time as musical time.
+7. Stop through `pf_stop()` and destroy the engine through `pf_destroy()` when the host releases it.
+
+Give one caller ownership of each engine. The component handles returned by `pf_tracker()`, `pf_sampler()`, and `pf_sequencer()` are borrowed. Do not separately advance the clock or dispatch sequencer beats while `pf_process()` owns block processing. The diagnostic `pf_on_beat()` API exercises native behavior in tests; it is not an additional scheduling path for a live host.
+
+Song scripts under `songs/` remain TypeScript modules that produce declarative instructions. C++ executes the uploaded instructions without per-beat JavaScript callbacks. A native device host must load the compiled song instructions itself. The repository does not yet implement that host, its song-file loader, physical controls, or relay producer.
+
+## Preserve state and command identity
+
+The event queue holds 512 records. Each record contains an immutable transport snapshot and four channel snapshots. Overflow retains recent events and increments the drop count. Start clears prior-run events and resets the native sequence. The host adds its run ID and chart metadata when publishing the existing event protocol.
+
+`pf_control()` receives command IDs as explicit UTF-16 code units and a length. IDs contain at most 200 units. Native deduplication preserves Unicode, lone surrogate, and embedded NUL identity. A null pointer with zero length omits the ID. The browser bridge validates string length before crossing the WASM boundary.
+
+Configuration and pattern definitions are copied. Active and queued pattern versions keep their prior definition when the same pattern ID is redefined. A stopped channel stays stopped when a song's automatic variant assignment is reached.
+
+## Keep processing separate from preparation
+
+The browser module has a fixed 256 MiB heap and disables growth. `pf_process()` and native beat dispatch use prepared buffers and fixed queues. Song configuration, pattern definition, capture preparation, and file loading are command-time operations that may allocate. Native reset operations that replace analyzer state also belong outside the audio callback.
+
+The C header defines query layouts and the performance ABI version. The build generates `wasm-abi.ts` from that header and derives exported function names from the public headers. The browser checks `pf_abi_version()` before constructing the engine. Rebuild both the WASM artifact and browser bundle after an interface change.
+
+The browser still owns device access and the separate live-voice demo recording route. MP3 export runs after capture in its own worker. The native engine does not open a microphone, monitor live voice, encode MP3, host a UI, or start the future relay.
