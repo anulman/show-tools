@@ -56,7 +56,7 @@ export class PracticeProcessor extends PerformanceProcessor {
   }
 
   practiceState(): PracticeState {
-    const looping = CONTROL_IDS.filter(id => this.sampler.voices.some(voice => voice.sample?.id === id && voice.loop));
+    const looping = CONTROL_IDS.filter(id => this.sampler.isLooping(id));
     const channels = CONTROL_IDS.map(id => {
       const channel = this.sampler.channels.get(id);
       const ready = this.sampler.has(id);
@@ -172,7 +172,7 @@ export class PracticeProcessor extends PerformanceProcessor {
       if (slice !== undefined && !this.sampler.hasSlice(id, slice, variant)) {
         throw new Error(`Hit ${slice + 1} was not detected. Record this channel again near its charted beats.`);
       }
-      if (this.sampler.voices.some(voice => voice.sample?.id === id && voice.loop)) {
+      if (this.sampler.isLooping(id)) {
         this.resumeLoops.set(id, this.nextBarBeatId());
       }
       this.sequencer.silence(id);
@@ -335,13 +335,13 @@ export class PracticeProcessor extends PerformanceProcessor {
     if (!result.stopped && result.downbeat) for (const cue of this.barPlayback) {
       if (cue.bar !== this.practice.bar || this.suppressedChannels.has(cue.channelId)
         || this.recorder.isRecording(cue.channelId) || !this.sampler.hasVariant(cue.channelId, cue.variantKey)) continue;
-      const playing = this.sampler.voices.some(voice => voice.sample?.id === cue.channelId && voice.loop);
+      const playing = this.sampler.isLooping(cue.channelId);
       if (playing) this.sampler.trigger(cue.channelId, Math.ceil(frame), 1, { loop: true, variant: cue.variantKey });
     }
     if (result.stopped) this.silence();
     else for (const trigger of result.triggers) {
       const sampleId = trigger.sampleId;
-      const looping = this.sampler.voices.some(voice => voice.sample?.id === sampleId && voice.loop);
+      const looping = this.sampler.isLooping(sampleId);
       if (this.sampler.has(sampleId) && !looping && !this.suppressedChannels.has(sampleId) && !this.recorder.isRecording(sampleId)
         && this.sequencer.recordArms.get(sampleId)?.action !== 'start') {
         this.sampler.trigger(sampleId, frame, trigger.gain ?? 1);

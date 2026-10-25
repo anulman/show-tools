@@ -1,6 +1,6 @@
 export class PerformanceProcessor extends AudioWorkletProcessor {
-  sampler: import('../../../lib/sampler/sample-engine.js').SampleEngine;
-  recorder: import('../../../lib/sampler/sample-recorder.js').SampleRecorder;
+  sampler: import('../../../lib/sampler/wasm-sampler.js').SampleEngine;
+  recorder: import('../../../lib/sampler/wasm-sampler.js').SampleRecorder;
   sequencer: import('../../../lib/sequencer/audio-sequence-engine.js').AudioSequenceEngine;
   performancePort: MessagePort | null;
   disposed: boolean;

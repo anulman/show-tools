@@ -14,7 +14,7 @@ Open <http://127.0.0.1:8082/ui/practice/>. Dance Yrself Clean starts at 98 BPM w
 
 Sample slots start empty. Start practice opens the microphone and records the demo output automatically. Press each pad when its active chart column calls for an action. The first R1 capture is armed during the count-in and committed from bar 2. Read the [practice guide](ui/practice/README.md) for the exact sequence and recording steps.
 
-The build requires Node.js and Emscripten's `em++`. It produces static files in `dist/`. `npm start` serves those files with Python's HTTP server. Audio and controls use the local WASM/worklet bridge. Practice has no relay dependency.
+The build requires Node.js and Emscripten's `em++`. It produces static files in `dist/`. `npm start` serves those files with Python's HTTP server. The C++ clock and sampler share one WASM module. C++ owns captured PCM and sample playback; JavaScript and TypeScript worklet code own sequencing and song transport. Audio and controls use the local WASM/worklet bridge. Practice has no relay dependency.
 
 For mobile practice, publish `dist/` on an HTTPS static host and open `/ui/practice/`. The page caches its files for offline use after its first load. Physical-phone behavior remains unverified.
 
@@ -26,7 +26,7 @@ For mobile practice, publish `dist/` on an HTTPS static host and open `/ui/pract
 | [ui/practice](ui/practice/README.md) | Practice desk, browser audio adapter, and worklets |
 | [ui/practice/sheets-extension](ui/practice/sheets-extension/README.md) | Deterministic local Chrome chart follower |
 | [lib/beat-tracker](lib/beat-tracker/README.md) | C++ clock, optional tempo detector, and WASM builds |
-| [lib/sampler](lib/sampler/README.md) | PCM playback and capture |
+| [lib/sampler](lib/sampler/README.md) | Shared C++ PCM capture and playback, native tests, and WASM bridge |
 | [lib/sequencer](lib/sequencer/README.md) | Beat routing and quantized audio scheduling |
 | [lib/relay](lib/relay/README.md) | Standalone relay for a future hardware producer |
 

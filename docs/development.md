@@ -14,7 +14,7 @@ git worktree add ../show-tools-elitedesk -b work/elitedesk
 
 Run those commands after the handoff documentation commit lands. Start each session in its assigned directory. Commit verified milestones there. Integrate one branch at a time and rerun the affected checks after resolving overlaps.
 
-Assign one owner to a shared contract change before editing it. The likely overlap points are `lib/performance/model.ts`, `ui/practice/audio.ts`, `ui/practice/practice-worklet.ts`, `ui/practice/app.ts`, and `scripts/build-ui.ts`. Separate worktrees prevent accidental overwrites. They do not resolve conflicting designs for these files.
+Assign one owner to a shared contract change before editing it. The likely overlap points are `lib/sampler/include/sample_engine.h`, `lib/sampler/wasm-sampler.ts`, `lib/performance/model.ts`, `ui/practice/audio.ts`, `ui/practice/practice-worklet.ts`, `ui/practice/app.ts`, and `scripts/build-ui.ts`. Separate worktrees prevent accidental overwrites. They do not resolve conflicting designs for these files.
 
 Treat the Sheets helper and its Chrome profile as shared state too. Use one owner for a live chart-follow test so different practice sessions do not compete to select columns.
 
@@ -27,7 +27,7 @@ npm ci
 npm run build
 ```
 
-The full build compiles the manual clock, runs its WASM checks, bundles the browser code, and writes static assets into `dist/`. Serve that directory on a port assigned to this worktree.
+The full build compiles the C++ clock and sampler into one manual-tempo WASM module, runs its clock checks, bundles the browser code, and writes static assets into `dist/`. Run `npm test` for sampler and practice integration checks. Serve that directory on a port assigned to this worktree.
 
 ```sh
 python3 -m http.server 8084 --bind 127.0.0.1 --directory dist
@@ -43,8 +43,10 @@ For mobile checks, serve `dist/` over HTTPS. Microphone access requires a secure
 
 Read these files before choosing the processing order.
 
-- `ui/practice/runtime/performance-worklet.js` owns input capture and output mixing.
-- `lib/sampler/sample-engine.js` applies voice and channel gains while summing samples.
+- `lib/sampler/src/sample_engine.cpp` owns capture, sample storage, voice rendering, and channel gain and mute.
+- `lib/sampler/include/sample_engine.h` defines its C interface.
+- `lib/sampler/wasm-sampler.ts` bridges browser blocks and commands to the C++ engine.
+- `ui/practice/runtime/performance-worklet.js` connects that bridge to the worklet and sequencer.
 - `ui/practice/audio.ts` owns the separate recording-only live microphone branch.
 - `ui/practice/practice-worklet.ts` owns controls, quantized actions, Stop, and Panic.
 - `lib/performance/model.ts` owns shared commands and state shapes.
@@ -53,7 +55,7 @@ Define which audio a patch processes before connecting controls. Distinguish cap
 
 Keep song assignments in `songs/`. Keep browser editors and controls in `ui/`. Put portable low-level processing under `lib/`. Prefer TypeScript for new scripting. Use Effect at asynchronous and external-data boundaries where it helps, outside synchronous rendering and beat dispatch.
 
-Coordinate patch DSP with the shared C++ engine target. Sample storage, capture, triggering, and playback must migrate from JavaScript into C++, compiled to WASM for browser practice and natively for the EliteDesk. Use the existing JavaScript engines as a behavioral reference rather than extending them as the permanent audio backend.
+Implement sample DSP in the shared C++ engine so WASM practice and the native EliteDesk use the same processing. Preserve the existing capture, trigger, variant, and mixer behavior. Keep preparation and allocation outside native rendering and capture calls.
 
 Verify bypass, parameter changes, stereo behavior, capture routing, and effect tails through Stop, Panic, and reset. Render real PCM in the sampler and sequencer tests. Check a browser take as well. Do not claim realtime safety from a typecheck or an encoding test.
 
@@ -75,19 +77,19 @@ Use this starting brief for a new session.
 
 ## Start the EliteDesk workstream
 
-Begin with `lib/beat-tracker/include/beat_tracker.h`, its C++ implementation, its native CMake target, and `lib/relay/README.md`. Read the JavaScript sampler, recorder, sequencer, and practice processor as the behavioral specification for the missing native pieces.
+Begin with `lib/beat-tracker/include/beat_tracker.h`, `lib/sampler/include/sample_engine.h`, their C++ implementations, their native CMake targets, and `lib/relay/README.md`. Sampling and capture already run in shared C++. Read `AudioSequenceEngine`, `PracticeEngine`, and `PracticeProcessor` as the behavioral specification for native sequencing and song transport.
 
-Establish a native manual-clock target separately from a live audio host. The current CMake configuration requires aubio and libsndfile. The browser manual-only target excludes aubio. Preserve that licensing distinction when adding native build options.
+Establish a native manual-clock target separately from a live audio host. The current tracker CMake configuration requires aubio and libsndfile. The browser manual-only target excludes aubio. Preserve that licensing distinction when adding native build options.
 
-Choose an audio-device backend and define which thread owns the clock, capture buffers, voices, and commands. One caller owns a C tracker; its functions are not thread-safe. Keep reset and fresh-audio operations that may allocate outside the processing callback. Audit native buffers, queues, and lifecycle behavior directly.
+Choose an audio-device backend and define which thread owns the clock, capture buffers, voices, and commands. One caller owns each C tracker and sampler engine. Their functions are not thread-safe. Keep reset and fresh-audio operations that may allocate outside the processing callback. Audit native buffers, queues, and lifecycle behavior directly.
 
-Build the sampler as shared C++ code and verify both its WASM and native targets. C++ must own sample PCM, capture buffers, voice triggering, and playback. The browser worklet supplies audio blocks and commands to that engine. Port behavior in units that can be compared with the existing JavaScript engine. Cover capture bounds, commit-and-autoplay, replacement capture, channel gain and mute, explicit stops, and song position. Preserve audio-frame timestamps across any event transport. A relay receipt is not a musical boundary.
+Use the existing C++ sampler and verify both its WASM and native targets. The browser worklet supplies audio blocks and commands to that engine. Port the remaining sequencing and song-transport behavior in units that can be compared with the browser implementation. Cover capture bounds, commit-and-autoplay, replacement capture, channel gain and mute, explicit stops, and song position. Preserve audio-frame timestamps across any event transport. A relay receipt is not a musical boundary.
 
 Add hardware inputs as domain controls, including debounce and knob mapping. Keep the EliteDesk focused on audio and hardware. Serve browser UIs elsewhere. Implement the hardware producer and browser hardware adapter explicitly; neither is already supplied by starting the relay.
 
 Use this starting brief for a new session.
 
-> Read AGENTS.md, docs/architecture.md, docs/development.md, lib/beat-tracker/README.md, and lib/relay/README.md. Migrate sample storage, capture, triggering, and playback into a shared C++ engine compiled to WASM for browser practice and natively for the EliteDesk. The current JavaScript sampler and sequencer are behavioral references. Start with a verified native clock and explicit device and thread ownership. Preserve current browser behavior through conformance checks. Keep UI hosting off the audio machine by default and flag copyleft choices. Commit each verified milestone.
+> Read AGENTS.md, docs/architecture.md, docs/development.md, lib/beat-tracker/README.md, lib/sampler/README.md, and lib/relay/README.md. Use the existing shared C++ clock and sampler. Port the remaining JavaScript sequencing and TypeScript song transport, then connect native audio devices and hardware controls. Establish explicit device and thread ownership. Preserve current browser behavior through conformance checks. Keep UI hosting off the audio machine by default and flag copyleft choices. Commit each verified milestone.
 
 ## Verify and report the changed behavior
 
@@ -101,14 +103,18 @@ npm run check:layout
 
 Run `npm run build` when C++ or generated assets change. Run `npm run build:ui` for browser changes after WASM exists. Tests use local sockets for relay and helper fixtures, so a sandbox that prohibits listening can cause permission failures.
 
-Use [native tracker build and test instructions](../lib/beat-tracker/README.md#build-the-native-module) for native changes. The root test command does not prove the native CMake build. Optional GPL follower checks use `npm run test:follower` after building the full follower artifact as described in the tracker guide.
+Use [native sampler build and test instructions](../lib/sampler/README.md#build-and-test-the-native-sampler) and [native tracker instructions](../lib/beat-tracker/README.md#build-the-native-module) for native changes. The root test command does not prove either native CMake build. Optional GPL follower checks use `npm run test:follower` after building the full follower artifact as described in the tracker guide.
 
 For audio changes, inspect rendered PCM and exercise the browser path that users run. For Sheets changes, observe intermediate frames as well as final selection. The earlier viewport test missed visible jumps because it checked only the final state.
 
-Record which checks ran and what remains unverified. At `86fd6ec`, the root suite passed 149 tests with two optional follower tests skipped. Typecheck, browser build, and layout checks passed. Live desktop checks covered mandatory count-in clicks, centered voice, MP3 conversion from native WebM and MP4 recordings, stereo preservation, and the CDP helper's selection transitions. Physical-phone behavior, the complete installed extension path, and EliteDesk device behavior remain unverified.
+Record which checks ran and what remains unverified. After the C++ sampler migration, the default suite passed 159 tests with two optional follower tests skipped. The follower-enabled suite passed all 161 tests. Both WASM builds, the browser build, typecheck, and layout checks passed. The standalone native sampler passed CMake tests and AddressSanitizer, undefined-behavior, and float-cast-overflow checks.
+
+A Chrome test used synthetic microphone input with the production audio adapter and worklet. C++ captured two bars at 44,100 Hz into 88,200 frames, autoplay started on bar 3, MP3 export decoded into two audible channels, and Stop left zero active voices. The WASM tests also cover DYC's three-press cowbell capture and automatic variant playback. This does not establish physical microphone quality, phone behavior, or hardware latency.
+
+Earlier desktop checks covered centered live voice, MP3 conversion from native WebM and MP4 recordings, and the CDP helper's selection transitions. Physical-phone behavior, the complete installed extension path, and EliteDesk device behavior remain unverified.
 
 ## Keep the handoff current
 
 Update the practice contract when command or state behavior changes. Update the architecture explanation when ownership or audio routing changes. Keep the module README files current for their commands. Historical `PLAN.md` and `VERIFICATION.md` files describe earlier POCs and do not override current code or tests.
 
-Keep generated output, recordings, and test artifacts out of commits. A verified source change and its relevant documentation belong in the same milestone.
+Keep compiled output, recordings, and test artifacts out of commits. `lib/sampler/wasm-abi.ts` is checked-in generated source. Regenerate it alongside C header changes. A verified source change and its relevant documentation belong in the same milestone.

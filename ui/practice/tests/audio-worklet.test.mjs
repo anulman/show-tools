@@ -2,13 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
-import { SampleEngine } from '../../../lib/sampler/sample-engine.js';
-import { SampleRecorder } from '../../../lib/sampler/sample-recorder.js';
+import { SampleEngine, SampleRecorder } from '../../../lib/sampler/wasm-sampler.ts';
 import { AudioSequenceEngine } from '../../../lib/sequencer/audio-sequence-engine.js';
 import { PracticeEngine } from '../practice-engine.js';
 import { CONTROL_IDS } from '../../../lib/performance/model.js';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
 import { loadSong } from '../../../songs/index.ts';
+import { SampleEngine as TestSampleEngine } from '../../../lib/sampler/tests/support/wasm-runtime.ts';
 
 const rate = 8000;
 const program = { lengthBeats: 16, events: Array.from({ length: 16 }, (_, atBeat) => [
@@ -47,6 +47,8 @@ class Harness {
     vm.runInContext(sources.join('\n'), this.sandbox);
     this.processor = new (processors.get('practice'))({ processorOptions: { module: wasm, practice: { barCount, endBar: barCount, program: { ...program, controls: chartControls, barPlayback } } } });
     assert.equal(messages[0].type, 'ready', messages[0].message);
+    assert.equal(this.processor.sampler.api.memory.buffer, this.processor.api.memory.buffer, 'sample storage shares the actual clock WASM instance');
+    assert.equal(this.processor.sampler.snapshot().metadata.backend, 'cpp-wasm');
     if (!audibleClick) for (const click of this.processor.clicks) click.fill(0);
     this.port = { start() {}, close() {}, postMessage: message => this.performance.push(message) };
     this.processor.receive({ type: 'performance-connect', port: this.port });
@@ -380,7 +382,7 @@ test('a single sparse replacement loops cleanly while later pair cues retain the
 });
 
 test('mixer mute preserves loop phase and gain affects an already playing voice', () => {
-  const engine = new SampleEngine({ sampleRate: rate });
+  const engine = new TestSampleEngine({ sampleRate: rate });
   engine.load('R1', [Float32Array.from([0.1, 0.2, 0.3, 0.4, 0.5])], rate);
   engine.setChannel('R1', { gain: 0.5 });
   engine.trigger('R1', 0, 1, { loop: true });

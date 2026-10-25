@@ -4,7 +4,7 @@ The practice desk is a static website. Browser audio controls and state use the 
 
 ## Timing ownership
 
-The C++ WASM clock supplies authoritative beat crossings. The audio worklet owns count-in, song position, queued chart actions, capture boundaries, and loop playback. Rendering does not depend on UI timers or network responses.
+The C++ WASM clock supplies authoritative beat crossings. The same WASM module contains the C++ sampler, which owns sample PCM, capture buffers, sparse extraction, variants, active voices, and playback mixing. The worklet's JavaScript and TypeScript code owns count-in, song position, chart-action scheduling, and generic sequencing. It calls the native sampler at the selected audio frames. Rendering does not depend on UI timers or network responses.
 
 Transport `phase` is `idle`, `count-in`, `playing`, or `ended`. Count-in uses the chart's lead-in column and has no numbered song bar. Displayed bars and beats start at one. Program beat offsets start at zero. Every Start begins a fresh count-in. A range loop wraps without another count-in. Tempo changes are accepted while stopped.
 
@@ -51,6 +51,8 @@ A `{ kind: 'bar', variantKey }` capture hint retains a named whole-bar take with
 Each pad has a volume slider that controls its channel gain between zero and one. Samples initialize at unity gain. Hardware knob events still control the selected channel. Mute changes active voices without resetting loop phase. Start requests microphone access and prepares output recording. The recorder waits through count-in and starts when the UI receives the first `playing` state. Stop, panic, and range completion finish the output take and release the microphone. Song changes dispose the old audio session before another program loads. Song click defaults off; lead-in clicks are mandatory and do not change that preference.
 
 `outputStream` mixes rendered stereo output with the main live microphone for MediaRecorder. The voice branch downmixes microphone input to mono and feeds both recording channels. Mono input keeps unity gain; stereo input uses the standard left/right average. Sample stereo remains unchanged. The microphone branch connects only to the recording destination and does not add live voice monitoring to speaker output. Stopping or replacing microphone input and disposing the audio session disconnect this branch. A recording start in progress cannot create a second recorder.
+
+The `SampleEngine` and `SampleRecorder` classes in `lib/sampler/wasm-sampler.ts` bridge audio blocks and commands to C++. They do not retain a separate JavaScript sample bank. The combined WASM heap is fixed at 256 MiB. Capture preparation or file loading can fail when that heap is full, preserving the installed take. Native render, capture, trigger, start, and commit calls do not allocate or reclaim sample memory. Preparation and loading perform allocation and deferred reclamation. JavaScript snapshots still allocate objects and arrays.
 
 Completed native WebM or MP4 recordings convert locally to stereo 192 kb/s MP3 in a separate worker. The browser capture state remains `stopping` through conversion, blocking another take and song switching. A successful export replaces the previous download. A failed export preserves the previous completed download. The lead-in is excluded by delayed recorder startup, while any enabled song click remains in the recording. Exported files and captured samples are memory-only.
 

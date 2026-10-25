@@ -1,12 +1,11 @@
 import { BeatProcessor } from './beat-worklet.js';
-import { SampleEngine } from '../../../lib/sampler/sample-engine.js';
-import { SampleRecorder } from '../../../lib/sampler/sample-recorder.js';
+import { SampleEngine, SampleRecorder } from '../../../lib/sampler/wasm-sampler.js';
 import { AudioSequenceEngine } from '../../../lib/sequencer/audio-sequence-engine.js';
 
 export class PerformanceProcessor extends BeatProcessor {
   initializeOutput(options) {
     this.performancePort = null;
-    this.sampler = new SampleEngine({ sampleRate, maxVoices: options.maxVoices ?? 32 });
+    this.sampler = new SampleEngine({ api: this.api, sampleRate, maxVoices: options.maxVoices ?? 32, maxSeconds: options.maxSeconds ?? 30 });
     this.recorder = new SampleRecorder({ sampleRate, sampler: this.sampler, maxSeconds: options.maxSeconds ?? 30 });
     this.sequencer = new AudioSequenceEngine({ beatsPerBar: options.beatsPerBar ?? 4,
       play: (id, frame, gain, options) => this.sampler.trigger(id, frame, gain, options),
@@ -110,6 +109,7 @@ export class PerformanceProcessor extends BeatProcessor {
     this.sequencer.stop();
     this.recorder.stopAll('disposed');
     this.sampler.stopAll();
+    this.sampler.dispose();
     this.performancePort?.close();
     this.performancePort = null;
   }

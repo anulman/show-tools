@@ -2,7 +2,7 @@
 
 The practice desk is a browser instrument that records your microphone into loops and plays those loops against a song chart. Its audio worklet owns musical time. The page displays that state and submits controls.
 
-This account describes the implementation at `86fd6ec`, on October 25, 2026. The [development guide](development.md) covers starting another session and dividing the next work. The [practice guide](../ui/practice/README.md) covers performing a take.
+This account describes the shared C++ sampler implementation as of October 25, 2026. The [development guide](development.md) covers starting another session and dividing the next work. The [practice guide](../ui/practice/README.md) covers performing a take.
 
 ## Musical time starts with audio frames
 
@@ -22,7 +22,7 @@ The transport and sample engines run in the same audio worklet. When a beat fall
 ```mermaid
 flowchart LR
 	clock["C++ clock compiled to WASM"] -->|"beat ID and audio frame"| transport["Practice transport"]
-	transport -->|"capture and playback at that frame"| samples["Sample capture and mixer"]
+	transport -->|"capture and playback at that frame"| samples["C++ sample capture and mixer"]
 ```
 
 The worklet receives microphone PCM and produces stereo PCM for the browser's output. The UI receives snapshots and events after audio decisions. It can stall without becoming the source of beat timing.
@@ -30,7 +30,7 @@ The worklet receives microphone PCM and produces stereo PCM for the browser's ou
 ```mermaid
 flowchart LR
 	clock["C++ clock compiled to WASM"] -->|"beat ID and audio frame"| transport["Practice transport"]
-	transport -->|"capture and playback at that frame"| samples["Sample capture and mixer"]
+	transport -->|"capture and playback at that frame"| samples["C++ sample capture and mixer"]
 	ui["Practice page"] -->|"acknowledged controls over MessagePort"| transport
 	transport -->|"state and events"| ui
 ```
@@ -39,24 +39,28 @@ This is one `AudioWorkletNode`. `PracticeProcessor`, `PerformanceProcessor`, and
 
 The main-thread [PracticeAudio adapter](../ui/practice/audio.ts) creates that processor and its local command endpoint. Tracker commands use the node's original port. Practice and sampler commands use a dedicated `MessageChannel`. This local bridge carries controls and observations without a network round trip.
 
-## The current engine spans C++ and JavaScript
+## C++ owns the samples and voices
 
-The C++ implementation owns clock phase, beat crossings, command ordering, and optional tempo detection. [The C interface](../lib/beat-tracker/include/beat_tracker.h) also supports a native caller.
+The C++ clock owns phase, beat crossings, command ordering, and optional tempo detection. [Its C interface](../lib/beat-tracker/include/beat_tracker.h) supports both WASM and native callers. The [sampler C interface](../lib/sampler/include/sample_engine.h) now provides sample storage, microphone capture, sparse-hit extraction, retained variants, voice triggering, resampling, gain, mute, and mixing.
 
-The sampler and generic sequencer are currently JavaScript. The song transport and chart-action processor are TypeScript. They execute on the audio thread alongside the WASM clock. They are not C++ modules compiled to WASM.
+Both implementations link into the same WASM module. The browser's current `manual-clock.wasm` filename is retained, but that module contains the C++ sampler as well as the clock. Captured PCM stays in the WASM heap. C++ owns the sample bank, capture buffers, and active voices.
+
+[wasm-sampler.ts](../lib/sampler/wasm-sampler.ts) is the worklet's TypeScript bridge. It maps string channel and variant names to numeric IDs, copies browser input blocks into WASM, and copies rendered output back. It also reads native metadata for state publication. Its `SampleEngine` and `SampleRecorder` classes do not implement a second PCM store or mixer. The former JavaScript implementations are removed.
+
+The generic [AudioSequenceEngine](../lib/sequencer/audio-sequence-engine.js) still schedules patterns in JavaScript. Song transport and chart-action orchestration remain TypeScript. Those components ask the C++ engine to capture or play at the frame supplied by the clock.
 
 The processor layers have different jobs:
 
 - [BeatProcessor](../ui/practice/runtime/beat-worklet.js) processes WASM blocks, drains crossings, and renders the click.
-- [PerformanceProcessor](../ui/practice/runtime/performance-worklet.js) combines `SampleRecorder`, `SampleEngine`, and `AudioSequenceEngine`.
+- [PerformanceProcessor](../ui/practice/runtime/performance-worklet.js) connects the native sampler bridge to `AudioSequenceEngine`.
 - [PracticeProcessor](../ui/practice/practice-worklet.ts) resolves chart controls, queues capture boundaries, selects variants, and publishes channel state.
 - [PracticeEngine](../ui/practice/practice-engine.ts) derives song position, range wrapping, and transport phase from clock beats.
 
-[SampleEngine](../lib/sampler/sample-engine.js) stores and mixes voices. [SampleRecorder](../lib/sampler/sample-recorder.js) captures microphone PCM. [AudioSequenceEngine](../lib/sequencer/audio-sequence-engine.js) provides reusable pattern and quantized-action scheduling. The current song scripts have empty scheduled `Program.events`; their main behavior comes from chart controls and retained-take selection.
+The current song scripts have empty scheduled `Program.events`; their main behavior comes from chart controls and retained-take selection. The standalone native sampler builds the same C++ source without aubio. EliteDesk work can use that library, but a native song transport and live device host remain to be implemented.
 
-The distinction matters for hardware preparation. Compiling the existing C++ library natively gives an EliteDesk a clock. It does not yet give it the browser's sampler, transport, or device host.
+The combined browser module has a fixed 256 MiB heap and cannot grow it during audio processing. Capture preparation and file loading allocate buffers and reclaim retired buffers. If preparation cannot allocate, it reports an error and preserves the installed take. Render, capture, start, commit, and trigger do not allocate or free sample memory. Active voices keep their old buffer when a replacement take is prepared or committed.
 
-The target architecture puts sample PCM storage, capture, voice triggering, and playback in a shared C++ engine. Browser practice runs that engine as WASM. The EliteDesk runs the same engine natively. JavaScript supplies browser input blocks, receives output blocks, and exchanges commands and state; it does not remain the owner of the sample bank or voice mixer. The current JavaScript sampler is the behavior to preserve during that migration.
+Native diagnostic queries can expose a borrowed view of PCM in the WASM heap. Those views do not transfer ownership to JavaScript. A later preparation, load, or engine disposal can invalidate them, so they are unsuitable for persistent UI storage.
 
 ## A chart supplies actions, and a press performs them
 
@@ -116,18 +120,18 @@ The intended EliteDesk owns audio processing and hardware controls. Other device
 
 A filter or patch system needs an explicit audio target. Capture currently receives raw microphone input before click and sample output. Sample voices mix directly into the stereo output. The recording-only live voice bypasses that sample mix.
 
-A sample-mix effect can process rendered sample audio, but that change alone will not process the live voice in downloads. Per-channel effects need access before channels are summed. Processing the final shared output can also affect the click. Whether a patch changes captured PCM or only playback remains a product decision. There is no patch model or effect-chain interface yet.
+A sample-mix effect can process rendered sample audio, but that change alone will not process the live voice in downloads. Per-channel effects need access before channels are summed. Processing the final shared output can also affect the click. Whether a patch changes captured PCM or only playback remains a product decision. There is no patch model or effect-chain interface yet. Sample DSP belongs beside the C++ capture and render code so browser WASM and native hardware can use the same implementation.
 
-EliteDesk work can reuse the C clock and its frame-based contract. The current native executable processes a WAV file and prints events. It is not a live audio service. Native sampler, capture, song transport, device I/O, and physical control drivers remain to be built. The current CMake target also requires aubio and libsndfile; a manual-only native target remains future work.
+EliteDesk work can reuse the C clock and its frame-based contract. The current native executable processes a WAV file and prints events. It is not a live audio service. The C++ sampler and capture library already build natively. Native song transport, live device I/O, and physical control drivers remain to be built. The current tracker CMake target requires aubio and libsndfile; a manual-only native tracker target remains future work.
 
-The C clock's `bt_process()` does not allocate, and practice WASM memory cannot grow. The full JavaScript worklet still allocates snapshots and capture buffers. A native port needs a separate realtime audit. Browser correctness tests do not prove hardware audio latency or absence of underruns.
+The C clock's `bt_process()` does not allocate. The sampler's rendering and capture calls also avoid allocation and reclamation. Preparation and loading remain command-time operations that can allocate. JavaScript worklet snapshots still allocate objects and arrays, so the whole worklet is not allocation-free. A live native host needs its own realtime audit. Browser correctness tests do not prove hardware audio latency or absence of underruns.
 
 ## Why these boundaries exist
 
 The user requested local practice without a deployed relay, UI code under `ui/`, song behavior outside the UI, and an EliteDesk focused on audio. Those instructions establish the architecture's intended direction. The implementation and corrective commits establish the current behavior.
 
-The local WASM clock keeps practice usable on a static host. Song modules keep DYC-specific rules out of generic controls. Deterministic Sheets code makes following repeatable without an LLM in the loop. Centered voice and MP3 export make the recorded demo useful outside the app. The user subsequently clarified that sample storage and playback belong in C++ for both WASM and native execution. That migration is required work, not a description of the current JavaScript sampler.
+The local WASM clock keeps practice usable on a static host. Song modules keep DYC-specific rules out of generic controls. Deterministic Sheets code makes following repeatable without an LLM in the loop. Centered voice and MP3 export make the recorded demo useful outside the app. The user clarified that sample storage and playback belong in C++ for both WASM and native execution. The shared sampler now implements that ownership. JavaScript retains browser adaptation and musical orchestration.
 
-The default manual WASM clock excludes aubio. The optional full WASM build and existing native build link GPL-3.0-or-later aubio. Effect is MIT-licensed. MP3 export uses an MIT wrapper around LGPL-2.0-or-later LAME. The [MP3 notice](../ui/practice/licenses/README.md) records that copyleft exception.
+The default manual WASM clock excludes aubio. The optional full WASM build and existing native tracker build link GPL-3.0-or-later aubio. The standalone native sampler does not use aubio. Effect is MIT-licensed. MP3 export uses an MIT wrapper around LGPL-2.0-or-later LAME. The [MP3 notice](../ui/practice/licenses/README.md) records that copyleft exception.
 
 The rationale above uses this session's explicit requirements, repository code, and commit history. It does not claim an external design review or hardware measurement. Useful changes to inspect with `git show` are `0b34710` for the practice architecture, `75f3afb` for cowbell variants, `91e45b7` for voice centering, `7eb9e09` for Sheets jitter, `fea846a` for lead-in exclusion, and `86fd6ec` for MP3 export.
