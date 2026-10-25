@@ -53,6 +53,14 @@ direnv allow
 
 `.envrc` is ignored by Git. Run `direnv allow` again after editing it. Loading it starts no processes. If your shell does not load direnv automatically, use `direnv exec . ./show-tools sheets 1`.
 
+Quote browser paths containing spaces without adding backslashes inside the quotes:
+
+```sh
+export SHOW_TOOLS_CHROMIUM_APP="/Applications/Google Chrome.app"
+```
+
+`"/Applications/Google\ Chrome.app"` retains a literal backslash and causes an `ENOENT` launch error. The launcher passes the configured path directly to the operating system without shell evaluation.
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SHOW_TOOLS_CHROMIUM_APP` | Discovered browser | Chromium-compatible macOS app bundle or executable path. |

@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { chartSettings } from '../chart-settings.js';
-import { chromiumCommand, startCDP } from '../start-cdp.js';
+import { chromiumCommand, spawnCDP, startCDP } from '../start-cdp.js';
 
 test('the Chromium launcher and Sheets helper share the configured CDP port', () => {
   const env = { SHOW_TOOLS_CHROMIUM_APP: '/Applications/Chromium.app', SHOW_TOOLS_CDP_PORT: '9333', SHOW_TOOLS_CDP_PROFILE: '/tmp/chart profile', SHOW_TOOLS_PRACTICE_ORIGIN: 'https://practice.example/' };
@@ -27,6 +27,16 @@ test('invalid launcher settings fail before a browser is started', () => {
     assert.throws(() => chartSettings({ SHOW_TOOLS_PRACTICE_ORIGIN: origin }));
   }
   assert.equal(chartSettings({}).cdp, 'http://127.0.0.1:9222');
+});
+
+test('a shell escape retained in the configured path reports how to fix envrc quoting', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'show-tools-path-'));
+  try {
+    const { exited } = await spawnCDP({ SHOW_TOOLS_CHROMIUM_APP: join(directory, 'Google\\ Chrome.app'), SHOW_TOOLS_CDP_PROFILE: join(directory, 'profile') });
+    const error = await exited;
+    assert.match(error.message, /SHOW_TOOLS_CHROMIUM_APP/);
+    assert.match(error.message, /without backslashes before spaces/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('the launcher passes literal arguments to an executable and releases signal handlers', async () => {

@@ -19,7 +19,12 @@ export async function spawnCDP(env: NodeJS.ProcessEnv = process.env) {
   await mkdir(command.profile, { recursive: true });
   const child = spawn(command.executable, command.args, { stdio: 'inherit' });
   const exited = new Promise<Error>(done => {
-    child.once('error', done);
+    child.once('error', error => {
+      if ('code' in error && error.code === 'ENOENT') {
+        const quoting = command.executable.includes('\\ ') ? ' In .envrc, quote the path without backslashes before spaces, for example SHOW_TOOLS_CHROMIUM_APP="/Applications/Google Chrome.app".' : '';
+        done(new Error(`${error.message}. Check SHOW_TOOLS_CHROMIUM_APP points to an installed browser.${quoting}`, { cause: error }));
+      } else done(error);
+    });
     child.once('exit', (code, signal) => done(new Error(`Chromium exited with ${signal || code}.`)));
   });
   return { child, exited };
