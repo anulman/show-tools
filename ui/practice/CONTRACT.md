@@ -14,7 +14,7 @@ Transport `phase` is `idle`, `count-in`, `playing`, or `ended`. Count-in uses th
 
 The current scripts compile their chart's lead-in and numbered-bar control rows with `compileChartControls`. The result is `Program.controls`, containing a `CueAction` for each channel in each column. Scheduled `Program.events` are empty. Samples are not preloaded.
 
-Supported chart actions are arm, commit, commit-and-arm, stop, play, manual tap, and no action. `b` queues an action at the next bar crossing. A blank cell is no action and cannot implicitly stop or play a channel. Unsupported notation is an explicit error.
+Supported chart actions are arm, commit, commit-and-arm, stop, play, manual tap, and no action. During playback, `b` queues an action at the next bar crossing. During count-in, it targets the first song bar, including when count-in spans multiple bars. A blank cell is no action and cannot implicitly stop or play a channel. Unsupported notation is an explicit error.
 
 Manual tap cues retain their notation and beat offsets for display. They play one hit per actual control press. `&a]` identifies the final half-beat and quarter-beat of the bar, 4& and 4a. It does not schedule two automatic hits. A missed tap leaves normal loop playback unchanged. If a loop was running before a tap, the worklet resumes it at the next bar after the manual phrase.
 
@@ -48,9 +48,11 @@ Arm and commit-and-arm cues may carry a sparse capture hint with expected beat p
 
 A `{ kind: 'bar', variantKey }` capture hint retains a named whole-bar take without extraction or silence trimming. `program.barPlayback` selects retained variants at the corresponding bar downbeats. It only replaces active loops and respects recording, mute, explicit stop, and missing takes. Dance Yrself Clean uses this path for its cowbell pair and single, with automatic double-bar playback at the charted `&a` marks.
 
-Each pad has a volume slider that controls its channel gain between zero and one. Samples initialize at unity gain. Hardware knob events still control the selected channel. Mute changes active voices without resetting loop phase. Start requests microphone access and starts output recording before launching transport. Stop, panic, and range completion finish the output take and release the microphone. Song changes dispose the old audio session before another program loads. Song click defaults off; lead-in clicks are mandatory and do not change that preference.
+Each pad has a volume slider that controls its channel gain between zero and one. Samples initialize at unity gain. Hardware knob events still control the selected channel. Mute changes active voices without resetting loop phase. Start requests microphone access and prepares output recording. The recorder waits through count-in and starts when the UI receives the first `playing` state. Stop, panic, and range completion finish the output take and release the microphone. Song changes dispose the old audio session before another program loads. Song click defaults off; lead-in clicks are mandatory and do not change that preference.
 
 `outputStream` mixes rendered stereo output with the main live microphone for MediaRecorder. The voice branch downmixes microphone input to mono and feeds both recording channels. Mono input keeps unity gain; stereo input uses the standard left/right average. Sample stereo remains unchanged. The microphone branch connects only to the recording destination and does not add live voice monitoring to speaker output. Stopping or replacing microphone input and disposing the audio session disconnect this branch. A recording start in progress cannot create a second recorder.
+
+Completed native WebM or MP4 recordings convert locally to stereo 192 kb/s MP3 in a separate worker. The browser capture state remains `stopping` through conversion, blocking another take and song switching. A successful export replaces the previous download. A failed export preserves the previous completed download. The lead-in is excluded by delayed recorder startup, while any enabled song click remains in the recording. Exported files and captured samples are memory-only.
 
 ## Events and desktop chart control
 

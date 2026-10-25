@@ -1,5 +1,7 @@
 # Show tools
 
+Start with [how the practice instrument fits together](docs/architecture.md) for the architecture and its rationale. Use [the development handoff](docs/development.md) to divide filter, UI, and EliteDesk work across sessions.
+
 Build and open the static practice desk.
 
 ```sh

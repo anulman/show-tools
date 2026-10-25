@@ -1,5 +1,7 @@
 # Project conventions
 
+Read `docs/architecture.md` for current ownership and audio flow. Use `docs/development.md` for parallel workstreams and verification. Update these guides when changing those boundaries. Historical POC plans do not describe the current implementation.
+
 Use TypeScript for new JavaScript scripting. Keep browser UIs under `ui/` and low-level audio modules and hardware services under `lib/`. The practice desk is the supported browser UI. Do not restore the retired demo pages.
 
 Commit each verified milestone during implementation.

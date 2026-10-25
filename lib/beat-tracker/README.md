@@ -56,10 +56,10 @@ All timestamps use engine sample frames; historical tap anchors can precede fram
 Reset and fresh-capture commands are immediate lifecycle operations that can allocate detector state between process calls.
 The processing callback itself uses preallocated buffers.
 
-The browser adapter is [ui/practice/runtime/beat-tracker.ts](../../ui/practice/runtime/beat-tracker.ts). The practice desk supplies its manual-only WASM URL explicitly. These source imports assume a module at the repository root that is bundled before serving.
+The browser adapter is [ui/practice/runtime/beat-tracker.js](../../ui/practice/runtime/beat-tracker.js), with TypeScript declarations beside it. The practice desk supplies its manual-only WASM URL explicitly. These source imports assume a module at the repository root that is bundled before serving.
 
 ```js
-import { BeatTracker } from './ui/practice/runtime/beat-tracker.ts';
+import { BeatTracker } from './ui/practice/runtime/beat-tracker.js';
 
 const tracker = await BeatTracker.create({
 	startingBpm: 120,
