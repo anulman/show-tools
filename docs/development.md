@@ -53,6 +53,8 @@ Define which audio a patch processes before connecting controls. Distinguish cap
 
 Keep song assignments in `songs/`. Keep browser editors and controls in `ui/`. Put portable low-level processing under `lib/`. Prefer TypeScript for new scripting. Use Effect at asynchronous and external-data boundaries where it helps, outside synchronous rendering and beat dispatch.
 
+Coordinate patch DSP with the shared C++ engine target. Sample storage, capture, triggering, and playback must migrate from JavaScript into C++, compiled to WASM for browser practice and natively for the EliteDesk. Use the existing JavaScript engines as a behavioral reference rather than extending them as the permanent audio backend.
+
 Verify bypass, parameter changes, stereo behavior, capture routing, and effect tails through Stop, Panic, and reset. Render real PCM in the sampler and sequencer tests. Check a browser take as well. Do not claim realtime safety from a typecheck or an encoding test.
 
 Use this starting brief for a new session.
@@ -79,13 +81,13 @@ Establish a native manual-clock target separately from a live audio host. The cu
 
 Choose an audio-device backend and define which thread owns the clock, capture buffers, voices, and commands. One caller owns a C tracker; its functions are not thread-safe. Keep reset and fresh-audio operations that may allocate outside the processing callback. Audit native buffers, queues, and lifecycle behavior directly.
 
-Port behavior in units that can be compared with the browser engine. Cover capture bounds, commit-and-autoplay, replacement capture, channel gain and mute, explicit stops, and song position. Preserve audio-frame timestamps across any event transport. A relay receipt is not a musical boundary.
+Build the sampler as shared C++ code and verify both its WASM and native targets. C++ must own sample PCM, capture buffers, voice triggering, and playback. The browser worklet supplies audio blocks and commands to that engine. Port behavior in units that can be compared with the existing JavaScript engine. Cover capture bounds, commit-and-autoplay, replacement capture, channel gain and mute, explicit stops, and song position. Preserve audio-frame timestamps across any event transport. A relay receipt is not a musical boundary.
 
 Add hardware inputs as domain controls, including debounce and knob mapping. Keep the EliteDesk focused on audio and hardware. Serve browser UIs elsewhere. Implement the hardware producer and browser hardware adapter explicitly; neither is already supplied by starting the relay.
 
 Use this starting brief for a new session.
 
-> Read AGENTS.md, docs/architecture.md, docs/development.md, lib/beat-tracker/README.md, and lib/relay/README.md. Prepare a native EliteDesk audio implementation without assuming the sampler or sequencer is already C++. Start with a verified native clock and explicit device and thread ownership. Preserve current browser behavior through conformance checks. Keep UI hosting off the audio machine by default and flag copyleft choices. Commit each verified milestone.
+> Read AGENTS.md, docs/architecture.md, docs/development.md, lib/beat-tracker/README.md, and lib/relay/README.md. Migrate sample storage, capture, triggering, and playback into a shared C++ engine compiled to WASM for browser practice and natively for the EliteDesk. The current JavaScript sampler and sequencer are behavioral references. Start with a verified native clock and explicit device and thread ownership. Preserve current browser behavior through conformance checks. Keep UI hosting off the audio machine by default and flag copyleft choices. Commit each verified milestone.
 
 ## Verify and report the changed behavior
 

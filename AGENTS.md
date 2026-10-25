@@ -4,6 +4,8 @@ Read `docs/architecture.md` for current ownership and audio flow. Use `docs/deve
 
 Use TypeScript for new JavaScript scripting. Keep browser UIs under `ui/` and low-level audio modules and hardware services under `lib/`. The practice desk is the supported browser UI. Do not restore the retired demo pages.
 
+The target audio engine owns sample storage, capture, triggering, and playback in shared C++, compiled to WASM for browser practice and natively for the EliteDesk. These functions currently live in JavaScript worklet engines and still need migration. Preserve their behavior while moving ownership; do not treat the current JavaScript sampler as the final backend.
+
 Commit each verified milestone during implementation.
 
 Use Effect where it improves asynchronous workflows, resource cleanup, error handling, and external input validation. Keep audio-thread DSP and beat dispatch synchronous and free of Effect runtime work.

@@ -56,6 +56,8 @@ The processor layers have different jobs:
 
 The distinction matters for hardware preparation. Compiling the existing C++ library natively gives an EliteDesk a clock. It does not yet give it the browser's sampler, transport, or device host.
 
+The target architecture puts sample PCM storage, capture, voice triggering, and playback in a shared C++ engine. Browser practice runs that engine as WASM. The EliteDesk runs the same engine natively. JavaScript supplies browser input blocks, receives output blocks, and exchanges commands and state; it does not remain the owner of the sample bank or voice mixer. The current JavaScript sampler is the behavior to preserve during that migration.
+
 ## A chart supplies actions, and a press performs them
 
 Each song is a loadable module under [songs](../songs/README.md), beside its JSON chart snapshot. `SongScript` supplies a parsed chart, a `Program`, and a practice range. The registry loads the selected module on demand.
@@ -124,7 +126,7 @@ The C clock's `bt_process()` does not allocate, and practice WASM memory cannot 
 
 The user requested local practice without a deployed relay, UI code under `ui/`, song behavior outside the UI, and an EliteDesk focused on audio. Those instructions establish the architecture's intended direction. The implementation and corrective commits establish the current behavior.
 
-The local WASM clock keeps practice usable on a static host. Song modules keep DYC-specific rules out of generic controls. Deterministic Sheets code makes following repeatable without an LLM in the loop. Centered voice and MP3 export make the recorded demo useful outside the app. The JavaScript sampler and transport are the current implementation, not evidence that their final native design has been chosen.
+The local WASM clock keeps practice usable on a static host. Song modules keep DYC-specific rules out of generic controls. Deterministic Sheets code makes following repeatable without an LLM in the loop. Centered voice and MP3 export make the recorded demo useful outside the app. The user subsequently clarified that sample storage and playback belong in C++ for both WASM and native execution. That migration is required work, not a description of the current JavaScript sampler.
 
 The default manual WASM clock excludes aubio. The optional full WASM build and existing native build link GPL-3.0-or-later aubio. Effect is MIT-licensed. MP3 export uses an MIT wrapper around LGPL-2.0-or-later LAME. The [MP3 notice](../ui/practice/licenses/README.md) records that copyleft exception.
 
