@@ -52,3 +52,5 @@ The helper uses `127.0.0.1:9223`. Its CDP URL uses `SHOW_TOOLS_CDP_PORT` on loop
 The temporary profile is separate from your normal Chrome profile. If the spreadsheet requires authentication, sign in within that window. No sign-in was needed for the supplied public chart. The helper changes selection only; it never writes cell values.
 
 Real C:C and D:D selections were verified against the supplied spreadsheet. Tests also cover reusing an existing tab, first-load redirects, trusted Name box input, request validation, and serializing overlapping requests.
+
+For a proposed single-command workflow, see the [CLI README prototype](../docs/proposals/cli.md). Its commands are not implemented yet.
