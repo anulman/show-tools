@@ -4,6 +4,7 @@ import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript } from 
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
 import { createChartFollower, openCurrentChart } from './open-chart.js';
+import { recordingToMp3 } from './recording-export.js';
 
 function requiredElement<T extends Element>(selector: string, constructor: { new(): T }, root: ParentNode = document): T {
   const element = root.querySelector(selector);
@@ -421,19 +422,31 @@ async function toggleOutputRecording() {
     const chunks: Blob[] = [];
     const activeRecorder = recorder;
     recorder.addEventListener('dataavailable', event => { if (event.data.size) chunks.push(event.data); });
-    recorder.addEventListener('stop', () => {
-      if (recordingURL) URL.revokeObjectURL(recordingURL);
-      const type = activeRecorder.mimeType || mimeType || 'audio/webm';
-      recordingURL = URL.createObjectURL(new Blob(chunks, { type }));
-      elements['download-demo'].href = recordingURL;
-      elements['download-demo'].download = `practice-${new Date().toISOString().replace(/[:.]/g, '-')}.${type.includes('mp4') ? 'm4a' : 'webm'}`;
-      elements['download-demo'].hidden = false;
-      elements['record-demo'].setAttribute('aria-pressed', 'false');
-      recordLabel.textContent = 'Record demo';
-      elements['recording-hint'].textContent = 'Take ready. Download it before leaving.';
-      outputCapture = 'idle';
+    recorder.addEventListener('stop', () => { void finalizeTake(); });
+    async function finalizeTake() {
+      outputCapture = 'stopping';
+      elements['recording-hint'].textContent = 'Preparing MP3…';
       render(state);
-    });
+      try {
+        const type = activeRecorder.mimeType || mimeType || 'audio/webm';
+        const mp3 = await recordingToMp3(new Blob(chunks, { type }));
+        if (recordingURL) URL.revokeObjectURL(recordingURL);
+        recordingURL = URL.createObjectURL(mp3);
+        elements['download-demo'].href = recordingURL;
+        elements['download-demo'].download = `practice-${new Date().toISOString().replace(/[:.]/g, '-')}.mp3`;
+        elements['download-demo'].hidden = false;
+        elements['recording-hint'].textContent = 'MP3 ready. Download it before leaving.';
+      } catch (error) {
+        elements['download-demo'].hidden = !recordingURL;
+        elements['recording-hint'].textContent = 'MP3 export failed. Please try another take.';
+        showError(error);
+      } finally {
+        elements['record-demo'].setAttribute('aria-pressed', 'false');
+        recordLabel.textContent = 'Record demo';
+        outputCapture = 'idle';
+        render(state);
+      }
+    }
     recorder.addEventListener('error', event => showError('error' in event ? event.error : new Error('Output recording failed.')));
     outputCapture = 'waiting';
     elements['record-demo'].setAttribute('aria-pressed', 'true');

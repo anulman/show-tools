@@ -106,7 +106,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
   assert.equal(recorders, 1);
 });
 
-function startupHarness(microphone = async () => {}, { autoPlay = true } = {}) {
+function startupHarness(microphone = async () => {}, { autoPlay = true, convert = async () => new Blob(['mp3'], { type: 'audio/mpeg' }) } = {}) {
   const commands = [];
   class Element {
     constructor(selector) {
@@ -135,19 +135,57 @@ function startupHarness(microphone = async () => {}, { autoPlay = true } = {}) {
     async dispose() { this.disposed = true; commands.push('dispose'); },
   };
   let creations = 0;
+  const elements = new Map();
+  const revoked = [];
   const context = {
-    Map, Set, Blob, URL: { createObjectURL: () => 'blob:test', revokeObjectURL() {} },
+    Map, Set, Blob, URL: { createObjectURL(blob) { assert.equal(blob.type, 'audio/mpeg'); return 'blob:test'; }, revokeObjectURL(url) { revoked.push(url); } },
+    recordingToMp3: convert,
     window: { isSecureContext: true, MediaRecorder: Recorder }, MediaRecorder: Recorder, CONTROLS: [],
     HTMLElement: Element, HTMLSpanElement: Element, HTMLHeadingElement: Element, HTMLAnchorElement: Element,
     HTMLDivElement: Element, HTMLButtonElement: Element, HTMLParagraphElement: Element, HTMLInputElement: Element,
     HTMLSelectElement: Element, HTMLOutputElement: Element, HTMLDetailsElement: Element,
-    document: { querySelector: selector => new Element(selector), querySelectorAll: () => [] },
+    document: { querySelector: selector => { const element = new Element(selector); elements.set(selector, element); return element; }, querySelectorAll: () => [] },
     playableBars: () => 76, PracticeAudio: { create: async () => { creations++; return audio; } },
   };
   vm.createContext(context);
   vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
-  return { commands, controls: context.controls, audio, get creations() { return creations; } };
+  return { commands, controls: context.controls, audio, elements, revoked, get creations() { return creations; } };
 }
+
+test('MP3 preparation blocks replacement takes until the download is ready', async () => {
+  const conversion = deferred();
+  const { commands, controls, elements } = startupHarness(undefined, { convert: () => conversion.promise });
+  await controls.startPractice();
+  await controls.stopPractice();
+  assert.equal(elements.get('#recording-hint').textContent, 'Preparing MP3…');
+  await controls.startPractice();
+  await controls.toggleOutputRecording();
+  assert.equal(commands.filter(command => command === 'record-start').length, 1);
+  conversion.resolve(new Blob(['mp3'], { type: 'audio/mpeg' }));
+  await new Promise(resolve => setImmediate(resolve));
+  assert.match(elements.get('#download-demo').download, /^practice-.*\.mp3$/);
+  assert.equal(elements.get('#download-demo').hidden, false);
+  await controls.startPractice();
+  assert.equal(commands.filter(command => command === 'record-start').length, 2);
+});
+
+test('failed MP3 preparation retains the previous download and permits another take', async () => {
+  let conversions = 0;
+  const { controls, commands, elements, revoked } = startupHarness(undefined, { convert: async () => {
+    if (++conversions > 1) throw new Error('Encoding failed');
+    return new Blob(['mp3'], { type: 'audio/mpeg' });
+  } });
+  await controls.startPractice();
+  await controls.stopPractice();
+  const previous = elements.get('#download-demo').download;
+  await controls.startPractice();
+  await controls.stopPractice();
+  assert.equal(elements.get('#download-demo').hidden, false);
+  assert.equal(elements.get('#download-demo').download, previous);
+  assert.deepEqual(revoked, []);
+  await controls.startPractice();
+  assert.equal(commands.filter(command => command === 'record-start').length, 3);
+});
 
 test('Start opens the microphone and records by default on every run, with song click off', async () => {
   const { commands, controls } = startupHarness();

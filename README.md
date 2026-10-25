@@ -38,4 +38,4 @@ npm test
 npm run check:layout
 ```
 
-The default practice WASM build excludes aubio. The optional microphone tempo-following build links aubio under GPL-3.0-or-later. Effect 4 is MIT-licensed. See the [dependency notice](lib/beat-tracker/README.md#dependency-notice).
+The default practice WASM build excludes aubio. The optional microphone tempo-following build links aubio under GPL-3.0-or-later. Effect 4 is MIT-licensed. MP3 downloads use the MIT-licensed `wasm-media-encoders` wrapper and its LAME WASM encoder under LGPL-2.0-or-later (copyleft). See the [MP3 dependency notice](ui/practice/licenses/README.md). See the [dependency notice](lib/beat-tracker/README.md#dependency-notice).

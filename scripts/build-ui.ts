@@ -8,7 +8,7 @@ const output = resolve(root, 'dist');
 await rm(output, { recursive: true, force: true });
 const result = await build({
   absWorkingDir: root,
-  entryPoints: ['ui/practice/app.ts', 'ui/practice/practice-worklet.ts', 'ui/practice/sw.ts'],
+  entryPoints: ['ui/practice/app.ts', 'ui/practice/practice-worklet.ts', 'ui/practice/mp3-worker.ts', 'ui/practice/sw.ts'],
   outdir: output, outbase: '.', bundle: true, splitting: true, format: 'esm', target: 'es2022',
   chunkNames: 'ui/practice/chunks/[name]-[hash]', metafile: true, sourcemap: true,
 });
@@ -33,7 +33,7 @@ async function copyAssets(directory: string): Promise<void> {
     if (['tests', 'evidence', 'wasm'].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) await copyAssets(path);
-    else if (/\.(html|css|svg|webmanifest|md)$/.test(path) || path.endsWith('sheets-extension/manifest.json')) {
+    else if (/\.(html|css|svg|webmanifest|md)$/.test(path) || path.includes('/licenses/') || path.endsWith('sheets-extension/manifest.json')) {
       const destination = resolve(output, relative(root, path));
       await mkdir(resolve(destination, '..'), { recursive: true });
       await cp(path, destination);
