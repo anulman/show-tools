@@ -2,6 +2,8 @@
 
 Start with [how the practice instrument fits together](docs/architecture.md) for the architecture and its rationale. Use [the development handoff](docs/development.md) to divide filter, UI, and EliteDesk work across sessions.
 
+For optional Sheets following, use the [CDP launcher and helper guide](scripts/open-chart.md). The Bash launcher discovers a browser and supplies defaults. An optional, ignored `.envrc` overrides the browser path, debugging port, dedicated profile, and practice origin. `npm run start:cdp` and `npm run start:sheets` start the two processes explicitly.
+
 Build and open the static practice desk.
 
 ```sh

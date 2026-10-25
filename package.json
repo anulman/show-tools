@@ -6,6 +6,7 @@
     "start": "python3 -m http.server 8082 --bind 127.0.0.1 --directory dist",
     "start:relay": "node --import tsx lib/relay/server.ts",
     "start:sheets": "node --import tsx scripts/open-chart.ts",
+    "start:cdp": "bash scripts/start-cdp.sh",
     "build": "npm run build:wasm && npm run build:ui",
     "build:ui": "node --import tsx scripts/build-ui.ts",
     "build:wasm": "bash lib/beat-tracker/scripts/build-manual-wasm.sh",

@@ -1,0 +1,6 @@
+# Optional overrides. Copy this file to .envrc and run direnv allow.
+# Without overrides, npm run start:cdp discovers Chrome or Chromium.
+# export SHOW_TOOLS_CHROMIUM_APP="/Applications/Chromium.app"
+# export SHOW_TOOLS_CDP_PORT="9222"
+# export SHOW_TOOLS_CDP_PROFILE="/tmp/show-tools-sheets-cdp"
+# export SHOW_TOOLS_PRACTICE_ORIGIN="http://127.0.0.1:8082"

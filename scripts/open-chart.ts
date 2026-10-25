@@ -2,6 +2,7 @@ import http, { type IncomingMessage, type ServerResponse } from 'node:http';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Schema } from 'effect';
+import { chartSettings } from './chart-settings.js';
 
 export const ChartSelectionSchema = Schema.Struct({
   spreadsheetId: Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_-]{20,}$/)),
@@ -267,14 +268,16 @@ export function createChartHelper({ cdp = 'http://127.0.0.1:9222', origins = ['h
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const args = process.argv.slice(2);
+  const settings = chartSettings();
   const option = (name: string, fallback: string) => args.includes(name) ? args[args.indexOf(name) + 1] || fallback : fallback;
-  const cdp = option('--cdp', 'http://127.0.0.1:9222');
+  const cdp = option('--cdp', settings.cdp);
   if (args.includes('--once')) {
     const result = await openChart(cdp, { spreadsheetId: option('--spreadsheet', ''), sheetId: Number(option('--sheet', '101')), range: option('--range', 'C:C') });
     process.stdout.write(JSON.stringify(result) + '\n');
   } else {
-    const origins = ['http://127.0.0.1:8082', 'http://localhost:8082', ...args.filter((value, index) => args[index - 1] === '--origin')];
+    const origins = ['http://127.0.0.1:8082', 'http://localhost:8082', settings.practiceOrigin, ...args.filter((value, index) => args[index - 1] === '--origin')];
     const server = createChartHelper({ cdp, origins });
-    server.listen(Number(option('--port', '9223')), '127.0.0.1', () => process.stdout.write('Local chart helper ready at http://127.0.0.1:9223. Practice audio does not use this helper.\n'));
+    const port = Number(option('--port', '9223'));
+    server.listen(port, '127.0.0.1', () => process.stdout.write(`Local chart helper ready at http://127.0.0.1:${port}. Practice audio does not use this helper.\n`));
   }
 }

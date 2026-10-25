@@ -3,3 +3,4 @@ ui/practice/wasm/
 ui/practice/evidence/
 node_modules/
 dist/
+.envrc
