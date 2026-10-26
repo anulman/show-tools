@@ -2,6 +2,8 @@
 
 Read [how the instrument fits together](architecture.md) before changing its timing or audio routes. Use the [practice contract](../ui/practice/CONTRACT.md) for commands and state, and the [practice guide](../ui/practice/README.md) to perform a take.
 
+The [four-workstream planning brief](workstreams.md) records the current priorities: slapback patches, the Performance Engine and deterministic chart compiler, peripheral management, and the Video Assistant. It supersedes the initial UI-only and audio-hosting-first assignments below.
+
 ## Give each session its own checkout
 
 Create separate worktrees before running agents concurrently. This separates source edits, the Git index, dependencies, and generated `dist/` files.
