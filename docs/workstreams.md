@@ -59,6 +59,8 @@ Before implementation, the four plans should agree on command identity, transpor
 
 Each plan should state the first useful demo, phases, tests, dependencies, assumptions and a short list of decisions that need the operator. Keep real microphone/audio checks separate from fixture tests and physical-device claims separate from simulations. Do not merge plans or branches automatically into the operator's checkout.
 
+Review the plan branches directly from the main checkout using the [Hunk review guide](plan-review.md). The operator prefers inline file comments over routing feedback through a central conversation.
+
 ## Session registry
 
 | Session | Thread ID |
