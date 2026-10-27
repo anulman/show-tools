@@ -183,7 +183,7 @@ test('native command IDs preserve Unicode code units and embedded NUL characters
   }
   performance.control({ id: 'knob', value: 0.5 }, 'name\0one');
   performance.control({ id: 'knob', value: 0.75 }, 'name\0two');
-  assert.equal(performance.state().channels.find(channel => channel.id === 'R1').gain, 0.75);
+  assert.equal(performance.state().channels.find(channel => channel.id === 'R1').gain, 1, 'relative rotation cannot change a sample channel gain');
   const events = performance.events().filter(event => event.type === 'control');
   assert.deepEqual(events.slice(-2).map(event => event.commandId), ['name\0one', 'name\0two']);
   assert.deepEqual(events.slice(0, 3).map(event => event.applied), [true, true, false]);

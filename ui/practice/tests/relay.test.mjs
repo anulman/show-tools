@@ -45,7 +45,12 @@ test('relay enforces a producer, delivers controls once, initializes late follow
     assert.equal((await post('/api/controls', { commandId: 'command-123', control: { id: 'L1' } })).status, 200);
     assert.equal((await post('/api/controls', { commandId: 'command-123', control: { id: 'L2' } })).status, 409);
     assert.equal(controls.length, 1);
-    assert.equal((await post('/api/controls', { commandId: 'command-bad', control: { id: 'knob', value: 2 } })).status, 400);
+    assert.equal((await post('/api/controls', { commandId: 'command-bad', control: { id: 'knob', value: 'invalid' } })).status, 400);
+    assert.equal((await post('/api/controls', { commandId: 'rotation-123', control: { id: 'knob', value: -2 } })).status, 202);
+    await waitFor(() => controls.length === 2);
+    assert.deepEqual(controls[1], { commandId: 'rotation-123', control: { id: 'knob', value: -2 } });
+    assert.equal((await post('/api/controls', { commandId: 'rotation-123', control: { id: 'knob', value: -2 } })).status, 200);
+    assert.equal(controls.length, 2);
     assert.equal((await post('/api/events', event('run-one', 1))).status, 202);
     const response = await fetch(url + '/api/events', { headers, signal: abort.signal });
     const readingEvents = readEvents(response, value => received.push(value), abort.signal).catch(() => {});

@@ -6,6 +6,7 @@ import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
 import dycMapping from '../../../songs/dance-yrself-clean.mapping.json';
 import { encodeCompiledProgram } from '../compiled-native.js';
+import { PF } from '../wasm-abi.js';
 
 function fixture(): { source: SongSource; mapping: SongMapping } {
   const values = Array.from({ length: 24 }, () => Array<string>(6).fill(''));
@@ -184,7 +185,8 @@ test('current DYC compiles answered semantics and permits F21 future arming for 
   ]);
   assert.deepEqual(song.cueWindow, { earlyMs: 25, lateMs: 25, ties: 'reject' });
   assert.match(inspectCompiledSong(song), /H21 -> J21\tcapture 7:1\.\.8:3 \(6 counts\)\trest 8:3\.\.9:1 \(2 counts, zero source\)\tloop 7:1\.\.9:1 \(8 counts\)/);
-  assert(song.diagnostics.some(diagnostic => diagnostic.code === 'deferred-control' && diagnostic.source.a1.endsWith('17')));
+  assert.equal(song.rotation?.windows.length, 10);
+  assert(!song.diagnostics.some(diagnostic => diagnostic.code === 'deferred-control' && diagnostic.source.a1.endsWith('17')));
   assert(!song.diagnostics.some(diagnostic => diagnostic.code === 'unbound-control' && diagnostic.source.a1.endsWith('17')));
 });
 
@@ -195,6 +197,83 @@ test('genuinely overlapping recording intervals reject without forbidding earlie
   const song = await compileSong({ ...dycSource, values }, mapping);
   assert.equal(song.executable, false);
   assert(song.diagnostics.some(diagnostic => diagnostic.code === 'capture-record-overlap' && diagnostic.source.a1 === 'E21'));
+});
+
+test('DYC source parts survive import independently of the four pad bindings', async () => {
+  const song = await compileSong(dycSource, dycMapping);
+  assert.equal(song.schemaVersion, 3);
+  assert.equal(song.voices.length, 4);
+  assert.deepEqual(song.parts.map(part => [part.id, part.name, part.source.a1, part.profile, part.role.kind]), [
+    ['whistle', 'Whistle', 'A13', 0, 'pad'],
+    ['bing-bong', 'Bing Bong', 'A12', 1, 'pad'],
+    ['drums-claps', 'Drums & Claps', 'A10', 2, 'pad'],
+    ['cowbell', 'Cowbell', 'A11', 3, 'pad'],
+    ['vocals', 'Vocals', 'A8', 4, 'default-live'],
+    ['backup-vocals', 'Backup Vocals', 'A9', 5, 'rotation-live'],
+  ]);
+  assert.deepEqual(decodeCompiledSong(JSON.parse(canonicalSongJson(song))).parts, song.parts);
+  const values = dycSource.values.map(row => [...row]); values[8][0] = 'AF - Harmony';
+  const renamed = await compileSong({ ...dycSource, values }, dycMapping);
+  assert.equal(renamed.parts.find(part => part.id === 'backup-vocals')?.name, 'Harmony');
+  assert.notEqual(renamed.source.digest, song.source.digest);
+  assert.deepEqual(encodeCompiledProgram(renamed), encodeCompiledProgram(song), 'source label edits preserve musical instructions');
+  const { source, mapping } = fixture();
+  const legacy = await compileSong(source, mapping);
+  assert.equal(legacy.parts.length, 4);
+  assert(legacy.parts.every(part => part.role.kind === 'pad'));
+  assert.equal(legacy.rotation, null);
+});
+
+test('actual DYC rotation windows preserve written half-open beat boundaries and source cells', async () => {
+  const song = await compileSong(dycSource, dycMapping);
+  assert.equal(song.rotation?.voiceId, 'backup-vocals');
+  assert.equal(song.rotation?.holdBeats, .5);
+  assert.deepEqual(song.rotation?.windows.map(window => [window.begin.bar, window.begin.beat, window.end.bar, window.end.beat, window.source.a1, window.endSource.a1]), [
+    [20, 3, 22, 0, 'V17', 'X17'], [24, 3, 26, 0, 'Z17', 'AB17'],
+    [36, 3, 38, 0, 'AL17', 'AN17'], [40, 3, 42, 0, 'AP17', 'AR17'],
+    [60, 3, 62, 0, 'BJ17', 'BL17'], [64, 3, 66, 0, 'BN17', 'BP17'],
+    [68, 3, 70, 2, 'BR17', 'BT17'], [70, 3, 72, 2, 'BT17', 'BV17'],
+    [72, 3, 74, 2, 'BV17', 'BX17'], [74, 3, 76, 2, 'BX17', 'BZ17'],
+  ]);
+  assert.deepEqual(song.rotation?.windows[0].sources.map(source => source.a1), ['V17', 'W17', 'X17']);
+  assert.equal(song.takes.length, 9); assert.equal(song.cues.length, 29);
+  const table = encodeCompiledProgram(song);
+  assert.deepEqual(Array.from(table.slice(-43, -36)), [PF.COMPILED_ROTATION_MAGIC, 10, .5, 20, 3, 22, 0]);
+  assert.match(inspectCompiledSong(song), /PART\tA9\tBackup Vocals.*profile 5\trotation-live/);
+  assert.match(inspectCompiledSong(song), /ROTATION\tbackup-vocals\trelease after 0.5 counted beats/);
+  assert.match(inspectCompiledSong(song), /ROTATION WINDOW\tBT17 -> BV17\t70:4\.\.72:3\thalf-open/);
+});
+
+test('rotation source edits produce exact boundary changes and malformed spans block with source diagnostics', async () => {
+  const values = dycSource.values.map(row => [...row]); values[16][23] = '-2d]';
+  const moved = await compileSong({ ...dycSource, values }, dycMapping);
+  assert.equal(moved.executable, true);
+  assert.deepEqual(moved.rotation?.windows[0].end, { bar: 22, beat: 1 });
+  const malformed = dycSource.values.map(row => [...row]); malformed[16][22] = 'twiddle'; malformed[16][77] = '';
+  const rejected = await compileSong({ ...dycSource, values: malformed }, dycMapping);
+  assert.equal(rejected.executable, false);
+  assert(rejected.diagnostics.some(diagnostic => diagnostic.code === 'rotation-notation' && diagnostic.source.a1 === 'W17'));
+  assert(rejected.diagnostics.some(diagnostic => diagnostic.code === 'rotation-unclosed' && diagnostic.source.a1 === 'BX17'));
+  const missing = dycSource.values.map(row => [...row]); missing[16][22] = '';
+  assert((await compileSong({ ...dycSource, values: missing }, dycMapping)).diagnostics.some(diagnostic => diagnostic.code === 'rotation-continuation' && diagnostic.source.a1 === 'W17'));
+  const leadIn = dycSource.values.map(row => [...row]); leadIn[16][1] = 'd';
+  assert((await compileSong({ ...dycSource, values: leadIn }, dycMapping)).diagnostics.some(diagnostic => diagnostic.code === 'rotation-lead-in' && diagnostic.source.a1 === 'B17'));
+});
+
+test('executable imports reject forged source profiles and overlapping or unbound rotation windows', async () => {
+  const song = await compileSong(dycSource, dycMapping);
+  const rotation = song.rotation;
+  assert(rotation);
+  const first = rotation.windows[0];
+  for (const changed of [
+    { ...song, parts: song.parts.map(part => part.profile === 5 ? { ...part, profile: 4 } : part) },
+    { ...song, parts: song.parts.map(part => part.profile === 5 ? { ...part, name: 'Forged label' } : part) },
+    { ...song, rotation: { ...rotation, voiceId: 'whistle' } },
+    { ...song, rotation: { ...rotation, holdBeats: 0 } },
+    { ...song, rotation: { ...rotation, windows: [first, first] } },
+    { ...song, rotation: { ...rotation, windows: [{ ...first, end: first.begin }] } },
+    { ...song, rotation: { ...rotation, windows: [{ ...first, source: { ...first.source, sheetId: 0 } }] } },
+  ]) assert.throws(() => decodeCompiledSong(changed));
 });
 
 test('declared layer groups fail on source phrase or period edits instead of regrouping or resizing', async () => {

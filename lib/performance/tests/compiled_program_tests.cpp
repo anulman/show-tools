@@ -689,6 +689,108 @@ void independent_unavailable_arm_does_not_rollback_commit() {
   until(engine, 4); require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 16000 && take(engine, 1) == retained, "valid standalone old commit publishes despite unrelated incoming admission failure");
 }
 
+std::array<double, PF_VOICE_FIELDS> profile(pf_engine* engine, int id) { std::array<double, PF_VOICE_FIELDS> result{}; pf_voice_info(engine, id, result.data()); return result; }
+std::array<double, PF_VOICE_EFFECT_FIELDS> stage(pf_engine* engine, int id, int index) { std::array<double, PF_VOICE_EFFECT_FIELDS> result{}; pf_voice_effect_info(engine, id, index, result.data()); return result; }
+struct Venue {
+  std::array<uint32_t, PF_VOICE_PROFILES> counts{}, revisions{};
+  std::vector<pf_effect_definition> effects;
+  Venue() { revisions.fill(1); }
+  void apply(pf_engine* engine) { ok(engine, pf_prepare_voice_effects(engine, effects.data(), counts.data(), revisions.data())); }
+};
+std::vector<double> rotation_table(int beats = 4) {
+  return { PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    PF_COMPILED_ROTATION_MAGIC, 2, .5, 1, 0, 1, 1, 2, 0, 3, 2 };
+}
+Venue rotation_venue() {
+  Venue venue; venue.counts[PF_BACKUP_PROFILE] = 2;
+  venue.effects.push_back({PF_EFFECT_SLAPBACK, 1, {{40, 0, .5}}});
+  pf_effect_definition chorus{}; chorus.type = PF_EFFECT_CHORUS; chorus.version = 1; chorus.parameters.chorus = {1, 0, 10, .25}; venue.effects.push_back(chorus);
+  return venue;
+}
+void independent_profiles_and_reload_have_real_graphs() {
+  Engine engine; Venue venue;
+  for (int id = 0; id < PF_VOICE_PROFILES; ++id) { venue.counts[id] = 1; venue.effects.push_back({PF_EFFECT_SLAPBACK, 1, {{100, 0, id == 0 ? .5 : .25}}}); }
+  venue.apply(engine); auto song = table();
+  auto load = [&]() { ok(engine, pf_configure_compiled(engine, song.data(), uint32_t(song.size()))); ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1)); };
+  for (int run = 0; run < 2; ++run) {
+    load(); ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0)); until(engine, 1); ok(engine, press(engine, 0)); until(engine, 2);
+    require(take(engine, 0)[PF_TAKE_REVISION] == 1, "independent profile retains its own numeric revision across load");
+    auto output = render(engine, 1);
+    require(std::abs(output.left[0] - .375f) < 1e-6, "loading a song uses its pad profile graph even when default has the same revision number");
+    pf_stop(engine);
+  }
+  auto before = profile(engine, 1); auto retained = take(engine, 0);
+  venue.revisions[0] = 2; venue.effects[0].parameters.slapback.wet = .75; venue.apply(engine);
+  require(profile(engine, 1) == before && take(engine, 0) == retained && stage(engine, 0, 0)[PF_VOICE_EFFECT_PARAMETER_2] == .75, "editing one profile preserves another revision and retained take graph");
+  ok(engine, pf_start(engine, 120, 0, 2, 4, 0, 0)); until(engine, 2); ok(engine, press(engine, 1)); until(engine, 3); ok(engine, press(engine, 1)); until(engine, 4);
+  require(take(engine, 2)[PF_TAKE_REVISION] == 1 && take(engine, 2)[PF_TAKE_READY], "untouched voice spare banks remain compatible after another profile edit");
+  pf_stop(engine); auto first = profile(engine, 0), last = profile(engine, 5); auto kept = take(engine, 2);
+  venue.revisions[0] = 3; venue.effects[0].parameters.slapback.wet = .8; venue.revisions[5] = 2; venue.effects[5].parameters.slapback.delay_ms = 999;
+  require(pf_prepare_voice_effects(engine, venue.effects.data(), venue.counts.data(), venue.revisions.data()) < 0 && profile(engine, 0) == first && profile(engine, 5) == last && take(engine, 2) == kept, "invalid last profile leaves the entire venue and committed take unchanged");
+}
+void rotation_metadata_rejects_invalid_programs_atomically() {
+  Engine engine; auto venue = rotation_venue(); venue.apply(engine); auto good = rotation_table();
+  ok(engine, pf_configure_compiled(engine, good.data(), uint32_t(good.size())));
+  std::vector<std::vector<double>> invalid(8, good);
+  invalid[0][16] = 0; invalid[1][17] = 3; invalid[2][18] = std::nan(""); invalid[3][19] = 0;
+  invalid[4][21] = 5; invalid[4][22] = 1; invalid[5][23] = 1; invalid[5][24] = .5;
+  invalid[6][20] = .0001; invalid[7][21] = 1; invalid[7][22] = 0;
+  const auto before = profile(engine, 5);
+  for (const auto& bad : invalid) require(pf_configure_compiled(engine, bad.data(), uint32_t(bad.size())) < 0 && profile(engine, 5) == before, "malformed rotation metadata preserves applied venue and previous program");
+  ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1)); ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
+  ok(engine, pf_control(engine, 5, 1, nullptr, 0)); require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == .5, "prior rotation eligibility remains executable after failed replacements");
+}
+void rotation_graph_order_and_tail_pcm() {
+  Engine engine; auto venue = rotation_venue(); venue.apply(engine); auto song = rotation_table();
+  ok(engine, pf_configure_compiled(engine, song.data(), uint32_t(song.size()))); ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1));
+  require(stage(engine, 5, 0)[PF_VOICE_EFFECT_TYPE] == PF_EFFECT_SLAPBACK && stage(engine, 5, 1)[PF_VOICE_EFFECT_TYPE] == PF_EFFECT_CHORUS && stage(engine, 5, 1)[PF_VOICE_EFFECT_PARAMETER_2] == 10, "native readback reports actual ordered serial slapback then chorus");
+  ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
+  ok(engine, pf_control(engine, 5, -2, nullptr, 0));
+  require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == .5, "negative rotation activates backup for half a chart count");
+  auto impulse = render(engine, 1, 1); auto response = render(engine, 400, 0);
+  require(impulse.live_left[0] == 1 && response.live_left[79] == .25f && response.live_left[319] == .5f && response.live_left[399] == .125f, "serial graph renders dry, chorus, slapback, and chorused slapback once each");
+  for (int frame = 0; frame < 400; ++frame) if (frame != 79 && frame != 319 && frame != 399) require(response.live_left[frame] == 0, "graph contains no additional dry path or hidden repeats");
+  render(engine, 1598, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE, "backup stays attached through the last sample before grace expiry");
+  render(engine, 1, 1); require(profile(engine, 5)[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE, "backup stops original source exactly half a count after last rotation");
+  auto tail = render(engine, 401, 0);
+  require(tail.live_left[79] == .25f && tail.live_left[319] == .5f && tail.live_left[399] == .125f && tail.live_left[400] == 0, "detached backup drains its natural serial effects without repeating original dry");
+  require(profile(engine, 4)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE && profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_STANDBY, "main vocals resume as backup tail ends");
+  until(engine, 1, 2);
+  std::array<double, PF_EVENT_CAPACITY * PF_EVENT_FIELDS> observations{}; pf_drain_events(engine, observations.data(), PF_EVENT_CAPACITY);
+  double observed_frame = state(engine)[PF_FRAME]; ok(engine, pf_control(engine, 5, -3, nullptr, 0));
+  require(pf_drain_events(engine, observations.data(), PF_EVENT_CAPACITY) == 1 && observations[PF_EVENT_TYPE] == PF_CONTROL && observations[PF_EVENT_VALUE] == -3 && observations[PF_EVENT_APPLIED] == 1 && observations[PF_EVENT_FRAME] == observed_frame && observations[PF_EVENT_RATE] == 8000, "out-of-cue signed rotation is a nonfatal source-frame observation for Video");
+  require(pf_control(engine, 5, std::nan(""), nullptr, 0) < 0 && pf_drain_events(engine, observations.data(), PF_EVENT_CAPACITY) == 1 && observations[PF_EVENT_FRAME] == observed_frame && observations[PF_EVENT_ERROR] == PF_INVALID_KNOB, "invalid rotation acknowledgment retains actual arrival frame");
+  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0 && !profile(engine, 5)[PF_VOICE_ROTATION_ELIGIBLE], "written d-window end is excluded even with continuing rotation");
+  until(engine, 2); ok(engine, pf_control(engine, 5, 4, nullptr, 0)); render(engine, 1000, 0);
+  const uint16_t identity[] = {'r','o','t'}; ok(engine, pf_control(engine, 5, -4, identity, 3)); render(engine, 500, 0); auto remaining = profile(engine, 5)[PF_VOICE_ROTATION_REMAINING];
+  ok(engine, pf_control(engine, 5, -4, identity, 3)); ok(engine, pf_control(engine, 5, 0, nullptr, 0));
+  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == remaining, "duplicate producer command and zero delta never refresh musical grace");
+  pf_stop(engine); auto silent = render(engine, 500, 1);
+  require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_STANDBY && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0 && std::all_of(silent.live_left.begin(), silent.live_left.end(), [](float sample) { return sample == 0; }), "Stop clears rotation, tails and authorization immediately");
+}
+void rotation_uses_musical_time_and_preserves_capture() {
+  for (int beats : {4, 6}) {
+    Engine engine; auto venue = rotation_venue(); venue.apply(engine); auto song = rotation_table(beats); ok(engine, pf_configure_compiled(engine, song.data(), uint32_t(song.size()))); ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1));
+    ok(engine, pf_start(engine, 120, 0, 2, 4, 0, 0)); until(engine, 2);
+    ok(engine, pf_control(engine, 6, 0, nullptr, 0)); render(engine, 6000, 0); ok(engine, pf_control(engine, 5, 1, nullptr, 0)); render(engine, 1000, 0);
+    double remaining = profile(engine, 5)[PF_VOICE_ROTATION_REMAINING]; ok(engine, pf_control(engine, 6, 0, nullptr, 0));
+    require(std::abs(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] - remaining) < 1e-9 && std::abs(state(engine)[PF_BPM] - (8000.0 * 60 / 7000)) < 1e-6, "tempo update preserves remaining musical grace without rephasing in either meter");
+    uint32_t remaining_frames = uint32_t(std::ceil(remaining * 8000 * 60 / state(engine)[PF_BPM]));
+    render(engine, remaining_frames, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE, "half-count deadline follows updated tempo rather than old wall-clock interval");
+    until(engine, 3, 2); render(engine, uint32_t(std::floor(8000 * 60 / state(engine)[PF_BPM] * .75)), 0); ok(engine, pf_control(engine, 5, 1, nullptr, 0));
+    require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "chart end clamps an otherwise longer half-count grace");
+    until(engine, 3, 3); require(!profile(engine, 5)[PF_VOICE_ROTATION_ELIGIBLE] && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0, "written gate end clears backup source feed in both meters");
+  }
+  Engine engine; auto song = table(); song.insert(song.end(), {PF_COMPILED_ROTATION_MAGIC, 1, .5, 1, 0, 3, 0}); prepare(engine, song); auto venue = rotation_venue(); venue.revisions.fill(2); venue.apply(engine);
+  ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0)); until(engine, 1); ok(engine, press(engine, 0)); ok(engine, pf_control(engine, 5, 1, nullptr, 0));
+  float source[128], left[128]{}, right[128]{}, live_left[128]{}, live_right[128]{}; std::fill(source, source + 128, .25f);
+  heap_allocations = heap_frees = 0; watch_heap = true;
+  for (int index = 0; index < 32; ++index) { if (index == 8) pf_control(engine, 5, -1, nullptr, 0); pf_process_stems(engine, source, left, right, live_left, live_right, 128); }
+  watch_heap = false; require(heap_allocations == 0 && heap_frees == 0, "rotation route changes and half-count release perform no heap work");
+  until(engine, 2); auto captured = render(engine, 1);
+  require(take(engine, 0)[PF_TAKE_LENGTH] == 16000 && captured.left[0] == .25f, "rotation monitor switches do not add monitor tails or backup effects to independent capture");
+}
+
 void prepared_capture_reuses_banks_without_heap_work() {
   Engine engine; prepare(engine, table());
   std::array<float, 128> input{}, left{}, right{}, live_left{}, live_right{}; input.fill(.25f);
@@ -729,4 +831,4 @@ void prepared_capture_reuses_banks_without_heap_work() {
   require(heap_allocations == 0 && heap_frees == 0, "idempotent stopped preparation avoids allocations when all reusable banks are current");
 }
 }
-int main() { capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
+int main() { rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }

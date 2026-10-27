@@ -25,7 +25,7 @@ test('chart CLI compiles the actual DYC source into deterministic reviewable JSO
     assert.deepEqual(new Uint8Array(await readFile(native)), compiledProgramBytes(song));
     await run(['compile', ...inputs, '--out', second]);
     assert.equal(await readFile(first, 'utf8'), await readFile(second, 'utf8'));
-    assert.match((await run(['inspect', first])).stdout, /Schema 2.*executable/);
+    assert.match((await run(['inspect', first])).stdout, /Schema 3.*executable/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -34,7 +34,7 @@ test('chart CLI preserves unresolved mapping diagnostics and cannot emit executa
   try {
     const first = join(directory, 'first.json'), second = join(directory, 'second.json'), native = join(directory, 'song.pfp');
     const unresolved = join(directory, 'unresolved-mapping.json');
-    await writeFile(unresolved, JSON.stringify({ ...mapping, deferredRows: [] }));
+    await writeFile(unresolved, JSON.stringify({ ...mapping, rotationRule: undefined }));
     const inputs = ['--source', 'songs/dance-yrself-clean.source.json', '--mapping', unresolved];
     await assert.rejects(run(['compile', ...inputs, '--out', first]), /Compilation is blocked/);
     await assert.rejects(access(first));

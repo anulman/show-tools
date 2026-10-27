@@ -1,5 +1,5 @@
 {
-  "mappingVersion": 2,
+  "mappingVersion": 3,
   "notationVersion": "dyc-v1",
   "songId": "dance-yrself-clean",
   "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg",
@@ -19,6 +19,11 @@
     { "buttonId": "R1", "voiceId": "drums-claps", "cueRow": 18, "arrangementRow": 10, "nameNoteCell": "A18" },
     { "buttonId": "R2", "voiceId": "cowbell", "cueRow": 19, "arrangementRow": 11, "nameNoteCell": "A19" }
   ],
+  "liveParts": [
+    { "id": "vocals", "labelCell": "A8", "role": "default-live" },
+    { "id": "backup-vocals", "labelCell": "A9", "role": "rotation-live" }
+  ],
+  "rotationRule": { "row": 17, "voiceId": "backup-vocals", "holdBeats": 0.5 },
   "cueWindow": { "earlyMs": 25, "lateMs": 25, "ties": "reject" },
   "capturePolicies": [
     { "voiceId": "cowbell", "retention": "variant", "gain": 1 },
@@ -33,5 +38,5 @@
   ],
   "variantRules": [{ "voiceId": "cowbell", "row": 11, "fromBar": 1, "sampledOnly": true }],
   "overrides": [],
-  "deferredRows": [{ "row": 17, "reason": "Operator deferred knob d execution for the first A-section run. Future audio effects react to rotation signal existence; video consumes signed values." }]
+  "deferredRows": []
 }

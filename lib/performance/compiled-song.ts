@@ -14,6 +14,14 @@ export const ExecutionSchema = Schema.Union([
 ]);
 const PointSchema = Schema.Struct({ bar: Schema.Int, beat: Finite });
 const SourceRefSchema = Schema.Struct({ sheetId: Schema.Int, a1: Schema.String, text: Schema.String, note: Schema.String });
+const PartRoleSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal('pad'), buttonId: ButtonSchema }),
+  Schema.Struct({ kind: Schema.Literal('default-live') }),
+  Schema.Struct({ kind: Schema.Literal('rotation-live') }),
+]);
+const PartSchema = Schema.Struct({ id: Schema.String, name: Schema.String, source: SourceRefSchema, role: PartRoleSchema, profile: Schema.Int });
+const RotationWindowSchema = Schema.Struct({ begin: PointSchema, end: PointSchema, source: SourceRefSchema, endSource: SourceRefSchema, sources: list(SourceRefSchema) });
+const RotationSchema = Schema.Struct({ voiceId: Schema.String, holdBeats: Finite, windows: list(RotationWindowSchema) });
 const ActionFields = {
   kind: CueKindSchema, cueBeat: Schema.NullOr(Finite), execution: ExecutionSchema,
   captureTail: Schema.Literals(['none', 'silence-to-bar-end']), tempoBeatHint: Schema.Literals([0, 1]),
@@ -23,12 +31,14 @@ const OverrideSchema = Schema.Struct({
   a1: Schema.String, notation: Schema.String, ...ActionFields,
 });
 export const SongMappingSchema = Schema.Struct({
-  mappingVersion: Schema.Literal(2), notationVersion: Schema.Literal('dyc-v1'), songId: Schema.String,
+  mappingVersion: Schema.Literals([2, 3]), notationVersion: Schema.Literal('dyc-v1'), songId: Schema.String,
   spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String,
   titleCell: Schema.String, bpmCell: Schema.String, sectionRow: Schema.Int, barRow: Schema.Int, leadInColumn: Schema.Int,
   startBar: Schema.Int, endBar: Schema.Int,
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String })),
+  liveParts: Schema.optionalKey(list(Schema.Struct({ id: Schema.String, labelCell: Schema.String, role: Schema.Literals(['default-live', 'rotation-live']) }))),
+  rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, holdBeats: Finite })),
   cueWindow: Schema.NullOr(CueWindowSchema),
   capturePolicies: list(Schema.Struct({ voiceId: Schema.String, retention: Schema.Literals(['layer', 'variant', 'replace']), gain: Finite })),
   layerGroups: list(Schema.Struct({ id: Schema.String, voiceId: Schema.String, armCells: list(Schema.String) })),
@@ -59,11 +69,12 @@ const ChartSchema = Schema.Struct({
   leadInCues: PadStrings, controlNames: PadStrings, annotatedThroughBar: Schema.Int,
 });
 export const CompiledSongSchema = Schema.Struct({
-  schemaVersion: Schema.Literal(2), notationVersion: Schema.Literal('dyc-v1'), id: Schema.String, title: Schema.String,
+  schemaVersion: Schema.Literal(3), notationVersion: Schema.Literal('dyc-v1'), id: Schema.String, title: Schema.String,
   ticksPerQuarter: Schema.Literal(960), meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   source: Schema.Struct({ spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String, range: Schema.String, digest: Schema.String }),
   mappingDigest: Schema.String, chart: ChartSchema,
   voices: list(Schema.Struct({ id: Schema.String, buttonId: ButtonSchema, arrangementRow: Schema.Int })),
+  parts: list(PartSchema), rotation: Schema.NullOr(RotationSchema),
   cueWindow: Schema.NullOr(CueWindowSchema),
   cues: list(CueSchema), takes: list(TakeSchema),
   selections: list(Schema.Struct({ id: Schema.String, voiceId: Schema.String, groupId: Schema.String, takeIds: list(Schema.String), gains: list(Finite) })),
@@ -71,6 +82,7 @@ export const CompiledSongSchema = Schema.Struct({
   diagnostics: list(DiagnosticSchema), executable: Schema.Boolean,
 });
 export type CompiledSong = typeof CompiledSongSchema.Type;
+export type CompiledPart = typeof PartSchema.Type;
 export type CompiledCue = typeof CueSchema.Type;
 export type CompiledTake = typeof TakeSchema.Type;
 export type SongDiagnostic = typeof DiagnosticSchema.Type;
@@ -113,6 +125,31 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   const unique = (ids: readonly string[], kind: string) => { if (new Set(ids).size !== ids.length) throw new Error(`Duplicate ${kind} identity.`); };
   unique(song.voices.map(v => v.id), 'voice'); unique(song.cues.map(c => c.id), 'cue'); unique(song.takes.map(t => t.id), 'take'); unique(song.selections.map(s => s.id), 'selection');
   unique(song.chart.bars.map(bar => String(bar.column)), 'chart column');
+  unique(song.parts.map(part => part.id), 'part'); unique(song.parts.map(part => String(part.profile)), 'effect profile');
+  const sourceValid = (source: typeof SourceRefSchema.Type) => source.sheetId === song.source.sheetId && /^[A-Z]+[1-9]\d*$/.test(source.a1);
+  for (const part of song.parts) {
+    const name = (part.source.text.trim() || part.source.note.trim()).replace(/^AF\s*-\s*/, '').trim();
+    if (!part.id.trim() || !sourceValid(part.source) || !name || part.name !== name) throw new Error('Invalid executable source part identity.');
+    if (part.role.kind === 'pad') {
+      const buttonId = part.role.buttonId;
+      const index = song.voices.findIndex(voice => voice.id === part.id && voice.buttonId === buttonId);
+      if (index < 0 || part.profile !== index) throw new Error('Invalid executable part binding.');
+    } else if (part.profile !== (part.role.kind === 'default-live' ? 4 : 5)) throw new Error('Invalid executable live profile.');
+  }
+  if (song.parts.length < 4 || song.parts.length > 6 || song.voices.some(voice => !song.parts.some(part => part.id === voice.id && part.role.kind === 'pad'))
+    || song.parts.filter(part => part.role.kind === 'default-live').length > 1 || song.parts.filter(part => part.role.kind === 'rotation-live').length > 1) throw new Error('Invalid executable voice registry.');
+  if (song.rotation) {
+    if (!song.parts.some(part => part.id === song.rotation?.voiceId && part.role.kind === 'rotation-live')
+      || song.rotation.holdBeats <= 0 || song.rotation.holdBeats > 1) throw new Error('Invalid executable rotation route.');
+    let previousEnd = -1;
+    for (const window of song.rotation.windows) {
+      const begin = pointCount(window.begin, beats), end = pointCount(window.end, beats);
+      if (!validPoint(window.begin, false) || !validPoint(window.end, true) || begin < previousEnd || end <= begin
+        || !sourceValid(window.source) || !sourceValid(window.endSource) || window.sources.length < 1
+        || window.sources.some(source => !sourceValid(source)) || window.sources[0].a1 !== window.source.a1 || window.sources.at(-1)?.a1 !== window.endSource.a1) throw new Error('Invalid executable rotation window.');
+      previousEnd = end;
+    }
+  }
   if (song.takes.length > 28 || new Set(song.takes.map(t => t.slot)).size !== song.takes.length) throw new Error('Invalid prepared take resource count or slot identity.');
   for (const take of song.takes) {
     if (!song.voices.some(v => v.id === take.voiceId) || !take.captureEnd || !take.loopEnd || !take.groupId || take.gain === null || !validGain(take.gain)
@@ -286,6 +323,60 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
     const control = mapping.controls.find(c => c.buttonId === button);
     return control ? source.notes[control.nameNoteCell]?.trim() || control.voiceId : button;
   };
+  const partName = (location: typeof SourceRefSchema.Type) => (location.text.trim() || location.note.trim()).replace(/^AF\s*-\s*/, '').trim();
+  const parts: CompiledPart[] = mapping.controls.map((control, profile) => {
+    const noteCell = coordinate(control.nameNoteCell);
+    const arrangement = ref(control.arrangementRow, 1);
+    const location = arrangement.text.trim() ? arrangement : ref(noteCell.row, noteCell.column);
+    const name = partName(location);
+    if (!name) issue('part-label', 'A mapped voice needs a source label or note.', location);
+    return { id: control.voiceId, name, source: location, role: { kind: 'pad', buttonId: control.buttonId }, profile };
+  });
+  for (const part of mapping.liveParts ?? []) {
+    const cell = coordinate(part.labelCell), location = ref(cell.row, cell.column), name = partName(location);
+    if (!name || !part.id.trim() || parts.some(existing => existing.id === part.id || existing.role.kind === part.role)) {
+      issue('part-binding', 'Live parts need a source label, unique identity, and unique default or rotation role.', location);
+    }
+    parts.push({ id: part.id, name, source: location, role: { kind: part.role }, profile: part.role === 'default-live' ? 4 : 5 });
+  }
+  if (mapping.mappingVersion === 3 && mapping.liveParts === undefined) issue('part-binding', 'Version 3 mappings must explicitly declare live parts, including an empty list when unused.', ref(1, 1));
+  let rotation: CompiledSong['rotation'] = null;
+  if (mapping.rotationRule) {
+    const rule = mapping.rotationRule;
+    rotation = { voiceId: rule.voiceId, holdBeats: rule.holdBeats, windows: [] };
+    if (!parts.some(part => part.id === rule.voiceId && part.role.kind === 'rotation-live') || rule.holdBeats <= 0 || rule.holdBeats > 1
+      || rule.row < 1 || mapping.deferredRows.some(deferred => deferred.row === rule.row)) issue('rotation-rule', 'Declare one rotation-live source part and a positive hold of at most one counted beat, without deferring the same row.', ref(Math.max(1, rule.row), 1));
+    if (at(source.values, rule.row, mapping.leadInColumn).trim()) issue('rotation-lead-in', 'Rotation spans must begin in a song measure, after the count-in.', ref(rule.row, mapping.leadInColumn));
+    let open: { begin: typeof PointSchema.Type; source: typeof SourceRefSchema.Type; sources: typeof SourceRefSchema.Type[] } | null = null;
+    for (const [bar, column] of [...columns].sort(([a], [b]) => a - b)) {
+      const location = ref(rule.row, column), text = location.text.replace(/\s+/g, '');
+      if (!text) {
+        if (open) issue('rotation-continuation', 'An open rotation span needs an explicit d continuation or closing boundary in each measure.', location);
+        continue;
+      }
+      let remaining = text;
+      while (remaining) {
+        const token = /^(?:\[([1-9])d-|-([1-9])d\]|d)/.exec(remaining);
+        if (!token) { issue('rotation-notation', 'Expected [Nd-, d, or -Nd] rotation-span notation.', location); break; }
+        remaining = remaining.slice(token[0].length);
+        const writtenBeat = Number(token[1] ?? token[2] ?? 1);
+        if (writtenBeat > mapping.meter.numerator) { issue('rotation-beat', 'A rotation boundary must lie inside the declared measure.', location); continue; }
+        if (token[1]) {
+          if (open) { issue('rotation-overlap', 'Close the current rotation span before opening another.', location); continue; }
+          open = { begin: { bar, beat: writtenBeat - 1 }, source: location, sources: [location] };
+        } else if (token[2]) {
+          if (!open) { issue('rotation-close', 'This rotation closing boundary has no preceding opening boundary.', location); continue; }
+          const end = { bar, beat: writtenBeat - 1 };
+          if (pointCount(end, mapping.meter.numerator) <= pointCount(open.begin, mapping.meter.numerator)) issue('rotation-span', 'A rotation closing boundary must follow its opening boundary.', location);
+          if (open.sources.at(-1)?.a1 !== location.a1) open.sources.push(location);
+          rotation.windows.push({ begin: open.begin, end, source: open.source, endSource: location, sources: open.sources });
+          open = null;
+        } else if (!open) issue('rotation-continuation', 'A d continuation needs an open rotation span.', location);
+        else if (open.sources.at(-1)?.a1 !== location.a1) open.sources.push(location);
+      }
+    }
+    if (open) issue('rotation-unclosed', 'This rotation span has no closing boundary inside the compiled range.', open.source);
+  }
   const chart: Chart = { title, bpm: Number.isFinite(bpm) ? bpm : 0, beatsPerBar: mapping.meter.numerator, bars, sections,
     spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, leadInColumn: mapping.leadInColumn,
     leadInCues: padRow(mapping.leadInColumn), controlNames: { L1: nameFor('L1'), L2: nameFor('L2'), R1: nameFor('R1'), R2: nameFor('R2') }, annotatedThroughBar: mapping.endBar };
@@ -321,6 +412,7 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
   }
   for (const override of mapping.overrides) if (!usedOverrides.has(override.a1)) issue('unused-override', 'The override does not identify a nonempty control cell inside the compiled range.', { sheetId: source.sheetId, a1: override.a1, text: '', note: '' });
   const mappedRows = new Set(mapping.controls.map(c => c.cueRow));
+  if (mapping.rotationRule) mappedRows.add(mapping.rotationRule.row);
   for (const row of [17, 22, 23, 24]) {
     if (mappedRows.has(row)) continue;
     const nonempty = [[0, mapping.leadInColumn], ...columns].filter(([, c]) => at(source.values, row, c).trim());
@@ -435,10 +527,10 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
     if (!selection) issue('play-selection', 'The play cue has no resolved committed take selection.', cue.source);
   }
   const artifact: CompiledSong = {
-    schemaVersion: 2, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
+    schemaVersion: 3, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
     source: { spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, range: source.range, digest: await digest(source) },
     mappingDigest: await digest(mapping), chart, voices: mapping.controls.map(c => ({ id: c.voiceId, buttonId: c.buttonId, arrangementRow: c.arrangementRow })),
-    cueWindow: mapping.cueWindow, cues, takes, selections, playback, diagnostics,
+    parts, rotation, cueWindow: mapping.cueWindow, cues, takes, selections, playback, diagnostics,
     executable: !diagnostics.some(d => d.severity === 'error'),
   };
   return decodeCompiledSong(artifact);
@@ -448,6 +540,11 @@ export function inspectCompiledSong(input: unknown): string {
   const song = decodeCompiledSong(input);
   const lines = [`${song.title} (${song.id})`, `Schema ${song.schemaVersion} · ${song.notationVersion} · ${song.executable ? 'executable' : 'BLOCKED'}`,
     `Source ${song.source.sheetName} / gid ${song.source.sheetId} / ${song.source.digest}`, `Range ${song.chart.bars[0]?.bar ?? '?'}..${song.chart.bars.at(-1)?.bar ?? '?'} · ${song.meter.numerator}/${song.meter.denominator}`];
+  for (const part of song.parts) lines.push(`PART\t${part.source.a1}\t${part.name}\t${part.id}\tprofile ${part.profile}\t${part.role.kind}${part.role.kind === 'pad' ? ` ${part.role.buttonId}` : ''}`);
+  if (song.rotation) {
+    lines.push(`ROTATION\t${song.rotation.voiceId}\trelease after ${song.rotation.holdBeats} counted beats without accepted rotation; gate at written end; natural tails`);
+    for (const window of song.rotation.windows) lines.push(`ROTATION WINDOW\t${window.source.a1} -> ${window.endSource.a1}\t${window.begin.bar}:${window.begin.beat + 1}..${window.end.bar}:${window.end.beat + 1}\thalf-open\t${window.sources.map(source => source.a1).join(',')}`);
+  }
   for (const cue of song.cues) {
     const timing = cue.execution.kind === 'beat' ? `beat ${cue.execution.beat + 1}` : cue.execution.kind;
     lines.push(`${cue.source.a1}\t${cue.source.text}\t${cue.buttonId} -> ${cue.voiceId}\tbar ${cue.bar} cue ${cue.cueBeat === null ? 'column' : cue.cueBeat + 1}\t${cue.kind} ${timing}\tnew ${cue.takeId ?? '-'} commit ${cue.commitTakeId ?? '-'} selection ${cue.selectionId ?? '-'}\t${cue.captureTail} tempo-hit ${cue.tempoBeatHint ? 'actual press / hint 1' : '-'}`);
