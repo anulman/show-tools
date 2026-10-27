@@ -1,6 +1,7 @@
 import { PracticeAudio } from './audio.js';
+import type { MonitoringRelationship } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
-import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript } from '../../lib/performance/model.js';
+import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, LiveEffectDefinition } from '../../lib/performance/model.js';
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
 import { createChartFollower, openCurrentChart } from './open-chart.js';
@@ -42,6 +43,14 @@ const elements = {
   'record-demo': requiredElement('#record-demo', HTMLButtonElement),
   'download-demo': requiredElement('#download-demo', HTMLAnchorElement),
   'recording-hint': requiredElement('#recording-hint', HTMLSpanElement),
+  'effects-enabled': requiredElement('#effects-enabled', HTMLInputElement),
+  'effects-delay': requiredElement('#effects-delay', HTMLInputElement),
+  'effects-feedback': requiredElement('#effects-feedback', HTMLInputElement),
+  'effects-wet': requiredElement('#effects-wet', HTMLInputElement),
+  'effects-status': requiredElement('#effects-status', HTMLSpanElement),
+  'effects-capture-hint': requiredElement('#effects-capture-hint', HTMLParagraphElement),
+  'monitor-relationship': requiredElement('#monitor-relationship', HTMLSelectElement),
+  'monitor-hint': requiredElement('#monitor-hint', HTMLParagraphElement),
   'offline-status': requiredElement('#offline-status', HTMLSpanElement),
 };
 const startLabel = requiredElement('#start span:last-child', HTMLSpanElement);
@@ -152,6 +161,24 @@ async function triggerPad(id: ChannelId) {
   await instance.control({ id });
 }
 
+function liveEffectDefinitions(): readonly LiveEffectDefinition[] {
+  if (!elements['effects-enabled'].checked) return [];
+  const delayMs = Number(elements['effects-delay'].value);
+  const feedback = Number(elements['effects-feedback'].value);
+  const wet = Number(elements['effects-wet'].value);
+  if (!Number.isFinite(delayMs) || delayMs < 40 || delayMs > 250) throw new Error('Choose a slapback delay from 40 to 250 ms.');
+  if (!Number.isFinite(feedback) || feedback < 0 || feedback > 0.7) throw new Error('Choose feedback from 0 to 0.7.');
+  if (!Number.isFinite(wet) || wet < 0 || wet > 1) throw new Error('Choose a wet amount from 0 to 1.');
+  return [{ kind: 'slapback', delayMs, feedback, wet }];
+}
+
+function monitoringRelationship(value: string): MonitoringRelationship {
+  switch (value) {
+    case 'unknown': case 'different-devices': case 'same-usb-interface': case 'same-non-usb': return value;
+    default: throw new Error('Choose the physical input/output relationship.');
+  }
+}
+
 async function startPractice() {
   if (starting || isRunning() || outputCapture === 'starting' || outputCapture === 'stopping') return;
   if (!chart) throw new Error('The song chart is still loading. Try again in a moment.');
@@ -160,25 +187,29 @@ async function startPractice() {
   const endBar = Number(elements['end-bar'].value);
   if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Choose a tempo between 40 and 240 BPM.');
   if (!Number.isInteger(endBar) || endBar < startBar || endBar > playableBars(chart)) throw new Error(`Choose an end bar from ${startBar} to ${playableBars(chart)}. Partial bars are not sequenced yet.`);
+  const effects = liveEffectDefinitions();
   const generation = ++transportGeneration;
   starting = true;
   render(state);
   let instance: PracticeAudio | undefined;
   let startedRecording = false;
+  let microphoneGeneration: number | undefined;
   try {
     instance = await ensureAudio();
     if (generation !== transportGeneration) return;
-    await instance.enableMicrophone();
-    if (generation !== transportGeneration) { await instance.disableMicrophone(); return; }
+    await instance.configureLiveEffects(effects);
+    if (generation !== transportGeneration) return;
+    microphoneGeneration = await instance.enableMicrophone();
+    if (generation !== transportGeneration) { await instance.disableMicrophone(microphoneGeneration); return; }
     if (outputCapture === 'idle') { await toggleOutputRecording(); startedRecording = true; }
-    if (generation !== transportGeneration) { finishOutputRecording(); await instance.disableMicrophone(); return; }
+    if (generation !== transportGeneration) { finishOutputRecording(); await instance.disableMicrophone(microphoneGeneration); return; }
     await instance.setClick(elements.click.checked);
     if (generation !== transportGeneration) return;
     await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar,
       loop: elements.loop.checked, automatic: false });
   } catch (error) {
     if (startedRecording) finishOutputRecording();
-    if (instance) await instance.disableMicrophone().catch(() => {});
+    if (instance && microphoneGeneration !== undefined) await instance.disableMicrophone(microphoneGeneration).catch(() => {});
     throw error;
   } finally { starting = false; render(state); }
 }
@@ -318,6 +349,20 @@ function render(next: Partial<PracticeState>) {
   elements.start.disabled = running || starting || switching || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
   elements['song-select'].disabled = switching || outputCapture !== 'idle';
   elements['record-demo'].disabled = outputCapture === 'starting' || outputCapture === 'stopping';
+  const effectsLocked = running || starting || switching || Boolean(preparing) || outputCapture !== 'idle';
+  for (const element of [elements['effects-enabled'], elements['effects-delay'], elements['effects-feedback'], elements['effects-wet']]) element.disabled = effectsLocked;
+  const effects = state.liveEffects;
+  elements['effects-status'].textContent = effects?.active
+    ? `Live voice active · revision ${effects.revision}`
+    : effects?.prepared ? `Prepared · revision ${effects.revision}. Set effects before Start.` : 'Set effects before Start.';
+  elements['effects-capture-hint'].hidden = effects?.prepared ? effects.captureSupported : !elements['effects-enabled'].checked;
+  elements['monitor-relationship'].disabled = !audio?.microphone || starting;
+  elements['monitor-relationship'].value = audio?.monitoringRelationship || 'unknown';
+  elements['monitor-hint'].textContent = audio?.monitoringRelationship === 'different-devices' || audio?.monitoringRelationship === 'same-usb-interface'
+    ? 'Confirmed setup. Live monitoring follows the active voice. Downloads include processed voice.'
+    : audio?.monitoringRelationship === 'same-non-usb'
+      ? 'Same non-USB device confirmed. Live monitoring stays off. Downloads include processed voice.'
+      : 'Live monitoring is off. Confirm your physical setup after Start. Downloads still include processed voice.';
   startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start practice';
   elements.stop.disabled = !starting && !running && !recording;
   elements['transport-hint'].textContent = inCountIn ? 'Listen for the downbeat.' : state.phase === 'playing' ? 'Space to stop. Esc stops everything.' : Number(elements['count-in'].value) === 0 ? 'Start on the next beat.' : `${elements['count-in'].value === '1' ? 'One bar' : 'Two bars'} of clicks, then you're in.`;
@@ -481,6 +526,11 @@ elements['song-select'].addEventListener('change', () => act(() => switchSong(el
 elements.stop.addEventListener('click', () => act(stopPractice));
 elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic); });
 elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording));
+elements['effects-enabled'].addEventListener('change', () => render(state));
+elements['monitor-relationship'].addEventListener('change', () => act(() => {
+  if (!audio) throw new Error('Start the microphone before confirming the monitoring setup.');
+  audio.setMonitoringRelationship(monitoringRelationship(elements['monitor-relationship'].value));
+}));
 elements.click.addEventListener('change', () => act(async () => {
   if (audio) await audio.setClick(elements.click.checked);
 }));

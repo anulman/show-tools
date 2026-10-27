@@ -12,7 +12,7 @@ Open <http://127.0.0.1:8082/ui/practice/>. The page runs audio locally through i
 
 ## Capture the opening loop
 
-Sample slots start empty. Use headphones so speaker output does not enter the microphone.
+Sample slots start empty. For this current capture path, bypass **Slapback** before Start. Effect-enabled sample capture is not available yet. The steps and notation below describe the checked-in DYC snapshot, not the pending chart grammar update.
 
 1. Select **Dance Yrself Clean**.
 2. Press **Start practice** and allow microphone access when prompted.
@@ -42,7 +42,7 @@ Numbers indicate beats. `e`, `&`, and `a` divide a beat into sixteenths, and a c
 
 Dance Yrself Clean's cowbell uses full-bar recordings without extraction. During bar 2, press **R2** or **S** to arm bar 3 and perform the double sound. During bar 3, press again to commit it and arm bar 4 for the single sound. During bar 4, press again to commit. The single take plays on normal bars. Bars 8 and 10 automatically use the recorded double take where `&a` is marked, then return to the single take. No double tapping is needed. The explicit stop cue still stops the cowbell.
 
-Captures are limited to 30 seconds. Reaching the limit commits and loops the take. **Stop** and the mushroom commit active captures while silencing playback and canceling pending actions. Microphone input is not monitored directly. Captured takes stay in memory and disappear when you leave or reload the page.
+Captures are limited to 30 seconds. Reaching the limit commits and loops the take. **Stop** and the mushroom commit active captures while silencing playback and canceling pending actions. Processed live monitoring is available only after explicit physical-device confirmation; see the live-effects steps below. Captured takes stay in memory and disappear when you leave or reload the page.
 
 ## Use the keyboard layout
 
@@ -67,7 +67,7 @@ To load a file instead of capturing a take, stop practice and press **LOAD** on 
 2. Perform the chart's capture and playback cues.
 3. Press **Stop** to finish the take and release the microphone, then **Download take**. **Finish take** can end the demo recording while practice continues.
 
-The download contains your main live voice, song click, and sample output, starting with the song. The practice lead-in is excluded. The voice is centered in both recording channels without adding microphone monitoring to speaker playback. Mono microphone input keeps unity gain; stereo input is downmixed to mono. Sample stereo stays unchanged. After stopping, the browser prepares a stereo 192 kb/s MP3 locally. Wait for **MP3 ready**, then download the `.mp3` file. Conversion runs in a worker without uploading audio. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
+The download contains your main live voice, song click, and sample output, starting with the song. The practice lead-in is excluded. The native live-effects stem enters the recording once. Mono microphone input reaches both channels before the stack; sample stereo stays unchanged. Live speaker monitoring is separately gated by explicit physical-device confirmation and does not control the download. After stopping, the browser prepares a stereo 192 kb/s MP3 locally. Wait for **MP3 ready**, then download the `.mp3` file. Conversion runs in a worker without uploading audio. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
 
 ## Choose a song and range
 
@@ -99,14 +99,29 @@ Desktop offline reload and local audio have been checked. Physical-phone install
 
 ## Develop the UI
 
-`audio.ts` creates the local WASM clock and sample engines. `practice-worklet.ts` owns count-in, chart-action boundaries, capture, and loop playback on the audio thread. `app.ts` renders snapshots and submits controls through that bridge. Song-specific routes live outside the UI in `songs/`.
+`audio.ts` adapts microphone, native stereo buses, recording, and monitoring. `practice-worklet.ts` passes audio blocks and controls to the shared C++ performance engine through `pf_process_stems()`. C++ owns count-in, chart-action boundaries, capture, playback, and DSP. `app.ts` renders snapshots and submits controls through the bridge. Song-specific routes live outside the UI in `songs/`.
 
 The practice clock build contains no aubio. Microphone capture works independently of tempo detection. The optional full tracker build retains its GPL-3.0-or-later dependency.
 
-`npm run build:wasm` builds only the manual clock. `npm run build:ui` bundles the browser app, audio worklet, song scripts, and extension. Rebuild after source changes.
+`npm run build:wasm` builds the complete shared manual-tempo performance engine, sampler, sequencer, and patch DSP. `npm run build:ui` bundles the browser app, audio worklet, song scripts, and extension. Rebuild after source changes.
 
 ```sh
 npm run typecheck
 npm test
 npm run check:layout
 ```
+
+## Try live microphone effects during practice
+
+Build this checkout with `npm run build` and serve its `dist/` directory on localhost or HTTPS. Use the existing practice desk. Sheets, a relay, and the CDP helper are not required for audio. Choose the actual microphone/output setup in your browser or operating system before testing.
+
+1. While stopped, enable **Slapback** under **Live voice effects**. Start with delay 100 ms, feedback 0, and wet amount 0.25. Change these venue values in the web UI before a run.
+2. Choose the practice range and count-in, then press **Start practice**. Grant microphone access. Wait for the native-confirmed live voice status and applied revision.
+3. Live monitoring starts closed. After Start, use **Live monitoring** to confirm the actual physical relationship of your input/output devices. Different physical devices or the same USB audio interface permit monitoring. Same non-USB hardware or an unconfirmed setup leaves it off. Do not claim a different-device or USB setup unless you know it is true.
+4. Speak or clap. On an eligible output, expect centered live voice and one repeat about 100 ms later. The song click stays separate from the effect. Changing effect values during a run is unavailable in this capability.
+5. Press **Stop** or Escape. Live audio and delay history stop immediately, and microphone access releases. Wait for MP3 export, then use **Download take**. The download includes processed live voice even if monitoring stayed off. The mandatory lead-in stays outside the demo download.
+6. To test a second setting, change values while stopped, Start again, and confirm the physical setup again after microphone acquisition. A replaced/lost microphone invalidates prior monitoring confirmation.
+
+Sample capture with a nonempty effects stack is unavailable until capture routing and cached-loop behavior are defined. Capture commands reject explicitly; they do not record a dry fallback. Existing sample playback and click remain available. Bypass Slapback to use the current identity-capture route. The standalone processed-cache fixtures do not establish effect-enabled practice sampling.
+
+Automated browser checks use synthetic microphone input. An operator microphone/room test must record the actual input/output facts and be reported separately. No fixture audition is a physical monitoring test.

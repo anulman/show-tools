@@ -2,7 +2,7 @@
 
 The practice desk is a browser instrument that records your microphone into loops and plays those loops against a song chart. A shared C++ performance engine owns musical time and execution. The browser worklet supplies audio blocks, and the page displays state and submits controls.
 
-This account describes the shared C++ performance engine as of October 25, 2026. The [development guide](development.md) covers starting another session and dividing the next work. The [practice guide](../ui/practice/README.md) covers performing a take.
+This account describes the shared C++ performance engine as of October 27, 2026. The [development guide](development.md) covers starting another session and dividing the next work. The [practice guide](../ui/practice/README.md) covers performing a take.
 
 ## Musical time starts with audio frames
 
@@ -25,7 +25,7 @@ flowchart LR
 	transport -->|"capture and playback at that frame"| samples["C++ sample capture and mixer"]
 ```
 
-The worklet receives microphone PCM and produces stereo PCM for the browser's output. The UI receives snapshots and events after audio decisions. It can stall without becoming the source of beat timing.
+The worklet receives mono microphone PCM and produces separate stereo sample/click and processed-live buses for browser routing. The UI receives snapshots and events after audio decisions. It can stall without becoming the source of beat timing.
 
 ```mermaid
 flowchart LR
@@ -55,7 +55,7 @@ The TypeScript bridges have narrower jobs:
 - [wasm-sequencer.ts](../lib/sequencer/wasm-sequencer.ts) maps pattern names and labels to native IDs and reads sequencer state.
 - [wasm-sampler.ts](../lib/sampler/wasm-sampler.ts) maps sample and variant names to native IDs and exposes native sample commands and metadata.
 
-The browser worklet calls `pf_process()` for each block. It does not call a JavaScript beat handler to decide which sound plays. The old JavaScript sequencer and TypeScript transport implementations are removed. An old WASM artifact without the performance API fails startup instead of falling back to JavaScript scheduling. `pf_abi_version()` checks the binary against the generated interface constants.
+The practice worklet calls `pf_process_stems()` for each block. That entry point uses the same C++ clock and musical execution as `pf_process()` while exposing a distinct processed-live stereo stem. It does not call a JavaScript beat handler to decide which sound plays. The old JavaScript sequencer and TypeScript transport implementations are removed. An old WASM artifact without the performance API fails startup instead of falling back to JavaScript scheduling. `pf_abi_version()` checks the binary against the generated interface constants.
 
 The combined browser module has a fixed 256 MiB heap and cannot grow it during audio processing. Song configuration, pattern definition, capture preparation, and file loading are command-time operations that may allocate. Native block processing, beat dispatch, capture, rendering, triggering, and commit do not allocate or reclaim sample or pattern memory. Active voices keep their old buffer when a replacement take commits. Active and queued patterns likewise retain their copied definition when that pattern ID is redefined.
 
@@ -91,9 +91,11 @@ Samples begin at unity gain. Each pad's slider adjusts its channel. Mute preserv
 
 There are two kinds of recording. Sample capture records microphone input into a loop. Demo recording records the performance for download.
 
-The worklet output contains rendered samples and the enabled click. That stereo output goes both to speakers and to the demo recording destination. A separate microphone branch downmixes live voice to mono and adds it to both recording channels. That branch does not monitor live voice through speakers. Sample stereo stays unchanged.
+The worklet exposes two stereo outputs. Output zero contains rendered samples and click. Output one contains the default live voice after its prepared C++ effects stack. Both outputs connect once to the demo recording destination. There is no separate raw-microphone recording branch. Mono input reaches left and right equally before effects; stereo samples retain their channels.
 
-This explains the earlier balance fix. Centering belongs on the recording's live-voice branch. Downmixing the entire output would also destroy sample stereo.
+Sample/click output reaches speakers through its existing route. Processed live voice reaches speakers through a separate monitoring gate. The operator confirms whether input/output are different physical devices or the same USB audio interface. Either condition permits live monitoring. Same non-USB hardware or unknown identity leaves that gate closed. The adapter does not infer USB classification or compare unrelated input/output device IDs. Microphone loss, replacement, Stop, and disposal invalidate that confirmation. Downloads contain processed live voice independently of the monitor gate.
+
+Live effects are prepared atomically while stopped, before microphone startup and transport Start. The UI configures slapback in this first integrated capability. Native state reports the applied revision and actual live activation. Parameters stay fixed during a run. Start authorizes live processing; Stop/Panic, microphone loss, end, and fatal transport faults clear that authorization and delay state. Later microphone readiness alone cannot rearm it. Rejected parameter or capture commands are not fatal transport faults.
 
 **Start practice** requests the microphone and prepares demo recording automatically. The lead-in always clicks, even with song click off. The prepared recorder waits until the UI receives the first `playing` state, excluding the lead-in from the download. Its start is therefore tied to a delivered state update rather than a sample-exact worklet export boundary.
 
@@ -119,9 +121,9 @@ The intended EliteDesk owns audio processing and hardware controls. Other device
 
 The approved effects design processes live mono microphone into stereo through the default or capture-target voice stack, then caches that processed result for sampled playback. Cached audio must not pass through its baked stack again. Logical voice IDs are separate from button IDs. Per-effect venue tuning belongs in the web UI. Eligible monitors and room outputs receive processed live audio when input/output are different physical devices or the same confirmed USB interface. Downloads remain processed independently of that monitoring decision.
 
-The standalone [patches module](../lib/patches/README.md) begins this work with generic full-output C++ effects and a processed-cache release prototype. Its synthetic live render produces both output and exact cached stereo PCM. Playback reads that PCM while an auxiliary rack consumes retained source silently to maintain release state. Natural stop tails come from zero-input continuation of that auxiliary state, never from processing cached output again. Restore capture-start state only when a new loop iteration actually starts. This preserves the recorded phase's tail, rather than claiming the same feedback history as an endlessly processed source loop.
+The [patches module](../lib/patches/README.md) supplies generic full-output C++ effects. The performance engine now prepares its default-live rack and exposes its output through `pf_process_stems()`. The module also provides a processed-cache release prototype. Its live render writes exact processed stereo PCM. Cache playback reads that PCM while an auxiliary rack consumes retained source silently to maintain release state. Natural stop tails come from zero-input continuation, never from processing cached output again. That prototype preserves the recorded phase's tail and is not a claim about an endlessly processed source loop.
 
-This module is not yet connected to `pf_process()`, sampler capture, browser stems, or venue controls. The current practice route still captures raw mono input and adds the separate recording-only microphone branch described above. Those routes change together in a coordinated performance ABI milestone. Native capture preparation also needs an audit before callback application because current arm controls reach allocating `st_prepare()` calls. Standalone DSP verification does not prove the browser feature or native host callback safe.
+Processed sample capture and per-voice stack switching are not connected to the production sampler yet. With a nonempty live-effects stack, native arm and commit-and-arm commands reject before preparation or queue mutation. The UI states that limitation. Bypassing the stack explicitly prepares identity processing and permits the existing capture route. This is a capability boundary, not a raw fallback for effect-enabled takes. Capture-entry timing, overlapping capture routes, and loop-sound behavior await operator decisions. Shared preparation must also keep allocating `st_prepare()` calls outside callback application before the native device host uses those controls.
 
 EliteDesk work can use the complete native performance library, including song transport, sequencing, sampling, and click rendering. Its manual-tempo CMake target excludes aubio and libsndfile. The separate tracker executable still processes WAV files rather than live devices. A live audio host, a loader for compiled song instructions, physical control drivers, and a hardware event producer remain to be built. That work connects the shared engine to the machine; it does not require another port of the musical logic.
 

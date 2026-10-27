@@ -1,7 +1,7 @@
 import { SampleEngine, SampleRecorder } from '../sampler/wasm-sampler.js';
 import { AudioSequenceEngine } from '../sequencer/wasm-sequencer.js';
 import { CONTROL_IDS } from './model.js';
-import type { ChannelId, ChartControls, Control, CueAction, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions } from './model.js';
+import type { ChannelId, ChartControls, Control, CueAction, LiveEffectDefinition, LiveEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions } from './model.js';
 import { PF } from './wasm-abi.js';
 import { ST } from '../sampler/wasm-abi.js';
 
@@ -25,6 +25,11 @@ export class NativePerformance {
   readonly trackerEventPointer: number;
   readonly eventPointer: number;
   readonly commandPointer: number;
+  readonly effectPointer: number;
+  readonly liveLeftPointer: number;
+  readonly liveRightPointer: number;
+  readonly liveLeft: Float32Array;
+  readonly liveRight: Float32Array;
   readonly allocations: number[] = [];
   readonly commandIds = new Map<number, string>();
   runId: string;
@@ -52,6 +57,11 @@ export class NativePerformance {
       this.trackerEventPointer = this.allocate(512 * 12 * 8);
       this.eventPointer = this.allocate(PF.EVENT_CAPACITY * PF.EVENT_FIELDS * 8);
       this.commandPointer = this.allocate(801);
+      this.effectPointer = this.allocate(PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
+      this.liveLeftPointer = this.allocate(BLOCK * 4);
+      this.liveRightPointer = this.allocate(BLOCK * 4);
+      this.liveLeft = new Float32Array(this.memory.buffer, this.liveLeftPointer, BLOCK);
+      this.liveRight = new Float32Array(this.memory.buffer, this.liveRightPointer, BLOCK);
       this.call('pf_set_click_gain', this.handle, clickGain);
       if (mode === PF.PRACTICE) {
         sampler.ids.push(...CONTROL_IDS);
@@ -164,6 +174,34 @@ export class NativePerformance {
     this.runId = runId; this.commandIds.clear();
   }
   stop() { this.invoke('pf_stop', this.handle); }
+  prepareLiveEffects(effects: readonly LiveEffectDefinition[]) {
+    if (!Array.isArray(effects) || effects.length > PF.MAX_LIVE_EFFECTS) throw new Error('Invalid live effects stack');
+    for (const effect of effects) {
+      if (!effect || typeof effect !== 'object' || effect.kind !== 'slapback'
+        || !Number.isFinite(effect.delayMs) || effect.delayMs < 40 || effect.delayMs > 250
+        || !Number.isFinite(effect.feedback) || effect.feedback < 0 || effect.feedback > 0.7
+        || !Number.isFinite(effect.wet) || effect.wet < 0 || effect.wet > 1) throw new Error('Invalid slapback effect');
+    }
+    const previous = this.liveEffects();
+    if (previous.revision >= 4294967295) throw new Error('Live effect revision limit reached. Reload practice.');
+    const view = new DataView(this.memory.buffer, this.effectPointer, PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
+    for (const [index, effect] of effects.entries()) {
+      const offset = index * PF.EFFECT_BYTES;
+      view.setUint32(offset + PF.EFFECT_TYPE_OFFSET, PF.EFFECT_SLAPBACK, true);
+      view.setUint32(offset + PF.EFFECT_VERSION_OFFSET, 1, true);
+      view.setFloat64(offset + PF.EFFECT_DELAY_OFFSET, effect.delayMs, true);
+      view.setFloat64(offset + PF.EFFECT_FEEDBACK_OFFSET, effect.feedback, true);
+      view.setFloat64(offset + PF.EFFECT_WET_OFFSET, effect.wet, true);
+    }
+    this.call('pf_prepare_live_effects', this.handle, effects.length ? this.effectPointer : 0, effects.length, previous.revision + 1);
+    return this.liveEffects();
+  }
+  liveEffects(): LiveEffectsState {
+    const data = this.query('pf_live_info');
+    const stageCount = data[PF.LIVE_STAGE_COUNT];
+    return { prepared: data[PF.LIVE_PREPARED] === 1, active: data[PF.LIVE_ACTIVE] === 1,
+      revision: data[PF.LIVE_REVISION], stageCount, captureSupported: stageCount === 0 };
+  }
   selectChannel(id: ChannelId) { this.call('pf_select', this.handle, this.channel(id)); }
   setAutomatic(value: boolean) { this.call('pf_set_automatic', this.handle, this.boolean(value, 'Automatic')); }
   setClick(value: boolean) { this.call('pf_set_click', this.handle, this.boolean(value, 'Click')); }
@@ -205,7 +243,7 @@ export class NativePerformance {
       startBar: data[PF.START_BAR], endBar: data[PF.END_BAR], loop: data[PF.LOOP] === 1, automatic: data[PF.AUTOMATIC] === 1, click: data[PF.CLICK] === 1, selectedChannel: CONTROL_IDS[data[PF.SELECTED_CHANNEL]],
       runId: this.runId, seq: data[PF.SEQUENCE], channels, looping: channels.filter(channel => channel.looping).map(channel => channel.id), recording, microphone: data[PF.MICROPHONE] === 1, error: data[PF.ERROR] ? this.message(data[PF.ERROR]) : null };
   }
-  state() { return this.decode(Array.from(this.query('pf_snapshot'))); }
+  state() { return { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects() }; }
   snapshot() { return this.state(); }
   get processedFrames() { return this.query('pf_snapshot')[PF.FRAME]; }
   get clickEnabled() { return this.query('pf_snapshot')[PF.CLICK_ENABLED] === 1; }
@@ -241,12 +279,21 @@ export class NativePerformance {
       return result;
     });
   }
-  process(input: Float32Array | null | undefined, outputs: Float32Array[], length: number) {
+  process(input: Float32Array | null | undefined, outputs: Float32Array[], length: number, liveOutputs?: Float32Array[]) {
     for (let offset = 0; offset < length; offset += BLOCK) {
       const count = Math.min(BLOCK, length - offset);
       if (input) { const block = input.subarray(offset, offset + count); this.sampler.input.set(block); this.sampler.input.fill(0, block.length, count); }
       this.sampler.left.fill(0, 0, count); this.sampler.right.fill(0, 0, count);
-      this.call('pf_process', this.handle, input ? this.sampler.inputPointer : 0, this.sampler.leftPointer, outputs[1] ? this.sampler.rightPointer : 0, count);
+      if (liveOutputs) {
+        this.liveLeft.fill(0, 0, count); this.liveRight.fill(0, 0, count);
+        this.call('pf_process_stems', this.handle, input ? this.sampler.inputPointer : 0,
+          this.sampler.leftPointer, outputs[1] ? this.sampler.rightPointer : 0,
+          liveOutputs[0] ? this.liveLeftPointer : 0, liveOutputs[1] ? this.liveRightPointer : 0, count);
+        liveOutputs[0]?.set(this.liveLeft.subarray(0, count), offset);
+        liveOutputs[1]?.set(this.liveRight.subarray(0, count), offset);
+      } else {
+        this.call('pf_process', this.handle, input ? this.sampler.inputPointer : 0, this.sampler.leftPointer, outputs[1] ? this.sampler.rightPointer : 0, count);
+      }
       outputs[0]?.set(this.sampler.left.subarray(0, count), offset);
       outputs[1]?.set(this.sampler.right.subarray(0, count), offset);
     }

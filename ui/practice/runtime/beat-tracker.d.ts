@@ -1,6 +1,6 @@
 export interface TrackerState { source: { kind: string }; lifecycle: string; error?: string | null }
 export class BeatTracker {
-  static create(options: { startingBpm?: number; wasmUrl?: URL; workletUrl?: URL; processorName?: string; outputChannels?: number; processorOptions?: object }): Promise<BeatTracker>;
+  static create(options: { startingBpm?: number; wasmUrl?: URL; workletUrl?: URL; processorName?: string; outputChannels?: number; outputChannelCounts?: number[]; processorOptions?: object }): Promise<BeatTracker>;
   context: AudioContext;
   node: AudioWorkletNode;
   lifecycle: string;

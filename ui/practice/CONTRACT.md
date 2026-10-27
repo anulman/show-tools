@@ -4,7 +4,7 @@ The practice desk is a static website. Browser audio controls and state use the 
 
 ## Timing ownership
 
-The C++ performance engine owns clock advancement, beat crossings, count-in, song position, chart-action execution, generic sequencing, sample capture, playback mixing, and click generation. The browser worklet transfers input and output blocks through `pf_process()` and publishes native events. It does not dispatch per-beat JavaScript callbacks. Rendering does not depend on UI timers or network responses.
+The C++ performance engine owns clock advancement, beat crossings, count-in, song position, chart-action execution, generic sequencing, sample capture, playback mixing, and click generation. The browser worklet transfers input and output blocks through `pf_process_stems()` and publishes native events. It does not dispatch per-beat JavaScript callbacks. Rendering does not depend on UI timers or network responses.
 
 Transport `phase` is `idle`, `count-in`, `playing`, or `ended`. Count-in uses the chart's lead-in column and has no numbered song bar. Displayed bars and beats start at one. Program beat offsets start at zero. Every Start begins a fresh count-in. A range loop wraps without another count-in. Tempo changes are accepted while stopped.
 
@@ -26,12 +26,12 @@ Manual tap cues retain their notation and beat offsets for display. They play on
 const audio = await PracticeAudio.create({ chart: song.chart, program: song.program });
 const unsubscribe = audio.subscribe(state => render(state));
 const detachEvents = audio.onEvent(event => observe(event));
+await audio.configureLiveEffects([]);
 await audio.enableMicrophone();
 await audio.start({ bpm: song.chart.bpm, countInBars: 1,
 	startBar: song.practice.startBar, endBar: song.practice.endBar,
 	loop: true, automatic: false });
 await audio.control({ id: 'R1' });
-await audio.control({ id: 'knob', value: 0.7 });
 await audio.control({ id: 'mushroom' });
 await audio.dispose();
 ```
@@ -48,17 +48,23 @@ Arm and commit-and-arm cues may carry a sparse capture hint with expected beat p
 
 A `{ kind: 'bar', variantKey }` capture hint retains a named whole-bar take without extraction or silence trimming. `program.barPlayback` selects retained variants at the corresponding bar downbeats. It only replaces active loops and respects recording, mute, explicit stop, and missing takes. Dance Yrself Clean uses this path for its cowbell pair and single, with automatic double-bar playback at the charted `&a` marks.
 
-Each pad has a volume slider that controls its channel gain between zero and one. Samples initialize at unity gain. Hardware knob events still control the selected channel. Mute changes active voices without resetting loop phase. Start requests microphone access and prepares output recording. The recorder waits through count-in and starts when the UI receives the first `playing` state. Stop, panic, and range completion finish the output take and release the microphone. Song changes dispose the old audio session before another program loads. Song click defaults off; lead-in clicks are mandatory and do not change that preference.
+Each pad has a volume slider that controls its channel gain between zero and one. Samples initialize at unity gain. Actual peripheral knob direction/distance has song-specific meaning and is not mapped by this effects milestone. Per-effect venue tuning uses web controls. Mute changes active voices without resetting loop phase. Start requests microphone access and prepares output recording. The recorder waits through count-in and starts when the UI receives the first `playing` state. Stop, panic, and range completion finish the output take and release the microphone. Song changes dispose the old audio session before another program loads. Song click defaults off; lead-in clicks are mandatory and do not change that preference.
 
-`outputStream` mixes rendered stereo output with the main live microphone for MediaRecorder. The voice branch downmixes microphone input to mono and feeds both recording channels. Mono input keeps unity gain; stereo input uses the standard left/right average. Sample stereo remains unchanged. The microphone branch connects only to the recording destination and does not add live voice monitoring to speaker output. Stopping or replacing microphone input and disposing the audio session disconnect this branch. A recording start in progress cannot create a second recorder.
+`configureLiveEffects(effects)` prepares an ordered default-live stack while stopped. The first type is `{ kind: 'slapback', delayMs, feedback, wet }`. Parameters and stage count validate before native preparation. The bridge owns a monotonic positive revision; native state confirms the applied resource. An empty list explicitly prepares identity processing. Failed preparation preserves the previous rack. Runtime edits reject without interrupting live audio.
 
-The `NativePerformance` class in `lib/performance/wasm-performance.ts` transfers complete audio blocks and declarative song data to C++. The sampler and sequencer bridges map names and metadata to their native APIs. None retain a JavaScript musical scheduler or sample bank. `pf_abi_version()` rejects an incompatible WASM binary instead of using a JavaScript fallback. The combined WASM heap is fixed at 256 MiB. Capture preparation or file loading can fail when that heap is full, preserving the installed take. Native block processing and beat dispatch do not allocate or reclaim sample or pattern memory. Song configuration, pattern definition, capture preparation, and loading may allocate and perform deferred reclamation. JavaScript snapshots still allocate objects and arrays.
+Current `PracticeState.liveEffects` reports `prepared`, actual `active` authorization, `revision`, `stageCount`, and `captureSupported`. A valid Start with microphone ready authorizes live processing. Stop/Panic, end, fatal transport/render faults, and microphone loss clear the latch and history. Later microphone readiness alone cannot rearm it. Validation or unsupported-capture rejection is nonfatal. With a nonempty effects stack, arm and commit-and-arm reject before allocating or queueing because effect-enabled capture routing remains unresolved. Identity processing preserves the current capture capability.
+
+`outputStream` mixes native sample/click and processed-live stereo outputs once each. There is no independent raw microphone recording branch. Mono reaches left/right equally before effects. Sample stereo remains unchanged. A separate live-monitor gain starts closed. `setMonitoringRelationship()` requires an active microphone and explicit physical-device facts. Different physical I/O devices or the same confirmed USB interface permit monitoring. Same non-USB hardware or unknown identity do not. Microphone replacement/loss, reported device or sink changes, Stop, and disposal invalidate confirmation. Downloads remain processed independently of that gate. A recording start in progress cannot create a second recorder.
+
+The `NativePerformance` class in `lib/performance/wasm-performance.ts` transfers complete audio blocks and declarative song data to C++. The sampler and sequencer bridges map names and metadata to their native APIs. None retain a JavaScript musical scheduler or sample bank. `pf_abi_version()` rejects an incompatible WASM binary instead of using a JavaScript fallback. The performance binary ABI is version 2. Header-defined effect layouts have native and WASM size/offset assertions and generated TypeScript constants. The combined WASM heap is fixed at 256 MiB. Capture preparation or file loading can fail when that heap is full, preserving the installed take. Native block processing and beat dispatch do not allocate or reclaim sample or pattern memory. Song configuration, pattern definition, capture preparation, and loading may allocate and perform deferred reclamation. JavaScript snapshots still allocate objects and arrays.
 
 Completed native WebM or MP4 recordings convert locally to stereo 192 kb/s MP3 in a separate worker. The browser capture state remains `stopping` through conversion, blocking another take and song switching. A successful export replaces the previous download. A failed export preserves the previous completed download. The lead-in is excluded by delayed recorder startup, while any enabled song click remains in the recording. Exported files and captured samples are memory-only.
 
 ## Events and desktop chart control
 
 The native engine queues up to 512 immutable events containing sequence numbers, transport state, and four channel states. `NativePerformance` formats them as `PracticeEvent` with `v: 1`, a host run ID, increasing `seq`, `type`, and complete practice state. Start resets the native event sequence for the new run. Native control deduplication retains command IDs as UTF-16 code units, including Unicode and embedded NUL identity. Types are `state`, `beat`, `control`, and `fault`. Beat events retain their source `frame` and `sampleRate`. The adapter adds spreadsheet ID, sheet ID, numbered-bar columns, and lead-in column metadata.
+
+Effect status is queried into current snapshots and command receipts. Historical immutable events omit `liveEffects`; they do not claim a replayable effect revision at that earlier frame.
 
 The main thread posts `{ kind: 'show-tools-performance', event }` to its own window origin. A same-window `show-tools-state-request` message returns the current snapshot envelope when audio exists.
 

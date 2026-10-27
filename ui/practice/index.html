@@ -55,6 +55,19 @@
 
     </section>
 
+    <section class="live-effects" aria-labelledby="effects-heading">
+      <div class="section-heading"><h2 id="effects-heading">Live voice effects</h2><span id="effects-status" role="status">Set effects before Start.</span></div>
+      <div class="effects-controls">
+        <label class="switch"><input id="effects-enabled" type="checkbox" checked><span class="switch-track"></span><span>Slapback</span></label>
+        <label class="field"><span>DELAY · MS</span><input id="effects-delay" type="number" min="40" max="250" step="1" value="100" inputmode="decimal"></label>
+        <label class="field"><span>FEEDBACK</span><input id="effects-feedback" type="number" min="0" max="0.7" step="0.05" value="0" inputmode="decimal"></label>
+        <label class="field"><span>WET AMOUNT</span><input id="effects-wet" type="number" min="0" max="1" step="0.05" value="0.25" inputmode="decimal"></label>
+      </div>
+      <p id="effects-capture-hint" class="effects-note">Slapback processes live voice and demo downloads. Sample capture with effects is unavailable in this build. Bypass Slapback to capture samples.</p>
+      <label class="monitor-setting field"><span>LIVE MONITORING · CONFIRM YOUR PHYSICAL SETUP AFTER START</span><select id="monitor-relationship" aria-describedby="monitor-hint"><option value="unknown">Not confirmed · monitoring off</option><option value="different-devices">Input and output are different devices</option><option value="same-usb-interface">Same USB audio interface</option><option value="same-non-usb">Same non-USB device · monitoring off</option></select></label>
+      <p id="monitor-hint" class="effects-note">Downloads include processed voice even when live monitoring is off.</p>
+    </section>
+
     <section class="auxiliary" aria-label="Recording and stop controls">
       <div class="demo-recording"><button id="record-demo" class="secondary" type="button"><span class="record-dot" aria-hidden="true"></span><span>Record demo</span></button><a id="download-demo" class="text-link" hidden download>Download take ↗</a><span id="recording-hint">Start practice opens the microphone and records your demo automatically.</span></div>
       <div class="panic-group"><button id="mushroom" class="mushroom" type="button" aria-label="Panic stop all audio"><span></span></button><div><strong>Stop everything</strong><p>Mushroom button <kbd>ESC</kbd></p></div></div>

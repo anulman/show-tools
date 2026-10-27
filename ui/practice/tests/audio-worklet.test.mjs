@@ -31,7 +31,7 @@ const sources = await Promise.all(['../runtime/beat-worklet.js', '../runtime/per
   .map(async path => (await sourceForVM(new URL(path, import.meta.url))).replace(/^import .*;\n/gm, '').replace(/export class /g, 'class ')));
 
 class Harness {
-  constructor({ bpm = 120, countInBars = 1, automatic = false, loop = true, preload = false, chartControls = controls(), audibleClick = false, barPlayback = [], barCount = 8 } = {}) {
+  constructor({ bpm = 120, countInBars = 1, automatic = false, loop = true, preload = false, chartControls = controls(), audibleClick = false, barPlayback = [], barCount = 8, liveEffects, microphone = false } = {}) {
     this.frame = 0;
     this.sequence = 0;
     this.request = 0;
@@ -53,6 +53,8 @@ class Harness {
     this.processor.receive({ type: 'performance-connect', port: this.port });
     if (preload) for (const sampleId of CONTROL_IDS) this.command('sample.load', { sampleId, channels: [Float32Array.from([0.5, 0.25, 0])], sampleRate: rate });
     this.tracker(2, bpm);
+    if (liveEffects !== undefined) this.command('practice.effects', { effects: liveEffects });
+    if (microphone) this.command('practice.microphone', { enabled: true });
     this.command('practice.start', { runId: 'first', bpm, countInBars, automatic, loop, endBar: barCount });
     this.command('practice.click', { enabled: false });
   }
@@ -82,6 +84,24 @@ class Harness {
       this.frame += length;
     }
     return left;
+  }
+
+  renderStems(frames, { chunk = 128, input } = {}) {
+    const mixed = [new Float32Array(frames), new Float32Array(frames)];
+    const live = [new Float32Array(frames), new Float32Array(frames)];
+    for (let offset = 0; offset < frames; offset += chunk) {
+      const length = Math.min(chunk, frames - offset);
+      const output = [new Float32Array(length), new Float32Array(length)];
+      const voice = [new Float32Array(length), new Float32Array(length)];
+      this.sandbox.currentFrame = origin + this.frame;
+      this.processor.process([input ? [input.subarray(offset, offset + length)] : []], [output, voice]);
+      for (let channel = 0; channel < 2; channel++) {
+        mixed[channel].set(output[channel], offset);
+        live[channel].set(voice[channel], offset);
+      }
+      this.frame += length;
+    }
+    return { mixed, live };
   }
 
   until(frame, value = 0.125) { return this.render(frame - this.frame, { input: new Float32Array(frame - this.frame).fill(value) }); }
@@ -546,5 +566,148 @@ test('native chart instructions remain unchanged when the uploaded JS definition
   const rendered = t.until(53000);
   assert(rendered.some(value => value === Math.fround(0.125)), 'the original native commit cue starts its captured loop');
   assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, true);
+  t.dispose();
+});
+
+
+const slapback = { kind: 'slapback', delayMs: 100, feedback: 0, wet: 0.25 };
+function rejectCommand(harness, command, payload) {
+  harness.port.onmessage({ data: { id: ++harness.request, command, payload } });
+  const reply = harness.performance.at(-1);
+  assert.equal(reply.id, harness.request);
+  assert.equal(reply.ok, false);
+  return reply;
+}
+
+test('actual WASM exposes prepared native effects and renders mono live PCM only on its second stereo bus', () => {
+  for (const chunk of [127, 128, 10037]) {
+    const t = new Harness({ countInBars: 0, liveEffects: [slapback], microphone: true });
+    assert.deepEqual(t.state().liveEffects, { prepared: true, active: true, revision: 1, stageCount: 1, captureSupported: false });
+    const input = new Float32Array(10037); input[0] = 1;
+    const { mixed, live } = t.renderStems(input.length, { chunk, input });
+    assert(mixed.every(channel => channel.every(value => value === 0)), 'sample/click bus excludes processed live voice');
+    assert.deepEqual(live[0], live[1], 'mono reaches both channels equally');
+    for (let frame = 0; frame < input.length; frame++) {
+      assert.equal(live[0][frame], frame === 0 ? 1 : frame === 800 ? 0.25 : 0, `native live frame ${frame}`);
+    }
+    assert(!t.messages.some(message => message.type === 'fault'));
+    t.dispose();
+  }
+});
+
+test('processed live voice does not delay or change the mandatory count-in click', () => {
+  const baseline = new Harness({ audibleClick: true });
+  const wet = new Harness({ audibleClick: true, liveEffects: [slapback], microphone: true });
+  const input = new Float32Array(rate * 3); input[0] = 1;
+  const dryClick = baseline.render(input.length, { input });
+  const { mixed, live } = wet.renderStems(input.length, { input });
+  assert.deepEqual(mixed[0], dryClick);
+  assert.deepEqual(mixed[0], mixed[1]);
+  assert(dryClick.some(value => value !== 0), 'fixture contains real native count-in clicks');
+  assert.equal(live[0][0], 1);
+  assert.equal(live[0][800], 0.25);
+  assert(live[0].subarray(801).every(value => value === 0), 'click never enters effects');
+  baseline.dispose(); wet.dispose();
+});
+
+test('old API and null live channels still advance live DSP exactly once', () => {
+  for (const route of ['legacy', 'no-live-channels', 'left-live-only']) {
+    const t = new Harness({ countInBars: 0, liveEffects: [slapback], microphone: true });
+    const input = new Float32Array(100); input[0] = 1;
+    if (route === 'legacy') t.render(100, { input });
+    else {
+      const mixed = [new Float32Array(100), new Float32Array(100)];
+      const voice = route === 'left-live-only' ? [new Float32Array(100)] : [];
+      t.sandbox.currentFrame = origin + t.frame;
+      t.processor.process([[input]], [mixed, voice]);
+      t.frame += 100;
+      assert(mixed.every(channel => channel.every(value => value === 0)));
+      if (voice.length) assert.equal(voice[0][0], 1);
+    }
+    const { live } = t.renderStems(900);
+    for (let frame = 0; frame < 900; frame++) assert.equal(live[0][frame], frame === 700 ? 0.25 : 0, route);
+    assert.deepEqual(live[0], live[1]);
+    t.dispose();
+  }
+});
+
+test('effect command validation preserves applied revision and rejects runtime edits without muting live', () => {
+  const t = new Harness({ countInBars: 0, liveEffects: [slapback], microphone: true });
+  const before = t.state().liveEffects;
+  for (const effect of [{ ...slapback, wet: NaN }, { ...slapback, delayMs: '100' }, { ...slapback, kind: 'chorus' }]) {
+    assert.match(rejectCommand(t, 'practice.effects', { effects: [effect] }).error, /invalid/i);
+    assert.deepEqual(t.state().liveEffects, before);
+  }
+  assert.match(rejectCommand(t, 'practice.effects', { effects: [{ ...slapback, wet: 0.5 }] }).error, /effects|stop|stopped|idle|running/i);
+  assert.deepEqual(t.state().liveEffects, before);
+  const input = new Float32Array(801); input[0] = 1;
+  const { live } = t.renderStems(input.length, { input });
+  assert.equal(live[0][800], 0.25);
+  t.command('practice.stop');
+  t.command('practice.effects', { effects: [] });
+  assert.deepEqual(t.state().liveEffects, { prepared: true, active: false, revision: 2, stageCount: 0, captureSupported: true });
+  t.dispose();
+});
+
+test('unsupported effects capture is a rejected command while live processing continues', () => {
+  const t = new Harness({ liveEffects: [slapback], microphone: true });
+  assert.match(rejectCommand(t, 'practice.control', { control: { id: 'R1' } }).error, /capture|sampling/i);
+  assert.match(rejectCommand(t, 'record.start', { sampleId: 'R1' }).error, /capture/i);
+  assert.match(rejectCommand(t, 'sequence.record', { sampleId: 'R1', action: 'start' }).error, /capture/i);
+  assert.equal(t.processor.recorder.slots.size, 0);
+  assert.equal(t.state().liveEffects.active, true);
+  assert.equal(t.state().recording, null);
+  assert(!t.performance.some(message => message.event?.type === 'fault'));
+  assert(!t.messages.some(message => message.type === 'fault'));
+  const input = new Float32Array(801); input[0] = 1;
+  assert.equal(t.renderStems(input.length, { input }).live[0][800], 0.25);
+  t.dispose();
+});
+
+test('native Stop, Panic, microphone loss and nonloop end gate both live channels without stale restart', () => {
+  for (const stop of ['stop', 'panic', 'microphone-loss', 'performance-stop-all']) {
+    const t = new Harness({ countInBars: 0, liveEffects: [slapback], microphone: true });
+    const input = new Float32Array(100); input[0] = 1;
+    t.renderStems(input.length, { input });
+    if (stop === 'stop') t.command('practice.stop');
+    else if (stop === 'panic') t.command('practice.control', { control: { id: 'mushroom' } });
+    else if (stop === 'performance-stop-all') t.command('performance.stopAll');
+    else t.command('practice.microphone', { enabled: false });
+    assert.equal(t.state().liveEffects.active, false);
+    t.command('practice.microphone', { enabled: true });
+    assert.equal(t.state().liveEffects.active, false, 'microphone readiness alone cannot reauthorize live output');
+    assert(t.renderStems(1000, { input: new Float32Array(1000).fill(0.5) }).live.every(channel => channel.every(value => value === 0)), stop);
+    t.command('practice.stop');
+    t.command('practice.start', { runId: 'fresh', bpm: 120, countInBars: 0, automatic: false, endBar: 8 });
+    assert(t.renderStems(1000).live.every(channel => channel.every(value => value === 0)), 'new run has no stale echo');
+    t.dispose();
+  }
+  const ended = new Harness({ countInBars: 0, barCount: 1, loop: false, liveEffects: [slapback], microphone: true });
+  const output = ended.renderStems(20128, { input: new Float32Array(20128).fill(0.125), chunk: 20128 });
+  assert.equal(ended.state().phase, 'ended');
+  assert.equal(ended.state().liveEffects.active, false);
+  const endEvent = ended.performance.find(message => message.event?.type === 'beat' && message.event.state.phase === 'ended').event;
+  const endFrame = Math.ceil(endEvent.frame);
+  assert(Math.abs(endFrame - 20000) <= 1, 'end crossing has the expected musical position');
+  assert(output.live[0].subarray(0, endFrame).every(value => value > 0));
+  assert(output.live[0].subarray(endFrame).every(value => value === 0), 'segment after native end boundary is silent');
+  assert.deepEqual(output.live[0], output.live[1]);
+  ended.dispose();
+});
+
+test('worklet render failures silence every output bus', () => {
+  const t = new Harness({ countInBars: 0, liveEffects: [slapback], microphone: true });
+  const originalProcess = t.processor.native.process;
+  t.processor.native.process = () => { throw new Error('injected rendering failure'); };
+  const outputs = Array.from({ length: 2 }, () => Array.from({ length: 2 }, () => new Float32Array(128).fill(1)));
+  t.processor.process([[new Float32Array(128)]], outputs);
+  assert(outputs.every(bus => bus.every(channel => channel.every(value => value === 0))));
+  assert(t.messages.some(message => message.type === 'fault' && /injected/.test(message.message)));
+  t.processor.native.process = originalProcess;
+  t.command('practice.microphone', { enabled: true });
+  assert.equal(t.state().liveEffects.active, false, 'a fatal render failure clears native authorization');
+  assert(t.renderStems(1000, { input: new Float32Array(1000).fill(.5) }).live.every(channel => channel.every(value => value === 0)), 'later quanta stay silent without a valid Start');
+  t.command('practice.start', { runId: 'recovered', bpm: 120, countInBars: 0, automatic: false, endBar: 8 });
+  assert(t.renderStems(1000).live.every(channel => channel.every(value => value === 0)), 'fresh Start contains no stale tail');
   t.dispose();
 });

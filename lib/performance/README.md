@@ -22,7 +22,7 @@ This target links a manual-tempo clock, sequencer, and sampler. It requires neit
 2. While stopped, upload the song through `pf_configure()`. The interface copies scheduled events, lead-in and numbered-bar cues, capture hints, and whole-bar variant playback assignments. Invalid replacement data preserves the previous configuration.
 3. Pass device readiness through `pf_set_microphone()`. Submit controls through `pf_control()` and channel settings through `pf_set_channel()`.
 4. Start with `pf_start()`. The engine selects manual tempo, applies the starting BPM, and begins the requested count-in and range.
-5. Clear each output block, then call `pf_process()` with mono microphone PCM and output pointers. A null input supplies silence. The engine advances time, splits the block at clock crossings, executes actions, and adds rendered PCM to the outputs.
+5. Clear each output block, then call `pf_process_stems()` with mono microphone PCM and separate sample/click and live stereo pointers. `pf_process()` retains the sample/click API and discards the live stem without scratch allocation. A null input supplies silence. The engine advances time, splits the block at clock crossings, executes actions, and adds rendered PCM to the outputs.
 6. On the engine's owning thread, drain native events and tracker telemetry into a bounded host queue. Serialize and publish copied records outside the device callback. Do not use receipt time as musical time.
 7. Stop through `pf_stop()` and destroy the engine through `pf_destroy()` when the host releases it.
 
@@ -44,4 +44,12 @@ The browser module has a fixed 256 MiB heap and disables growth. `pf_process()` 
 
 The C header defines query layouts and the performance ABI version. The build generates `wasm-abi.ts` from that header and derives exported function names from the public headers. The browser checks `pf_abi_version()` before constructing the engine. Rebuild both the WASM artifact and browser bundle after an interface change.
 
-The browser still owns device access and the separate live-voice demo recording route. MP3 export runs after capture in its own worker. The native engine does not open a microphone, monitor live voice, encode MP3, host a UI, or start the future relay.
+The browser owns device access and routing of the native sample/click and processed-live stereo stems. It mixes both once into the demo recording and separately gates live monitoring using explicit physical-device confirmation. MP3 export runs after capture in its own worker. The native engine does not open a microphone, monitor live voice, encode MP3, host a UI, or start the future relay.
+
+## Prepare the default live voice before practice
+
+`pf_prepare_live_effects()` atomically installs copied effect definitions while stopped and without active/pending capture. The first supported type is slapback version 1. Count zero explicitly prepares identity processing. Revisions are positive and host-owned. An identical request at the same revision is idempotent; a lower or conflicting revision rejects. `pf_live_info()` reports preparation, actual activation, revision, and stage count.
+
+Start authorizes live input only with microphone ready and a prepared rack. Stop/Panic, end, fatal faults, and microphone loss clear authorization and DSP history. Readiness alone does not rearm. `pf_process_stems()` adds planar PCM to nullable caller-cleared channel buffers, maps mono input equally to left/right, and processes live input once even if its outputs are discarded. Non-null spans must not overlap. Invalid aliasing rejects before modifying engine state, last error, or output.
+
+Default-live effects currently apply during count-in and playing. The click and existing sample mix stay outside the effect input. Effect-enabled sample capture rejects before preparation or queued mutation; that command rejection is nonfatal. Processed cache integration and per-voice capture switching await the explicit capture contract. The standalone patches tests establish its cache-release prototype, not the production sampler behavior. Identity capture remains available when the stack is bypassed.

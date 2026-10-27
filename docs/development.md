@@ -45,7 +45,7 @@ For mobile checks, serve `dist/` over HTTPS. Microphone access requires a secure
 
 The merged [effects plan](plans/filters-and-patches.md) records operator decisions. Start with portable live-first processing and processed stereo caches, not sample-only effects or dry primary takes. Keep button bindings separate from logical voices. Use web controls for venue parameter tuning; performance peripherals invoke declared cues/operations.
 
-The standalone [patches module](../lib/patches/README.md) is a native/WASM correctness milestone, not production practice integration. Run its reproducible check from the repository root.
+The [patches module](../lib/patches/README.md) supplies the prepared default-live rack used during practice and a separate processed-cache release prototype. Run its reproducible check from the repository root.
 
 ```sh
 node --import tsx scripts/verify-patches.ts
@@ -53,7 +53,7 @@ node --import tsx scripts/verify-patches.ts
 
 That command builds and runs the same C++ tests natively and through Emscripten, then compares rendered interleaved stereo float fixtures. It saves generated artifacts in a fresh temporary directory. Tests cover generic stage order, mono left/right output, exact processed capture, and state-driven cache release at arbitrary reached stop positions. The initial prototype supports fixed graphs and parameters, phase-zero starts, and unit-speed playback. It repeats source DSP inaudibly to maintain tail state; it does not claim a caching speedup or physical realtime performance.
 
-Coordinate subsequent performance headers, generated ABI, sampler stereo capture, stems, and browser route changes with Performance Engine before editing. The production practice page still uses its current raw-microphone capture and separate live recording branch. Native `pf_control()` arm can call `st_prepare()`, so move preparation out of callback application as part of that integration.
+Coordinate subsequent performance headers, generated ABI, sampler stereo capture, stems, and browser route changes with Performance Engine before editing. The practice page uses separate native sample/click and processed-live buses. Its recording destination receives both once; its live monitor requires explicit physical-device confirmation. Effect-enabled capture still rejects explicitly while the capture contract is unresolved. Bypass preserves the existing identity-capture capability. Native `pf_control()` arm can call `st_prepare()`, so move preparation out of callback application as part of that integration.
 
 Read these files before choosing the processing order.
 

@@ -3,112 +3,224 @@ import assert from 'node:assert/strict';
 import { PracticeAudio } from '../audio.ts';
 import { BeatTracker } from '../runtime/beat-tracker.js';
 
-function audioNode(value = [0]) {
+function audioNode(value = [0, 0]) {
   return {
     inputs: new Set(), outputs: new Set(), value,
-    channelCount: 2, channelCountMode: 'max', channelInterpretation: 'speakers',
+    channelCount: 2, channelCountMode: 'explicit', gain: { value: 1 },
     connect(target) { this.outputs.add(target); target.inputs.add(this); },
     disconnect() { for (const target of this.outputs) target.inputs.delete(this); this.outputs.clear(); },
     read() {
       const inputs = [this.value, ...[...this.inputs].map(input => input.read())];
-      const channels = this.channelCountMode === 'explicit' ? this.channelCount : Math.max(...inputs.map(input => input.length));
-      return Array.from({ length: channels }, (_, index) => inputs.reduce((sum, input) => {
-        if (channels === 1 && input.length === 2 && this.channelInterpretation === 'speakers') return sum + (input[0] + input[1]) / 2;
-        return sum + (input.length === 1 && this.channelInterpretation === 'speakers' ? input[0] : input[index] || 0);
-      }, 0));
+      return [0, 1].map(channel => inputs.reduce((sum, input) => sum + (input[channel] || 0), 0) * this.gain.value);
     },
   };
 }
 
-function harness(initialStream = null, sampleChannels = [0.5, 0.5]) {
+function harness(initialStream = null) {
   const speaker = audioNode();
-  const worklet = audioNode(sampleChannels);
+  const buses = [audioNode([0.5, 0.125]), audioNode()];
+  const worklet = {
+    connect(target, output = 0) { buses[output].connect(target); },
+    disconnect() { for (const bus of buses) bus.disconnect(); },
+  };
   const recording = Object.assign(audioNode(), { stream: { getTracks: () => [] } });
-  const sources = [];
   const gains = [];
+  const deviceListeners = new Map();
   const listeners = new Set();
+  let rawSourceCalls = 0;
   const context = {
     destination: speaker,
+    addEventListener(type, listener) { deviceListeners.set(type, listener); },
+    removeEventListener(type) { deviceListeners.delete(type); },
     createMediaStreamDestination: () => recording,
-    createMediaStreamSource(stream) {
-      const node = audioNode(stream.channels);
-      sources.push(node);
-      return node;
-    },
+    createMediaStreamSource() { rawSourceCalls++; throw new Error('The recorder must not read raw microphone input'); },
     createGain() { const node = audioNode(); gains.push(node); return node; },
   };
   const tracker = {
     context, node: worklet, lifecycle: 'running', microphoneStream: initialStream,
     subscribe(listener) { listeners.add(listener); this.publish(); return () => listeners.delete(listener); },
     publish() { for (const listener of listeners) listener({ source: { kind: this.microphoneStream ? 'microphone' : 'off' }, lifecycle: this.lifecycle }); },
-    async startListening() { this.microphoneStream ||= { channels: [0.25] }; this.publish(); },
+    async startListening() { this.microphoneStream ||= { rawChannels: [0.8] }; this.publish(); },
     async stopListening() { this.microphoneStream = null; this.publish(); },
     async dispose() { await this.stopListening(); this.node.disconnect(); },
   };
   worklet.connect(speaker);
+  const stateListeners = new Set();
+  const requests = [];
   const endpoint = { port: { addEventListener() {}, removeEventListener() {} },
-    subscribe: () => () => {}, request: async () => {}, dispose() {} };
+    subscribe(listener) { stateListeners.add(listener); return () => stateListeners.delete(listener); },
+    async request(command, payload) { requests.push({ command, payload }); }, dispose() {} };
   const audio = new PracticeAudio({ tracker, endpoint,
     chart: { bpm: 98, bars: [{ column: 3 }], spreadsheetId: 'chart', sheetId: 101, leadInColumn: 2 }, sessionId: 'voice-test' });
-  return { audio, tracker, speaker, recording, sources, gains };
+  function nativeLive(channels, active = true) {
+    buses[1].value = channels;
+    const practice = { ...audio.latest, phase: active ? 'playing' : 'idle',
+      liveEffects: { prepared: true, active, revision: 2, stageCount: 1, captureSupported: false } };
+    for (const listener of stateListeners) listener({ practice });
+  }
+  return { audio, tracker, speaker, recording, gains, buses, endpoint, requests, nativeLive, deviceListeners, get rawSourceCalls() { return rawSourceCalls; } };
 }
 
-test('recording mixes live voice and sampler output while speakers receive only sampler output', async () => {
-  const { audio, tracker, speaker, recording, sources, gains } = harness();
-  assert(audio.snapshot().channels.every(channel => channel.gain === 1));
-  assert.equal(audio.outputStream, recording.stream);
-  assert.deepEqual(recording.read(), [0.5, 0.5]);
-  await audio.enableMicrophone();
-  assert.deepEqual(recording.read(), [0.75, 0.75], 'mono voice remains unity gain in both download channels');
-  assert.deepEqual(speaker.read(), [0.5, 0.5], 'live voice is not routed to speakers');
-  await audio.enableMicrophone();
-  tracker.publish();
-  assert.equal(sources.length, 1, 'repeated microphone activation cannot double the voice');
-  assert.deepEqual(recording.read(), [0.75, 0.75]);
-  await audio.disableMicrophone();
-  assert.deepEqual(recording.read(), [0.5, 0.5]);
-  assert.equal(sources[0].outputs.size, 0);
-  assert(gains.every(node => node.outputs.size === 0));
-  await audio.dispose();
+test('recording mixes both native stereo stems once without a raw microphone branch', async () => {
+  const h = harness();
+  assert.deepEqual(h.recording.read(), [0.5, 0.125]);
+  await h.audio.enableMicrophone();
+  h.nativeLive([0.2, 0.4]);
+  assert.deepEqual(h.recording.read(), [0.7, 0.525]);
+  assert.deepEqual(h.speaker.read(), [0.5, 0.125], 'unknown physical setup keeps live monitoring off');
+  await h.audio.enableMicrophone();
+  h.tracker.publish();
+  assert.equal(h.rawSourceCalls, 0);
+  assert.equal(h.buses[1].outputs.size, 2, 'one recording connection and one monitor gate');
+  assert.deepEqual(h.recording.read(), [0.7, 0.525], 'repeated activation cannot double the recorded stem');
+  assert.equal(h.audio.outputStream, h.recording.stream);
+  await h.audio.dispose();
 });
 
-for (const [name, channels, voice] of [
-  ['mono', [0.25], 0.25],
-  ['left-only stereo', [0.25, 0], 0.125],
-  ['right-only stereo', [0, 0.25], 0.125],
-  ['stereo', [0.25, 0.125], 0.1875],
+for (const [relationship, expected] of [
+  ['unknown', [0.5, 0.125]],
+  ['different-devices', [0.7, 0.525]],
+  ['same-usb-interface', [0.7, 0.525]],
+  ['same-non-usb', [0.5, 0.125]],
 ]) {
-  test(`${name} microphone input is centered without changing sample stereo or speaker output`, async () => {
-    const { audio, recording, speaker } = harness({ channels }, [0.5, 0.125]);
-    const mix = recording.read();
-    assert.deepEqual(mix, [0.5 + voice, 0.125 + voice]);
-    assert.equal(mix[0] - 0.5, mix[1] - 0.125, 'voice contribution is identical in left and right');
-    assert.deepEqual(speaker.read(), [0.5, 0.125]);
-    await audio.dispose();
+  test(`monitoring respects confirmed ${relationship} setup while downloads keep processed stereo`, async () => {
+    const h = harness({ rawChannels: [0.8] });
+    h.nativeLive([0.2, 0.4]);
+    h.audio.setMonitoringRelationship(relationship);
+    assert.deepEqual(h.speaker.read(), expected);
+    assert.deepEqual(h.recording.read(), [0.7, 0.525]);
+    assert.equal(h.rawSourceCalls, 0);
+    h.nativeLive([0, 0], false);
+    assert.equal(h.gains[0].gain.value, 0, 'native inactive status closes the monitor gate');
+    await h.audio.dispose();
   });
 }
 
-test('recording voice follows microphone replacement and releases every node on failure and disposal', async () => {
-  const { audio, tracker, recording, sources, gains } = harness({ channels: [0.25] });
-  assert.deepEqual(recording.read(), [0.75, 0.75], 'already-active input can connect during synchronous subscription');
-  tracker.microphoneStream = { channels: [0, 0.25] };
-  tracker.publish();
-  assert.deepEqual(recording.read(), [0.625, 0.625]);
-  assert.equal(sources[0].outputs.size, 0);
-  assert.equal(gains[0].outputs.size, 0);
-  tracker.microphoneStream = null;
-  tracker.lifecycle = 'faulted';
-  tracker.publish();
-  assert.deepEqual(recording.read(), [0.5, 0.5]);
-  assert.equal(sources[1].outputs.size, 0);
-  assert.equal(gains[1].outputs.size, 0);
-  tracker.lifecycle = 'running';
-  await audio.enableMicrophone();
-  assert.deepEqual(recording.read(), [0.75, 0.75]);
-  await audio.dispose();
-  assert(sources.every(node => node.outputs.size === 0));
-  assert(gains.every(node => node.outputs.size === 0));
-  assert.deepEqual(recording.read(), [0]);
+test('a monitor annotation cannot bind before an active microphone or infer device facts', async () => {
+  const h = harness();
+  assert.throws(() => h.audio.setMonitoringRelationship('different-devices'), /Start the microphone/);
+  assert.throws(() => h.audio.setMonitoringRelationship('guessed-usb'), /Unknown monitoring/);
+  assert.equal(h.audio.monitoringRelationship, 'unknown');
+  await h.audio.dispose();
+});
+
+test('microphone replacement, loss, reacquisition, and faults invalidate monitoring confirmation', async () => {
+  const h = harness({ rawChannels: [0.8] });
+  h.nativeLive([0.2, 0.4]);
+  h.audio.setMonitoringRelationship('same-usb-interface');
+  assert.equal(h.gains[0].gain.value, 1);
+  h.tracker.microphoneStream = { rawChannels: [0.9] };
+  h.tracker.publish();
+  assert.equal(h.audio.monitoringRelationship, 'unknown');
+  assert.equal(h.gains[0].gain.value, 0);
+  h.audio.setMonitoringRelationship('different-devices');
+  await h.audio.disableMicrophone();
+  assert.equal(h.gains[0].gain.value, 0);
+  await h.audio.enableMicrophone();
+  h.nativeLive([0.3, 0.1]);
+  assert.equal(h.audio.monitoringRelationship, 'unknown');
+  assert.equal(h.gains[0].gain.value, 0, 'new stream cannot reuse previous device confirmation');
+  h.audio.setMonitoringRelationship('different-devices');
+  h.tracker.lifecycle = 'faulted';
+  h.tracker.publish();
+  assert.equal(h.gains[0].gain.value, 0);
+  assert.equal(h.audio.monitoringRelationship, 'unknown');
+  assert.equal(h.rawSourceCalls, 0);
+  await h.audio.dispose();
+  assert(h.gains.every(node => node.outputs.size === 0));
+  assert(h.buses.every(node => node.outputs.size === 0));
+  assert.deepEqual(h.recording.read(), [0, 0]);
+});
+
+test('an output-device change closes monitoring until the physical setup is confirmed again', async () => {
+  const h = harness({ rawChannels: [0.8] });
+  h.nativeLive([0.2, 0.4]);
+  h.audio.setMonitoringRelationship('different-devices');
+  assert.equal(h.gains[0].gain.value, 1);
+  h.deviceListeners.get('sinkchange')();
+  assert.equal(h.gains[0].gain.value, 0);
+  assert.equal(h.audio.monitoringRelationship, 'unknown');
+  assert.deepEqual(h.recording.read(), [0.7, 0.525]);
+  await h.audio.dispose();
+  assert.equal(h.deviceListeners.size, 0);
+});
+
+for (const action of ['stop', 'panic']) {
+  test(`${action} closes live monitoring before an unresponsive native acknowledgment`, async () => {
+    const h = harness({ rawChannels: [0.8] });
+    h.nativeLive([0.2, 0.4]);
+    h.audio.setMonitoringRelationship('different-devices');
+    let done;
+    h.endpoint.request = () => new Promise(resolve => { done = resolve; });
+    const stopping = action === 'stop' ? h.audio.stop() : h.audio.control({ id: 'mushroom' });
+    assert.equal(h.gains[0].gain.value, 0);
+    assert.equal(h.audio.monitoringRelationship, 'unknown');
+    done();
+    await stopping;
+    await h.audio.dispose();
+  });
+}
+
+test('effect preparation requests use the shared command and do not optimistically activate', async () => {
+  const h = harness();
+  const effects = [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: 0.25 }];
+  await h.audio.configureLiveEffects(effects);
+  assert.deepEqual(h.requests, [{ command: 'practice.effects', payload: { effects } }]);
+  assert.equal(h.audio.latest.liveEffects, undefined);
+  await h.audio.dispose();
+});
+
+test('a rejected effect command does not close an existing valid monitoring route', async () => {
+  const h = harness({ rawChannels: [0.8] });
+  h.nativeLive([0.2, 0.4]);
+  h.audio.setMonitoringRelationship('different-devices');
+  h.endpoint.request = async () => { throw new Error('Stop before changing effects'); };
+  await assert.rejects(h.audio.configureLiveEffects([]), /Stop before changing effects/);
+  assert.equal(h.gains[0].gain.value, 1);
+  await h.audio.dispose();
+});
+
+test('cancelled microphone acquisition cannot notify readiness after Stop', async () => {
+  const h = harness();
+  let acquired;
+  h.tracker.startListening = () => new Promise(resolve => { acquired = resolve; });
+  const enabling = h.audio.enableMicrophone();
+  await h.audio.stop();
+  h.tracker.microphoneStream = { rawChannels: [0.9] };
+  acquired();
+  await enabling;
+  assert.deepEqual(h.requests.map(request => request.command), ['practice.stop']);
+  await h.audio.dispose();
+});
+
+test('stale acquisition cleanup cannot stop a newer microphone stream', async () => {
+  const h = harness();
+  const oldGeneration = await h.audio.enableMicrophone();
+  await h.audio.disableMicrophone();
+  await h.audio.enableMicrophone();
+  const stream = h.tracker.microphoneStream;
+  h.nativeLive([0.2, 0.4]);
+  h.audio.setMonitoringRelationship('different-devices');
+  const commands = h.requests.length;
+  await h.audio.disableMicrophone(oldGeneration);
+  assert.equal(h.tracker.microphoneStream, stream);
+  assert.equal(h.requests.length, commands);
+  assert.equal(h.gains[0].gain.value, 1);
+  await h.audio.dispose();
+});
+
+test('failed microphone readiness notification releases the acquired stream', async () => {
+  const h = harness();
+  h.endpoint.request = async (command, payload) => {
+    h.requests.push({ command, payload });
+    if (command === 'practice.microphone' && payload.enabled) throw new Error('Native readiness unavailable');
+  };
+  await assert.rejects(h.audio.enableMicrophone(), /Native readiness unavailable/);
+  assert.equal(h.tracker.microphoneStream, null);
+  assert.equal(h.audio.monitoringRelationship, 'unknown');
+  assert.equal(h.requests[0].payload.enabled, true);
+  assert(h.requests.slice(1).length > 0 && h.requests.slice(1).every(request => request.payload.enabled === false));
+  await h.audio.dispose();
 });
 
 test('tracker exposes only the active microphone stream, never fixture input', () => {

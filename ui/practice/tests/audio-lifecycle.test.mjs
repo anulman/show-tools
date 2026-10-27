@@ -44,7 +44,7 @@ for (const action of ['stopPractice', 'panic']) {
     class FakeElement {
       constructor(selector) {
         this.id = selector.slice(1);
-        this.value = ({ '#bpm': '98', '#start-section': '1', '#end-bar': '76', '#count-in': '1' })[selector] || '';
+        this.value = ({ '#bpm': '98', '#start-section': '1', '#end-bar': '76', '#count-in': '1', '#effects-delay': '100', '#effects-feedback': '0', '#effects-wet': '0.25' })[selector] || '';
         this.checked = true;
         this.textContent = '';
       }
@@ -110,7 +110,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   const commands = [];
   class Element {
     constructor(selector) {
-      this.value = ({ '#bpm': '98', '#start-section': '1', '#end-bar': '76', '#count-in': '1' })[selector] || '';
+      this.value = ({ '#bpm': '98', '#start-section': '1', '#end-bar': '76', '#count-in': '1', '#effects-delay': '100', '#effects-feedback': '0', '#effects-wet': '0.25' })[selector] || '';
       this.checked = selector !== '#click';
       this.textContent = '';
     }
@@ -126,6 +126,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   }
   const audio = {
     subscribe() {}, onEvent() {}, outputStream: {},
+    async configureLiveEffects(effects) { commands.push('effects'); this.configuredEffects = effects; },
     async enableMicrophone() { commands.push('microphone'); await microphone(); },
     async disableMicrophone() { commands.push('microphone-off'); },
     async setClick(enabled) { commands.push(`click:${enabled}`); },
@@ -190,11 +191,11 @@ test('failed MP3 preparation retains the previous download and permits another t
 test('Start opens the microphone and records by default on every run, with song click off', async () => {
   const { commands, controls } = startupHarness();
   await controls.startPractice();
-  assert.deepEqual(commands, ['microphone', 'click:false', 'start', 'record-start']);
+  assert.deepEqual(commands, ['effects', 'microphone', 'click:false', 'start', 'record-start']);
   await controls.stopPractice();
   assert.deepEqual(commands.slice(-3), ['record-stop', 'stop', 'microphone-off']);
   await controls.startPractice();
-  assert.deepEqual(commands.slice(-4), ['microphone', 'click:false', 'start', 'record-start']);
+  assert.deepEqual(commands.slice(-5), ['effects', 'microphone', 'click:false', 'start', 'record-start']);
   await controls.panic();
   assert.deepEqual(commands.slice(-3), ['record-stop', 'panic', 'microphone-off']);
 });
@@ -323,4 +324,29 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   keydown({ ...event, code: 'Escape' });
   assert.equal(padCalls, 0);
   assert.equal(panicCalls, 1);
+});
+
+for (const bypass of [false, true]) {
+  test(`web effect configuration applies before microphone setup, bypass=${bypass}`, async () => {
+    const h = startupHarness();
+    h.elements.get('#effects-enabled').checked = !bypass;
+    h.elements.get('#effects-delay').value = '125';
+    h.elements.get('#effects-feedback').value = '0.3';
+    h.elements.get('#effects-wet').value = '0.4';
+    await h.controls.startPractice();
+    assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), bypass ? [] : [{ kind: 'slapback', delayMs: 125, feedback: 0.3, wet: 0.4 }]);
+    assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
+  });
+}
+
+test('Stop cancels a start waiting for effects preparation', async () => {
+  const h = startupHarness();
+  const waiting = deferred();
+  h.audio.configureLiveEffects = () => waiting.promise;
+  const starting = h.controls.startPractice();
+  await h.controls.stopPractice();
+  waiting.resolve();
+  await starting;
+  assert(!h.commands.includes('microphone'));
+  assert(!h.commands.includes('start'));
 });

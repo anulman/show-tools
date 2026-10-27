@@ -2,7 +2,7 @@
 
 This standalone C++17 module renders ordered, full-output effects. Slapback is the first effect type. A take stores the exact processed live PCM for playback and auxiliary source PCM for release-state reconstruction. Cached audio never enters its baked effects stack again.
 
-The module is not connected to `pf_process()`, the sampler, practice controls, browser monitoring, song cues, or downloads yet. Its native and WASM fixtures establish the first DSP and cache-release milestone. They do not establish physical device latency or a complete performance route.
+The performance engine uses a prepared default-live rack through `pf_process_stems()`. The practice desk configures it before Start and routes its processed output to downloads and explicitly confirmed monitors. The processed-take/shadow-release prototype below is not connected to the production sampler yet. Effect-enabled capture rejects rather than recording raw input. Per-voice capture switching, song effect cues, and production cached-tail integration remain separate work. Native/WASM fixtures do not establish physical device latency.
 
 ## Build and run the native tests
 

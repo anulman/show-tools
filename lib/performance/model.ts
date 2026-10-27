@@ -33,6 +33,14 @@ export interface Chart {
   controlNames: Record<ChannelId, string>;
   annotatedThroughBar: number;
 }
+export type LiveEffectDefinition = { readonly kind: 'slapback'; readonly delayMs: number; readonly feedback: number; readonly wet: number };
+export interface LiveEffectsState {
+  prepared: boolean;
+  active: boolean;
+  revision: number;
+  stageCount: number;
+  captureSupported: boolean;
+}
 export interface ChannelSettings { gain?: number; muted?: boolean }
 export type PadLight = { kind: 'off' | 'cue' | 'steady' } | { kind: 'releasing'; remainingMs: number };
 export interface ChannelState {
@@ -65,6 +73,7 @@ export interface PracticeState extends TransportState {
   error: string | null;
   lifecycle?: string;
   chart?: ChartMetadata;
+  liveEffects?: LiveEffectsState;
 }
 export interface StartOptions {
   bpm?: number;

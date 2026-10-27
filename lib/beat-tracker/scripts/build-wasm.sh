@@ -8,6 +8,7 @@ dist_dir="$module_dir/dist"
 sampler_dir="$module_dir/../sampler"
 sequencer_dir="$module_dir/../sequencer"
 performance_dir="$module_dir/../performance"
+patches_dir="$module_dir/../patches"
 repo_dir="$module_dir/../.."
 aubio_version=0.4.9
 aubio_sha256=d48282ae4dab83b3dc94c16cf011bcb63835c1c02b515490e1883049c3d1f3da
@@ -67,8 +68,8 @@ for relative in "${engine_sources[@]}"; do
     sources+=("$module_dir/src/$relative")
 done
 em++ -O3 -std=c++17 -fno-exceptions \
-    -I"$module_dir/include" -I"$sampler_dir/include" -I"$sequencer_dir/include" -I"$performance_dir/include" -I"$build_dir/include" -I"$aubio_dir/src" \
-    "${sources[@]}" "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$build_dir/libaubio.a" \
+    -I"$module_dir/include" -I"$sampler_dir/include" -I"$sequencer_dir/include" -I"$performance_dir/include" -I"$patches_dir/include" -I"$build_dir/include" -I"$aubio_dir/src" \
+    "${sources[@]}" "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$patches_dir/src/patch_engine.cpp" "$build_dir/libaubio.a" \
     --no-entry -sSTANDALONE_WASM=1 -sFILESYSTEM=0 -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 \
     -sINITIAL_MEMORY=268435456 -sSTACK_SIZE=1048576 \
     "-sEXPORTED_FUNCTIONS=$exports" \

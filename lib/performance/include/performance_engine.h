@@ -19,8 +19,21 @@ enum pf_event_type { PF_STATE = 1, PF_BEAT = 2, PF_CONTROL = 3, PF_FAULT = 4 };
 enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_ACTION_FAILED = 3,
   PF_MICROPHONE_REQUIRED = 4, PF_NO_RECORDING = 5, PF_NO_SAMPLE = 6, PF_PATTERN_REQUIRED = 7,
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
-  PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 1 };
+  PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
+  PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 2, PF_MAX_LIVE_EFFECTS = 64 };
+enum pf_effect_type { PF_EFFECT_SLAPBACK = 1 };
+typedef struct pf_slapback_parameters { double delay_ms, feedback, wet; } pf_slapback_parameters;
+typedef struct pf_effect_definition {
+  uint32_t type, version;
+  union { pf_slapback_parameters slapback; } parameters;
+} pf_effect_definition;
+enum pf_effect_layout {
+  PF_EFFECT_TYPE_OFFSET = 0, PF_EFFECT_VERSION_OFFSET = 4,
+  PF_EFFECT_DELAY_OFFSET = 8, PF_EFFECT_FEEDBACK_OFFSET = 16,
+  PF_EFFECT_WET_OFFSET = 24, PF_EFFECT_BYTES = 32
+};
+enum pf_live_field { PF_LIVE_PREPARED, PF_LIVE_ACTIVE, PF_LIVE_REVISION, PF_LIVE_STAGE_COUNT, PF_LIVE_FIELDS };
 /* Program cue rows are fixed-width doubles. Bar zero is the lead-in.
    Positions are zero-based beats. The variant is -1 or a sampler variant ID.
    Tap cues use that same variant ID to select a retained sparse pattern. */
@@ -68,6 +81,20 @@ int pf_set_automatic(pf_engine* engine, int automatic);
 int pf_set_click(pf_engine* engine, int enabled);
 int pf_set_click_gain(pf_engine* engine, double gain);
 int pf_set_microphone(pf_engine* engine, int enabled);
+/* Preparation copies definitions and allocates while stopped, with no active or
+   pending capture. Count zero prepares identity processing. Revisions are positive
+   and host-owned; same revision and definitions are idempotent, lower or conflicting
+   revisions fail. Failed preparation preserves the previous rack and revision. */
+int pf_prepare_live_effects(pf_engine* engine, const pf_effect_definition* effects, uint32_t count, uint32_t revision);
+void pf_live_info(const pf_engine* engine, double* out);
+/* Planar float outputs add to caller-cleared buffers. Every output and input may
+   be null. Non-null spans must not overlap. Overlap returns -1 without changing
+   engine state, last error, or output. Live input is mono and maps to both channels.
+   Start authorizes live only with microphone ready and effects prepared. Stop,
+   Panic, end, fatal fault, or mic loss gate/reset it; mic readiness alone cannot
+   reauthorize. Null live outputs discard audio while advancing DSP once. */
+int pf_process_stems(pf_engine* engine, const float* input, float* sample_click_left, float* sample_click_right,
+  float* live_left, float* live_right, uint32_t frames);
 /* Process adds output, advances the owned clock, and executes all musical
    decisions. No JavaScript callbacks are used. One caller owns each engine. */
 int pf_process(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames);
