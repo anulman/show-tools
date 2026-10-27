@@ -52,7 +52,7 @@ export class PracticeAudio {
       const channel = new MessageChannel();
       tracker.node.port.postMessage({ type: 'performance-connect', port: channel.port2 }, [channel.port2]);
       const endpoint = new AudioEndpoint(channel.port1);
-      audio = new PracticeAudio({ tracker, endpoint, chart, sessionId });
+      audio = new PracticeAudio({ tracker, endpoint, chart, compiled, sessionId });
       await endpoint.request('state');
       return audio;
     } catch (error) {
@@ -62,7 +62,7 @@ export class PracticeAudio {
     }
   }
 
-  constructor({ tracker, endpoint, chart, sessionId }: AdapterOptions) {
+  constructor({ tracker, endpoint, chart, compiled, sessionId }: AdapterOptions) {
     this.tracker = tracker;
     this.endpoint = endpoint;
     this.chart = chart;
@@ -90,6 +90,8 @@ export class PracticeAudio {
     this.onMessage = ({ data }) => {
       if (!data?.event) return;
       const event = { ...data.event, state: { ...data.event.state, chart: this.chartMetadata } };
+      const cue = event.cueIndex === undefined ? undefined : compiled?.cues[event.cueIndex];
+      if (cue && event.error) event.error = `${cue.source.a1} ${cue.source.text}: ${event.error}`;
       if (event.type === 'fault') this.fail(new Error(event.error || 'The performance stopped'));
       for (const listener of this.eventListeners) {
         try { listener(event); } catch (error) { globalThis.reportError?.(error); }

@@ -56,10 +56,12 @@ test('compiled artifact drives effected WASM capture, crb handoff, layer autopla
     assert.equal(native.compiledTake(1).frames, 16000);
     const output = render(native, 128);
     assert(output.mixed[0].every(sample => Math.abs(sample - .625) < 1e-6), 'both processed takes autoplay as layers');
-    assert(output.live[0].every(sample => Math.abs(sample - .3125) < 1e-6), 'live route is processed exactly once');
+    assert(output.live[0].every(sample => Math.abs(sample - .25) < 1e-6), 'the restored default route warms from its own cold delay; capture history belongs to playback');
     assert.deepEqual(output.mixed[0], output.mixed[1]);
     assert.deepEqual(output.live[0], output.live[1]);
-    assert(output.mixed[0].every((sample, index) => Math.abs(sample + output.live[0][index] - .9375) < 1e-6), 'download mix contains processed live plus cached voices once each');
+    assert(output.mixed[0].every((sample, index) => Math.abs(sample + output.live[0][index] - .875) < 1e-6), 'download mix contains each route once without a duplicated capture tail');
+    const warm = render(native, 800);
+    assert(warm.live[0].slice(-128).every(sample => Math.abs(sample - .3125) < 1e-6));
     until(native, 3, 4);
     native.control({ id: 'R1' }, 'fractional-stop');
     const pendingLight = native.state().channels.find(channel => channel.id === 'R1')?.light;
@@ -94,10 +96,13 @@ test('WASM loop history evolves from original source, never a second effects pas
     const captureStart = native.processedFrames - native.compiledTake(0).frames;
     native.control({ id: 'R1' });
     const commitFrame = captureStart + 16000;
-    const output = render(native, commitFrame - native.processedFrames + 32000 + 801, frame => frame === commitFrame - 1 ? 1 : 0);
+    const output = render(native, commitFrame - native.processedFrames + 32000 + 801, frame => frame === captureStart + 2000 || frame === commitFrame - 1 ? 1 : 0);
     const playbackStart = commitFrame - (native.processedFrames - output.mixed[0].length);
-    assert.equal(output.mixed[0][playbackStart + 799], 0, 'first loop uses its originally captured history');
+    assert.equal(output.mixed[0][playbackStart + 799], .25, 'first loop continues the actual capture-end history');
+    assert.equal(output.live[0][playbackStart + 799], 0, 'the transferred capture history is not emitted again by the new live/capture epoch');
     assert.equal(output.mixed[0][playbackStart + 16000 + 799], .25, 'second loop retains the preceding iteration tail');
+    assert.equal(output.mixed[0][playbackStart + 2800], .25);
+    assert.equal(output.mixed[0][playbackStart + 3600], 0, 'printed wet PCM is not processed through the stack again');
     assert(output.mixed[0].every(Number.isFinite));
   } finally { native.dispose(); }
 });
@@ -123,6 +128,15 @@ test('native byte artifact and failed replacement preserve an existing prepared 
       assert.equal(native.liveEffects().captureSupported, true);
       assert.equal(native.memory.buffer.byteLength, 268435456);
     } finally { native.invoke('free', pointer); }
+  } finally { native.dispose(); }
+});
+
+test('a tempo input before Start cannot replace the configured tempo with an unstarted clock value', async () => {
+  const native = engine(Array.from(encodeCompiledProgram(await fixture())));
+  try {
+    assert.throws(() => native.control({ id: 'tempo' }), /active practice|tempo hit/i);
+    assert.equal(native.state().bpm, 120);
+    assert.equal(native.tempoHitInfo().count, 0);
   } finally { native.dispose(); }
 });
 

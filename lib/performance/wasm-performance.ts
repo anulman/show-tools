@@ -1,7 +1,7 @@
 import { SampleEngine, SampleRecorder } from '../sampler/wasm-sampler.js';
 import { AudioSequenceEngine } from '../sequencer/wasm-sequencer.js';
 import { CONTROL_IDS } from './model.js';
-import type { ChannelId, ChartControls, Control, CueAction, LiveEffectDefinition, LiveEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions } from './model.js';
+import type { ChannelId, ChartControls, Control, CueAction, LiveEffectDefinition, LiveEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
 import { PF } from './wasm-abi.js';
 import { ST } from '../sampler/wasm-abi.js';
 
@@ -189,7 +189,14 @@ export class NativePerformance {
     if (!Number.isSafeInteger(index) || index < 0 || index >= PF.COMPILED_MAX_TAKES) throw new Error('Invalid compiled take index');
     const info = this.query('pf_compiled_take_info', index);
     return { voice: info[PF.TAKE_VOICE], ready: info[PF.TAKE_READY] === 1, frames: info[PF.TAKE_LENGTH],
-      capacity: info[PF.TAKE_CAPACITY], revision: info[PF.TAKE_REVISION], phase: info[PF.TAKE_PHASE], playbackState: info[PF.TAKE_PLAYBACK_STATE] };
+      capacity: info[PF.TAKE_CAPACITY], revision: info[PF.TAKE_REVISION], phase: info[PF.TAKE_PHASE], playbackState: info[PF.TAKE_PLAYBACK_STATE], period: info[PF.TAKE_PERIOD] };
+  }
+  tempoHitInfo(): TempoHitState {
+    const info = this.query('pf_tempo_info');
+    return { count: info[PF.TEMPO_COUNT], latest: info[PF.TEMPO_COUNT] ? {
+      frame: info[PF.TEMPO_FRAME], beatHint: info[PF.TEMPO_HINT] === 1 ? 1 : null,
+      source: info[PF.TEMPO_SOURCE] === 1 ? 'chart' : 'pedal', estimated: info[PF.TEMPO_ESTIMATED] === 1, bpm: info[PF.TEMPO_BPM],
+    } : null };
   }
   prepareLiveEffects(effects: readonly LiveEffectDefinition[]) {
     if (!Array.isArray(effects) || effects.length > PF.MAX_LIVE_EFFECTS) throw new Error('Invalid live effects stack');
@@ -244,6 +251,7 @@ export class NativePerformance {
     for (let index = 0; index < units.length; index++) units[index] = commandId?.charCodeAt(index) ?? 0;
     let id: number;
     if (control.id === 'mushroom') id = 4;
+    else if (control.id === 'tempo') id = 6;
     else if (control.id === 'knob') { if (!Number.isFinite(control.value)) throw new Error('Invalid knob value'); id = 5; }
     else id = this.channel(control.id);
     const result = this.invoke('pf_control', this.handle, id, control.id === 'knob' ? control.value : 0, commandId ? this.commandPointer : 0, units.length);
@@ -262,13 +270,14 @@ export class NativePerformance {
         : { kind: info[PF.CHANNEL_LIGHT] === PF.CUE ? 'cue' : info[PF.CHANNEL_LIGHT] === PF.STEADY ? 'steady' : 'off' };
       return { id, gain: info[PF.CHANNEL_GAIN], muted: info[PF.CHANNEL_MUTED] === 1, looping: info[PF.CHANNEL_LOOPING] === 1, ready: info[PF.CHANNEL_READY] === 1, status, light };
     });
-    const active = channels.find(channel => channel.status === 'armed' || channel.status === 'recording' || channel.status === 'stopping');
+    const active = channels.find(channel => channel.status === 'recording')
+      ?? channels.find(channel => channel.status === 'armed') ?? channels.find(channel => channel.status === 'stopping');
     const recording = active && (active.status === 'armed' || active.status === 'recording' || active.status === 'stopping') ? { id: active.id, status: active.status } : null;
     return { phase, bar: data[PF.BAR_NUMBER] < 0 ? null : data[PF.BAR_NUMBER], beat: data[PF.BEAT_NUMBER] < 0 ? null : data[PF.BEAT_NUMBER], countInRemaining: data[PF.COUNT_IN_REMAINING], bpm: data[PF.BPM],
       startBar: data[PF.START_BAR], endBar: data[PF.END_BAR], loop: data[PF.LOOP] === 1, automatic: data[PF.AUTOMATIC] === 1, click: data[PF.CLICK] === 1, selectedChannel: CONTROL_IDS[data[PF.SELECTED_CHANNEL]],
       runId: this.runId, seq: data[PF.SEQUENCE], channels, looping: channels.filter(channel => channel.looping).map(channel => channel.id), recording, microphone: data[PF.MICROPHONE] === 1, error: data[PF.ERROR] ? this.message(data[PF.ERROR]) : null };
   }
-  state() { return { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects() }; }
+  state() { return { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), tempoHits: this.tempoHitInfo() }; }
   snapshot() { return this.state(); }
   get processedFrames() { return this.query('pf_snapshot')[PF.FRAME]; }
   get clickEnabled() { return this.query('pf_snapshot')[PF.CLICK_ENABLED] === 1; }
@@ -289,18 +298,21 @@ export class NativePerformance {
     const rows = new Float64Array(this.memory.buffer, this.eventPointer, count * PF.EVENT_FIELDS);
     return Array.from({ length: count }, (_, index): PracticeEvent => {
       const event = rows.subarray(index * PF.EVENT_FIELDS, (index + 1) * PF.EVENT_FIELDS);
-      const type = event[PF.EVENT_TYPE] === PF.BEAT ? 'beat' : event[PF.EVENT_TYPE] === PF.CONTROL ? 'control' : event[PF.EVENT_TYPE] === PF.FAULT ? 'fault' : 'state';
+      const type = event[PF.EVENT_TYPE] === PF.BEAT ? 'beat' : event[PF.EVENT_TYPE] === PF.CONTROL ? 'control' : event[PF.EVENT_TYPE] === PF.FAULT ? 'fault' : event[PF.EVENT_TYPE] === PF.TEMPO_HIT ? 'tempo-hit' : 'state';
       const state = this.decode(event.subarray(PF.EVENT_STATE, PF.EVENT_CHANNELS), event.subarray(PF.EVENT_CHANNELS));
       const result: PracticeEvent = { v: 1, runId: this.runId, seq: event[PF.EVENT_SEQUENCE], type, state };
       if (event[PF.EVENT_FRAME] >= 0) { result.frame = event[PF.EVENT_FRAME]; result.sampleRate = event[PF.EVENT_RATE]; }
       if (event[PF.EVENT_ERROR]) result.error = this.message(event[PF.EVENT_ERROR]);
       if (type === 'control') {
         const id = event[PF.EVENT_CONTROL];
-        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : { id: CONTROL_IDS[id] };
+        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : id === 6 ? { id: 'tempo' } : { id: CONTROL_IDS[id] };
         result.applied = event[PF.EVENT_APPLIED] === 1;
         const commandId = this.commandIds.get(result.seq);
         if (commandId) { result.commandId = commandId; this.commandIds.delete(result.seq); }
       }
+      if (type === 'tempo-hit') result.tempoHit = { beatHint: event[PF.EVENT_VALUE] === 1 ? 1 : null,
+        source: event[PF.EVENT_CONTROL] === 1 ? 'chart' : 'pedal', estimated: event[PF.EVENT_APPLIED] === 1 };
+      if (event[PF.EVENT_CUE] >= 0) result.cueIndex = event[PF.EVENT_CUE];
       return result;
     });
   }

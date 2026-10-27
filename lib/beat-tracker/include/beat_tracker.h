@@ -62,6 +62,8 @@ void bt_process(bt_tracker* tracker, const float* mono, uint32_t frames);
    Seed applies only before the clock starts. */
 int bt_command(bt_tracker* tracker, int type, double value, double event_frame,
                double sequence, double epoch);
+/* Immediate tempo evidence at the current frame; preserves phase, serial and epoch. */
+int bt_tempo_hit(bt_tracker* tracker, double frame, int* estimated);
 void bt_snapshot(const bt_tracker* tracker, double* out);
 /* Returns record count. On overflow oldest events are dropped and counted. */
 uint32_t bt_drain_events(bt_tracker* tracker, double* out, uint32_t capacity);

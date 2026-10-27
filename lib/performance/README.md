@@ -62,8 +62,12 @@ Default-live effects apply during count-in and playing. The click and cached sam
 ./show-tools chart inspect /tmp/song.json
 ```
 
-Compilation runs offline after fetch. `--draft` saves source-located diagnostics for an unresolved song and cannot emit `.pfp` bytes. The checked-in current DYC mapping remains blocked pending operator authoring answers. Import a resolved artifact through the practice desk while stopped. Native and WASM fixture tests prove execution mechanics, not completion of that unresolved arrangement.
+Compilation runs offline after fetch. `--draft` saves source-located diagnostics and cannot emit `.pfp` bytes. Schema/packet 2 and ABI 4 retain explicit capture end, loop end, and group anchor. Import a resolved artifact through the practice desk while stopped. Current DYC authoring answers are encoded. Its disjoint recording intervals permit F21 future arming while R1 still records; native state keeps live routing, capture ownership, and reservations separate.
 
 Lead-in capture must execute at the next song bar. Immediate lead-in capture is rejected because its duration depends on the runtime count-in and is not represented by a song-bar take interval. Individual stops report native countdown and release feedback through the final audible tail, then extinguish the pad light.
 
 After a venue edit retains an older take, the first new capture uses the refreshed spare bank. Recapturing again during the same transport run can exhaust current-revision banks. Arm then rejects nonfatally before changing the route or capture state; existing audio continues. Stop and prepare effects to refresh reusable banks before another capture. Callback processing never replaces or reallocates a bank.
+
+`npm run verify:dyc` saves the current compiled inspection, portable bytes when executable, and source-linked scripted input under a fresh temporary directory. It runs the same `.pfp` through native and WASM at 44.1 and 48 kHz, comparing complete A results and stem aggregates. Synthetic input verifies software execution, not room acoustics or browser MP3 export. The saved baseline F21 rejection exposed a software ownership bug and is retained as evidence; it does not identify a source defect.
+
+`control({ id: 'tempo' })` uses the shared native hit path; no key or device is implicitly mapped to it. `1p*` uses that same path with beat hint 1 after playback readiness preflight. Phase, serial, and epoch remain unchanged. The existing bounded six-interval median policy is retained without rephasing; isolated hits may produce no new BPM estimate. `tempo-hit` events and `tempoHitInfo()` expose actual-frame provenance. Cached loops remain unit-rate; arbitrary live tempo stretching is not claimed.

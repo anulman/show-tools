@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { PracticeAudio } from '../audio.ts';
 import { BeatTracker } from '../runtime/beat-tracker.js';
+import { compiledCaptureFixture } from '../../../lib/performance/tests/fixtures/compiled-capture.ts';
 
 function audioNode(value = [0, 0]) {
   return {
@@ -16,7 +17,7 @@ function audioNode(value = [0, 0]) {
   };
 }
 
-function harness(initialStream = null) {
+function harness(initialStream = null, compiled) {
   const speaker = audioNode();
   const buses = [audioNode([0.5, 0.125]), audioNode()];
   const worklet = {
@@ -50,7 +51,7 @@ function harness(initialStream = null) {
   const endpoint = { port: { addEventListener() {}, removeEventListener() {} },
     subscribe(listener) { stateListeners.add(listener); return () => stateListeners.delete(listener); },
     async request(command, payload) { requests.push({ command, payload }); }, dispose() {} };
-  const audio = new PracticeAudio({ tracker, endpoint,
+  const audio = new PracticeAudio({ tracker, endpoint, compiled,
     chart: { bpm: 98, bars: [{ column: 3 }], spreadsheetId: 'chart', sheetId: 101, leadInColumn: 2 }, sessionId: 'voice-test' });
   function nativeLive(channels, active = true) {
     buses[1].value = channels;
@@ -60,6 +61,24 @@ function harness(initialStream = null) {
   }
   return { audio, tracker, speaker, recording, gains, buses, endpoint, requests, nativeLive, deviceListeners, get rawSourceCalls() { return rawSourceCalls; } };
 }
+
+test('queued capture rejection gains source context without closing live audio or transport', async () => {
+  const compiled = await compiledCaptureFixture();
+  const h = harness(null, compiled);
+  try {
+    await h.audio.enableMicrophone();
+    h.nativeLive([.2, .4]);
+    h.audio.setMonitoringRelationship('different-devices');
+    const events = [];
+    h.audio.onEvent(event => events.push(event));
+    h.audio.onMessage({ data: { event: { v: 1, runId: 'queued', seq: 1, type: 'control', state: h.audio.latest,
+      cueIndex: 1, applied: false, error: 'Another recording is active.' } } });
+    assert.match(events[0].error, /^C18 crb: Another recording is active/);
+    assert.equal(h.audio.latest.phase, 'playing');
+    assert(h.tracker.microphoneStream);
+    assert.deepEqual(h.speaker.read(), [.7, .525]);
+  } finally { await h.audio.dispose(); }
+});
 
 test('recording mixes both native stereo stems once without a raw microphone branch', async () => {
   const h = harness();

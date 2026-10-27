@@ -15,7 +15,8 @@ constexpr double infinity = 1e300;
 constexpr int telemetry_capacity = 512;
 constexpr int dedup_capacity = 256;
 static_assert(PF_EVENT_CHANNELS == PF_EVENT_STATE + PF_FIELDS);
-static_assert(PF_EVENT_FIELDS == PF_EVENT_CHANNELS + PF_CHANNELS * PF_CHANNEL_FIELDS);
+static_assert(PF_EVENT_CUE == PF_EVENT_CHANNELS + PF_CHANNELS * PF_CHANNEL_FIELDS);
+static_assert(PF_EVENT_FIELDS == PF_EVENT_CUE + 1);
 static_assert(PF_CUE_FIELDS == PF_CUE_POSITIONS + ST_HITS);
 static_assert(sizeof(double) == 8 && std::numeric_limits<double>::is_iec559);
 static_assert(sizeof(pf_effect_definition) == PF_EFFECT_BYTES);
@@ -61,6 +62,8 @@ struct pf_engine {
   std::unique_ptr<patches::Rack> live_rack;
   pf_effect_definition live_definitions[PF_MAX_LIVE_EFFECTS]{};
   uint32_t live_count = 0, live_revision = 0;
+  double tempo_info[PF_TEMPO_FIELDS]{};
+  double tempo_epoch = -1;
   bool live_authorized = false;
   double rate = 0, processed = 0, bpm = 120, epoch = 1, clock_beat = 0, clock_frame = 0, click_origin = 0, max_seconds = 30;
   int mode = PF_TRACKER, phase = PF_IDLE, start = 1, end = 1, selected = 2, beats_per_bar = 4;
@@ -137,7 +140,7 @@ double next_bar(const pf_engine* engine) {
   if (engine->phase == PF_COUNT_IN) return engine->last_beat + engine->count_remaining;
   return engine->last_beat + 4 - std::max(1, engine->beat) + 1;
 }
-void emit(pf_engine* engine, int type, double when = -1, int applied = -1, int control = -1, double value = 0) {
+void emit(pf_engine* engine, int type, double when = -1, int applied = -1, int control = -1, double value = 0, int cue = -1) {
   if (engine->event_count == PF_EVENT_CAPACITY) {
     engine->event_head = (engine->event_head + 1) % PF_EVENT_CAPACITY;
     --engine->event_count; ++engine->event_drops;
@@ -151,7 +154,7 @@ void emit(pf_engine* engine, int type, double when = -1, int applied = -1, int c
   event[PF_EVENT_ERROR] = engine->error_code;
   event[PF_EVENT_APPLIED] = applied;
   event[PF_EVENT_CONTROL] = control;
-  event[PF_EVENT_VALUE] = value;
+  event[PF_EVENT_VALUE] = value; event[PF_EVENT_CUE] = cue;
   pf_snapshot(engine, event + PF_EVENT_STATE);
   for (int id = 0; id < PF_CHANNELS; ++id) pf_channel_info(engine, id, event + PF_EVENT_CHANNELS + id * PF_CHANNEL_FIELDS);
 }
@@ -201,6 +204,23 @@ int execute(pf_engine* engine, int id, const Cue& cue, double when) {
   }
   return 0;
 }
+int tempo_hit(pf_engine* engine, int hint, int source) {
+  if (engine->mode != PF_PRACTICE || !running(engine)) return PF_TEMPO_REJECTED;
+  if (engine->tempo_info[PF_TEMPO_COUNT] && engine->tempo_epoch == engine->epoch && engine->tempo_info[PF_TEMPO_FRAME] == engine->processed) return PF_OK;
+  int estimated = 0;
+  if (bt_tempo_hit(engine->tracker, engine->processed, &estimated) != BT_OK) return PF_TEMPO_REJECTED;
+  double clock[BT_S_COUNT]; bt_snapshot(engine->tracker, clock);
+  double bpm = clock[BT_S_BPM];
+  if (engine->compiled) engine->compiled->tempo_changed(engine->processed, engine->bpm, bpm);
+  engine->bpm = bpm;
+  ++engine->tempo_info[PF_TEMPO_COUNT]; engine->tempo_info[PF_TEMPO_FRAME] = engine->processed;
+  engine->tempo_info[PF_TEMPO_HINT] = hint; engine->tempo_info[PF_TEMPO_SOURCE] = source;
+  engine->tempo_info[PF_TEMPO_ESTIMATED] = estimated; engine->tempo_info[PF_TEMPO_BPM] = bpm;
+  engine->tempo_epoch = engine->epoch;
+  emit(engine, PF_TEMPO_HIT, engine->processed, estimated, source, hint);
+  return PF_OK;
+}
+int chart_tempo_hit(void* context, int hint) { return tempo_hit(static_cast<pf_engine*>(context), hint, 1); }
 int press(pf_engine* engine, int id) {
   if (engine->compiled) {
     int result = engine->compiled->press(id, engine->processed, engine->bpm, engine->microphone);
@@ -260,8 +280,9 @@ void render_segment(pf_engine* engine, const float* input, float* left, float* r
   if (engine->compiled && engine->live_rack) {
     engine->compiled->render(input, left, right, live_left, live_right, count, start, engine->bpm, live_active(engine), *engine->live_rack);
     if (engine->compiled->error() != PF_OK) {
-      engine->phase = PF_IDLE; engine->count_remaining = 0; clear_live(engine);
-      fail(engine, engine->compiled->error()); emit(engine, PF_FAULT, start + count);
+      int error = engine->compiled->error(); engine->compiled->clear_error();
+      if (error != PF_LOOP_MISMATCH) { engine->phase = PF_IDLE; engine->count_remaining = 0; clear_live(engine); }
+      fail(engine, error); emit(engine, PF_FAULT, start + count);
     }
   }
   else if (live_active(engine)) for (unsigned index = 0; index < count; ++index) {
@@ -344,6 +365,9 @@ const char* pf_message(int code) {
     case PF_CAPTURE_EFFECTS_UNAVAILABLE: return "Sample capture with effects is not available in this build. Bypass effects to record samples.";
     case PF_CAPTURE_BUSY: return "Another capture is armed or recording. Finish it before arming this voice.";
     case PF_TAKE_UNAVAILABLE: return "No reusable take bank is available. Wait for playback tails, or stop and prepare effects before recapturing after a venue edit.";
+    case PF_CUE_AMBIGUOUS: return "Two cues are equally near this press; no action was applied.";
+    case PF_LOOP_MISMATCH: return "The captured period or phase does not match its declared phrase; the previous take is preserved.";
+    case PF_TEMPO_REJECTED: return "Tempo hits require active practice and a valid tap interval; playback was not changed.";
     case PF_CUE_LATE: return "The cue's execution boundary has already passed.";
     default: return "Unknown performance error";
   }
@@ -440,12 +464,19 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   if (!song->cues) return fail(engine, PF_ALLOCATION_FAILED);
   silence(engine);
   if (identity) engine->live_rack = std::move(identity);
+  prepared->tempo_handler(engine, chart_tempo_hit);
   engine->beats_per_bar = prepared->beats_per_bar(); engine->bpm = prepared->initial_bpm(); engine->end = prepared->end_bar();
   delete engine->song; engine->song = song.release(); engine->compiled = std::move(prepared);
   engine->compiled->observe(engine, [](void* context, double when) {
     auto* owner = static_cast<pf_engine*>(context);
     owner->processed = std::max(owner->processed, when);
     emit(owner, PF_STATE, when);
+  });
+  engine->compiled->outcomes(engine, [](void* context, double when, int button, int cue, int error) {
+    auto* owner = static_cast<pf_engine*>(context);
+    int previous_code = owner->error_code; const char* previous_message = owner->error;
+    fail(owner, error); emit(owner, PF_CONTROL, when, 0, button, 0, cue);
+    owner->error_code = previous_code; owner->error = previous_message;
   });
   engine->error_code = PF_OK; engine->error = ""; emit(engine, PF_STATE); return 0;
 }
@@ -474,6 +505,7 @@ int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int l
   if (bt_command(engine->tracker, BT_SELECT_MANUAL, 0, snapshot[BT_S_FRAME], sequence, snapshot[BT_S_EPOCH]) != BT_OK) return fail(engine, PF_INVALID_START);
   engine->clock_sequence = sequence;
   if (bt_command(engine->tracker, BT_APPLY_BPM, bpm, snapshot[BT_S_FRAME], ++engine->clock_sequence, snapshot[BT_S_EPOCH]) != BT_OK) return fail(engine, PF_INVALID_START);
+  engine->tempo_epoch = -1;
   engine->bpm = bpm; engine->start = start; engine->end = end; engine->loop = loop; engine->automatic = automatic;
   engine->event_head = engine->event_count = 0;
   engine->sequence = 0; engine->count_beats = count * engine->beats_per_bar; engine->count_elapsed = 0; engine->count_remaining = count * engine->beats_per_bar; engine->position = -1;
@@ -482,7 +514,7 @@ int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int l
   silence(engine);
   for (bool& suppressed : engine->suppressed) suppressed = false;
   engine->live_authorized = engine->mode == PF_PRACTICE && engine->microphone && bool(engine->live_rack);
-  if (engine->compiled) engine->compiled->start(start, engine->count_beats, engine->processed);
+  if (engine->compiled) engine->compiled->start(start, engine->count_beats, engine->processed, bpm);
   emit(engine, PF_STATE);
   return 0;
 }
@@ -562,6 +594,11 @@ int pf_prepare_live_effects(pf_engine* engine, const pf_effect_definition* effec
   for (uint32_t index = 0; index < count; ++index) engine->live_definitions[index] = effects[index];
   engine->error_code = PF_OK; engine->error = ""; emit(engine, PF_STATE); return 0;
 }
+void pf_tempo_info(const pf_engine* engine, double* out) {
+  if (!out) return;
+  std::fill(out, out + PF_TEMPO_FIELDS, 0);
+  if (engine) std::copy(engine->tempo_info, engine->tempo_info + PF_TEMPO_FIELDS, out);
+}
 void pf_live_info(const pf_engine* engine, double* out) {
   if (!out) return;
   std::fill(out, out + PF_LIVE_FIELDS, 0);
@@ -594,7 +631,8 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
       double info[ST_CHANNEL_FIELDS]; st_channel_info(engine->sampler, engine->selected, info);
       result = sample_result(engine, st_set_channel(engine->sampler, engine->selected, value, int(info[ST_CHANNEL_MUTED])));
     }
-  } else result = fail(engine, PF_INVALID_CHANNEL);
+  } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
+  else result = fail(engine, PF_INVALID_CHANNEL);
   if (result >= 0 && command_id) {
     Dedup& item = engine->dedup[engine->dedup_cursor++ % dedup_capacity];
     item.present = true; std::memcpy(item.id, command_id, command_length * sizeof(uint16_t)); item.length = command_length; item.control = control; item.value = value;
@@ -638,7 +676,10 @@ int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
   if (sequence_result(engine, sq_on_beat(engine->sequencer, id, when, epoch)) < 0) stopped = true;
   if (engine->compiled && running && !stopped) {
     engine->compiled->beat(engine->phase, engine->bar, engine->beat, engine->count_remaining, when, engine->bpm);
-    if (engine->compiled->error() != PF_OK) { fail(engine, engine->compiled->error()); stopped = true; }
+    if (engine->compiled->error() != PF_OK) {
+      int error = engine->compiled->error(); engine->compiled->clear_error();
+      fail(engine, error); if (error != PF_LOOP_MISMATCH) stopped = true;
+    }
   }
   if (running && !stopped) {
     for (int channel = 0; channel < PF_CHANNELS; ++channel) {

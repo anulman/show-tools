@@ -7,6 +7,15 @@ import { validateEnvelope } from '../../../lib/relay/controls.ts';
 
 const event = (runId, seq) => ({ v: 1, runId, seq, type: 'beat', state: { phase: 'playing', bar: 1, beat: 1, countInRemaining: 0, bpm: 98, startBar: 1, endBar: 76, loop: true, automatic: true, click: true, selectedChannel: 'R1', runId, seq, channels: [], looping: [], recording: null, microphone: false, error: null } });
 
+test('tempo-hit observations preserve native provenance without inventing a beat or estimator result', () => {
+  for (const source of ['pedal', 'chart']) {
+    const input = { ...event('tempo-run', 1), type: 'tempo-hit', frame: 12345, sampleRate: 48000,
+      tempoHit: { source, beatHint: source === 'chart' ? 1 : null, estimated: false } };
+    assert.deepEqual(validateEnvelope(input), input);
+    assert.throws(() => validateEnvelope({ ...input, tempoHit: { ...input.tempoHit, beatHint: 2 } }));
+  }
+});
+
 test('relay enforces a producer, delivers controls once, initializes late followers, and rejects stale runs', async () => {
   const relay = createRelay({ token: 'test-token' });
   relay.server.listen(0, '127.0.0.1');

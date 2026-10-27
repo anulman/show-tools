@@ -43,7 +43,7 @@ test('pad grid follows physical Q/W above A/S and preserves the left-hand column
 test('cowbell compiles three distinct whole-bar takes linked to its capture cues', async () => {
   const song = await loadSong('dance-yrself-clean');
   const takes = song.compiled.takes.filter(take => take.voiceId === 'cowbell');
-  assert.deepEqual(takes.map(take => [take.begin, take.end, take.phrase]), [
+  assert.deepEqual(takes.map(take => [take.begin, take.captureEnd, take.phrase]), [
     [{ bar: 10, beat: 0 }, { bar: 11, beat: 0 }, '(4)&a'],
     [{ bar: 11, beat: 0 }, { bar: 12, beat: 0 }, '(4)&'],
     [{ bar: 12, beat: 0 }, { bar: 13, beat: 0 }, '4'],

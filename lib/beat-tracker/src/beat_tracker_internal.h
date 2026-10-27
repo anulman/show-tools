@@ -94,6 +94,31 @@ struct bt_tracker {
         status = clock.running() ? BT_COASTING : BT_LISTENING;
     }
 
+    int tap(double event_frame, bool rephase, int* estimated = nullptr) {
+        if (last_tap && event_frame <= *last_tap) return BT_OUT_OF_ORDER;
+        const double interval = !last_tap ? 0 : (event_frame - *last_tap) / clock.sample_rate;
+        if (interval > 0 && interval < 60 / max_bpm) return BT_INVALID;
+        mode = BT_MANUAL;
+        fresh();
+        if (interval > 60 / min_bpm || !last_tap) {
+            tap_count = 0;
+            tap_cursor = 0;
+        } else {
+            tap_intervals[tap_cursor++ % tap_intervals.size()] = interval;
+            tap_count = std::min(tap_count + 1, unsigned(tap_intervals.size()));
+            auto sorted = tap_intervals;
+            std::sort(sorted.begin(), sorted.begin() + tap_count);
+            const double median = tap_count % 2 ? sorted[tap_count / 2]
+                : (sorted[tap_count / 2 - 1] + sorted[tap_count / 2]) * 0.5;
+            clock.bpm = 60 / median;
+        }
+        last_tap = event_frame;
+        if (estimated) *estimated = tap_count > 0;
+        if (rephase && clock.running()) clock.start(clock.bpm, event_frame, double(frame));
+        ++revision;
+        return BT_OK;
+    }
+
     int apply(const Command& command) {
         int result = BT_OK;
         switch (command.type) {
@@ -109,29 +134,7 @@ struct bt_tracker {
             fresh();
             ++revision;
             break;
-        case BT_TAP: {
-            if (last_tap && command.frame <= *last_tap) { result = BT_OUT_OF_ORDER; break; }
-            const double interval = !last_tap ? 0 : (command.frame - *last_tap) / clock.sample_rate;
-            if (interval > 0 && interval < 60 / max_bpm) { result = BT_INVALID; break; }
-            mode = BT_MANUAL;
-            fresh();
-            if (interval > 60 / min_bpm || !last_tap) {
-                tap_count = 0;
-                tap_cursor = 0;
-            } else {
-                tap_intervals[tap_cursor++ % tap_intervals.size()] = interval;
-                tap_count = std::min(tap_count + 1, unsigned(tap_intervals.size()));
-                auto sorted = tap_intervals;
-                std::sort(sorted.begin(), sorted.begin() + tap_count);
-                const double median = tap_count % 2 ? sorted[tap_count / 2]
-                    : (sorted[tap_count / 2 - 1] + sorted[tap_count / 2]) * 0.5;
-                clock.bpm = 60 / median;
-            }
-            last_tap = command.frame;
-            if (clock.running()) clock.start(clock.bpm, command.frame, double(frame));
-            ++revision;
-            break;
-        }
+        case BT_TAP: result = tap(command.frame, true); break;
         case BT_SELECT_FOLLOW: mode = BT_FOLLOW; fresh(); break;
         case BT_SELECT_MANUAL: mode = BT_MANUAL; fresh(); break;
         case BT_FRESH_AUDIO: fresh(); break;

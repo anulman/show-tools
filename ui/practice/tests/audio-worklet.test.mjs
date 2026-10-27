@@ -137,7 +137,9 @@ test('compiled program crosses the real worklet control port and renders process
     advance(3);
     const output = t.renderStems(128, { input: new Float32Array(128).fill(.25) });
     assert(output.mixed.every(channel => channel.every(value => Math.abs(value - .625) < 1e-6)));
-    assert(output.live.every(channel => channel.every(value => Math.abs(value - .3125) < 1e-6)));
+    assert(output.live.every(channel => channel.every(value => Math.abs(value - .25) < 1e-6)), 'capture tail transfers to playback rather than being mixed again on live');
+    const warm = t.renderStems(800, { input: new Float32Array(800).fill(.25) });
+    assert(warm.live.every(channel => channel.slice(-128).every(value => Math.abs(value - .3125) < 1e-6)));
     for (const [command, payload] of [['record.start', { sampleId: 'L1' }], ['sequence.record', { sampleId: 'L1', action: 'start' }]]) {
       t.port.onmessage({ data: { id: ++t.request, command, payload } });
       const reply = t.performance.at(-1);
@@ -148,6 +150,49 @@ test('compiled program crosses the real worklet control port and renders process
     t.command('practice.stop');
     const silence = t.renderStems(1000, { input: new Float32Array(1000).fill(.25) });
     assert([...silence.mixed, ...silence.live].every(channel => channel.every(value => value === 0)));
+  } finally { t.dispose(); }
+});
+
+for (const order of [['L2', 'R1'], ['R1', 'L2']]) test(`DYC future-arm handoff keeps recording ownership through the real port (${order.join(' then ')})`, async () => {
+  const song = (await loadSong('dance-yrself-clean')).compiled;
+  const t = new Harness({ bpm: 98, compiledProgram: Array.from(encodeCompiledProgram(song)), barCount: 76,
+    liveEffects: [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }], microphone: true });
+  const atBar = bar => t.until(Math.ceil((5 + (bar - 1) * 4) * rate * 60 / 98) + 1, .25);
+  try {
+    t.command('practice.control', { control: { id: 'R1' } });
+    atBar(2); t.command('practice.control', { control: { id: 'R1' } });
+    atBar(4);
+    for (const id of order) t.command('practice.control', { control: { id } });
+    assert.equal(t.state().recording.id, 'R1', 'actual recording takes priority over a future armed reservation');
+    assert.equal(t.state().channels.find(channel => channel.id === 'L2').status, 'armed');
+    atBar(5);
+    assert.equal(t.state().recording.id, 'L2');
+    assert.equal(t.state().channels.find(channel => channel.id === 'R1').looping, true);
+    assert(t.processor.native.compiledTake(song.takes.findIndex(take => take.voiceId === 'drums-claps' && take.begin.bar === 3)).ready);
+    assert(!t.performance.some(message => message.event?.type === 'fault' || message.event?.type === 'control' && !message.event.applied));
+  } finally { t.dispose(); }
+});
+
+test('DYC missed old commit rejects only the future recording with a source-indexed outcome', async () => {
+  const song = (await loadSong('dance-yrself-clean')).compiled;
+  const t = new Harness({ bpm: 98, compiledProgram: Array.from(encodeCompiledProgram(song)), barCount: 76,
+    liveEffects: [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }], microphone: true });
+  const atBar = bar => t.until(Math.ceil((5 + (bar - 1) * 4) * rate * 60 / 98) + 1, .25);
+  try {
+    t.command('practice.control', { control: { id: 'R1' } });
+    atBar(2); t.command('practice.control', { control: { id: 'R1' } });
+    atBar(4); t.command('practice.control', { control: { id: 'L2' } });
+    atBar(5);
+    assert.equal(t.state().phase, 'playing');
+    assert.equal(t.state().recording.id, 'R1');
+    assert(!t.performance.some(message => message.event?.type === 'fault'));
+    const rejected = t.performance.filter(message => message.event?.type === 'control' && message.event.applied === false).map(message => message.event);
+    assert.equal(rejected.length, 1);
+    assert.equal(rejected[0].cueIndex, song.cues.findIndex(cue => cue.source.a1 === 'F21'));
+    assert.match(rejected[0].error, /recording|capture/i);
+    const output = t.renderStems(128, { input: new Float32Array(128).fill(.25) });
+    assert(output.mixed.every(channel => channel.every(value => Math.abs(value - .3125) < 1e-6)));
+    assert(output.live.every(channel => channel.every(value => Math.abs(value - .3125) < 1e-6)));
   } finally { t.dispose(); }
 });
 

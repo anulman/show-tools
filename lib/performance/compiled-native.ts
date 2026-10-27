@@ -24,16 +24,17 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
   });
   const kinds: Record<CompiledSong['cues'][number]['kind'], number> = { arm: PF.ARM, commit: PF.COMMIT, 'commit-arm': PF.COMMIT_ARM, stop: PF.STOP, play: PF.PLAY };
   const header = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, song.meter.numerator, song.chart.bars.length,
-    song.chart.bpm, song.chart.annotatedThroughBar, song.cueWindow.earlyBeats, song.cueWindow.lateBeats,
+    song.chart.bpm, song.chart.annotatedThroughBar, song.cueWindow.earlyMs, song.cueWindow.lateMs,
     song.takes.length, song.cues.length, members.length / PF.COMPILED_MEMBER_FIELDS, song.playback.length, ...binding];
   const takeRows = song.takes.flatMap(take => {
-    if (!take.end) throw new Error(`Take ${take.id} has no commit boundary.`);
-    return [indexOf(voices, take.voiceId), take.begin.bar, take.begin.beat, take.end.bar, take.end.beat, 1];
+    if (!take.captureEnd || !take.loopEnd) throw new Error(`Take ${take.id} has no capture/loop boundary.`);
+    return [indexOf(voices, take.voiceId), take.begin.bar, take.begin.beat, take.captureEnd.bar, take.captureEnd.beat, 1,
+      take.loopEnd.bar, take.loopEnd.beat, indexOf(takes, take.phraseAnchorTakeId)];
   });
   const cueRows = song.cues.flatMap(cue => [CONTROL_IDS.indexOf(cue.buttonId), indexOf(voices, cue.voiceId), cue.bar,
     cue.cueBeat ?? -1, kinds[cue.kind], cue.execution.kind === 'now' ? 0 : cue.execution.kind === 'next-bar' ? 1 : 2,
     cue.execution.kind === 'beat' ? cue.execution.beat : 0, optionalIndex(takes, cue.takeId),
-    optionalIndex(takes, cue.commitTakeId), optionalIndex(selections, cue.selectionId)]);
+    optionalIndex(takes, cue.commitTakeId), optionalIndex(selections, cue.selectionId), cue.tempoBeatHint]);
   const playback = song.playback.flatMap(cue => [cue.bar, indexOf(voices, cue.voiceId), indexOf(selections, cue.selectionId)]);
   const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
