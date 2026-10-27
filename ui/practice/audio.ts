@@ -2,12 +2,14 @@ import { BeatTracker } from './runtime/beat-tracker.js';
 import { AudioEndpoint } from '../../lib/sampler/audio-endpoint.js';
 import { Sampler } from '../../lib/sampler/sampler.js';
 import { CONTROL_IDS } from '../../lib/performance/model.js';
+import { encodeCompiledProgram } from '../../lib/performance/compiled-native.js';
+import type { CompiledSong } from '../../lib/performance/compiled-song.js';
 import type { ChannelId, ChannelSettings, Chart, ChartMetadata, Control, PracticeEvent, PracticeState, Program, StartOptions, LiveEffectDefinition } from '../../lib/performance/model.js';
 
 export type MonitoringRelationship = 'unknown' | 'different-devices' | 'same-usb-interface' | 'same-non-usb';
 type MonitoringConfirmation = { kind: 'unconfirmed' } | { kind: 'confirmed'; stream: MediaStream; relationship: Exclude<MonitoringRelationship, 'unknown'> };
 
-type AudioOptions = { chart: Chart; program?: Program };
+type AudioOptions = { chart: Chart; program?: Program; compiled?: CompiledSong };
 type AdapterOptions = AudioOptions & { tracker: BeatTracker; endpoint: AudioEndpoint; sessionId: string };
 
 export class PracticeAudio {
@@ -35,7 +37,7 @@ export class PracticeAudio {
   startGeneration = 0;
   microphoneGeneration = 0;
 
-  static async create({ chart, program }: AudioOptions) {
+  static async create({ chart, program, compiled }: AudioOptions) {
     if (!chart?.bars?.length) throw new Error('A parsed chart is required');
     let audio: PracticeAudio | undefined;
     let tracker: BeatTracker | undefined;
@@ -45,7 +47,8 @@ export class PracticeAudio {
         wasmUrl: new URL('./wasm/manual-clock.wasm', import.meta.url),
         workletUrl: new URL('./practice-worklet.js', import.meta.url), processorName: 'practice', outputChannelCounts: [2, 2],
         processorOptions: { practice: { bpm: chart.bpm, beatsPerBar: chart.beatsPerBar, runId: `${sessionId}-ready`,
-          barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program } } });
+          barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program,
+          compiledProgram: compiled ? Array.from(encodeCompiledProgram(compiled)) : undefined } } });
       const channel = new MessageChannel();
       tracker.node.port.postMessage({ type: 'performance-connect', port: channel.port2 }, [channel.port2]);
       const endpoint = new AudioEndpoint(channel.port1);
@@ -203,11 +206,22 @@ export class PracticeAudio {
   setAutomatic(enabled: boolean) { return this.request('practice.automatic', { enabled }); }
   setClick(enabled: boolean) { return this.request('practice.click', { enabled }); }
 
-  async enableMicrophone() {
+  async setOutputDevice(deviceId: string) {
+    if (this.latest.phase === 'playing' || this.latest.phase === 'count-in') throw new Error('Stop practice before changing the output device.');
+    const context = this.tracker.context;
+    if (!('setSinkId' in context) || typeof context.setSinkId !== 'function') {
+      if (deviceId) throw new Error('This browser uses the system output device. Choose it in your operating system sound settings.');
+      return;
+    }
+    this.clearMonitoring();
+    await context.setSinkId(deviceId || 'default');
+  }
+
+  async enableMicrophone(options: { deviceId?: string } = {}) {
     if (this.disposed) throw new Error('Practice audio is disposed');
     const generation = ++this.microphoneGeneration;
     try {
-      await this.tracker.startListening();
+      await this.tracker.startListening(options);
       if (this.disposed || generation !== this.microphoneGeneration || !this.tracker.microphoneStream) return generation;
       await this.request('practice.microphone', { enabled: true });
       return generation;

@@ -31,3 +31,11 @@ The operator's latest October 27 answers supersede the earlier merged-plan inter
 Operator questions are pending for `2c3`, the star in `1p*`, layer balance/selection and cue proximity, and whether knob `d` spans are defined or explicitly deferred for this milestone. No answer is inferred from the old parser. Chorus-on-knob follow-on stays behind the capture/A-section target and needs its own missing gesture/mapping facts.
 
 In 6/8, chart cues and pedal taps count six eighth notes. A tap can start on any beat and does not establish a downbeat or reset phase. DYC's current A section is 4/4. Unused hardware, LED waveform, or Video scene decisions do not block its keyboard path.
+
+## Integration evidence and holds
+
+The compiler's executable import boundary validates reciprocal capture references, exact declared boundaries, unique chart columns, and selection readiness. The native loader validates the equivalent numeric graph independently. ABI 3 exposes compiled table and portable byte loading. Native Release and sanitizer suites exercise real PCM and C++ allocation guards. Joint compiler-to-WASM tests exercise warm processed capture, atomic handoff, layered playback, evolving loop history, fractional release, output stems, and repeated recapture after venue edits.
+
+The practice desk includes staged source/artifact import, inspection, audio-device selection, and the isolated peripheral adapter. Keyboard command IDs preserve producer/session/sequence identity. Focus loss disarms held keys until release. Physical mappings, knob effects, and phase-preserving pedal tempo remain unbound.
+
+The default DYC compiled draft is blocked, so the branch must remain a draft and must not replace working main practice yet. No complete A-section run or fresh live browser/download verification has passed. Computer-use browser surfaces are unavailable; no Chrome/CDP process was started or restarted. Current voice racks have independent state but share one stopped venue definition; distinct per-voice definitions remain unexposed. The validated engine checkpoint can be reviewed independently of those acceptance holds.

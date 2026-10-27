@@ -53,7 +53,7 @@ node --import tsx scripts/verify-patches.ts
 
 That command builds and runs the same C++ tests natively and through Emscripten, then compares rendered interleaved stereo float fixtures. It saves generated artifacts in a fresh temporary directory. Tests cover generic stage order, mono left/right output, exact processed capture, and state-driven cache release at arbitrary reached stop positions. The initial prototype supports fixed graphs and parameters, phase-zero starts, and unit-speed playback. It repeats source DSP inaudibly to maintain tail state; it does not claim a caching speedup or physical realtime performance.
 
-Coordinate subsequent performance headers, generated ABI, sampler stereo capture, stems, and browser route changes with Performance Engine before editing. The practice page uses separate native sample/click and processed-live buses. Its recording destination receives both once; its live monitor requires explicit physical-device confirmation. Effect-enabled capture still rejects explicitly while the capture contract is unresolved. Bypass preserves the existing identity-capture capability. Native `pf_control()` arm can call `st_prepare()`, so move preparation out of callback application as part of that integration.
+Coordinate performance headers, generated ABI, compiled cache preparation, stems, and browser routes with Performance Engine before editing. ABI 3 adds compiled tables and portable program-byte loading. The practice page records native sample/click and processed-live buses once each; live monitoring requires explicit physical-device confirmation. Compiled capture uses stopped preparation and switches routes immediately on arm. It retains original source and evolving DSP history. Legacy and generic raw capture reject with effects enabled.
 
 Read these files before choosing the processing order.
 
@@ -62,7 +62,7 @@ Read these files before choosing the processing order.
 - `lib/performance/src/performance_engine.cpp` owns block processing, transport, chart actions, and click rendering.
 - `lib/performance/include/performance_engine.h` defines the complete engine interface.
 - `lib/performance/wasm-performance.ts` bridges browser blocks and declarative song data to C++.
-- `ui/practice/audio.ts` owns the separate recording-only live microphone branch.
+- `ui/practice/audio.ts` owns device access, the two processed recording stems, and the separately gated live monitor.
 - `ui/practice/practice-worklet.ts` routes controls and publishes native events.
 - `lib/performance/model.ts` owns shared commands and state shapes.
 
@@ -88,7 +88,7 @@ Begin with [the native performance guide](../lib/performance/README.md), `lib/pe
 
 Choose an audio-device backend and give one thread ownership of the performance engine. Clear each output block, pass microphone PCM to `pf_process()`, and route the rendered channels to the device. Do not also call `bt_process()` or dispatch `sq_on_beat()` on the borrowed component handles. The performance engine owns those calls.
 
-Implement a loader for the compiled song instruction data. Browser song modules produce declarative events, chart cues, capture hints, and variant playback assignments. The native host must load the same instructions and pass them to `pf_configure()` while stopped. No JavaScript runtime is required to execute a configured song. The repository does not yet provide the device service or its song-file loader.
+Use `pf_load_compiled_bytes()` to load the compiler's portable `.pfp` artifact while stopped. Browser song modules use the same numeric tables through `pf_configure_compiled()`. No JavaScript runtime is required to execute those instructions. The device service remains future work.
 
 Drain native events on the engine's owning thread into a bounded host queue. Add run IDs and chart metadata and publish copied records outside the device callback. Do not query the engine concurrently from an observer thread. Preserve source audio-frame timestamps. A relay receipt is not a musical boundary.
 

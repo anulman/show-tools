@@ -35,3 +35,13 @@
 @media(max-width:700px){.pad-volume{padding:2px 12px;gap:6px}.pad-volume>span{display:none}.pad-volume output{min-width:29px;font-size:9px}}
 
 .live-effects{margin-top:24px;padding:20px 22px;border:1px solid var(--line);border-radius:6px;background:var(--panel)}.live-effects .section-heading{gap:15px;flex-wrap:wrap}.live-effects [role=status]{font-size:10px;color:var(--muted)}.effects-controls{display:flex;gap:20px;align-items:center;flex-wrap:wrap}.effects-controls .field{width:110px}.effects-controls input[type=number]{width:100%;min-height:38px}.effects-note{font-size:10px;line-height:1.6;color:var(--muted);margin:14px 0 0}.monitor-setting{display:flex;gap:8px;margin-top:18px;max-width:460px}.monitor-setting select{width:100%;min-height:40px}.monitor-setting>span{line-height:1.5}@media(max-width:700px){.live-effects{padding:17px 16px;margin-top:20px}.effects-controls{gap:12px}.effects-controls>.switch{width:100%}.effects-controls .field{flex:1;min-width:70px}.effects-note{font-size:11px}.monitor-setting select{font-size:11px}.live-effects [role=status]{font-size:10px}}
+.chart-source { margin: 16px 0; min-width: 0; }
+.chart-compiler { border: 1px solid var(--border, #393c39); border-radius: 12px; padding: 14px; }
+.chart-compiler summary { cursor: pointer; font-size: 13px; font-weight: 600; }
+.chart-compiler > * + * { margin-top: 12px; }
+.chart-compiler .field { width: auto; min-width: 0; flex: 1 1 220px; }
+.chart-compiler input[type="url"], .chart-compiler textarea { width: 100%; box-sizing: border-box; background: #191b1a; color: inherit; border: 1px solid #464b45; border-radius: 6px; padding: 10px; }
+.chart-compiler textarea, .chart-compiler pre { font: 11px/1.5 ui-monospace, monospace; }
+.chart-compiler input[type="file"] { max-width: 100%; font-size: 12px; }
+.chart-compiler pre { max-height: 420px; overflow: auto; color: var(--muted); }
+.audio-device-controls .field { width: auto; min-width: 0; flex: 1 1 220px; }

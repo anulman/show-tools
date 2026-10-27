@@ -23,6 +23,7 @@
     </section>
 
     <div id="error" class="error" role="alert" hidden></div>
+    <section id="chart-source" class="chart-source" aria-label="Chart source and inspection"></section>
     <noscript><p class="error">Enable JavaScript to use the practice desk.</p></noscript>
 
     <section class="transport" aria-label="Song transport">
@@ -57,6 +58,12 @@
 
     <section class="live-effects" aria-labelledby="effects-heading">
       <div class="section-heading"><h2 id="effects-heading">Live voice effects</h2><span id="effects-status" role="status">Set effects before Start.</span></div>
+      <div class="effects-controls audio-device-controls">
+        <label class="field"><span>MICROPHONE / SOUND CARD INPUT</span><select id="input-device" aria-label="Microphone input device"><option value="">System default input</option></select></label>
+        <label class="field"><span>SOUND CARD OUTPUT</span><select id="output-device" aria-label="Audio output device"><option value="">System default output</option></select></label>
+        <button id="refresh-devices" class="secondary" type="button">Refresh audio devices</button>
+      </div>
+      <p id="device-hint" class="effects-note">Choose devices while stopped. Device names appear after microphone permission; confirm the physical monitoring relationship separately.</p>
       <div class="effects-controls">
         <label class="switch"><input id="effects-enabled" type="checkbox" checked><span class="switch-track"></span><span>Slapback</span></label>
         <label class="field"><span>DELAY · MS</span><input id="effects-delay" type="number" min="40" max="250" step="1" value="100" inputmode="decimal"></label>

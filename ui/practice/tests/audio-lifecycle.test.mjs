@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
 import vm from 'node:vm';
 import { PracticeAudio } from '../audio.js';
+import { createPeripheralInput, peripheralCommandId } from '../peripheral-input.ts';
 
 function deferred() {
   let resolve;
@@ -127,6 +128,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   const audio = {
     subscribe() {}, onEvent() {}, outputStream: {},
     async configureLiveEffects(effects) { commands.push('effects'); this.configuredEffects = effects; },
+    async setOutputDevice(deviceId) { this.outputDeviceId = deviceId; },
     async enableMicrophone() { commands.push('microphone'); await microphone(); },
     async disableMicrophone() { commands.push('microphone-off'); },
     async setClick(enabled) { commands.push(`click:${enabled}`); },
@@ -149,7 +151,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     playableBars: () => 76, PracticeAudio: { create: async () => { creations++; return audio; } },
   };
   vm.createContext(context);
-  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
+  vm.runInContext(`${uiSource}\nasync function refreshAudioDevices() {}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
   return { commands, controls: context.controls, audio, elements, revoked, get creations() { return creations; } };
 }
 
@@ -313,17 +315,47 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   let panicCalls = 0;
   let padCalls = 0;
   class Element { closest() { return true; } }
-  const context = { Element, heldKeys: new Set(), CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
     window: { addEventListener(_type, listener) { keydown = listener; } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: () => padCalls++,
   };
   vm.createContext(context);
-  vm.runInContext(keyboardSource, context);
-  const event = { target: new Element(), repeat: false, preventDefault() {} };
+  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const sources'));
+  vm.runInContext(adapterSource + keyboardSource, context);
+  const event = { target: new Element(), repeat: false, timeStamp: 0, preventDefault() {} };
   keydown({ ...event, code: 'KeyQ' });
   keydown({ ...event, code: 'Escape' });
   assert.equal(padCalls, 0);
   assert.equal(panicCalls, 1);
+});
+
+test('keyboard bridge suppresses repeats and requires release after losing focus', async () => {
+  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const listeners = new Map();
+  const commands = [];
+  class Element { closest() { return false; } }
+  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+    document: { querySelectorAll: () => [] }, pads: new Map(), elements: {},
+    window: { addEventListener(type, listener) { listeners.set(type, listener); } },
+    act: action => action(), flash() {}, triggerPad: (id, commandId) => commands.push({ id, commandId }),
+  };
+  vm.createContext(context);
+  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const sources'));
+  const releaseSource = source.slice(source.indexOf('function releasePresses'), source.indexOf('async function triggerPad'));
+  const handlers = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('function postPerformanceEvent'));
+  vm.runInContext(adapterSource + releaseSource + handlers, context);
+  const event = { target: new Element(), code: 'KeyQ', repeat: false, timeStamp: 123, preventDefault() {} };
+  listeners.get('keydown')(event);
+  listeners.get('keydown')({ ...event, repeat: true });
+  assert.equal(commands.length, 1);
+  vm.runInContext('releasePresses()', context);
+  listeners.get('keydown')(event);
+  assert.equal(commands.length, 1);
+  listeners.get('keyup')(event);
+  listeners.get('keydown')({ ...event, timeStamp: 456 });
+  assert.equal(commands.length, 2);
+  assert.equal(commands[0].id, 'L1');
+  assert.notEqual(commands[0].commandId, commands[1].commandId);
 });
 
 for (const bypass of [false, true]) {

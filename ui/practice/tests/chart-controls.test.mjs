@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseControlCue, compileChartControls } from '../../../lib/performance/chart-controls.js';
+import { parseControlCue } from '../../../lib/performance/chart-controls.js';
 import { CONTROLS } from '../../../lib/performance/model.js';
 import { loadSong } from '../../../songs/index.ts';
 
@@ -16,35 +16,46 @@ test('sheet legend maps capture, commit, rearm, stop, and play without inventing
   assert.deepEqual(parseControlCue('4e&a'), { kind: 'tap', notation: '4e&a', beats: [3, 3.25, 3.5, 3.75] });
 });
 
-test('Dance Yrself Clean pad routes come from its actual active columns, including lead-in', async () => {
+test('Dance Yrself Clean compiled pad routes retain source columns and lead-in timing', async () => {
   const song = await loadSong('dance-yrself-clean');
-  const controls = compileChartControls(song.chart);
-  assert.deepEqual(controls.leadIn.R1, { kind: 'arm', timing: 'bar' });
-  assert.deepEqual(controls.bars[0].R1, { kind: 'none' });
-  assert.deepEqual(controls.bars[1].R1, { kind: 'commit', timing: 'bar' });
-  assert.deepEqual(controls.bars[1].R2, { kind: 'arm', timing: 'bar' });
-  assert.deepEqual(controls.bars[2].R2, { kind: 'commit-arm', timing: 'bar' });
-  assert.deepEqual(controls.bars[3].R2, { kind: 'commit', timing: 'bar' });
-  assert.deepEqual(controls.bars[10].R2, { kind: 'stop', timing: 'now' });
-  assert.deepEqual(controls.bars[75].R1, { kind: 'stop', timing: 'bar' });
+  const cues = song.compiled.cues;
+  const leadIn = cues.find(cue => cue.bar === 0 && cue.buttonId === 'R1');
+  assert.equal(leadIn.kind, 'arm');
+  assert.equal(leadIn.source.a1, 'B18');
+  assert.deepEqual(leadIn.execution, { kind: 'next-bar' });
+  assert.deepEqual(cues.filter(cue => cue.buttonId === 'R2' && cue.bar <= 12)
+    .map(cue => [cue.bar, cue.kind, cue.source.a1, cue.source.text, cue.execution]), [
+    [9, 'arm', 'K19', 'rb', { kind: 'next-bar' }],
+    [10, 'commit-arm', 'L19', 'crb', { kind: 'next-bar' }],
+    [11, 'commit-arm', 'M19', 'crb', { kind: 'next-bar' }],
+    [12, 'commit', 'N19', 'cb', { kind: 'next-bar' }],
+  ]);
+  const stop = cues.find(cue => cue.bar === 76 && cue.buttonId === 'R1');
+  assert.equal(stop.kind, 'stop');
+  assert.equal(stop.source.a1, 'BZ18');
+  assert.deepEqual(stop.execution, { kind: 'next-bar' });
 });
 
 test('pad grid follows physical Q/W above A/S and preserves the left-hand column', () => {
   assert.deepEqual(CONTROLS.map(control => [control.id, control.shortcut]), [['L1', 'Q'], ['R1', 'W'], ['L2', 'A'], ['R2', 'S']]);
 });
 
-test('cowbell uses whole-bar takes and automatic chart playback in its loadable script', async () => {
+test('cowbell compiles three distinct whole-bar takes linked to its capture cues', async () => {
   const song = await loadSong('dance-yrself-clean');
-  const controls = song.program.controls;
-  const capture = { kind: 'bar', variantKey: 'cowbell-double' };
-  assert.deepEqual(controls.bars[1].R2.capture, capture);
-  assert.deepEqual(controls.bars[2].R2.capture, { kind: 'bar', variantKey: 'cowbell-single' });
-  assert.equal(controls.bars[3].R2.capture, undefined);
-  assert.equal(controls.leadIn.R1.capture, undefined);
-  assert.deepEqual(song.program.barPlayback.filter(cue => cue.variantKey === 'cowbell-double').map(cue => cue.bar), [8, 10]);
-  assert.equal(controls.bars[7].R2.kind, 'none');
-  assert.equal(controls.bars[9].R2.kind, 'none');
-  assert.equal(controls.bars[10].R2.kind, 'stop');
+  const takes = song.compiled.takes.filter(take => take.voiceId === 'cowbell');
+  assert.deepEqual(takes.map(take => [take.begin, take.end, take.phrase]), [
+    [{ bar: 10, beat: 0 }, { bar: 11, beat: 0 }, '(4)&a'],
+    [{ bar: 11, beat: 0 }, { bar: 12, beat: 0 }, '(4)&'],
+    [{ bar: 12, beat: 0 }, { bar: 13, beat: 0 }, '4'],
+  ]);
+  assert.equal(new Set(takes.map(take => take.id)).size, 3);
+  assert.equal(new Set(takes.map(take => take.slot)).size, 3);
+  for (const take of takes) {
+    const arm = song.compiled.cues.find(cue => cue.id === take.armCueId);
+    const commit = song.compiled.cues.find(cue => cue.id === take.commitCueId);
+    assert.equal(arm.takeId, take.id);
+    assert.equal(commit.commitTakeId, take.id);
+  }
   const other = await loadSong('drunk-girls');
   assert(!other.program.controls.bars.some(row => Object.values(row).some(cue => cue.capture)));
 });

@@ -6,6 +6,11 @@ import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
 import { createChartFollower, openCurrentChart } from './open-chart.js';
 import { recordingToMp3 } from './recording-export.js';
+import { installChartPanel } from './chart-panel.js';
+import { decodeCompiledSong } from '../../lib/performance/compiled-song.js';
+import type { CompiledSong } from '../../lib/performance/compiled-song.js';
+import { createPeripheralInput, peripheralCommandId } from './peripheral-input.js';
+import type { PeripheralInput } from './peripheral-input.js';
 
 function requiredElement<T extends Element>(selector: string, constructor: { new(): T }, root: ParentNode = document): T {
   const element = root.querySelector(selector);
@@ -48,6 +53,10 @@ const elements = {
   'effects-feedback': requiredElement('#effects-feedback', HTMLInputElement),
   'effects-wet': requiredElement('#effects-wet', HTMLInputElement),
   'effects-status': requiredElement('#effects-status', HTMLSpanElement),
+  'input-device': requiredElement('#input-device', HTMLSelectElement),
+  'output-device': requiredElement('#output-device', HTMLSelectElement),
+  'refresh-devices': requiredElement('#refresh-devices', HTMLButtonElement),
+  'device-hint': requiredElement('#device-hint', HTMLParagraphElement),
   'effects-capture-hint': requiredElement('#effects-capture-hint', HTMLParagraphElement),
   'monitor-relationship': requiredElement('#monitor-relationship', HTMLSelectElement),
   'monitor-hint': requiredElement('#monitor-hint', HTMLParagraphElement),
@@ -56,6 +65,7 @@ const elements = {
 const startLabel = requiredElement('#start span:last-child', HTMLSpanElement);
 const recordLabel = requiredElement('#record-demo span:last-child', HTMLSpanElement);
 const sectionProgress = requiredElement('#section-progress > span', HTMLSpanElement);
+const chartSource = requiredElement('#chart-source', HTMLElement);
 interface PadElements {
   shell: HTMLElement; button: HTMLButtonElement; mute: HTMLButtonElement; status: HTMLSpanElement;
   cue: HTMLElement; sampleStatus: HTMLSpanElement; volume: HTMLInputElement;
@@ -63,6 +73,19 @@ interface PadElements {
 }
 const pads = new Map<ChannelId, PadElements>();
 const heldKeys = new Set<string>();
+let keyboardInput: PeripheralInput | undefined;
+let keyboardSession = 0;
+let keyboardConnected = false;
+function keyboardEdge(event: KeyboardEvent, edge: 'press' | 'release') {
+  const mapping = new Map([...CONTROLS.map(control => [control.key, control.id] as const), ['Escape', 'mushroom'] as const]);
+  keyboardInput ??= createPeripheralInput({ producerId: 'practice-keyboard', mapping });
+  if (!keyboardConnected) {
+    keyboardInput.connect({ sessionId: String(keyboardSession++), releasedCodes: keyboardSession === 1 ? [...mapping.keys()] : [] });
+    keyboardConnected = true;
+  }
+  return keyboardInput.inject({ sessionId: String(keyboardSession - 1), sourceTimeMs: event.timeStamp, kind: 'key', code: event.code,
+    edge, repeat: edge === 'press' && event.repeat });
+}
 const sources = new Map<ChannelId, string>();
 let chart: Chart | undefined;
 let song: SongScript | undefined;
@@ -100,6 +123,12 @@ function beatName(position: number): string {
 }
 
 function cueLabel(cue: string): string {
+  const compiled = song?.compiled?.cues.find(action => action.source.text.trim() === cue.trim());
+  if (compiled) {
+    const names = { arm: 'Arm capture', commit: 'Commit + loop', 'commit-arm': 'Commit + arm', stop: 'Stop loop', play: 'Play' };
+    const target = compiled.execution.kind === 'next-bar' ? 'next bar' : compiled.execution.kind === 'beat' ? beatName(compiled.execution.beat) : 'now';
+    return `${names[compiled.kind]} · ${target}${compiled.cueBeat === null ? '' : ` · cue ${beatName(compiled.cueBeat)}`}`;
+  }
   const action = parseControlCue(cue);
   if (action.kind === 'tap') {
     const beats = action.beats.map(beatName);
@@ -123,7 +152,7 @@ async function ensureAudio() {
   elements.start.disabled = true;
   startLabel.textContent = 'Preparing audio…';
   const generation = songGeneration;
-  preparing = PracticeAudio.create({ chart: song.chart, program: song.program }).then(async instance => {
+  preparing = PracticeAudio.create({ chart: song.chart, program: song.program, compiled: song.compiled }).then(async instance => {
     if (generation !== songGeneration) {
       await instance.dispose();
       throw new Error('The song changed while audio was preparing.');
@@ -149,16 +178,18 @@ function flash(id: ChannelId | 'mushroom', held = false) {
 
 function releasePresses() {
   heldKeys.clear();
+  keyboardInput?.disconnect();
+  if (keyboardConnected) keyboardConnected = false;
   document.querySelectorAll('.pressed').forEach(element => element.classList.remove('pressed'));
 }
 
-async function triggerPad(id: ChannelId) {
+async function triggerPad(id: ChannelId, commandId?: string) {
   const generation = transportGeneration;
   const instance = await ensureAudio();
   if (generation !== transportGeneration) return;
   await instance.selectChannel(id);
   if (generation !== transportGeneration) return;
-  await instance.control({ id });
+  await instance.control({ id }, { commandId });
 }
 
 function liveEffectDefinitions(): readonly LiveEffectDefinition[] {
@@ -177,6 +208,25 @@ function monitoringRelationship(value: string): MonitoringRelationship {
     case 'unknown': case 'different-devices': case 'same-usb-interface': case 'same-non-usb': return value;
     default: throw new Error('Choose the physical input/output relationship.');
   }
+}
+
+async function refreshAudioDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) throw new Error('Audio device enumeration needs localhost or HTTPS in a supported browser.');
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  for (const { kind, select } of [{ kind: 'audioinput', select: elements['input-device'] }, { kind: 'audiooutput', select: elements['output-device'] }]) {
+    const previous = select.value;
+    const defaultOption = document.createElement('option');
+    defaultOption.value = ''; defaultOption.textContent = kind === 'audioinput' ? 'System default input' : 'System default output';
+    select.replaceChildren(defaultOption);
+    devices.filter(device => device.kind === kind && device.deviceId && device.deviceId !== 'default').forEach((device, index) => {
+      const option = document.createElement('option');
+      option.value = device.deviceId;
+      option.textContent = device.label || `${kind === 'audioinput' ? 'Input' : 'Output'} ${index + 1} · name needs permission`;
+      select.append(option);
+    });
+    if (Array.from(select.options).some(option => option.value === previous)) select.value = previous;
+  }
+  elements['device-hint'].textContent = 'Selected devices apply at Start. Confirm physical input/output identity and USB-interface status separately; device names alone do not establish monitoring eligibility.';
 }
 
 async function startPractice() {
@@ -199,7 +249,9 @@ async function startPractice() {
     if (generation !== transportGeneration) return;
     await instance.configureLiveEffects(effects);
     if (generation !== transportGeneration) return;
-    microphoneGeneration = await instance.enableMicrophone();
+    await instance.setOutputDevice(elements['output-device'].value);
+    if (generation !== transportGeneration) return;
+    microphoneGeneration = await instance.enableMicrophone({ deviceId: elements['input-device'].value || undefined });
     if (generation !== transportGeneration) { await instance.disableMicrophone(microphoneGeneration); return; }
     if (outputCapture === 'idle') { await toggleOutputRecording(); startedRecording = true; }
     if (generation !== transportGeneration) { finishOutputRecording(); await instance.disableMicrophone(microphoneGeneration); return; }
@@ -207,6 +259,7 @@ async function startPractice() {
     if (generation !== transportGeneration) return;
     await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar,
       loop: elements.loop.checked, automatic: false });
+    void refreshAudioDevices().catch(showError);
   } catch (error) {
     if (startedRecording) finishOutputRecording();
     if (instance && microphoneGeneration !== undefined) await instance.disableMicrophone(microphoneGeneration).catch(() => {});
@@ -214,7 +267,7 @@ async function startPractice() {
   } finally { starting = false; render(state); }
 }
 
-async function stopPerformance(command: 'stop' | 'panic') {
+async function stopPerformance(command: 'stop' | 'panic', commandId?: string) {
   transportGeneration++;
   chartFollower?.stop();
   finishOutputRecording();
@@ -222,7 +275,7 @@ async function stopPerformance(command: 'stop' | 'panic') {
   const instance = audio;
   if (!instance) return;
   const results = await Promise.allSettled([
-    command === 'stop' ? instance.stop() : instance.control({ id: 'mushroom' }),
+    command === 'stop' ? instance.stop() : instance.control({ id: 'mushroom' }, { commandId }),
     instance.disableMicrophone(),
   ]);
   const failure = results.find(result => result.status === 'rejected');
@@ -239,7 +292,7 @@ async function stopPerformance(command: 'stop' | 'panic') {
 
 function stopPractice() { return stopPerformance('stop'); }
 
-function panic() { return stopPerformance('panic'); }
+function panic(commandId?: string) { return stopPerformance('panic', commandId); }
 
 function makePads() {
   for (const control of CONTROLS) {
@@ -346,16 +399,22 @@ function render(next: Partial<PracticeState>) {
   elements['bar-number'].textContent = inCountIn ? 'IN' : String(displayBar).padStart(2, '0');
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
-  elements.start.disabled = running || starting || switching || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
+  elements.start.disabled = song?.compiled?.executable === false || running || starting || switching || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
   elements['song-select'].disabled = switching || outputCapture !== 'idle';
   elements['record-demo'].disabled = outputCapture === 'starting' || outputCapture === 'stopping';
   const effectsLocked = running || starting || switching || Boolean(preparing) || outputCapture !== 'idle';
+  elements['input-device'].disabled = effectsLocked;
+  elements['output-device'].disabled = effectsLocked;
   for (const element of [elements['effects-enabled'], elements['effects-delay'], elements['effects-feedback'], elements['effects-wet']]) element.disabled = effectsLocked;
   const effects = state.liveEffects;
   elements['effects-status'].textContent = effects?.active
     ? `Live voice active · revision ${effects.revision}`
     : effects?.prepared ? `Prepared · revision ${effects.revision}. Set effects before Start.` : 'Set effects before Start.';
-  elements['effects-capture-hint'].hidden = effects?.prepared ? effects.captureSupported : !elements['effects-enabled'].checked;
+  const compiledCapture = effects?.captureSupported === true || song?.compiled?.executable === true;
+  elements['effects-capture-hint'].hidden = !elements['effects-enabled'].checked;
+  elements['effects-capture-hint'].textContent = compiledCapture
+    ? 'Capture stores processed voice. Arm selects the voice stack immediately; recording starts at its chart boundary. Effects continue evolving during playback.'
+    : 'This chart is not ready for effect-enabled sample capture. Resolve and load the compiled chart inspection before performing it.';
   elements['monitor-relationship'].disabled = !audio?.microphone || starting;
   elements['monitor-relationship'].value = audio?.monitoringRelationship || 'unknown';
   elements['monitor-hint'].textContent = audio?.monitoringRelationship === 'different-devices' || audio?.monitoringRelationship === 'same-usb-interface'
@@ -527,6 +586,7 @@ elements.stop.addEventListener('click', () => act(stopPractice));
 elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic); });
 elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording));
 elements['effects-enabled'].addEventListener('change', () => render(state));
+elements['refresh-devices'].addEventListener('click', () => act(refreshAudioDevices));
 elements['monitor-relationship'].addEventListener('change', () => act(() => {
   if (!audio) throw new Error('Start the microphone before confirming the monitoring setup.');
   audio.setMonitoringRelationship(monitoringRelationship(elements['monitor-relationship'].value));
@@ -547,20 +607,26 @@ window.addEventListener('keydown', event => {
   if (event.repeat || heldKeys.has(event.code)) return;
   if (event.code === 'Escape') {
     event.preventDefault();
+    const input = keyboardEdge(event, 'press');
+    if (!input) return;
     heldKeys.add(event.code);
     flash('mushroom', true);
-    act(panic);
+    act(() => panic(peripheralCommandId(input)));
     return;
   }
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || (event.target instanceof Element && event.target.closest('input,select,textarea,[contenteditable=true]'))) return;
   const control = CONTROLS.find(control => control.key === event.code);
   if (!control && event.code !== 'Space') return;
   event.preventDefault();
-  heldKeys.add(event.code);
-  if (control) { flash(control.id, true); act(() => triggerPad(control.id)); }
-  else act(() => isRunning() ? stopPractice() : startPractice());
+  if (control) {
+    const input = keyboardEdge(event, 'press');
+    if (!input) return;
+    heldKeys.add(event.code);
+    flash(control.id, true); act(() => triggerPad(control.id, peripheralCommandId(input)));
+  } else { heldKeys.add(event.code); act(() => isRunning() ? stopPractice() : startPractice()); }
 });
 window.addEventListener('keyup', event => {
+  if (event.code === 'Escape' || CONTROLS.some(control => control.key === event.code)) keyboardEdge(event, 'release');
   heldKeys.delete(event.code);
   const control = CONTROLS.find(control => control.key === event.code);
   if (control) pads.get(control.id)?.button.classList.remove('pressed');
@@ -594,7 +660,7 @@ for (const entry of SONGS) {
   elements['song-select'].append(option);
 }
 elements.start.disabled = true;
-async function switchSong(id: string): Promise<void> {
+async function switchSong(id: string, imported?: CompiledSong): Promise<void> {
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
   const generation = ++songGeneration;
@@ -608,7 +674,11 @@ async function switchSong(id: string): Promise<void> {
     if (previousAudio) await previousAudio.stop();
     if (previousAudio) await previousAudio.dispose();
     if (preparing) await preparing.catch(() => {});
-    const loaded = await loadSong(id);
+    const loaded: SongScript = imported ? {
+      id: imported.id, chart: imported.chart, program: { lengthBeats: imported.chart.beatsPerBar, events: [] }, compiled: imported,
+      practice: { startBar: imported.chart.bars[0]?.bar || 1, endBar: imported.chart.annotatedThroughBar },
+      description: 'Chart-compiled performance. Source cells and native instructions are available below.',
+    } : await loadSong(id);
     if (generation !== songGeneration) return;
     song = loaded;
     chart = loaded.chart;
@@ -642,6 +712,15 @@ async function switchSong(id: string): Promise<void> {
     }
   }
 }
+const chartPanel = installChartPanel(chartSource, {
+  isBusy: () => isRunning() || starting || switching || preparing !== null || outputCapture !== 'idle',
+  onLoad: async input => {
+    const compiled = decodeCompiledSong(input);
+    if (!compiled.executable) throw new Error('Resolve the chart inspection errors before loading.');
+    if (isRunning() || starting || switching || preparing || outputCapture !== 'idle') throw new Error('Stop practice and finish the recording before loading a chart.');
+    await switchSong(compiled.id, compiled);
+  },
+});
 await act(() => switchSong('dance-yrself-clean'));
 
 if (new URLSearchParams(location.search).has('test')) {

@@ -10,18 +10,13 @@ npm start
 
 Open <http://127.0.0.1:8082/ui/practice/>. The page runs audio locally through its WASM/worklet bridge. The development server serves static files only.
 
-## Capture the opening loop
+## Load and inspect a chart
 
-Sample slots start empty. For this current capture path, bypass **Slapback** before Start. Effect-enabled sample capture is not available yet. The steps and notation below describe the checked-in DYC snapshot, not the pending chart grammar update.
+Open **Chart source, compiler & inspection** to fetch a public worksheet or import frozen source JSON. The explicit mapping binds chart rows to buttons and voices. Compile, inspect the source-located report, then load a resolved song while practice and output export are stopped. You can also import a compiled song JSON directly. CLI commands are documented in the [performance guide](../../lib/performance/README.md#compile-a-worksheet).
 
-1. Select **Dance Yrself Clean**.
-2. Press **Start practice** and allow microphone access when prompted.
-3. The demo recorder waits through the lead-in, then starts automatically with the song.
-4. During the count-in, press **R1** or **W** while its cue is `rb`.
-5. Perform the drums and clap phrase from bar 1.
-6. During bar 2, press **R1** or **W** while its cue is `cb`.
+The bundled current DYC source is a blocked draft. `2c3`, `1p*`, capture retention/balance, cue windows, and knob-row meaning await operator answers. Start remains disabled for that draft. Native/WASM fixtures verify capture mechanics; the current A-section performance has not been verified.
 
-Capture starts at bar 1 and commits at bar 3. The committed take starts looping at that crossing without another play tap.
+For an executable compiled song, select the actual input and output devices while stopped, configure Slapback, and press **Start practice**. Grant microphone access. The demo recorder waits through the lead-in and starts with the song. Arm switches live processing immediately to the target voice; recording starts at the declared boundary. Commit starts the selected take or layers at its boundary without another play tap. `crb` commits the old take and starts the next capture at the same crossing.
 
 Each pad resolves its action from its own row in the active column. A blank cell does nothing and never stops an existing loop. The pad's capture or playback status appears separately from its chart cue.
 
@@ -36,13 +31,11 @@ The supported action notation is:
 | `p` | Start the saved take looping |
 | `b` suffix | Apply the action at the next bar crossing |
 
-For example, `rb`, `cb`, `crb`, and `xb` queue their actions for the next bar. In R2, bar 2's `rb` starts capture at bar 3. Bar 3's `crb` commits that take at bar 4 and starts another capture while the first take plays. Bar 4's `cb` commits the replacement at bar 5.
+For example, `rb`, `cb`, `crb`, and `xb` queue their actions for the next bar. A numbered cue can distinguish its press position from its execution boundary; the inspection report shows both.
 
 Numbers indicate beats. `e`, `&`, and `a` divide a beat into sixteenths, and a closing square bracket marks the phrase end. Generic tap cues play one hit per press. A song script can instead replay a recorded bar automatically; the pad then shows **Auto · recorded bar**.
 
-Dance Yrself Clean's cowbell uses full-bar recordings without extraction. During bar 2, press **R2** or **S** to arm bar 3 and perform the double sound. During bar 3, press again to commit it and arm bar 4 for the single sound. During bar 4, press again to commit. The single take plays on normal bars. Bars 8 and 10 automatically use the recorded double take where `&a` is marked, then return to the single take. No double tapping is needed. The explicit stop cue still stops the cowbell.
-
-Captures are limited to 30 seconds. Reaching the limit commits and loops the take. **Stop** and the mushroom commit active captures while silencing playback and canceling pending actions. Processed live monitoring is available only after explicit physical-device confirmation; see the live-effects steps below. Captured takes stay in memory and disappear when you leave or reload the page.
+Compiled captures have prepared, declared lengths and reject overlapping armed or recording captures. Playback currently supports full-measure loops at their original speed and phase. Effect history evolves from original source across iterations; printed PCM is never processed again. **Stop** and the mushroom silence playback and cancel pending actions. Processed live monitoring requires explicit physical-device confirmation. Captured takes stay in memory and disappear when you leave or reload the page.
 
 ## Use the keyboard layout
 
@@ -122,6 +115,6 @@ Build this checkout with `npm run build` and serve its `dist/` directory on loca
 5. Press **Stop** or Escape. Live audio and delay history stop immediately, and microphone access releases. Wait for MP3 export, then use **Download take**. The download includes processed live voice even if monitoring stayed off. The mandatory lead-in stays outside the demo download.
 6. To test a second setting, change values while stopped, Start again, and confirm the physical setup again after microphone acquisition. A replaced/lost microphone invalidates prior monitoring confirmation.
 
-Sample capture with a nonempty effects stack is unavailable until capture routing and cached-loop behavior are defined. Capture commands reject explicitly; they do not record a dry fallback. Existing sample playback and click remain available. Bypass Slapback to use the current identity-capture route. The standalone processed-cache fixtures do not establish effect-enabled practice sampling.
+Compiled song pads support processed capture with Slapback enabled. Legacy songs and direct generic sampler/sequence recording still reject effect-enabled raw capture. Each logical voice has independent DSP state; the current venue controls prepare the same definition for those voices. Distinct per-voice patch definitions and chorus-on-knob are not exposed yet.
 
 Automated browser checks use synthetic microphone input. An operator microphone/room test must record the actual input/output facts and be reported separately. No fixture audition is a physical monitoring test.

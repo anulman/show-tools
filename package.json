@@ -10,7 +10,7 @@
     "build": "npm run build:wasm && npm run build:ui",
     "build:ui": "node --import tsx scripts/build-ui.ts",
     "build:wasm": "bash lib/beat-tracker/scripts/build-manual-wasm.sh",
-    "test": "node --import tsx --test lib/performance/tests/*.test.ts lib/sampler/tests/*.test.mjs lib/sequencer/tests/*.test.mjs ui/practice/tests/*.test.mjs lib/beat-tracker/tests/manual_wasm_tests.mjs scripts/tests/*.test.ts",
+    "test": "node --import tsx --test lib/performance/tests/*.test.ts lib/sampler/tests/*.test.mjs lib/sequencer/tests/*.test.mjs ui/practice/tests/*.test.mjs ui/practice/tests/*.test.ts lib/beat-tracker/tests/manual_wasm_tests.mjs scripts/tests/*.test.ts",
     "test:follower": "SHOW_TOOLS_FOLLOWER_TESTS=1 npm test",
     "typecheck": "tsc --noEmit",
     "check:layout": "node --import tsx scripts/check-ui-layout.ts"

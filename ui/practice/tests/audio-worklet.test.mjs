@@ -474,9 +474,14 @@ test('stop clears armed chart captures and restart waits through a fresh count-i
   t.dispose();
 });
 
-test('three cowbell presses capture whole bars and replay quiet double takes automatically where charted', async () => {
-  const song = await loadSong('dance-yrself-clean');
-  const t = new Harness({ countInBars: 0, barCount: 12, chartControls: song.program.controls, barPlayback: song.program.barPlayback });
+test('legacy whole-bar fixture preserves quiet captures and automatically selects retained double takes', () => {
+  const chartControls = { leadIn: emptyRow(), bars: Array.from({ length: 12 }, emptyRow) };
+  chartControls.bars[1].R2 = { kind: 'arm', timing: 'bar', capture: { kind: 'bar', variantKey: 'cowbell-double' } };
+  chartControls.bars[2].R2 = { kind: 'commit-arm', timing: 'bar', capture: { kind: 'bar', variantKey: 'cowbell-single' } };
+  chartControls.bars[3].R2 = { kind: 'commit', timing: 'bar' };
+  chartControls.bars[10].R2 = { kind: 'stop', timing: 'now' };
+  const barPlayback = [5, 6, 7, 8, 9, 10].map(bar => ({ bar, channelId: 'R2', variantKey: bar === 8 || bar === 10 ? 'cowbell-double' : 'cowbell-single' }));
+  const t = new Harness({ countInBars: 0, barCount: 12, chartControls, barPlayback });
   t.command('practice.microphone', { enabled: true });
   t.until(20100, 0);
   t.command('practice.control', { control: { id: 'R2' } });
