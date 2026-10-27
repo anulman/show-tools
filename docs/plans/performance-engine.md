@@ -1,242 +1,234 @@
 # Performance Engine plan
 
-This plan lets a performer compile a mapped Sheets chart into a reviewable song that runs with the same musical behavior in browser WASM and a native host. Maintainers get one versioned semantic format and a repeatable compiler instead of song-specific parsing in UI code.
+Compile the current Dance Yrself Clean worksheet into a human-verifiable performance program. The browser and CLI share deterministic fetch, compile, and inspect operations. Shared C++ executes the result in WASM and on EliteDesk. An LLM may supply mappings and invoke the compiler. Parsing never depends on an LLM.
 
-Status is proposed, October 26, 2026. Implementation waits for operator review. The authoritative scope is `docs/workstreams.md` in the operator checkout, read on this date. This isolated checkout starts at `619df0393c2a4fc357e4a2451b8e14e41d7421d4`. No source, ABI, service, or hardware behavior changes in this milestone.
+Revised October 27, 2026 after the 19 inline comments in [PR #1](https://github.com/anulman/show-tools/pull/1). This is a plan revision only. No runtime implementation, service startup, ABI change, or merge is authorized. Work stays on `review/performance-engine` in its existing isolated worktree.
 
-## Current behavior and missing pieces
+## Scope and source authority
 
-The following evidence is from the base commit.
+DYC is the only song in this delivery. Drunk Girls and I Can Change are deferred. Drop backward compatibility with the old snapshot grammar and executable song overrides. Keep source provenance, not obsolete parser behavior.
 
-- `lib/performance/chart.ts` finds rows by text labels, reads the title from B1, finds dominant BPM, assumes four beats per bar, and preserves worksheet column numbers. It ignores local BPM and start-time rows. Numbered bars must be consecutive. Only a final `(part)` bar is excluded from the default playable range. A missing lead-in silently falls back to column A.
-- `lib/performance/chart-controls.ts` deterministically compiles four pad rows. Unknown syntax becomes an unsupported action that can fail at runtime. Capture hints come from explicit song-script assignments.
-- `songs/*.chart.json` store values and row-name-keyed notes. They cannot represent every cell's note and coordinate. DYC's Knob note says `Chorus effect activation; video y-axis`; prose does not specify an executable binding.
-- `songs/dance-yrself-clean.ts` retains whole cowbell bars as named variants. Presses in active bars 2 and 3 prepare captures for bars 3 and 4. Arrangement notation selects double takes in bars 8 and 10. The script removes corresponding manual tap cues but preserves explicit stops.
-- `lib/performance/model.ts` defines `SongScript`, `Program`, controls, capture hints, events, and variant playback. All three bundled scripts have empty scheduled events and begin without samples. Drunk Girls and I Can Change have blank pad rows.
-- `lib/performance/wasm-performance.ts` currently lowers program objects into numeric tables. `pf_configure()` copies those tables atomically while stopped. There is no native compiled-song file loader. The host loader must be built, rather than described as existing.
-- `lib/performance/include/performance_engine.h` has ABI version 1, four channels, 4096 bars, 4096 scheduled events, and a 512-event queue. The bridge permits 16 hits per cue and 16 variants per channel. Native practice requires four beats per bar and 40 to 240 BPM. Scheduled program events use whole-beat offsets.
-- `lib/performance/src/performance_engine.cpp` owns timing and cue execution. It has bounded command deduplication with 256 entries. Current `PracticeEvent` exposes frame and rate but omits some native clock fields. It lacks a complete observer replay contract.
+The current [DYC worksheet 101](https://docs.google.com/spreadsheets/d/1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg/edit#gid=101) was fetched publicly on October 27 as CSV and XLSX. CSV addresses the numeric worksheet ID directly. XLSX supplies the matching named worksheet's cell notes. These are separate fetches, not a transactional snapshot. XLSX internal sheet ID 6 is not Google worksheet ID 101.
 
-## Compiler shape and ownership
+Observed source evidence is recorded here so the review does not depend on temporary downloads.
 
-Use a TypeScript CLI under `scripts/` and pure compilation modules under `lib/performance/`. Keep mappings, frozen source fixtures, and compiled song data under `songs/`. Browser controls and review UI stay under `ui/`. Shared C++ owns execution, timing, sampling, patch processing, and cue decisions.
+- Worksheet name is `01 Dance Yrself Clean`. The CSV contains 55 rows and 222 columns. F2 is 98. B3 says `4 beats / bar*`, but its note says detected grouping is not a confirmed time signature.
+- Rows 4 and 5 contain sections and bar labels. C5 is bar 1. B5 is now blank, with a note describing an incomplete detected lead-in. HL5 is `218 (part)` and HM5/HN5 are `Tail`. Missing labels are not permission to invent musical lengths.
+- Rows 8 through 13 describe voice parts. Row 17 is Knob. Rows 18 through 21 map R1, R2, L1, and L2. Their A-column notes name Drums & Claps, Cowbell, Whistle, and Bing Bong.
+- The legend in A44:A55 defines arm, commit, commit-and-arm, explicit stop, play, next-bar suffixes, beat numbers, and apostrophes for sampled playback. It says blank cells do not imply stops and sample endings need explicit exits.
+- A17 describes chorus effect activation and video y-axis. J19 and L19 say `If missed play &]'`. These notes are authored requests requiring explicit binding or clarification. They are not evidence of implemented effect, fallback, or video capabilities.
+- Source CSV SHA-256 is `0d376fb71341336079d712d23b7e85c0488d8b5cf0ce304b15ec1f4dbffbb1f1`. XLSX SHA-256 is `8625699398fa69b60910c0ac33db5cf53e0f70380ca267d388a5a5887b75a54f`.
 
-The proposed pipeline has explicit boundaries.
+The existing code is evidence of implementation limits, not the new notation specification. `chart.ts` assumes four beats and label lookup. `chart-controls.ts` lacks the current grammar. `wasm-performance.ts` lowers objects to numeric tables and `pf_configure()` copies them while stopped. A native song file loader does not exist. ABI 1 supports only four-beat practice and whole-beat scheduled events. These restrictions must change to meet this plan, rather than constrain the authored schema.
 
-1. `fetch` validates a Sheets worksheet URL and explicit mappings, reads bounded grid data, and saves a source snapshot. Fetching is separate from compilation.
-2. `compile` accepts only the frozen snapshot and mapping file. It validates cells, parses notation, resolves declarative capture and variant rules, and emits canonical semantic JSON with source locations.
-3. `inspect` generates a plain text report from that artifact. It shows each active source cell, normalized action, target, timing, capture policy, variant selection, notes, and diagnostics. The report does not reinterpret notation.
-4. The browser loader and native loader validate the same semantic artifact. They prepare resources while stopped and lower into engine-owned tables. They fail before replacing a working song if validation or preparation fails.
+## One compiler for browser and CLI
 
-Proposed commands are examples of the intended interface, not commands available today.
+Keep pure parsing, normalization, schema validation, and inspection under `lib/performance/`. TypeScript adapters under `scripts/` provide the CLI. The browser editor and inspector stay under `ui/practice/`. Keep mappings, approved fixtures, and compiled artifacts under `songs/`. DSP, transport, capture, command resolution, and the authoritative clock remain in C++.
+
+Expose the same operations to both hosts.
+
+1. Fetch a public worksheet or import CSV with an explicit source identity. Preserve values, original cell coordinates, and available notes. Freeze this input before compilation.
+2. Compile the frozen input plus a versioned mapping into semantic JSON and diagnostics. Compilation is pure and has no network dependency.
+3. Inspect the compiled artifact through a generated text report or browser view. Show original text beside normalized cue, applicability, action target, execution time, capture policy, layer or variant identity, and owner dependencies.
+4. Prepare and load a validated program while stopped. A failed preparation leaves the previously loaded song usable.
+
+Proposed CLI examples are not available commands yet.
 
 ```sh
-./show-tools chart fetch --mapping songs/dance-yrself-clean.mapping.json --out /tmp/dyc.source.json
+./show-tools chart fetch --url URL --mapping songs/dance-yrself-clean.mapping.json --out /tmp/dyc.source.json
 ./show-tools chart compile --source /tmp/dyc.source.json --mapping songs/dance-yrself-clean.mapping.json --out /tmp/dyc.performance.json
 ./show-tools chart inspect /tmp/dyc.performance.json
-./show-tools chart verify --song dance-yrself-clean
 ```
 
-Do not use browser automation, CDP, an LLM, or live network access during `compile`. An LLM can choose mapping arguments and run these commands. It cannot supply hidden parsing rules.
+Ship a default chart-shape profile with mapped label cells and row roles. Validate expected labels and range shape before applying it. Allow explicit overrides for moved rows and changed cells. Never silently choose a similarly named voice or worksheet. The browser can refresh, compile, and inspect edits on demand without a rebuild. It stages a new revision while audio runs, then offers Stop and load. It never replaces an active program mid-run.
 
-Use the existing Effect dependency for CLI resource cleanup, network errors, and external schema validation where useful. Read `node_modules/effect/AGENTS.md` before writing Effect code. Keep parsing pure and engine processing synchronous. No new runtime dependency is selected in this plan.
+Browser public-fetch CORS support must be tested on the deployed origin. If a public export cannot be fetched there, show the error and offer local CSV import. Do not promise direct browser fetch from a successful CLI download. No CDP or Sheets-following helper is involved.
 
-## Sheets input and notes
+Use the existing Effect dependency for external validation, cancellation, and host cleanup where useful. Read its installed `AGENTS.md` before implementation. The compiler core remains pure and audio processing remains synchronous. Prefer permissive dependencies and review native JSON parser licensing before selection.
 
-Use the Sheets API `spreadsheets.get` grid response with explicit ranges and a field mask. Request worksheet properties, grid offsets, merges, and each cell's entered value, effective value, formatted text, and note. Google documents range-limited reads and field masks in [spreadsheets.get](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/get). Its [CellData reference](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/cells) defines notes and the distinct value fields.
+## Public access, CSV, and notes
 
-Recommend operator OAuth with the read-only Sheets scope for private charts. A service account is an alternative only when the operator shares the file with it. Public-read access can be supported if the same grid fields are available. Do not fall back to CSV because it loses notes. Credentials stay outside artifacts and command logs. No authentication flow or service starts in this planning milestone.
+Assume public-readable charts. Use an already configured OAuth credential when available. Without OAuth, try public fetch. Authentication or missing notes must not silently produce a different song. If access fails, return an actionable error. OAuth setup and service-account provisioning are outside this delivery.
 
-Validate the spreadsheet ID, numeric worksheet ID, worksheet name, and requested ranges against returned metadata. A link without `gid` needs an explicit worksheet mapping. Conflicting URL and mapping IDs are errors. Do not infer another worksheet from its title. Quote worksheet names in A1 requests and retain original row and column offsets.
+Support public CSV export and local CSV import as values-only sources. Decode quoted commas, multiline cells, and UTF-8 correctly. Keep explicit row and column offsets. CSV does not preserve notes. Mark note coverage as unavailable and require an explicit note sidecar or mapping for any executable instruction that depends on a note. A missing required note binding blocks an executable artifact, while the inspector can still show a draft.
 
-Freeze all mapped ranges together where practical. The snapshot records the exact response content used, not a promise of transactional consistency across separate requests. Compile formula cells from captured effective values only when the mapping explicitly permits that policy. Retain formula and displayed text for review. Formula errors fail compilation. Default cue cells require literal strings. Numeric BPM uses a numeric effective value or a locale-independent numeric literal.
+Use a note-bearing public acquisition path where available, such as an XLSX export adapter. Validate its named worksheet against the gid-specific CSV and source mapping. Do not confuse XLSX sheet ordinals with Google worksheet IDs. A Sheets API adapter may request bounded grid data when credentials are available. Google's [grid read reference](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/get) and [cell data reference](https://developers.google.com/workspace/sheets/api/reference/rest/v4/spreadsheets/cells) define values and notes separately.
 
-Store notes on every captured cell by coordinate, including notes on blank cells. Label notes provide display names only when mapped as such. A note with prose such as the Knob note is retained as metadata and flagged as an unbound control description. Executable note data needs an explicitly selected, versioned grammar. No natural-language inference occurs. Legacy `rowNotes` can migrate to mapped label cells with a diagnostic that exact historical provenance was reconstructed.
+Freeze entered values, effective values, display text, and notes when the source supplies them. CSV carries only exported values. Record those capability differences. Formula cells use captured effective values only under an explicit policy. No local formula evaluation occurs. Formula errors fail compilation. Notes on blank cells retain their coordinates. Credentials and acquisition timestamps never enter executable output.
 
-## Mapping example
+## Meter, measures, and the pedal clock
 
-This proposed example uses verified DYC row and cell positions. It shows the contract shape, not a completed schema. Every range is relative to worksheet 101. Full compilation includes the complete chart, not only the filled practice section.
+Annotate a dominant time signature with numerator and denominator. Support at least 4/4 and 6/4. Do not infer a confirmed time signature from DYC's detected-grouping note. The default DYC mapping can explicitly assert 4/4 and report that assertion in the inspector.
+
+Represent every measure's actual length in quarter-note ticks. A normal 4/4 bar has 3840 ticks and a 6/4 bar has 5760 at 960 ticks per quarter. A short measure has an explicit shorter length. Do not assume that every section contains a fixed number of bars. Sections of one or two bars are valid.
+
+The review also says `1-bar or 2-bar measures`. That could mean one- or two-beat short measures, or sections of one or two full bars. The schema supports both independent section spans and explicit measure lengths, but their intended DYC assignments remain an open question. Incomplete lead-in, bar 218, and tail columns require authored treatment. Detected recording timestamps do not establish their performance lengths.
+
+Support cue and capture boundaries at quarter, half, and three-quarter beats, with immediate peripheral effects at the next processable sample frame. Store cue applicability separately from execution time. A cue shown at beat 4 may execute at 4e or the next bar. C++ resolves musical positions to frames and splits audio blocks at those boundaries. Remove fixed four-beat and integer-event assumptions in a coordinated ABI milestone.
+
+Chart F2 supplies an initial reference BPM. Local BPM and detected start-time rows are inspection metadata only. They never change the performance clock. Runtime BPM changes come from pedal controls. Peripherals defines pedal normalization and debounce. The engine applies accepted changes and publishes their effective audio frame, tempo revision, and continuous beat anchor. Video and light adapters consume that clock history. A chart refresh cannot change an active run's BPM.
+
+## Current grammar and unresolved notation
+
+Use a new `dyc-v1` grammar with no legacy compatibility layer. Separate performance notation rows from control rows and descriptive rows. Unprimed performance notation denotes live delivery, and an apostrophe denotes sampled playback. This distinction does not turn every arrangement mark into an automatic command. Trigger type must be explicit.
+
+The table distinguishes operator-defined meanings from meanings still requiring a decision.
+
+| Source or example | Required interpretation or open issue |
+| --- | --- |
+| `r`, `c`, `cr`, `x`, `p` | Arm, commit now, commit-and-arm, stop, play. The current legend supplies these operations. |
+| `rb`, `cb`, `crb`, `xb`, `pb` | Resolve the corresponding action at the next bar. Boundary calculation uses actual measure lengths. |
+| `(4)&`, `(4)&a`, `4` | Cowbell positions 4&, 4& plus 4a, and beat 4. Parenthesized 4 supplies the subdivision anchor, not an extra beat-4 hit. J11 and L11 contain `(4)&a`, K11 and M11 contain `(4)&`, and N11 contains `4`. |
+| `4xe`, `4xb`, `4x` | Cue availability is at beat 4. Stop executes at 4e, next bar, or immediately respectively. AD18 contains `4xe`; the other two are operator-provided grammar examples. Press tolerance and behavior after the target still need agreement. |
+| `c`, `cl`, `cb` | Commit now, commit the last bar, or commit at the next bar. `cl` requires retained prior-bar audio. It is not an alias for next-bar commit. |
+| `r`, `clr`, `clr`, `cl` in L19:O19 | Current cowbell capture sequence. Proposed `clr` composes commit-last-bar with arming the next take. Exact capture restart boundary and variant bindings remain open. |
+| `rb`, `crb`, `cb` across successive captures | Support distinct retained takes and layered matching parts. Do not collapse every commit into replacement or hardcode the former bars-3/4 cowbell exception. |
+| `2c3` at J21 | Multiple beat references around commit. Whether 2 is the cue beat and 3 the commit boundary needs confirmation. Preserve text and report ambiguity. |
+| `1p*` at AE18 and AU18 | Beat-qualified play with a star. The star's meaning is not specified by the legend. Do not discard it. |
+| `4xe]`, `4x[e`, bracketed spans, and apostrophes | Preserve token positions and span boundaries. Distinguish phrase spans from action suffixes. Exact unusual bracket placement at HL18 needs confirmation. |
+| Knob `[4d-`, `d`, `-1d]`, `-3d] [4d-` | Observed span grammar for a requested effect or video control. The letter `d`, dial direction/range, span behavior, and routing need an explicit binding. |
+| `If missed play &]'` at J19 and L19 | Conditional fallback request. Define what counts as missed, its hit target, and press window before compiling it into executable logic. |
+| `!`, lyrics, continuation marks | Preserve as display or typed arrangement metadata according to row role. Never guess sample or effect commands from free text. |
+
+Whitespace around a complete token can normalize. Preserve internal syntax, brackets, primes, and stars until grammar validation assigns meaning. Unknown or ambiguous executable syntax produces a source-located diagnostic. Draft inspection remains available, but compilation cannot emit an executable program with guessed actions.
+
+## Capture, layers, variants, and uncued presses
+
+Retain commit-and-autoplay and replacement capture as supported operations, while adding explicit retention and layering policies. Distinguish logical voice, immutable take, layer group, and selectable variant. A new capture does not erase an earlier take unless an explicit replacement policy selects it.
+
+Matching marked voice parts across capture spans can form a layer group. Compare parsed, normalized phrase identity from the corresponding voice row, not the sample's waveform or an LLM judgment. The mapping records phrase span, equality rule, layer membership, playback gain, and replace versus retain policy. Explicitly different cowbell patterns such as `(4)&a`, `(4)&`, and `4` retain separate selectable variants. Exact same-mark matching across continuation spans, layer balance, and replacement defaults remain decisions to settle against DYC examples before execution fixtures are approved.
+
+For `cl`, recommend a bounded rolling raw-input history so the preceding complete measure remains available for commit at its original engine boundaries. Capacity must cover the supported meter and capture window at the minimum tempo. Preparation happens outside processing. This is a proposed implementation strategy, not an implemented capability. Decide whether repeated commit-last operations retain distinct takes or intentionally reuse one take by authored identity.
+
+Keep sparse extraction available with explicit position and radius hints. The schema can also request full-measure retention. Choose per-voice capture policy from authored mappings rather than preserving the old cowbell override automatically. Capture windows, layer selection, and retained variants all belong to C++ execution.
+
+When a voice has a recording and no sufficiently nearby authored action applies, a peripheral press toggles playback immediately. The engine checks the cue window first, then the toggle fallback. Blank cells do not automatically stop a sample. No recording produces a defined unavailable result. The operator has not specified the nearby window, whether it looks ahead and behind, or tie priority. Keep these questions open. Once chosen, publish the same resolved applicability and chosen action to browser and peripherals. Do not add a second UI timing heuristic.
+
+## Mapping and compiled artifact
+
+Recommend UTF-8 JSON with independent mapping, notation, semantic schema, and binary ABI versions. Use one authoritative validation model, generated TypeScript types where possible, and native conformance fixtures. Do not serialize pointers or native enum ordinals. Reject unknown required capabilities and invalid resource references before load.
+
+The example is a proposed input shape using current source coordinates. `requires-resolution` explicitly prevents the draft from being loaded as an executable song.
 
 ```json
 {
 	"mappingVersion": 1,
+	"notationVersion": "dyc-v1",
 	"songId": "dance-yrself-clean",
-	"notationVersion": "legacy-pad-v1",
-	"source": {
-		"url": "https://docs.google.com/spreadsheets/d/1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg/edit#gid=101",
-		"sheetId": 101,
-		"sheetName": "01 Dance Yrself Clean",
-		"range": "A1:HN24"
-	},
-	"cells": {
-		"title": "B1",
-		"bpm": "F2",
-		"sections": "B4:HN4",
-		"bars": "B5:HN5",
-		"leadIn": "B5"
-	},
-	"meter": { "beatsPerBar": 4, "beatUnit": 4 },
-	"controls": [
-		{ "id": "L1", "cues": "B20:HN20", "nameNote": "A20" },
-		{ "id": "L2", "cues": "B21:HN21", "nameNote": "A21" },
-		{ "id": "R1", "cues": "B18:HN18", "nameNote": "A18" },
-		{ "id": "R2", "cues": "B19:HN19", "nameNote": "A19" }
-	],
-	"captures": [
-		{ "controlId": "R2", "activeBar": 2, "kind": "whole-bar", "variantId": "cowbell-double" },
-		{ "controlId": "R2", "activeBar": 3, "kind": "whole-bar", "variantId": "cowbell-single" }
-	],
-	"variantRules": [{
-		"id": "cowbell-arrangement",
-		"cells": "B11:HN11",
-		"fromBar": 5,
-		"channelId": "R2",
-		"selector": "legacy-tap-hit-count",
-		"oneHit": "cowbell-single",
-		"multipleHits": "cowbell-double",
-		"replacePadTapOnly": true
-	}],
-	"metadataRows": [17, 22, 23, 24],
-	"practice": { "startBar": 1, "endBar": 76 },
-	"finalPartialBar": "exclude-from-default-range"
+	"profile": "show-tools-chart-v1",
+	"source": { "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg", "sheetId": 101, "sheetName": "01 Dance Yrself Clean", "range": "A1:HN55" },
+	"cells": { "title": "B1", "initialBpm": "F2", "meterEvidence": "B3", "sections": "B4:HN4", "bars": "B5:HN5" },
+	"dominantMeter": { "numerator": 4, "denominator": 4, "source": "mapping-assertion" },
+	"controlRows": { "R1": 18, "R2": 19, "L1": 20, "L2": 21 },
+	"voiceRows": { "drums-claps": 10, "cowbell": 11, "bing-bong": 12, "whistle": 13 },
+	"noteBindings": { "A17": "requires-resolution", "J19": "requires-resolution", "L19": "requires-resolution" },
+	"partialColumns": { "B": "requires-resolution", "HL": "requires-resolution", "HM": "requires-resolution", "HN": "requires-resolution" }
 }
 ```
 
-`variantRules` is a closed registry of typed deterministic rules, not arbitrary JavaScript. The example preserves the existing DYC rule. A missing or non-tap arrangement cell produces no variant selection. Capture `activeBar` identifies where the press occurs, not the first recorded bar. Mapping validation checks that an assignment refers to an arm or commit-and-arm action.
-
-## Artifact and normalized time
-
-Recommend UTF-8 JSON for the semantic interchange format. JSON is inspectable and usable by both hosts. A binary or generated C++ table format can follow if measured loading costs justify it. Do not serialize WASM pointers, native enum ordinals, or current fixed-width double rows into the public schema.
-
-Define an authoritative `songs/schema/performance-v1.schema.json` and a mapping schema. Derive TypeScript types from the authoritative validation model and check its agreement with JSON Schema. Validate native input independently using shared conformance fixtures. Select a permissive native JSON dependency only after inspecting existing build constraints and licensing.
-
-Separate `schemaVersion`, `notationVersion`, compiler version, and the native `pf_abi_version()`. A schema change is not automatically an ABI change. Unknown major versions, required capabilities, action kinds, and resource references fail loading. A schema-owned metadata object is the only extension area allowed without executable meaning.
-
-Use explicit song, control, channel, variant, patch definition, patch instance, cue, and rule IDs. Compiler-generated cue IDs derive from song ID, logical bar ID, control ID, and action role. Coordinates stay in source references rather than command identity. IDs remain stable across cell-value edits. Bar insertion changes positional bar IDs unless an explicit authored ID mapping supplies stability. Do not claim positional IDs survive arbitrary chart rearrangement.
-
-Use integer ticks at 960 ticks per quarter note. Bars are one-based. Within-bar ticks are zero-based. Lead-in is a distinct position kind. Convert existing zero-based beat offsets exactly into ticks. Sparse search radii use ticks, so 0.2 beat is 192 ticks. Runtime BPM and sample rate determine frames in C++, not in the compiler. Version 1 validates the present four-beat practice limit. It does not silently add meter changes, tempo maps, or fractional scheduled-event support to ABI 1.
-
-The full artifact contains transport defaults, sections and bar-column mapping, controls, resources, scheduled events with a repeat period, press-triggered cue tables, capture policies, automatic variant selections, source cells, and diagnostics. Preserve the current program's four-beat repeat period for scheduled events even though current lists are empty. Do not replace that period with total song length during migration.
-
-The following valid JSON is an illustrative excerpt of one compiled cue. The full artifact includes all bars and channels, the source map, capability requirements, and content digests.
+The following compiled-cue excerpt separates cue availability and execution. The action requires a qualifying press. It is not an autonomous stop. Beat 4 begins at tick 2880 and 4e at tick 3120 in the asserted 4/4 measure. AD5 is bar 28.
 
 ```json
 {
 	"schemaVersion": 1,
-	"notationVersion": "legacy-pad-v1",
 	"songId": "dance-yrself-clean",
-	"timing": { "ticksPerQuarter": 960, "beatsPerBar": 4, "bpm": 98 },
+	"ticksPerQuarter": 960,
 	"cue": {
-		"id": "dance-yrself-clean/bar-2/R2/press",
-		"when": { "kind": "press", "controlId": "R2", "activeBar": 2 },
-		"action": {
-			"kind": "capture-arm",
-			"channelId": "R2",
-			"timing": { "kind": "next-bar" },
-			"capture": { "kind": "whole-bar", "variantId": "cowbell-double" }
-		},
-		"source": { "sheetId": 101, "a1": "D19", "text": "rb", "mappingPath": "/captures/0" }
+		"id": "dance-yrself-clean/bar-28/R1/stop",
+		"trigger": { "kind": "press", "controlId": "R1", "bar": 28, "cueTick": 2880, "windowPolicyId": "requires-resolution" },
+		"action": { "kind": "sample-stop", "voiceId": "drums-claps", "execution": { "kind": "bar-tick", "bar": 28, "tick": 3120 } },
+		"source": { "sheetId": 101, "a1": "AD18", "text": "4xe" }
 	}
 }
 ```
 
-Canonical serialization sorts object keys and explicitly unordered registries, preserves hit and action ordering, normalizes text line endings, rejects nonfinite numbers, and omits timestamps from executable output. SHA-256 digests cover canonical frozen source, mapping, and semantic program separately. A program digest excludes its own digest field. Acquisition timestamps and compiler environment belong in a sidecar manifest. Compiling the same frozen source and mapping must yield identical bytes on repeated runs. Refetching a changing spreadsheet does not promise identical bytes.
+A complete artifact includes measure lengths, section spans, source columns, cue tables, voice/take/layer/variant resources, effects, input bindings, required capabilities, and diagnostics. It declares automatic versus press-triggered actions explicitly. Schedule fractional ticks in C++, never through JavaScript timers.
 
-## Notation and execution invariants
+Use stable song and authored resource IDs. Generated cue IDs derive from song, logical measure, control, and action role. Positional IDs need explicit authored overrides to survive inserted bars. Keep source coordinates as provenance, not command identity.
 
-Document `legacy-pad-v1` from the actual parser before introducing a stricter notation. Keep compatibility changes visible.
+Canonical serialization sorts object keys and unordered registries, preserves action and hit order, normalizes line endings, and rejects nonfinite numbers. Hash frozen source, mapping, and normalized program separately. A program digest excludes its own digest field. Acquisition times and debug environment go in a sidecar. Same frozen input and mapping produce byte-identical output. A fresh live fetch may differ.
 
-| Source | Compiled meaning |
+Diagnostics carry severity, stable code, worksheet ID, A1 coordinate, source text, mapping path, owning workstream, and suggested repair. Separate malformed notation, unresolved authoring decisions, and known but unavailable capabilities. The inspector lists TODO requests with an owner. An engine cannot load unresolved or unsupported required behavior. Errors leave the previous output and loaded song intact.
+
+## Structured notes explained
+
+Structured notes are optional machine-readable instructions stored in a cell note alongside human prose. They let a performer specify a voice, capture policy, or effect binding next to the cue without adding visible chart columns. They are not natural-language parsing. The same instruction can live in a mapping sidecar when notes are unavailable through CSV.
+
+Propose a clearly delimited JSON block prefixed by `show-tools:v1`. For example, a note can contain the following block followed by descriptive text outside the block.
+
+```json
+{
+	"kind": "effect-binding",
+	"voiceId": "cowbell",
+	"effectId": "slapback",
+	"parameter": "wet",
+	"sourceControlId": "knob",
+	"range": { "min": 0, "max": 1 }
+}
+```
+
+Only explicitly mapped notes with the version marker are parsed. Validate units, parameter ranges, target IDs, and capabilities. Preserve prose verbatim. The existing A17/J19/L19 prose does not already satisfy this format. Report a conflict if a note and sidecar bind the same instruction differently. Never silently choose one. The first schema milestone must choose exact delimiters and demonstrate note extraction, CSV sidecar equivalence, and source-located errors. Operator interest is confirmed; syntax and which current prose requests become structured blocks remain review items.
+
+## Effects and owner dependencies
+
+Replace the former single-slot sample-only proposal with ordered effect stacks per logical voice. Support global defaults for a voice and overrides for each effect/voice pair. Keep separate DSP state for live and sample paths. Entering a voice's capture context switches live processing from the default stack to that voice's stack. Leaving restores the default stack at an engine-owned boundary. Knob changes may request typed effects such as chorus voices.
+
+Effects apply to live voice, sampled voice, and downloads. Filters owns DSP, stack preparation, routing, tail behavior, and parameter definitions. Recommend storing raw capture PCM plus capture stack metadata and applying the stack once on playback. That storage policy is not yet an operator decision. Define speaker monitoring and recording taps explicitly to avoid adding the old dry microphone branch to already processed voice output. Sample stereo, click isolation, feedback safety, and Stop/Panic behavior require PCM tests.
+
+Known requests are tracked as dependencies, not advertised as current features.
+
+| Request | Owner and required agreement |
 | --- | --- |
-| Blank | No action. |
-| `r`, `c`, `cr`, `x`, `p` | Arm, commit, commit-and-arm, stop, or play immediately. |
-| The same action with suffix `b` | Resolve at the next bar in C++. During lead-in, an armed capture targets the first song bar. |
-| `1` through `4` with `e`, `&`, `a` | Ordered manual-hit cue with sixteenth positions. One press plays one hit. |
-| `&a]` | Ordered positions at ticks 3360 and 3600 within the bar. |
-| Unknown syntax | A source-located error. No executable artifact is written. |
+| Ordered effects, defaults, overrides, capture-context switch, wet live/sample/download routes | Filters defines DSP resources and lifecycle. Performance Engine defines IDs, cue operations, preparation, and application results. |
+| Knob chorus activation and `d` spans | Filters and peripherals define the operation, units, and physical normalization. Video defines y-axis mapping. Authoring semantics remain open. |
+| Pedal-driven tempo | Peripherals supplies normalized input. Performance Engine resolves clock changes and publishes applied-frame tempo history. |
+| Variable meter, short measures, fractional boundaries, retrospective commit, layers and variants | Performance Engine owns portable C++ execution and coordinated ABI changes. |
+| Conditional missed-cue fallback | Performance Engine and peripherals need operator timing-window and fallback semantics. |
+| Light baseline, temporary cue expiry, recording pulse | Peripherals projects engine state. Performance Engine publishes baseline and authoritative timing. |
+| Visual replay and seek | Video consumes resolved events and tempo/measure history. It does not reissue audio actions. |
 
-The legacy parser removes brackets, apostrophes, and whitespace for tap parsing. A closing bracket initializes the beat to 4. It permits duplicate or nonchronological hits. Compatibility fixtures preserve accepted meaning and add warnings for ambiguous bracket use. A future strict grammar needs a new notation version, not a silent parser cleanup.
+## Runtime identity, time, and logging
 
-Preserve these observable behaviors in C++ conformance tests.
+Make loaded programs immutable throughout a run. Stage refreshes separately and activate only while stopped. Song digest cannot go stale inside that run. Keep it on load/session manifests for reproducibility, not on every pad command. Reconnect performs a session/run handshake and snapshot before new input. Old queued input is discarded by session identity. No digest-specific Panic exception is needed.
 
-- Commit begins loop playback at its boundary. Commit-and-arm starts replacement capture while the committed take plays.
-- Blank cues never stop or start a loop. A future column never runs early because the UI displays it.
-- Sparse extraction uses hinted positions and radius. Missing loop hits stay silent. Missing manual hits report an error. Manual-hit order resets each bar.
-- A manual hit temporarily suppresses its running loop and resumes the loop at the next bar. Tap positions identify the retained pattern, not autonomous trigger times.
-- DYC retains the complete bars 3 and 4. Its arrangement switches variants only for an already-running loop. Explicit stops suppress playback.
-- Loop wrapping, partial-bar defaults, count-in, Stop, Panic, microphone requirements, unity gain, and mute phase preservation remain unchanged.
-- Preserve source-column mapping for Sheets observation without making Sheets delivery a clock source.
+Commands carry producer ID, command ID, producer order, session/run identity, typed target, action, and timing. One engine owner applies ordered controls. Distinguish accepted, applied, duplicate, late, and rejected results. Report application frame and revision. Retry guarantees are bounded by the actual dedup retention policy. Coalesce knob changes only between discrete events. Never replay offline presses after reconnection.
 
-Validate limits before output and again before engine load. Diagnose mismatched range lengths, missing label notes, duplicate mappings and IDs, missing bar numbers, orphan capture hints, unknown variants, unresolved control bindings, invalid tempo, and unsupported engine capabilities. Diagnostics carry severity, stable code, worksheet ID, A1 coordinate, source text, mapping path, and a specific repair suggestion. Errors produce a nonzero exit and leave prior output intact. Warnings appear in JSON and the review report. Unmapped nonempty control rows are visible as warnings, never silently executed.
+Current `pf_control()` can call `press()`, then allocating `st_prepare()`. Do not drain arbitrary controls inside a device callback. Audit every command path, define bounded preallocated capture/history/stack resources, and transfer prepared ownership without concurrent mutation of the live engine. Prove an offline block-pump adapter before live device hosting.
 
-## Patch and control cues
+Observer state includes engine session, epoch, run, source sequence, frame/rate, continuous quarter-note position, current measure and tick, actual measure boundaries, loop iteration, phase, pedal-tempo revision, cue occurrence, and relevant voice/effect state. Effective-frame tempo anchors support mid-beat changes. Same-frame ordering must be deterministic. Snapshot recovery specifies frame S and last included sequence. Expose drops and explicit discontinuities. Video calibrates presentation anchors with age and uncertainty outside the callback. Network arrival time never advances music.
 
-Filters owns DSP and proposes one prepared slapback slot per sample channel. The shared semantic contract uses stable patch definition and instance IDs and an explicit target such as `{ "kind": "sample-channel", "channelId": "R1" }`. Operations are attach, detach, set bypass, and set parameters. Commands describe desired state rather than toggles. A mapped cell can bind a press to one of these operations or define an automatic cue. Trigger kind and timing are explicit.
+Required control/state delivery is separate from diagnostic logging. Engine-wide profiles are DEBUG for debug runs, INFO for practice, and WARN for performance. This applies to compiler hosts, adapters, DSP control, observers, and services. Never format logs, allocate log payloads, write files, or send network messages in the audio callback. Use bounded counters and copied records drained outside processing. Debug provenance, PCM artifacts, and verbose traces require debug mode. Full replay capture is an explicit bounded recording feature, not an automatic live log. State needed by lights or Video is not removed by the WARN log threshold.
 
-Filters proposes delay 40 to 250 ms with default 100, feedback 0 to 0.7 with default 0, wet 0 to 1 with default 0.25, and unity dry gain. These are proposed validated patch-definition constraints, not generic compiler constants. Parameter names, units, and ranges come from the agreed versioned patch definition.
+## Light behavior
 
-The latest routing proposal is sample voices summed per channel, then patch, then channel gain and mute, then master gain and sample mix. Raw capture, click, and the recording-only live voice are excluded. Detach and bypass preserve natural tails. Global Stop and Panic clear history. Channel stop drains tails. Mute silences tails while delay time advances. Start restores song defaults. Loop wrap retains patch state. This supersedes Filters' earlier post-gain sketch. These lifecycle defaults need rendered-PCM fixtures before implementation is accepted. Live-voice processing remains an operator routing decision.
+Temporary cue or scheduled-hit illumination expires back to the voice's current semantic baseline. Recompute the baseline at expiry, not from the state that existed when the override began. Playing is solid on. Inactive is solid off. Recording uses a standard pulse pattern. This recording pulse is a requested change from the old native steady recording light.
 
-Prepare patch resources while stopped. Validate every reference and required capability before swapping a song. Compilation can produce a structurally valid patch cue for a future capability, but loading it into ABI 1 must fail. Unknown operations never degrade to no action. No dynamic graph editor is required for the first patch.
-
-## Commands, clock, and observer contract
-
-These are proposed semantic host fields. Several require coordinated additions to current native event records. They are not claims about the existing ABI.
-
-| Contract | Required meaning |
-| --- | --- |
-| Program identity | Stable `songId` plus exact `programDigest`. Resource references resolve before load. |
-| Command identity | `producerId`, `commandId`, `producerSequence`, target engine session and run, expected program digest, typed action, explicit target, and timing policy. |
-| Application result | Accepted, applied, duplicate, stale, late, or rejected with reason. Accepted into a host queue does not mean applied to audio. Applied results carry effective engine frame, epoch, command ID, and state revision. |
-| Time | Engine session ID, run ID, epoch, monotonically increasing source sequence, processed audio frame and sample rate, beat ID, normalized musical position, BPM, phase, loop iteration, and tempo revision with effective source frame. |
-| Cues | Stable authored cue ID and occurrence identity containing run, loop iteration, source sequence, and effective frame. Repeated occurrences retain the authored cue ID. |
-| Feedback | Immutable channel and patch state, light kind, release start/end engine frames, state revision, queue drop count, and a complete resynchronization snapshot at frame S with the last included sequence and active visual cue state. |
-| Discontinuities | Explicit start, stop, restart, loop, seek, clock reset, program change, and sample-rate change reasons where supported. Unsupported seeks fail explicitly. |
-
-The host authenticates and validates external input, orders accepted commands, and queues them to one engine owner. Preserve producer order. Do not claim a total causal order between different producers until the host assigns one. Reconnection starts with a snapshot and identity check. Do not replay stale presses into a new run. Native deduplication is bounded today. Retry guarantees must name that bound and retention policy rather than claim permanent exactly-once delivery.
-
-Single ownership does not prove realtime safety. The current `press()` calls `st_prepare()` for arm and commit-and-arm. `st_prepare()` calls `allocate_sample()`, which allocates sample storage. Do not drain arbitrary `pf_control()` commands inside a device callback. Before live hosting, audit every command path and design bounded capture preparation outside processing, with prepared-resource ownership transferred to the engine owner. Do not concurrently mutate a live engine from a preparation worker. First prove the service adapter with an offline block pump. The allocation audit and any prepare/apply API split are coordinated contract work, not work delegated to hardware wiring.
-
-Immediate UI actions apply at the next processing opportunity. Musical beat and bar targets are resolved by C++. A requested past frame needs an explicit reject or apply-immediately policy, recorded in the result. Safety actions such as Panic should remain usable even when a client's song digest is stale. Precise stop and reset priority is part of the contract review.
-
-Peripherals can normalize physical input and project lights in portable C++. Device IO, debounce measurement, and presentation scheduling remain host work. Preserve native `off`, `cue`, `steady`, and `releasing` meanings. Provide phase and release deadlines so adapters do not restart pulses on each packet. Current browser cue pulses use a fixed CSS period. A shared beat-relative projection is a proposed behavior change, not established parity.
-
-Peripherals requests one debounced press until release. Release clears the physical latch and never means stop-loop. Coalesce knob values only between discrete commands, preserving selection order. Reconnection reconciles a snapshot and requires release before another press. Offline presses are not replayed. On lease expiry the disconnected light adapter goes dark without stopping engine audio. WASM does not operate GPIO directly.
-
-Video consumes engine time. It needs a calibrated mapping from engine frame to monotonic presentation time, with anchor age and declared uncertainty for remote hosts. A wall-clock estimate never feeds musical scheduling. Repeated loops need iteration identity. Late observer cues seek to current visual state or follow a declared drop policy. They do not rewind audio. Offline export consumes a recorded event log with resolved manual-control and cue application times, ordered same-frame priorities, and tempo segments. Define continuous beat conversion per segment, including effective frames for mid-beat tempo changes. Extrapolate only within a known segment, and reset interpolation after discontinuities or a snapshot gap. Beat-only messages are insufficient for smooth seeking and replay.
-
-Version the host envelope independently of the song schema and binary ABI. Browser local commands continue through `PracticeAudio` and the worklet bridge without a relay. A future native service implements the same semantics over its transport. Define that adapter rather than implying the current relay is a production native host.
+Expose baseline state separately from temporary overrides and their engine-frame start/deadline. Beat anchors and revisions prevent adapters restarting pulse or fade on each update. Exact recording waveform and armed/stopping/override priority remain to be agreed with peripherals. A lost connection timeout is a separate device safety policy. It must not be described as scheduled-hit expiry. Disconnect handling never stops engine audio, and stale adapters recover from a snapshot.
 
 ## Delivery and verification
 
-The first useful demo compiles the frozen DYC chart and mapping offline, prints a cell-by-cell review, loads it through the browser adapter, and reproduces captures and variant changes. A native conformance runner loads the same artifact and renders equivalent PCM. Live Sheets authentication is a separate check. Hardware and real microphone claims remain separate from synthetic fixtures.
+The first reviewable artifact is a current-DYC draft inspection with every nonempty control token and relevant note classified as executable, ambiguous, or an owned TODO. It must show what blocks execution. The first playable demo follows only after those authoring decisions and required engine capabilities are implemented.
 
-Implementation follows independently verifiable milestones, each committed after its checks.
+Each implementation milestone ends in verification and a commit.
 
-1. Capture baseline artifacts and fixtures. Freeze current three-song parse results, native event traces, capture lengths, and DYC rendered PCM. Include sparse capture and manual-hit fixtures because current songs do not exercise every engine feature.
-2. Define mapping, semantic schemas, and notation reference. Add schema examples and invalid cases. Prove the mapping example resolves D19 to active bar 2 and preserves DYC's whole-bar policy.
-3. Build the pure offline compiler and inspector. Compare all three migrated programs with the baseline. Recompile twice and compare bytes. Test notes on empty cells, skipped columns, partial bars, malformed syntax, limits, IDs, formulas, locale, and unsupported capability failures.
-4. Add the read-only Sheets acquisition command. Test a recorded grid response with offsets and notes. Verify an authorized private read separately. Never require Chrome or the chart-follow helper.
-5. Add validated artifact loading for WASM and native. Reuse engine configuration semantics, prepare outside processing, and prove invalid loads leave the previous song usable. Compare native and WASM event traces and rendered PCM for identical input and sample rate.
-6. Replace executable per-song transformations with declarative mappings and compiled data. Keep the registry lazy. Migrate all callers and delete obsolete compilation paths once parity passes. Update song, architecture, development, and practice-contract docs with the new ownership and commands.
-7. Agree and extend command/time/patch contracts with the other workstreams. Audit allocating control paths and establish prepared-resource ownership before any realtime native service demo. Only then change shared headers, regenerate ABI bindings, bump ABI version when required, and land producer/consumer changes together. Verify retries, ordering, queue gaps, late events, loop identity, observer resync, patch PCM, and absence of allocation in approved callback command paths.
-8. Exercise mobile and desktop practice controls using the artifact. Check Q/W over A/S, focused inputs, Escape-to-Panic, touch, repeated Start, Stop during setup, song switching, cue lights, export progress, and completed downloads. A real microphone and phone test remains distinct from synthetic browser checks.
+1. Freeze the approved current DYC source with notes and mappings. Inventory every distinct control token and relevant arrangement pattern. Record unresolved grammar and cross-owner requests. Verify worksheet identity and current coordinates. No other-song migration.
+2. Define `dyc-v1`, semantic/mapping schemas, structured notes, and the default chart-shape profile. Settle cue windows, commit-last boundaries, layer rules, incomplete columns, and typed TODO bindings before declaring a complete executable song.
+3. Build shared fetch/import/compile/inspect modules and CLI/browser adapters. Test public access without OAuth, configured OAuth use, denied access, CSV with explicit note sidecars, note-bearing import, browser CORS fallback, cancellation, and staging while running. Repeated frozen compilation must be byte-identical.
+4. Implement variable measure lengths, fractional cue/capture boundaries, pedal tempo, bounded retrospective capture, layers/variants, and cue-aware toggle resolution in C++. Coordinate ABI and bridge changes before editing shared files. Test 4/4, 6/4, short measures, one/two-bar sections, 0.25/0.5/0.75 offsets, late presses, and immediate actions. Use synthetic PCM and exact frame assertions in native and WASM runners.
+5. Implement artifact loading and immutable run lifecycle in both hosts. Reject unresolved capabilities or failed preparation without replacing the loaded song. Verify staged refresh cannot mutate running program/BPM, reconnect discards stale input, bounded deduplication, allocation-free approved callback paths, and dropped-event recovery.
+6. Integrate Filters' voice stacks and peripherals/Video contracts when their capabilities exist. Verify processed live/sample/download routes once each, raw/wet capture policy, stateful effect lifetimes, input ordering, current-baseline light restoration, recording pulse, tempo anchors, and engine-wide log profiles. No synthetic result establishes physical device safety or real microphone quality.
+7. Exercise browser fetch, review, and stopped load at mobile and desktop widths. Check keyboard/touch controls, Escape-to-Panic, focus, repeated Start, Stop during setup, cue feedback, export progress, and completed downloads. Update architecture, development, song, and practice-contract guides. Delete superseded DYC transformations rather than retain compatibility layers.
 
-Run `npm run typecheck`, `npm test`, and `npm run check:layout` for affected implementation milestones. Run the full WASM build for engine or generated changes, plus the native CMake tests. Use `npm run build:ui` for browser-only changes after WASM exists. Do not start services without operator instruction.
+Run relevant typecheck, tests, layout checks, WASM build, and native CMake conformance tests for implementation changes. For this docs-only revision, verify JSON examples, current source coordinates and note inventory, coverage of all 19 review comments, and absence of contradictory old constraints. No live services are needed.
 
-Throughput checkpoint follows milestone 3. Inspect the repeatable compile/inspect/verify workflow before adding another notation feature. One fixture change must produce a source-located semantic diff and a testable engine expectation. If each song still needs custom TypeScript, revise the mapping model before scaling migration.
+After milestone 3, inspect the repeatable workflow before expanding notation. One source-cell edit must produce a deterministic source-located semantic diff and an engine-testable expectation. Keep human authoring decisions distinct from parser bugs and missing runtime capabilities.
 
-## Coordination and decisions
+## Remaining decisions and review disposition
 
-Performance Engine owns the song schema, semantic command/time contract, and coordinated ABI changes. Filters owns DSP and patch resource requirements. Peripherals owns device adapters and physical behavior. Video owns assets and presentation consumers. Shared changes to headers, bridges, `model.ts`, `audio.ts`, and `app.ts` need a named owner and agreed contract before edits.
+The operator has settled DYC-only scope, no backward compatibility, browser operations, public fetch with optional OAuth, CSV support, broader meter/fractional timing, pedal-owned BPM changes, voice effect stacks on all required routes, log profiles, and current-baseline light restoration. Those are requirements, not questions carried forward from the old plan.
 
-Requirements were exchanged directly with Filters, EliteDesk/peripherals, and Video Assistant on October 26. All three accepted the proposed semantic contract and supplied refinements included above. Agreement on final field layouts, same-frame priorities, resource lifetimes, and restart semantics is still pending. No automatic integration into the operator checkout occurs.
+Open authoring questions are the exact short-measure interpretation and incomplete-column lengths; cue proximity/late-press policy; `clr`, `2c3`, `1p*`, unusual brackets, and conditional missed-cue semantics; matching/layer/replace policy; knob `d` mapping; and exact structured-note syntax. Raw versus processed stored capture remains a routing choice. Recording pulse shape and priority are a shared contract decision. Unanswered threads remain open rather than marked resolved.
 
-Recommended defaults and operator decisions are limited to product choices.
+Performance Engine owns semantic song/command/time contracts and coordinates ABI changes. Filters owns effect resources and DSP. Peripherals owns physical adapters and light projection. Video owns presentation consumers. Owner requests were exchanged directly during this revision. Their responses inform the plan, but do not constitute implemented capabilities or operator decisions on the remaining ambiguities.
 
-- Use explicit mapping files as the authoring contract and keep free-text notes descriptive. Does the operator also want a structured executable note grammar in the first release?
-- Use read-only operator OAuth for private Sheets. Is service-account access preferred for unattended chart refreshes?
-- First patch targets sample playback channels. Should slapback also process live voice in downloads or speakers? This changes routing and monitoring behavior.
-- Preserve current fixed-tempo four-beat performance behavior in v1. Are local BPM rows and meter changes required for the first real compiled song, or can they remain metadata with diagnostics?
-
-This planning milestone is verified by source inspection, mapping-coordinate checks, valid JSON examples, and diff review. Compiler determinism, native file loading, live OAuth, patch sound, remote presentation accuracy, physical controls, and phone behavior remain unimplemented and unverified.
+The revision is verified as documentation against current public CSV/XLSX and latest PR comments. Compiler/browser behavior, C++ additions, actual effect routing, native hosting, pedal input, and physical lights remain unimplemented and unverified. No automatic merge or operator-checkout integration occurs.
