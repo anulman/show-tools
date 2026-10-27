@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { Schema } from 'effect';
 import { readdir, readFile, access } from 'node:fs/promises';
 import { resolve, dirname, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,13 +35,20 @@ for (const path of sources) {
     }
   }
 }
-const workerPath = resolve(root, 'ui/practice/sw.ts');
-const worker = await readFile(workerPath, 'utf8');
-const cacheBlock = worker.match(/const FILES = \[([\s\S]*?)\];/)?.[1];
-assert(cacheBlock, 'Offline cache declares its static files');
-for (const [, reference] of cacheBlock.matchAll(/'([^']+)'/g)) {
-  try { await access(resolve(dirname(workerPath), reference)); }
+const output = resolve(root, 'dist');
+const manifest = Schema.decodeUnknownSync(Schema.Struct({
+  cacheId: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)), files: Schema.Array(Schema.String),
+}))(JSON.parse(await readFile(resolve(output, 'ui/practice/offline-manifest.json'), 'utf8')));
+assert(manifest.files.includes('/ui/practice/wasm/manual-clock.wasm'), 'Offline build includes its WASM');
+assert(manifest.files.includes('/ui/practice/app.js') && manifest.files.includes('/ui/practice/practice-worklet.js'), 'Offline build includes its matching JavaScript');
+const offlineHash = createHash('sha256');
+for (const reference of manifest.files) {
+  const path = resolve(output, '.' + reference);
+  assert(reference.startsWith('/ui/practice/') && !relative(output, path).startsWith('..'), 'Offline assets stay inside the build');
+  try { offlineHash.update(reference).update('\0').update(await readFile(path)).update('\0'); }
   catch { failures.push(`Offline cache references missing ${reference}`); }
 }
+assert.equal(offlineHash.digest('hex'), manifest.cacheId, 'Offline cache identity matches the actual JavaScript, WASM, and entry assets');
+assert((await readFile(resolve(output, 'ui/practice/sw.js'), 'utf8')).includes(manifest.cacheId), 'Service worker uses this complete build identity');
 assert.equal(failures.length, 0, failures.join('\n'));
 console.log('UI pages live under ui/. Relative module, asset, and offline cache references resolve.');

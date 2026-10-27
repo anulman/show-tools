@@ -95,6 +95,7 @@ let outputCapture: 'idle' | 'starting' | 'waiting' | 'recording' | 'stopping' = 
 let audio: PracticeAudio | undefined;
 let preparing: Promise<PracticeAudio> | null = null;
 let starting = false;
+let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorker } | { kind: 'pending' } | { kind: 'reloading' } = { kind: 'current' };
 let transportGeneration = 0;
 type DisplayState = Pick<PracticeState, 'phase' | 'bar' | 'beat' | 'selectedChannel' | 'channels'> & Partial<PracticeState>;
 let state: DisplayState = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
@@ -127,7 +128,8 @@ function cueLabel(cue: string): string {
   if (compiled) {
     const names = { arm: 'Arm capture', commit: 'Commit + loop', 'commit-arm': 'Commit + arm', stop: 'Stop loop', play: 'Play' };
     const target = compiled.execution.kind === 'next-bar' ? 'next bar' : compiled.execution.kind === 'beat' ? beatName(compiled.execution.beat) : 'now';
-    return `${names[compiled.kind]} · ${target}${compiled.cueBeat === null ? '' : ` · cue ${beatName(compiled.cueBeat)}`}`;
+    const action = compiled.tempoBeatHint ? 'Play + tempo hit' : compiled.captureTail === 'silence-to-bar-end' ? 'Commit + join · rest to bar end' : names[compiled.kind];
+    return `${action} · ${target}${compiled.cueBeat === null ? '' : ` · cue ${beatName(compiled.cueBeat)}`}`;
   }
   const action = parseControlCue(cue);
   if (action.kind === 'tap') {
@@ -160,7 +162,10 @@ async function ensureAudio() {
     audio = instance;
     audio.subscribe(render);
     audio.onEvent(event => {
-      if (generation === songGeneration && audio === instance) postPerformanceEvent(event);
+      if (generation === songGeneration && audio === instance) {
+        postPerformanceEvent(event);
+        if (event.type === 'control' && event.applied === false && event.error) showError(new Error(event.error));
+      }
     });
     return instance;
   }).finally(() => { preparing = null; render(state); });
@@ -383,6 +388,7 @@ function render(next: Partial<PracticeState>) {
     finishOutputRecording();
     if (audio) void audio.disableMicrophone().catch(showError);
   }
+  applyPendingPracticeUpdate();
   if (!chart) return;
   const running = isRunning();
   const displayBar = state.bar || Number(elements['start-section'].value) || 1;
@@ -727,10 +733,42 @@ if (new URLSearchParams(location.search).has('test')) {
   window.practiceDesk = { get audio() { return audio; }, get state() { return state; }, get chart() { return chart; } };
 }
 
+function applyPendingPracticeUpdate() {
+  if (offlineUpdate.kind === 'current' || offlineUpdate.kind === 'reloading') return;
+  elements['offline-status'].textContent = 'Update ready. It will apply when practice and recording finish.';
+  if (isRunning() || starting || switching || preparing || outputCapture !== 'idle') return;
+  if (offlineUpdate.kind === 'waiting') {
+    offlineUpdate.worker.postMessage({ type: 'activate-when-idle' });
+    return;
+  }
+  offlineUpdate = { kind: 'reloading' };
+  location.reload();
+}
+
 if ('serviceWorker' in navigator && window.isSecureContext && !new URLSearchParams(location.search).has('test')) {
+  let hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!navigator.serviceWorker.controller) return;
+    if (hadController) {
+      offlineUpdate = { kind: 'pending' };
+      applyPendingPracticeUpdate();
+    }
+    hadController = true;
+  });
   navigator.serviceWorker.register('./sw.js', { type: 'module' }).then(async registration => {
+    const noticeWaiting = () => {
+      if (registration.waiting) {
+        offlineUpdate = { kind: 'waiting', worker: registration.waiting };
+        applyPendingPracticeUpdate();
+      }
+    };
+    registration.addEventListener('updatefound', () => {
+      registration.installing?.addEventListener('statechange', noticeWaiting);
+    });
+    window.addEventListener('focus', noticeWaiting);
+    noticeWaiting();
     await navigator.serviceWorker.ready;
-    if (registration.active) elements['offline-status'].textContent = 'Practice files cached for offline use.';
+    if (registration.active && offlineUpdate.kind === 'current') elements['offline-status'].textContent = 'Practice files cached for offline use.';
   }).catch(() => { elements['offline-status'].textContent = 'Offline cache unavailable.'; });
 }
 

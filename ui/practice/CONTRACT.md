@@ -23,7 +23,7 @@ Manual tap cues retain their notation and beat offsets for display. They play on
 `audio.ts` exports `PracticeAudio`.
 
 ```ts
-const audio = await PracticeAudio.create({ chart: song.chart, program: song.program });
+const audio = await PracticeAudio.create({ chart: song.chart, program: song.program, compiled: song.compiled });
 const unsubscribe = audio.subscribe(state => render(state));
 const detachEvents = audio.onEvent(event => observe(event));
 await audio.configureLiveEffects([]);
@@ -56,7 +56,11 @@ Current `PracticeState.liveEffects` reports `prepared`, actual `active` authoriz
 
 `outputStream` mixes native sample/click and processed-live stereo outputs once each. There is no independent raw microphone recording branch. Mono reaches left/right equally before effects. Sample stereo remains unchanged. A separate live-monitor gain starts closed. `setMonitoringRelationship()` requires an active microphone and explicit physical-device facts. Different physical I/O devices or the same confirmed USB interface permit monitoring. Same non-USB hardware or unknown identity do not. Microphone replacement/loss, reported device or sink changes, Stop, and disposal invalidate confirmation. Downloads remain processed independently of that gate. A recording start in progress cannot create a second recorder.
 
-The `NativePerformance` class transfers audio blocks and declarative song data to C++. The sampler and sequencer bridges map names and metadata to native APIs. None retain a JavaScript musical scheduler or sample bank. `pf_abi_version()` requires performance ABI 3. Generated constants describe compiled rows and effect layouts. The combined WASM heap is fixed at 256 MiB. Failed compiled loading or preparation preserves the installed program. Prepared compiled processing and control application do not allocate or reclaim C++ heap memory. Stopped configuration, preparation, and loading may allocate. JavaScript snapshots still allocate objects and arrays.
+The `NativePerformance` class transfers audio blocks and declarative song data to C++. The sampler and sequencer bridges map names and metadata to native APIs. None retain a JavaScript musical scheduler or sample bank. `pf_abi_version()` requires performance ABI 4. Compiled schema/packet 2 distinguishes capture end, loop end, and an explicit phrase anchor. A prepared endpoint Rack joins at capture end and consumes a declared zero-source suffix; the outgoing live rack does not duplicate that tail. Generated constants describe rows and layouts. The combined WASM heap is fixed at 256 MiB. Failed loading or preparation preserves the installed program. Prepared processing/control application does not allocate or reclaim C++ heap memory. Stopped configuration and preparation may allocate. JavaScript snapshots still allocate objects and arrays.
+
+Numeric cue eligibility uses explicit milliseconds, initially 25 ms early/late, with equal-distance ties rejected. Prefixless cues remain column-scoped. Missed numeric cues do not toggle saved loops. `control({ id: 'tempo' })` and starred plays share one native, phase-preserving tempo-hit path. A star carries beat hint 1 and runs at the actual accepted press frame. Outer command retries cannot duplicate it. Playback readiness is preflighted before either starred outcome. Native `tempo-hit` events expose source, hint, and whether an estimate was available; fresh state also exposes the bounded latest-hit query. No physical pedal mapping is implied.
+
+The offline build hashes JavaScript, WASM, and entry assets as one cache. A new cache installs completely before activation. Replacement activation and page reload wait until practice/startup/export is idle and no other practice window would be displaced. A failed installation leaves the old build intact. No manual cache clearing is required.
 
 Completed native WebM or MP4 recordings convert locally to stereo 192 kb/s MP3 in a separate worker. The browser capture state remains `stopping` through conversion, blocking another take and song switching. A successful export replaces the previous download. A failed export preserves the previous completed download. The lead-in is excluded by delayed recorder startup, while any enabled song click remains in the recording. Exported files and captured samples are memory-only.
 

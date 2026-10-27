@@ -14,7 +14,7 @@ Open <http://127.0.0.1:8082/ui/practice/>. The page runs audio locally through i
 
 Open **Chart source, compiler & inspection** to fetch a public worksheet or import frozen source JSON. The explicit mapping binds chart rows to buttons and voices. Compile, inspect the source-located report, then load a resolved song while practice and output export are stopped. You can also import a compiled song JSON directly. CLI commands are documented in the [performance guide](../../lib/performance/README.md#compile-a-worksheet).
 
-The bundled current DYC source is a blocked draft. `2c3`, `1p*`, other voices' retention/selection, cue windows, and knob-row meaning await operator answers. Starting gains are 100%, and cowbell's distinct captures automatically select the matching marked sound; those decisions are settled. Start remains disabled for the unresolved draft. Native/WASM fixtures verify capture mechanics; the current A-section performance has not been verified.
+The DYC authoring answers are encoded: unity gains, automatic cowbell variants, matching doubled groups, explicit `2c3` silent-source remainder, starred tempo hits, configurable ±25 ms cue windows, and deferred knob execution. F18 commit and F21 future arm are legal in either press order during bar 4: Drums & Claps records until bar 5, then Bing-Bong starts. Arming immediately changes the monitored voice while the earlier recording keeps its own processing. Software readiness is tracked in the integration review; physical microphone, room, and browser download checks remain operator-test steps.
 
 For an executable compiled song, select the actual input and output devices while stopped, configure Slapback, and press **Start practice**. Grant microphone access. The demo recorder waits through the lead-in and starts with the song. Arm switches live processing immediately to the target voice; recording starts at the declared boundary. Commit starts the selected take or layers at its boundary without another play tap. `crb` commits the old take and starts the next capture at the same crossing.
 
@@ -35,7 +35,7 @@ For example, `rb`, `cb`, `crb`, and `xb` queue their actions for the next bar. A
 
 Numbers indicate beats. `e`, `&`, and `a` divide a beat into sixteenths, and a closing square bracket marks the phrase end. Generic tap cues play one hit per press. A song script can instead replay a recorded bar automatically; the pad then shows **Auto · recorded bar**.
 
-Compiled captures have prepared, declared lengths and reject overlapping armed or recording captures. Playback currently supports full-measure loops at their original speed and phase. Effect history evolves from original source across iterations; printed PCM is never processed again. **Stop** and the mushroom silence playback and cancel pending actions. Processed live monitoring requires explicit physical-device confirmation. Captured takes stay in memory and disappear when you leave or reload the page.
+Compiled captures have declared recording and loop intervals. Actual recordings cannot overlap; future arming for a disjoint interval is allowed. A silent-source remainder feeds zeros through the warm effects state. The layer joins the existing phrase phase without restarting its note; natural tails remain audible. Playback stays at original speed. Printed PCM is never processed again. **Stop** and the mushroom silence output, cancel pending actions, and discard incompatible partial drafts. Captured takes disappear when you leave or reload the page.
 
 ## Use the keyboard layout
 
