@@ -10,6 +10,22 @@ Source: the operator's [PR #3 inventory comment](https://github.com/anulman/show
 | 1 | SpinTrak rotary encoder, direct I-PAC connection, no separate USB interface | [Ultimarc SpinTrak](https://www.ultimarc.com/trackballs-and-spinners/spinners/spintrak/) |
 | 1 | I-PAC Ultimate I/O input/LED controller, 4.8 mm harness variant | [Ultimarc I-PAC Ultimate I/O](https://www.ultimarc.com/control-interfaces/i-pacs/i-pac-ultimate-i-o/) |
 
+The operator's subsequent MacBook bench-guide request confirms these additional arrived parts. The [Mac keyboard guide](guides/ipac-mac/README.md) provides the first-switch procedure and separate LED checks.
+
+| Quantity | Component | Operator-supplied reference |
+| --- | --- | --- |
+| 1 | Regulated 5 V, 4 A supply, centre-positive 5.5/2.1 mm plug | [Adafruit #1466](https://www.adafruit.com/product/1466) |
+| 1 each | Supplied USB cable, 4.8 mm switch harness, and switch-ground daisy chain | [I-PAC kit](https://www.ultimarc.com/control-interfaces/i-pacs/i-pac-ultimate-i-o/) |
+| 1 | L7A nine-position single-colour LED lead pack, 560 mm, four positions needed | [LED connection pack](https://www.ultimarc.com/control-interfaces/accessories/9-led-single-color-connection-pack-for-i-pac-ultimate-i-o-interface/) |
+| 1 | L5A 6.3 mm LED-common daisy chain, separate from switch ground | [Daisy-chain harness](https://www.ultimarc.com/arcade/button-accessories/daisy-chain-harness/) |
+| 1 | L4B ten-wire 4.8 mm replacement pack, 600 mm | [Extension harness pack](https://www.ultimarc.com/output/led-and-output-controller-accessories/extension-harness-pack/) |
+| 6 | Solder-free inline wire joints, two three-packs | [Adafruit #3786](https://www.adafruit.com/product/3786) |
+| 4 | CAPFEET PCB mounting feet with screws | [Mounting feet](https://www.ultimarc.com/output/led-and-output-controller-accessories/pcb-mounting-feet/) |
+
+The first bench host is the MacBook through the operator's USB-A to USB-C adapter. Data compatibility, actual board mode, and observed key mappings remain untested. The supply's nominal specifications match the documented I-PAC LED supply, but actual LED insert current, polarity, and driver compatibility still require confirmation.
+
+Custom fabrication remains unselected: four movable 100 mm button pods, with two paired pods as a fallback; a disco-ball knob coupling and separate weight-supporting mount; a mushroom mount; a controller enclosure with USB and power access, insulation, and strain relief; and a nonslip pedal base. Select wiring lengths, glands, and fasteners after measuring the layout. Confirm the ball's dimensions and mass and the shaft/coupling fit before designing its support. Do not assume the encoder shaft is load-bearing.
+
 The I-PAC is the controller board in this parts plan. Do not introduce an additional Arduino or choose a different controller without asking the operator.
 
 ## Confirmed intended behavior
