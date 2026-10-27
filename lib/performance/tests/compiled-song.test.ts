@@ -176,3 +176,29 @@ test('take admission and imported executable references are checked before loadi
   assert.throws(() => decodeCompiledSong({ ...song, cues: [{ ...song.cues[0], takeId: 'missing-take' }] }), /reference/);
   assert.throws(() => decodeCompiledSong({ ...song, selections: [{ ...song.selections[0], takeIds: ['missing-take'] }] }), /selection/);
 });
+
+test('imported executable programs reject forged timing, bindings, and gains', async () => {
+  const { source, mapping } = fixture();
+  const song = await compileSong(source, mapping);
+  for (const changed of [
+    { ...song, cueWindow: { earlyBeats: -1, lateBeats: 0 } },
+    { ...song, meter: { numerator: 0, denominator: 7 } },
+    { ...song, chart: { ...song.chart, beatsPerBar: 99 } },
+    { ...song, chart: { ...song.chart, bpm: 0 } },
+    { ...song, chart: { ...song.chart, bars: song.chart.bars.slice(1) } },
+    { ...song, voices: [song.voices[0], song.voices[0]] },
+    { ...song, cues: [{ ...song.cues[0], cueBeat: -0.5 }, ...song.cues.slice(1)] },
+    { ...song, takes: [{ ...song.takes[0], gain: -1 }, ...song.takes.slice(1)] },
+    { ...song, selections: [{ ...song.selections[0], gains: [Number.POSITIVE_INFINITY] }, ...song.selections.slice(1)] },
+  ]) assert.throws(() => decodeCompiledSong(changed));
+});
+
+test('bare numbered tap controls report a known capability gap rather than unknown grammar', async () => {
+  const { source, mapping } = fixture();
+  const values = source.values.map(row => [...row]);
+  values[18][4] = '4e&a';
+  const song = await compileSong({ ...source, values }, mapping);
+  assert.equal(song.executable, false);
+  assert(song.diagnostics.some(d => d.source.a1 === 'E19' && d.code === 'manual-tap-capability'));
+  assert(!song.diagnostics.some(d => d.source.a1 === 'E19' && d.code === 'unknown-cue'));
+});

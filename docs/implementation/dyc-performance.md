@@ -1,6 +1,6 @@
 # DYC implementation checkpoints
 
-The acceptance target is the current public DYC A section, bars 1 through 76, running in the existing practice desk with keyboard controls and effected capture, commit/autoplay, cached playback, and processed downloads. Compiler-only output is not completion. Hardware is optional. No PR or main branch is merged automatically.
+The acceptance target is the current public DYC A section, bars 1 through 76, running in the existing practice desk with keyboard controls and effected capture, commit/autoplay, cached playback, and processed downloads. Compiler-only output is not completion. Hardware is optional. Authors do not merge PRs. The operator has authorized the coordinator to land independently reviewed, validated integration work until the A-section test is ready.
 
 The implementation branch starts on effects integration `ab56a67`, preserving its ABI 2 stems, monitoring predicate, live authorization latch, and fault fix. The merged PE plan at `6271110` supplies scope. PE owns shared performance, sampler, bridge, and practice UI changes. Filters owns `lib/patches/`. Peripherals owns its isolated input/feedback package. Video owns its renderer and assets.
 

@@ -73,22 +73,43 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   const song = Schema.decodeUnknownSync(CompiledSongSchema)(input);
   if (!song.executable) return song;
   if (song.diagnostics.some(d => d.severity === 'error') || !song.cueWindow) throw new Error('An executable song cannot contain unresolved errors or cue policy.');
+  const beats = song.meter.numerator;
+  if (!(beats === 4 && song.meter.denominator === 4 || beats === 6 && song.meter.denominator === 8)
+    || song.chart.beatsPerBar !== beats || !Number.isFinite(song.chart.bpm) || song.chart.bpm < 40 || song.chart.bpm > 240) throw new Error('Invalid executable meter or tempo.');
+  const bars = song.chart.bars.length;
+  if (bars < 1 || bars > 4096 || song.chart.bars.some((bar, index) => bar.bar !== index + 1 || bar.partial
+    || !Number.isSafeInteger(bar.column) || bar.column < 1)
+    || song.chart.annotatedThroughBar < 1 || song.chart.annotatedThroughBar > bars) throw new Error('Invalid executable measure map.');
+  if ([song.cueWindow.earlyBeats, song.cueWindow.lateBeats].some(value => !Number.isFinite(value) || value < 0 || value > beats)) throw new Error('Invalid executable cue window.');
+  if (song.voices.length !== 4 || new Set(song.voices.map(voice => voice.buttonId)).size !== 4) throw new Error('Invalid executable button bindings.');
+  const validGain = (value: number) => Number.isFinite(value) && value >= 0 && value <= 4;
+  const validBeat = (value: number) => Number.isFinite(value) && value >= 0 && value < beats && Number.isInteger(value * 960);
+  const validPoint = (point: typeof PointSchema.Type, end: boolean) => Number.isSafeInteger(point.bar) && point.bar >= 1
+    && point.bar <= bars + Number(end) && validBeat(point.beat) && (point.bar <= bars || point.beat === 0);
   const unique = (ids: readonly string[], kind: string) => { if (new Set(ids).size !== ids.length) throw new Error(`Duplicate ${kind} identity.`); };
   unique(song.voices.map(v => v.id), 'voice'); unique(song.cues.map(c => c.id), 'cue'); unique(song.takes.map(t => t.id), 'take'); unique(song.selections.map(s => s.id), 'selection');
   if (song.takes.length > 28 || new Set(song.takes.map(t => t.slot)).size !== song.takes.length) throw new Error('Invalid prepared take resource count or slot identity.');
   for (const take of song.takes) {
-    if (!song.voices.some(v => v.id === take.voiceId) || !take.end || take.gain === null || take.retention === 'unresolved' || take.slot < 4 || take.slot >= 32) throw new Error('Invalid executable take resource.');
+    if (!song.voices.some(v => v.id === take.voiceId) || !take.end || take.gain === null || !validGain(take.gain)
+      || take.retention === 'unresolved' || take.slot < 4 || take.slot >= 32 || !validPoint(take.begin, false) || !validPoint(take.end, true)
+      || take.end.bar * beats + take.end.beat <= take.begin.bar * beats + take.begin.beat) throw new Error('Invalid executable take resource.');
   }
   for (const selection of song.selections) {
-    if (!selection.takeIds.length || selection.takeIds.length !== selection.gains.length || selection.takeIds.some(id => !song.takes.some(t => t.id === id && t.voiceId === selection.voiceId))) throw new Error('Invalid executable take selection.');
+    if (!selection.takeIds.length || selection.takeIds.length !== selection.gains.length || new Set(selection.takeIds).size !== selection.takeIds.length
+      || selection.gains.some(gain => !validGain(gain)) || selection.takeIds.some(id => !song.takes.some(t => t.id === id && t.voiceId === selection.voiceId))) throw new Error('Invalid executable take selection.');
   }
   for (const cue of song.cues) {
+    if (cue.bar < 0 || cue.bar > bars || cue.cueBeat !== null && !validBeat(cue.cueBeat)
+      || cue.execution.kind === 'beat' && !validBeat(cue.execution.beat)) throw new Error('Invalid executable cue timing.');
+    if ((cue.kind === 'arm' || cue.kind === 'commit-arm') && cue.takeId === null
+      || (cue.kind === 'commit' || cue.kind === 'commit-arm') && cue.commitTakeId === null
+      || cue.kind === 'play' && cue.selectionId === null) throw new Error('Invalid executable cue resource.');
     if (!song.voices.some(v => v.id === cue.voiceId && v.buttonId === cue.buttonId)
       || cue.takeId !== null && !song.takes.some(t => t.id === cue.takeId && t.voiceId === cue.voiceId)
       || cue.commitTakeId !== null && !song.takes.some(t => t.id === cue.commitTakeId && t.voiceId === cue.voiceId)
       || cue.selectionId !== null && !song.selections.some(s => s.id === cue.selectionId && s.voiceId === cue.voiceId)) throw new Error('Invalid executable cue reference.');
   }
-  if (song.playback.some(p => !song.selections.some(s => s.id === p.selectionId && s.voiceId === p.voiceId))) throw new Error('Invalid executable playback reference.');
+  if (song.playback.some(p => p.bar < 1 || p.bar > bars || !song.selections.some(s => s.id === p.selectionId && s.voiceId === p.voiceId))) throw new Error('Invalid executable playback reference.');
   return song;
 }
 
@@ -159,7 +180,7 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
   };
   const issue = (code: string, message: string, location: typeof SourceRefSchema.Type, severity: SongDiagnostic['severity'] = 'error', owner = 'Performance Engine') => diagnostics.push({ severity, code, message, owner, source: location });
   if (mapping.spreadsheetId !== source.spreadsheetId || mapping.sheetId !== source.sheetId || mapping.sheetName !== source.sheetName) issue('source-identity', 'The mapping worksheet identity does not match the frozen source.', ref(1, 1));
-  if (mapping.meter.numerator < 1 || mapping.meter.numerator > 16 || ![4, 8].includes(mapping.meter.denominator)) issue('meter', 'Map a supported dominant meter with numerator 1..16 and denominator 4 or 8.', ref(3, 2));
+  if (!(mapping.meter.numerator === 4 && mapping.meter.denominator === 4 || mapping.meter.numerator === 6 && mapping.meter.denominator === 8)) issue('meter', 'This native capability supports dominant 4/4 or 6/8. Other meter declarations need an engine capability before execution.', ref(3, 2));
   if (mapping.startBar !== 1 || mapping.endBar < 1 || mapping.endBar > 4096) issue('range', 'The first compiled range must start at bar 1 and contain at most 4096 bars.', ref(mapping.barRow, 1));
   if (mapping.controls.length !== 4 || new Set(mapping.controls.map(c => c.buttonId)).size !== 4 || new Set(mapping.controls.map(c => c.voiceId)).size !== 4) issue('bindings', 'Map four distinct input buttons to four distinct logical voices.', ref(1, 1));
   if (new Set(mapping.overrides.map(o => o.a1)).size !== mapping.overrides.length) issue('duplicate-override', 'Each source cell can have only one explicit override.', ref(1, 1));
@@ -220,7 +241,12 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
         usedOverrides.add(override.a1);
         if (override.notation !== text) { issue('stale-override', `Override expects ${JSON.stringify(override.notation)}, but the current cell differs.`, location); continue; }
       }
-      if (!action) { issue('unknown-cue', `Define the exact cue and execution meaning of ${JSON.stringify(text)}.`, location); continue; }
+      if (!action) {
+        const hits = parseArrangementHits(text, mapping.meter.numerator);
+        if (hits?.length) issue('manual-tap-capability', `Manual tap positions ${hits.map(beat => beat + 1).join(', ')} are recognized, but this compiled runtime needs one-shot/sparse playback capability before loading that cue.`, location);
+        else issue('unknown-cue', `Define the exact cue and execution meaning of ${JSON.stringify(text)}.`, location);
+        continue;
+      }
       if (action.cueBeat !== null && (!Number.isFinite(action.cueBeat) || action.cueBeat < 0 || action.cueBeat >= mapping.meter.numerator)
         || action.execution.kind === 'beat' && (!Number.isFinite(action.execution.beat) || action.execution.beat < 0 || action.execution.beat >= mapping.meter.numerator)) {
         issue('cue-timing', 'Cue and execution beats must lie inside the current measure.', location); continue;
