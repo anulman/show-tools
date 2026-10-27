@@ -53,10 +53,6 @@ const elements = {
   'effects-feedback': requiredElement('#effects-feedback', HTMLInputElement),
   'effects-wet': requiredElement('#effects-wet', HTMLInputElement),
   'effects-status': requiredElement('#effects-status', HTMLSpanElement),
-  'input-device': requiredElement('#input-device', HTMLSelectElement),
-  'output-device': requiredElement('#output-device', HTMLSelectElement),
-  'refresh-devices': requiredElement('#refresh-devices', HTMLButtonElement),
-  'device-hint': requiredElement('#device-hint', HTMLParagraphElement),
   'effects-capture-hint': requiredElement('#effects-capture-hint', HTMLParagraphElement),
   'monitor-relationship': requiredElement('#monitor-relationship', HTMLSelectElement),
   'monitor-hint': requiredElement('#monitor-hint', HTMLParagraphElement),
@@ -215,25 +211,6 @@ function monitoringRelationship(value: string): MonitoringRelationship {
   }
 }
 
-async function refreshAudioDevices() {
-  if (!navigator.mediaDevices?.enumerateDevices) throw new Error('Audio device enumeration needs localhost or HTTPS in a supported browser.');
-  const devices = await navigator.mediaDevices.enumerateDevices();
-  for (const { kind, select } of [{ kind: 'audioinput', select: elements['input-device'] }, { kind: 'audiooutput', select: elements['output-device'] }]) {
-    const previous = select.value;
-    const defaultOption = document.createElement('option');
-    defaultOption.value = ''; defaultOption.textContent = kind === 'audioinput' ? 'System default input' : 'System default output';
-    select.replaceChildren(defaultOption);
-    devices.filter(device => device.kind === kind && device.deviceId && device.deviceId !== 'default').forEach((device, index) => {
-      const option = document.createElement('option');
-      option.value = device.deviceId;
-      option.textContent = device.label || `${kind === 'audioinput' ? 'Input' : 'Output'} ${index + 1} · name needs permission`;
-      select.append(option);
-    });
-    if (Array.from(select.options).some(option => option.value === previous)) select.value = previous;
-  }
-  elements['device-hint'].textContent = 'Selected devices apply at Start. Confirm physical input/output identity and USB-interface status separately; device names alone do not establish monitoring eligibility.';
-}
-
 async function startPractice() {
   if (starting || isRunning() || outputCapture === 'starting' || outputCapture === 'stopping') return;
   if (!chart) throw new Error('The song chart is still loading. Try again in a moment.');
@@ -254,9 +231,7 @@ async function startPractice() {
     if (generation !== transportGeneration) return;
     await instance.configureLiveEffects(effects);
     if (generation !== transportGeneration) return;
-    await instance.setOutputDevice(elements['output-device'].value);
-    if (generation !== transportGeneration) return;
-    microphoneGeneration = await instance.enableMicrophone({ deviceId: elements['input-device'].value || undefined });
+    microphoneGeneration = await instance.enableMicrophone();
     if (generation !== transportGeneration) { await instance.disableMicrophone(microphoneGeneration); return; }
     if (outputCapture === 'idle') { await toggleOutputRecording(); startedRecording = true; }
     if (generation !== transportGeneration) { finishOutputRecording(); await instance.disableMicrophone(microphoneGeneration); return; }
@@ -264,7 +239,6 @@ async function startPractice() {
     if (generation !== transportGeneration) return;
     await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar,
       loop: elements.loop.checked, automatic: false });
-    void refreshAudioDevices().catch(showError);
   } catch (error) {
     if (startedRecording) finishOutputRecording();
     if (instance && microphoneGeneration !== undefined) await instance.disableMicrophone(microphoneGeneration).catch(() => {});
@@ -409,8 +383,6 @@ function render(next: Partial<PracticeState>) {
   elements['song-select'].disabled = switching || outputCapture !== 'idle';
   elements['record-demo'].disabled = outputCapture === 'starting' || outputCapture === 'stopping';
   const effectsLocked = running || starting || switching || Boolean(preparing) || outputCapture !== 'idle';
-  elements['input-device'].disabled = effectsLocked;
-  elements['output-device'].disabled = effectsLocked;
   for (const element of [elements['effects-enabled'], elements['effects-delay'], elements['effects-feedback'], elements['effects-wet']]) element.disabled = effectsLocked;
   const effects = state.liveEffects;
   elements['effects-status'].textContent = effects?.active
@@ -592,7 +564,6 @@ elements.stop.addEventListener('click', () => act(stopPractice));
 elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic); });
 elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording));
 elements['effects-enabled'].addEventListener('change', () => render(state));
-elements['refresh-devices'].addEventListener('click', () => act(refreshAudioDevices));
 elements['monitor-relationship'].addEventListener('change', () => act(() => {
   if (!audio) throw new Error('Start the microphone before confirming the monitoring setup.');
   audio.setMonitoringRelationship(monitoringRelationship(elements['monitor-relationship'].value));

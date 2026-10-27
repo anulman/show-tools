@@ -8,7 +8,7 @@ export class BeatTracker {
   setManual(): Promise<unknown>;
   setManualBpm(bpm: number): Promise<unknown>;
   resume(): Promise<void>;
-  startListening(options?: { deviceId?: string }): Promise<void>;
+  startListening(): Promise<void>;
   stopListening(): Promise<void>;
   subscribe(listener: (state: TrackerState) => void): () => void;
   dispose(): Promise<void>;

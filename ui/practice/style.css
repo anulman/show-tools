@@ -44,4 +44,3 @@
 .chart-compiler textarea, .chart-compiler pre { font: 11px/1.5 ui-monospace, monospace; }
 .chart-compiler input[type="file"] { max-width: 100%; font-size: 12px; }
 .chart-compiler pre { max-height: 420px; overflow: auto; color: var(--muted); }
-.audio-device-controls .field { width: auto; min-width: 0; flex: 1 1 220px; }

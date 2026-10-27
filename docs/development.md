@@ -74,6 +74,8 @@ Use rendered PCM, native/WASM comparisons, allocation checks, and a browser take
 
 Begin with `ui/practice/index.html`, `style.css`, and the render and input code in `app.ts`. Use `PracticeAudio` commands and subscriptions for instrument behavior. Keep song-specific names and actions in the chart snapshot and song module.
 
+The practice desk uses browser-default audio devices. Choose the microphone and output in browser or system sound settings before Start. Do not add device enumeration or sink switching to its startup path.
+
 Preserve Q/W over A/S, Escape-to-Panic, native light states, unity sample gains, automatic microphone setup, and automatic demo recording. Keep the mandatory lead-in click independent of the song-click preference. Keep recording preparation and MP3 export states visible and prevent a new take from replacing an export in progress.
 
 Run the practice lifecycle tests and inspect both narrow and desktop layouts in a browser. Exercise focused inputs, repeated Start, Stop during microphone setup, song switching, and download completion. Save any take you need before reloading the page.

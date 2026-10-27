@@ -128,7 +128,6 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   const audio = {
     subscribe() {}, onEvent() {}, outputStream: {},
     async configureLiveEffects(effects) { commands.push('effects'); this.configuredEffects = effects; },
-    async setOutputDevice(deviceId) { this.outputDeviceId = deviceId; },
     async enableMicrophone() { commands.push('microphone'); await microphone(); },
     async disableMicrophone() { commands.push('microphone-off'); },
     async setClick(enabled) { commands.push(`click:${enabled}`); },
@@ -151,7 +150,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     playableBars: () => 76, PracticeAudio: { create: async () => { creations++; return audio; } },
   };
   vm.createContext(context);
-  vm.runInContext(`${uiSource}\nasync function refreshAudioDevices() {}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
+  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
   return { commands, controls: context.controls, audio, elements, revoked, get creations() { return creations; } };
 }
 

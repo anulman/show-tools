@@ -194,7 +194,7 @@ export class BeatTracker {
     return this.snapshot();
   }
 
-  async startListening({ deviceId } = {}) {
+  async startListening() {
     const resumed = this.resume();
     resumed.catch(() => {});
     if (this.source.kind === 'microphone') return resumed;
@@ -209,7 +209,6 @@ export class BeatTracker {
         if (!navigator.mediaDevices?.getUserMedia) throw new Error('Microphone access requires localhost or HTTPS');
         const requested = navigator.mediaDevices.getUserMedia({ audio: {
           channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false,
-          ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
         } }).then(stream => {
           if (generation !== this.captureGeneration || this.lifecycle === 'disposed' || this.lifecycle === 'faulted') {
             stream.getTracks().forEach(track => track.stop());

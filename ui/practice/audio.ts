@@ -208,22 +208,11 @@ export class PracticeAudio {
   setAutomatic(enabled: boolean) { return this.request('practice.automatic', { enabled }); }
   setClick(enabled: boolean) { return this.request('practice.click', { enabled }); }
 
-  async setOutputDevice(deviceId: string) {
-    if (this.latest.phase === 'playing' || this.latest.phase === 'count-in') throw new Error('Stop practice before changing the output device.');
-    const context = this.tracker.context;
-    if (!('setSinkId' in context) || typeof context.setSinkId !== 'function') {
-      if (deviceId) throw new Error('This browser uses the system output device. Choose it in your operating system sound settings.');
-      return;
-    }
-    this.clearMonitoring();
-    await context.setSinkId(deviceId || 'default');
-  }
-
-  async enableMicrophone(options: { deviceId?: string } = {}) {
+  async enableMicrophone() {
     if (this.disposed) throw new Error('Practice audio is disposed');
     const generation = ++this.microphoneGeneration;
     try {
-      await this.tracker.startListening(options);
+      await this.tracker.startListening();
       if (this.disposed || generation !== this.microphoneGeneration || !this.tracker.microphoneStream) return generation;
       await this.request('practice.microphone', { enabled: true });
       return generation;
