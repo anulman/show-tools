@@ -134,3 +134,9 @@ The local WASM clock keeps practice usable on a static host. Song modules keep D
 The default manual WASM clock excludes aubio. The optional full WASM build and existing native tracker build link GPL-3.0-or-later aubio. The standalone native performance, sequencer, and sampler targets do not use aubio. Effect is MIT-licensed. MP3 export uses an MIT wrapper around LGPL-2.0-or-later LAME. The [MP3 notice](../ui/practice/licenses/README.md) records that copyleft exception.
 
 The rationale above uses this session's explicit requirements, repository code, and commit history. It does not claim an external design review or hardware measurement. Useful changes to inspect with `git show` are `0b34710` for the practice architecture, `75f3afb` for cowbell variants, `91e45b7` for voice centering, `7eb9e09` for Sheets jitter, `fea846a` for lead-in exclusion, and `86fd6ec` for MP3 export.
+
+## Video studies consume explicit time
+
+The independent [Gator and Tapir studio](../ui/video/README.md) lives under `ui/video/`. One PixiJS renderer displays eight character treatments from `assets/video/`. A small C++ utility under `lib/video/` samples held poses and restrained upper-body movement from a supplied quarter-note position; it compiles natively and to its own WASM module. It owns no timer, musical control, or transport.
+
+The studio currently runs an explicit four-second preview score. Its validated in-process performance adapter can accept authoritative PE observations, but a live subscription is not connected. Rendering never advances PE time or replays audio commands. `npm run build:video` is independent of the practice build and leaves the practice offline cache unchanged. The practice desk remains the supported audio UI. Actual CRT conversion and audiovisual synchronization remain separate verification tasks.

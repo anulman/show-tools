@@ -13,16 +13,20 @@
     "test": "node --import tsx --test lib/sampler/tests/*.test.mjs lib/sequencer/tests/*.test.mjs ui/practice/tests/*.test.mjs lib/beat-tracker/tests/manual_wasm_tests.mjs scripts/tests/*.test.ts",
     "test:follower": "SHOW_TOOLS_FOLLOWER_TESTS=1 npm test",
     "typecheck": "tsc --noEmit",
-    "check:layout": "node --import tsx scripts/check-ui-layout.ts"
+    "check:layout": "node --import tsx scripts/check-ui-layout.ts",
+    "build:video": "node --import tsx scripts/build-video-motion.ts && node --import tsx scripts/build-video.ts",
+    "test:video": "node --import tsx --test lib/video/tests/*.test.ts ui/video/tests/*.test.ts"
   },
   "dependencies": {
     "effect": "4.0.6",
+    "pixi.js": "8.22.0",
     "wasm-media-encoders": "0.7.0"
   },
   "devDependencies": {
     "@types/chrome": "0.3.6",
     "@types/node": "26.6.5",
     "esbuild": "0.28.2",
+    "sharp": "0.35.5",
     "tsx": "4.23.15",
     "typescript": "7.0.2"
   },

@@ -4,3 +4,6 @@ ui/practice/evidence/
 node_modules/
 dist/
 .envrc
+
+ui/video/wasm/
+ui/video/evidence/

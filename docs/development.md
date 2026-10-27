@@ -123,3 +123,7 @@ Chrome verified the production adapter with synthetic microphone input. Four nat
 Update the practice contract when command or state behavior changes. Update the architecture explanation when ownership or audio routing changes. Keep the module README files current for their commands. Historical `PLAN.md` and `VERIFICATION.md` files describe earlier POCs and do not override current code or tests.
 
 Keep compiled output, recordings, and test artifacts out of commits. The `wasm-abi.ts` files under `lib/sampler/`, `lib/sequencer/`, and `lib/performance/` are checked-in generated source. Regenerate them alongside their C header changes. Increase the performance ABI version when changing its binary contract. A verified source change and its relevant documentation belong in the same milestone.
+
+## Verify the independent video studio
+
+Use `npm run build:video` to build its native C++ pose module to WASM and bundle `ui/video/` without requiring the practice WASM artifact. Serve `dist/` on a separate port, such as 8087, and open `/ui/video/`. Run `npm run test:video` for pose and input-boundary checks. The [studio guide](../ui/video/README.md) includes native checks and explicit-time inspection methods. Keep live PE delivery and real CRT output claims separate from the fixture preview. Coordinate edits to shared build packaging with Performance Engine; the current video builder preserves other `dist/` entries.
