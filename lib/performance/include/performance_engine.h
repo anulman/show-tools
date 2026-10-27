@@ -20,8 +20,10 @@ enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_A
   PF_MICROPHONE_REQUIRED = 4, PF_NO_RECORDING = 5, PF_NO_SAMPLE = 6, PF_PATTERN_REQUIRED = 7,
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
   PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
-  PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 2, PF_MAX_LIVE_EFFECTS = 64 };
+  PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 3, PF_MAX_LIVE_EFFECTS = 64 };
+enum pf_compiled_limits { PF_COMPILED_MAGIC = 0x50464331, PF_COMPILED_VERSION = 1, PF_COMPILED_HEADER_FIELDS = 16, PF_COMPILED_TAKE_FIELDS = 6, PF_COMPILED_CUE_FIELDS = 10, PF_COMPILED_MEMBER_FIELDS = 3, PF_COMPILED_PLAYBACK_FIELDS = 3, PF_COMPILED_MAX_TAKES = 32 };
+enum pf_compiled_take_field { PF_TAKE_VOICE, PF_TAKE_READY, PF_TAKE_LENGTH, PF_TAKE_CAPACITY, PF_TAKE_REVISION, PF_TAKE_PHASE, PF_TAKE_PLAYBACK_STATE, PF_TAKE_FIELDS };
 enum pf_effect_type { PF_EFFECT_SLAPBACK = 1 };
 typedef struct pf_slapback_parameters { double delay_ms, feedback, wet; } pf_slapback_parameters;
 typedef struct pf_effect_definition {
@@ -33,7 +35,7 @@ enum pf_effect_layout {
   PF_EFFECT_DELAY_OFFSET = 8, PF_EFFECT_FEEDBACK_OFFSET = 16,
   PF_EFFECT_WET_OFFSET = 24, PF_EFFECT_BYTES = 32
 };
-enum pf_live_field { PF_LIVE_PREPARED, PF_LIVE_ACTIVE, PF_LIVE_REVISION, PF_LIVE_STAGE_COUNT, PF_LIVE_FIELDS };
+enum pf_live_field { PF_LIVE_PREPARED, PF_LIVE_ACTIVE, PF_LIVE_REVISION, PF_LIVE_STAGE_COUNT, PF_LIVE_CAPTURE_SUPPORTED, PF_LIVE_FIELDS };
 /* Program cue rows are fixed-width doubles. Bar zero is the lead-in.
    Positions are zero-based beats. The variant is -1 or a sampler variant ID.
    Tap cues use that same variant ID to select a retained sparse pattern. */
@@ -69,6 +71,12 @@ sq_engine* pf_sequencer(pf_engine* engine);
 int pf_configure(pf_engine* engine, double bpm, int beats_per_bar, int bar_count, int default_end_bar,
   int program_length, const double* events, int event_count,
   const double* cues, int cue_count, const double* playback, int playback_count);
+/* Compiled records use the versioned double-table format. All tables and capture
+   resources are validated/prepared before an atomic stopped replacement. */
+int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields);
+/* Portable artifact encoding is the same table as little-endian IEEE754 doubles. */
+int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t bytes);
+void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out);
 int pf_clock_command(pf_engine* engine, int type, double value, double frame, double client_sequence, double epoch);
 int pf_start(pf_engine* engine, double bpm, int count_in_bars, int start_bar, int end_bar, int loop, int automatic);
 void pf_stop(pf_engine* engine);

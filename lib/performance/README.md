@@ -18,7 +18,7 @@ This target links a manual-tempo clock, sequencer, and sampler. It requires neit
 
 ## Configure and process a song
 
-1. Create one engine with `pf_create()` in `PF_PRACTICE` mode for chart-driven performance. Practice supports four beats per bar. The tracker and generic performance modes expose narrower clock and pattern behavior. Generic sequencing accepts a configured meter.
+1. Create one engine with `pf_create()` in `PF_PRACTICE` mode for chart-driven performance. Compiled practice supports 4/4 and six eighth-note counts in 6/8; legacy practice uses four beats per bar.
 2. While stopped, upload the song through `pf_configure()`. The interface copies scheduled events, lead-in and numbered-bar cues, capture hints, and whole-bar variant playback assignments. Invalid replacement data preserves the previous configuration.
 3. Pass device readiness through `pf_set_microphone()`. Submit controls through `pf_control()` and channel settings through `pf_set_channel()`.
 4. Start with `pf_start()`. The engine selects manual tempo, applies the starting BPM, and begins the requested count-in and range.
@@ -28,7 +28,7 @@ This target links a manual-tempo clock, sequencer, and sampler. It requires neit
 
 Give one caller ownership of each engine. The component handles returned by `pf_tracker()`, `pf_sampler()`, and `pf_sequencer()` are borrowed. Do not separately advance the clock or dispatch sequencer beats while `pf_process()` owns block processing. The diagnostic `pf_on_beat()` API exercises native behavior in tests; it is not an additional scheduling path for a live host.
 
-Song scripts under `songs/` remain TypeScript modules that produce declarative instructions. C++ executes the uploaded instructions without per-beat JavaScript callbacks. A native device host must load the compiled song instructions itself. The repository does not yet implement that host, its song-file loader, physical controls, or relay producer.
+Song scripts under `songs/` produce declarative instructions. C++ executes them without per-beat JavaScript callbacks. For compiled programs, use `pf_configure_compiled()` with numeric tables or `pf_load_compiled_bytes()` with the compiler's `.pfp` bytes. Both loaders validate and atomically replace a stopped program. The byte format consists of little-endian IEEE-754 doubles; constants and row widths are defined in the header. Native device hosting, physical controls, and a relay producer remain future work.
 
 ## Preserve state and command identity
 
@@ -52,4 +52,14 @@ The browser owns device access and routing of the native sample/click and proces
 
 Start authorizes live input only with microphone ready and a prepared rack. Stop/Panic, end, fatal faults, and microphone loss clear authorization and DSP history. Readiness alone does not rearm. `pf_process_stems()` adds planar PCM to nullable caller-cleared channel buffers, maps mono input equally to left/right, and processes live input once even if its outputs are discarded. Non-null spans must not overlap. Invalid aliasing rejects before modifying engine state, last error, or output.
 
-Default-live effects currently apply during count-in and playing. The click and existing sample mix stay outside the effect input. Effect-enabled sample capture rejects before preparation or queued mutation; that command rejection is nonfatal. Processed cache integration and per-voice capture switching await the explicit capture contract. The standalone patches tests establish its cache-release prototype, not the production sampler behavior. Identity capture remains available when the stack is bypassed.
+Default-live effects apply during count-in and playing. The click and cached sample mix stay outside the effect input. Compiled arm immediately routes live input through the target voice stack; recording waits for its declared boundary. Prepared dual banks retain original mono source, printed stereo PCM, and graph state. Playback evolves effects from original source across iterations without processing printed PCM or resetting DSP on wrap. Overlap rejects atomically; `crb` remains legal. Legacy and generic raw capture still reject with effects enabled.
+
+## Compile a worksheet
+
+```sh
+./show-tools chart fetch --url 'https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit#gid=SHEET_ID' --out /tmp/source.json
+./show-tools chart compile --source /tmp/source.json --mapping songs/dance-yrself-clean.mapping.json --out /tmp/song.json --native-out /tmp/song.pfp
+./show-tools chart inspect /tmp/song.json
+```
+
+Compilation runs offline after fetch. `--draft` saves source-located diagnostics for an unresolved song and cannot emit `.pfp` bytes. The checked-in current DYC mapping remains blocked pending operator authoring answers. Import a resolved artifact through the practice desk while stopped. Native and WASM fixture tests prove execution mechanics, not completion of that unresolved arrangement.

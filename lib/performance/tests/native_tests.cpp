@@ -239,7 +239,7 @@ void near(float actual, float expected, const char* message) { require(std::isfi
 void live_preparation_and_revisions() {
   Engine engine;
   configure(engine, 2);
-  require(pf_abi_version() == 2 && !live_state(engine)[PF_LIVE_PREPARED], "live API begins unprepared");
+  require(pf_abi_version() == PF_ABI_VERSION && !live_state(engine)[PF_LIVE_PREPARED], "live API begins unprepared");
   auto effect = slapback();
   ok(engine, pf_prepare_live_effects(engine, &effect, 1, 1));
   auto prepared = live_state(engine);

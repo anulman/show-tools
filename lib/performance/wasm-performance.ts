@@ -9,7 +9,7 @@ const BLOCK = 8192;
 const PHASES: readonly Phase[] = ['idle', 'count-in', 'playing', 'ended'];
 const STATUSES: readonly PracticeState['channels'][number]['status'][] = ['empty', 'ready', 'armed', 'recording', 'stopping', 'looping'];
 type Options = { api: WebAssembly.Exports; sampleRate: number; mode?: number; maxVoices?: number; maxSeconds?: number; clickGain?: number;
-  bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program };
+  bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program; compiledProgram?: readonly number[] };
 
 export class NativePerformance {
   readonly api: WebAssembly.Exports;
@@ -34,13 +34,14 @@ export class NativePerformance {
   readonly commandIds = new Map<number, string>();
   runId: string;
   disposed = false;
+  preparedLiveEffects: readonly LiveEffectDefinition[] | undefined;
 
   constructor({ api, sampleRate, mode = PF.PRACTICE, maxVoices = 32, maxSeconds = 30, clickGain = 1, ...song }: Options) {
     if (!(api.memory instanceof WebAssembly.Memory)) throw new Error('Performance WASM memory is unavailable');
     const beatsPerBar = song.beatsPerBar ?? 4;
     if (!Number.isFinite(sampleRate) || !Number.isInteger(maxVoices) || maxVoices < 1 || maxVoices > ST.MAX_VOICES
       || !Number.isFinite(maxSeconds) || maxSeconds <= 0 || maxSeconds > 30 || !Number.isInteger(mode) || mode < PF.TRACKER || mode > PF.PRACTICE
-      || !Number.isSafeInteger(beatsPerBar) || beatsPerBar < 1 || beatsPerBar > 2147483647 || mode === PF.PRACTICE && beatsPerBar !== 4) throw new Error('Invalid native performance options');
+      || !Number.isSafeInteger(beatsPerBar) || beatsPerBar < 1 || beatsPerBar > 2147483647 || mode === PF.PRACTICE && beatsPerBar !== 4 && beatsPerBar !== 6) throw new Error('Invalid native performance options');
     this.api = api; this.memory = api.memory; this.sampleRate = sampleRate; this.runId = song.runId ?? 'unstarted';
     if (this.call('pf_abi_version') !== PF.ABI_VERSION) throw new Error('Performance WASM ABI mismatch. Rebuild and reload practice.');
     this.handle = this.call('pf_create', sampleRate, mode, maxVoices, maxSeconds, beatsPerBar);
@@ -65,7 +66,8 @@ export class NativePerformance {
       this.call('pf_set_click_gain', this.handle, clickGain);
       if (mode === PF.PRACTICE) {
         sampler.ids.push(...CONTROL_IDS);
-        this.configure(song);
+        if (song.compiledProgram) this.configureCompiled(song.compiledProgram);
+        else this.configure(song);
       }
     } catch (error) {
       sequencer?.dispose(); sampler?.dispose();
@@ -174,6 +176,21 @@ export class NativePerformance {
     this.runId = runId; this.commandIds.clear();
   }
   stop() { this.invoke('pf_stop', this.handle); }
+  configureCompiled(program: readonly number[]) {
+    if (!Array.isArray(program) || program.length < PF.COMPILED_HEADER_FIELDS || program.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program');
+    const pointer = this.call('malloc', program.length * 8);
+    if (!pointer) throw new Error('Performance WASM memory limit reached');
+    try {
+      new Float64Array(this.memory.buffer, pointer, program.length).set(program);
+      this.call('pf_configure_compiled', this.handle, pointer, program.length);
+    } finally { this.invoke('free', pointer); }
+  }
+  compiledTake(index: number) {
+    if (!Number.isSafeInteger(index) || index < 0 || index >= PF.COMPILED_MAX_TAKES) throw new Error('Invalid compiled take index');
+    const info = this.query('pf_compiled_take_info', index);
+    return { voice: info[PF.TAKE_VOICE], ready: info[PF.TAKE_READY] === 1, frames: info[PF.TAKE_LENGTH],
+      capacity: info[PF.TAKE_CAPACITY], revision: info[PF.TAKE_REVISION], phase: info[PF.TAKE_PHASE], playbackState: info[PF.TAKE_PLAYBACK_STATE] };
+  }
   prepareLiveEffects(effects: readonly LiveEffectDefinition[]) {
     if (!Array.isArray(effects) || effects.length > PF.MAX_LIVE_EFFECTS) throw new Error('Invalid live effects stack');
     for (const effect of effects) {
@@ -183,7 +200,14 @@ export class NativePerformance {
         || !Number.isFinite(effect.wet) || effect.wet < 0 || effect.wet > 1) throw new Error('Invalid slapback effect');
     }
     const previous = this.liveEffects();
-    if (previous.revision >= 4294967295) throw new Error('Live effect revision limit reached. Reload practice.');
+    const unchanged = previous.prepared && this.preparedLiveEffects?.length === effects.length
+      && effects.every((effect, index) => {
+        const old = this.preparedLiveEffects?.[index];
+        return old !== undefined && old.kind === effect.kind && old.delayMs === effect.delayMs && old.feedback === effect.feedback && old.wet === effect.wet;
+      });
+    const phase = this.state().phase;
+    if (unchanged && (phase === 'playing' || phase === 'count-in')) return previous;
+    if (!unchanged && previous.revision >= 4294967295) throw new Error('Live effect revision limit reached. Reload practice.');
     const view = new DataView(this.memory.buffer, this.effectPointer, PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
     for (const [index, effect] of effects.entries()) {
       const offset = index * PF.EFFECT_BYTES;
@@ -193,14 +217,15 @@ export class NativePerformance {
       view.setFloat64(offset + PF.EFFECT_FEEDBACK_OFFSET, effect.feedback, true);
       view.setFloat64(offset + PF.EFFECT_WET_OFFSET, effect.wet, true);
     }
-    this.call('pf_prepare_live_effects', this.handle, effects.length ? this.effectPointer : 0, effects.length, previous.revision + 1);
+    this.call('pf_prepare_live_effects', this.handle, effects.length ? this.effectPointer : 0, effects.length, unchanged ? previous.revision : previous.revision + 1);
+    this.preparedLiveEffects = effects.map(effect => ({ ...effect }));
     return this.liveEffects();
   }
   liveEffects(): LiveEffectsState {
     const data = this.query('pf_live_info');
     const stageCount = data[PF.LIVE_STAGE_COUNT];
     return { prepared: data[PF.LIVE_PREPARED] === 1, active: data[PF.LIVE_ACTIVE] === 1,
-      revision: data[PF.LIVE_REVISION], stageCount, captureSupported: stageCount === 0 };
+      revision: data[PF.LIVE_REVISION], stageCount, captureSupported: data[PF.LIVE_CAPTURE_SUPPORTED] === 1 };
   }
   selectChannel(id: ChannelId) { this.call('pf_select', this.handle, this.channel(id)); }
   setAutomatic(value: boolean) { this.call('pf_set_automatic', this.handle, this.boolean(value, 'Automatic')); }
