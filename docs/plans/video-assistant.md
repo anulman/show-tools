@@ -2,6 +2,8 @@
 
 Planning milestone, October 26, 2026. No feature implementation, dependency installation, Figma mutation, or service startup is included.
 
+Revised October 27 for the operator's shared meter, pedal-tempo, fractional-cue, and logging decisions from Performance Engine review.
+
 ## Recommendation
 
 Build a small cast of reusable Old TV characters that performs with the music. Start with A31 Mister Metronome and B14 Reel-to-Reel Cyclops. The pendulum makes beat alignment visible. The tape machine gives capture, commit, and playback a readable stage presence. Add C06 Knob Goblin after the first two assets work.
@@ -91,15 +93,17 @@ Figma is an external commercial authoring service. AI generation has credit cost
 
 Performance Engine owns semantic commands, compiled-song schema, and performance and WASM contracts. Coordination occurred with its workstream on October 26. The following requirements agree with its proposal. They remain proposed until a coordinated implementation milestone lands. Video edits no shared header or bridge independently.
 
+The October 27 review requires a dominant song meter supporting at least 4/4 and 6/4, with explicit lengths for occasional short measures. This does not require a general map of localized meter changes. [Local chart BPM is metadata and never changes clock BPM](https://github.com/anulman/show-tools/pull/1#discussion_r4384945413). During performance, tempo changes come from the BPM pedal and take effect through Performance Engine. Video consumes the engine's resolved tempo changes and source frames. Neither a chart row nor a Figma reference tempo starts another clock.
+
 | Contract area | Video requirement |
 | --- | --- |
 | Identity | `engineSessionId`, `epoch`, `runId`, `programDigest`, and increasing `sourceSequence`. Cue and resource IDs remain stable across the compiled artifact |
 | Source time | Authoritative `frame` and `sampleRate` on snapshots, resolved cues, applied controls, and transport changes. Preserve integer frame meaning across serialization |
-| Musical position | Tick or continuous beat, bar, transport phase, BPM, and `loopIteration`. Include tempo revision and effective-frame anchors for tempo changes |
-| Action timing | Distinguish command acceptance from actual quantized action. Animate capture or commit at the engine-resolved boundary. Preserve same-frame source ordering |
+| Musical position | Tick or continuous beat, bar, dominant meter, actual measure length, transport phase, engine BPM, and `loopIteration`. Include tempo revision and effective-frame anchors for pedal-driven tempo changes. Chart-local BPM stays metadata |
+| Action timing | Distinguish command acceptance from actual action. Support quarter-, half-, and three-quarter-beat cue offsets as well as immediate peripheral actions. Animate capture, commit, or an effect at its engine-resolved frame without imposing another beat boundary. Preserve same-frame source ordering |
 | Recovery | A snapshot at frame S with the last included sequence, drop count, active visual cue state or sufficient checkpoint data, and discontinuity reason |
 | Presentation | Observer-side mapping between source frames and output presentation time. Include calibration age and uncertainty. Network receipt time is not source time |
-| Replay | Ordered resolved cue and control records, initial checkpoint, program and asset digests, tempo history, loop history, and discontinuities |
+| Replay | Ordered resolved cue and control records, initial checkpoint, program and asset digests, pedal-driven tempo history, measure lengths, loop history, and discontinuities. Chart-local BPM cannot reconstruct performed tempo |
 
 Commands follow the Performance Engine proposal for producer identity, command identity, producer sequence, run, expected program digest, semantic target, and timing. Video can observe acknowledged controls. It must not deduplicate audio commands independently or claim exactly-once delivery beyond the engine's bounded guarantees.
 
@@ -112,7 +116,9 @@ For a native host, one thread owns the engine. Copy timing and cue records into 
 ### Specify boundary behavior before implementation
 
 - Represent clips as half-open intervals. At a shared endpoint, the incoming clip owns the pose. Define ties through stable layer priority and engine source ordering.
-- Store beat-relative keyframes for rhythmic motion. Evaluate beats using effective tempo segments. A mid-beat tempo change preserves position and changes the following rate. Do not calculate an entire performance from the latest BPM.
+- Store beat-relative keyframes for rhythmic motion. Evaluate beats using the engine's effective tempo segments from pedal actions. A mid-beat tempo change preserves position and changes the following rate. Do not calculate an entire performance from the latest BPM or chart-local BPM metadata.
+- Use the compiled measure boundaries for bar-relative poses and downbeat accents. A 6/4 measure has six quarter-note beats. An explicitly short measure ends at its declared length. Do not derive bars by dividing the beat count by four, or stretch a short measure to the dominant meter.
+- Preserve quarter-, half-, and three-quarter-beat cue positions in the engine's tick representation until frame resolution. Immediate peripheral effects begin at the reported applied frame. Video presentation samples that result at the next available display frame, without claiming sample-exact screen output or adding musical quantization.
 - Permit second-relative tracks for effects that need fixed physical duration. Each track declares its time domain. Do not silently stretch every effect with tempo.
 - Include loop iteration in trigger identity. Clock frames continue monotonically while song position wraps. State which clips restart and which continue across the loop. Test the last frame and the first frame of the next iteration.
 - Reject stale runs and epochs. Detect sequence gaps and recover from a snapshot. A late persistent cue evaluates at its current age. An expired one-shot is skipped rather than played late. A missed cue that changes state requires checkpoint recovery.
@@ -139,6 +145,14 @@ Use TypeScript for new tooling and browser bridges. Effect can manage asset load
 
 Keep PDF originals intact. Do not commit these temporary renders, full contact sheets, bulk frame sequences, or generated videos in this milestone. Default asset policy is manifests, selected small source assets, and approved exports in Git. Decide on Git LFS or external storage before committing the approximately 36 MB source PDFs or a growing video collection. Export jobs should use pinned local assets, not expiring Figma URLs.
 
+### Keep runtime logging appropriate to the mode
+
+The [operator's logging policy](https://github.com/anulman/show-tools/pull/1#discussion_r4384901380) applies across Performance Engine integrations, including video. Debug runs may emit rich DEBUG artifacts such as pose traces, clock-calibration samples, and sampled frames. Practice filters below INFO. Live performance filters below WARN. Configure the level at the session boundary and apply it to browser, native, and export adapters.
+
+Do not generate per-frame traces, rich diagnostic artifacts, or debug serialization in ordinary practice or live performance. Logging and artifact writes stay outside the audio callback. Required cue and snapshot delivery is protocol state, not a log stream, and remains available at every level. Keep audience output free of diagnostic overlays.
+
+Replay capture is an explicit workflow with a bounded, minimal dataset for reconstruction, separate from diagnostic verbosity. It must not require DEBUG mode or enable rich debugging artifacts implicitly. If the resolved timeline was not captured, label an export as an authored preview rather than a faithful performance replay.
+
 ## Produce replay, keyframes, and video from one timeline
 
 A keyframe package is the reusable output. It contains a schema version, asset digests, coordinate system, pivots, tracks, easing, time domains, and loop rules. A resolved performance timeline is a separate artifact. It supplies actual applied frames for manual actions, tempo changes, and chart cues. Neither artifact can be replaced by an MP4.
@@ -163,14 +177,16 @@ Replay uses the recorded take's resolved timeline. A chart-only export is an aut
 | --- | --- | --- |
 | 0. Planning | This plan and coordinated timing requirements | Actual PDF review, source pointers, license sources, diff check, and isolated commit |
 | 1. Asset proof | Mister Metronome and Reel-to-Reel Cyclops, neutral and accent poses, one short loop each | Normal-size Figma instance review, part and pivot inventory, transparent-edge checks, no unintended background, rights record |
-| 2. Portable motion | C++ cue reducer and keyframe evaluator with native and WASM builds | Equal pose outputs for identical inputs, direct seek matching sequential evaluation, deterministic loop and tempo fixtures |
-| 3. First useful live demo | Two characters perform a short chart section. Metronome follows beats. Tape character changes at actual capture, commit, and playback boundaries | Local WASM practice works without relay or Sheets. Tempo change, late message, tab stall, Stop, Panic, restart, and two loop passes work. Audio continues through slow drawing |
+| 2. Portable motion | C++ cue reducer and keyframe evaluator with native and WASM builds | Equal pose outputs for identical inputs, direct seek matching sequential evaluation, deterministic loop, pedal-tempo, fractional-cue, 4/4, 6/4, and short-measure fixtures |
+| 3. First useful live demo | Two characters perform a short chart section. Metronome follows beats. Tape character changes at actual capture, commit, and playback boundaries | Local WASM practice works without relay or Sheets. Pedal tempo change, fractional and immediate cues, late message, tab stall, Stop, Panic, restart, and two loop passes work. Audio continues through slow drawing. INFO practice and WARN live produce no rich debug artifacts |
 | 4. Replay and export | Scrub the recorded timeline and export one short opaque video plus an alpha PNG sequence | Live and offline poses match at the same source frames, fractional-FPS arithmetic, final-frame duration, decode and alpha checks, explicit audio origin |
 | 5. Collection and remote display | Knob Goblin, additional chosen assets, and native-host observer adapter | License and storage review, simulated gaps and reconnects, then separate real EliteDesk and display-latency checks |
 
 The phase order reduces asset risk before expanding the cast. It also leaves one reusable evaluator for maintainers. No feature code is authorized by this planning milestone alone.
 
-Fixture tests must cover beat crossings at several sample rates, 30 and 60 FPS, rational FPS such as 30000/1001, mid-beat tempo changes, multiple same-frame cues, loop endpoints, seeking backward, snapshot watermarks, gaps, duplicates, stale epochs, and bounded queues. Replaying each frame sequentially and requesting frames out of order must produce the same pose.
+Fixture tests must cover beat crossings at several sample rates, 30 and 60 FPS, rational FPS such as 30000/1001, mid-beat pedal-tempo changes, multiple same-frame cues, loop endpoints, seeking backward, snapshot watermarks, gaps, duplicates, stale epochs, and bounded queues. Include 4/4 and 6/4 songs with short measures, quarter-, half-, and three-quarter-beat cues, and immediate peripheral effects. Changing chart-local BPM metadata must leave evaluated timing unchanged. Replaying each frame sequentially and requesting frames out of order must produce the same pose, including after a pedal-tempo change or a short measure.
+
+Verify DEBUG diagnostics only in debug runs, INFO filtering in practice, and WARN filtering in live performance. A disabled diagnostic must not construct its rich payload or write an artifact. Protocol delivery and explicitly requested replay capture must still work at WARN without enabling DEBUG traces.
 
 Inspect rendered images at chosen checkpoints. Pixel-perfect GPU output across platforms is not assumed. Compare deterministic pose data exactly and use a documented image tolerance where antialiasing differs. Verify transparent borders and foot registration through every selected pose.
 
@@ -193,5 +209,7 @@ Product choices remain open. Observable technical questions are assigned to prot
 Verified the managed worktree base, clean initial state, PDF headers, sizes, SHA-256 hashes, page counts, all-page contact sheets, and full-page candidate renders. Read current architecture and development guidance and inspected engine event creation, snapshot decoding, and tracker frame mapping. A separate read-only clock review corroborated the gaps. Performance Engine confirmed the proposed identity, ordering, time, and recovery contract and retained ownership of its implementation.
 
 Read Figma skill guidance and relevant tool descriptions. Reviewed primary PixiJS, Remotion, and FFmpeg license and export documentation on October 26, 2026. No package version was installed or selected. Figma motion entitlement, export fidelity, rendering throughput, and target-device synchronization remain untested.
+
+The October 27 revision follows the coordinator's report of the completed Performance Engine review and directly retrieved operator comments on pedal tempo and logging. Shared contract implementation remains with Performance Engine. No runtime capability is established by these plan changes.
 
 The planning diff contains only this document. No application tests or builds are needed for the document-only milestone. Verify relative source links and `git diff --check` before committing. Do not merge this worktree into the operator's checkout automatically.
