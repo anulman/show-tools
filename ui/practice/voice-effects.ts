@@ -59,7 +59,7 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
         const input = document.createElement('input'); input.type = 'number'; input.value = String(value);
         input.required = true; input.min = String(min); input.max = String(max); input.step = String(step); input.inputMode = 'decimal';
         input.setAttribute('aria-label', `${footer.voice.name}, ${index + 1}. ${legend.textContent?.split('. ')[1]}, ${label}`);
-        input.addEventListener('input', () => update(Number(input.value)));
+        input.addEventListener('input', () => update(input.valueAsNumber));
         wrapper.append(input); stage.append(wrapper); footer.controls.push(input);
       }
       const current = () => draft(footer.voice.profile)[index];

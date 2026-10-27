@@ -445,8 +445,9 @@ function render(next: Partial<PracticeState>) {
     pad.volumeOutput.textContent = percentage;
     pad.button.setAttribute('aria-pressed', looping ? 'true' : 'false');
     pad.status.textContent = action;
+    const stoppingLabel = light.kind === 'releasing' ? (looping ? 'Stop queued' : 'Releasing') : 'Commit queued';
     pad.sampleStatus.textContent = sampleStatus === 'empty' ? 'Empty slot' : sampleStatus === 'ready' ? 'Sample ready' :
-      sampleStatus === 'armed' ? 'Capture armed' : sampleStatus === 'stopping' ? 'Commit queued' :
+      sampleStatus === 'armed' ? 'Capture armed' : sampleStatus === 'stopping' ? stoppingLabel :
       sampleStatus === 'recording' ? 'Recording microphone' : 'Loop playing';
     pad.cue.textContent = cue || '·';
     pad.cue.title = 'Original chart notation';

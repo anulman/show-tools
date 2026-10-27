@@ -12,6 +12,7 @@ function prepareUIContext(context) {
 }
 import { loadSong } from '../../../songs/index.ts';
 import { PracticeAudio } from '../audio.js';
+import { NativePerformance } from '../../../lib/performance/wasm-performance.ts';
 import { createPeripheralInput, peripheralCommandId } from '../peripheral-input.ts';
 
 function deferred() {
@@ -151,7 +152,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   const context = {
     Map, Set, Blob, URL: { createObjectURL(blob) { assert.equal(blob.type, 'audio/mpeg'); return 'blob:test'; }, revokeObjectURL(url) { revoked.push(url); } },
     recordingToMp3: convert, loadedSong,
-    createVoiceEffectsEditor: () => ({ configurations: () => voiceConfigurations }),
+    createVoiceEffectsEditor: () => ({ configurations: () => typeof voiceConfigurations === 'function' ? voiceConfigurations() : voiceConfigurations }),
     window: { isSecureContext: true, MediaRecorder: Recorder }, MediaRecorder: Recorder, CONTROLS: [],
     HTMLElement: Element, HTMLSpanElement: Element, HTMLHeadingElement: Element, HTMLAnchorElement: Element,
     HTMLDivElement: Element, HTMLButtonElement: Element, HTMLParagraphElement: Element, HTMLInputElement: Element,
@@ -163,6 +164,68 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = loadedSong?.chart || { bars: Array(76) }; song = loadedSong || { chart, program: {}, compiled: ${compiled ? '{ executable: true }' : 'undefined'} }; globalThis.controls = { applyVoiceEffects, startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
   return { commands, controls: context.controls, audio, elements, revoked, get creations() { return creations; } };
 }
+
+function voiceEditorHarness() {
+  class Element {
+    children = []; listeners = new Map(); attributes = {}; dataset = {}; value = '';
+    constructor(tag) { this.tag = tag; }
+    append(...children) { this.children.push(...children); }
+    get lastElementChild() { return this.children.at(-1); }
+    get valueAsNumber() { return this.value === '' ? NaN : Number(this.value); }
+    setAttribute(name, value) { this.attributes[name] = value; }
+    addEventListener(name, callback) { this.listeners.set(name, callback); }
+    reportValidity() { return this.value !== ''; }
+    querySelector() { return null; }
+  }
+  const roots = new Map(), applied = [];
+  const editor = createVoiceEffectsEditor(profile => applied.push(profile));
+  const original = globalThis.document;
+  try {
+    globalThis.document = { createElement: tag => new Element(tag) };
+    for (const profile of [0, 1, 5]) {
+      const root = new Element('div'); roots.set(profile, root);
+      editor.mount({ id: `voice-${profile}`, name: `Voice ${profile}`, profile }, root);
+    }
+  } finally {
+    if (original === undefined) delete globalThis.document;
+    else globalThis.document = original;
+  }
+  const native = initialVoiceEffects().map(configuration => ({ ...configuration, prepared: true, revision: 1, activity: 'standby', rotationEligible: false, rotationRemainingBeats: 0 }));
+  editor.render(native, false);
+  function descendants(element) { return [element, ...element.children.flatMap(descendants)]; }
+  function field(profile, label, value) {
+    const input = descendants(roots.get(profile)).find(element => element.attributes['aria-label']?.endsWith(label));
+    assert(input, `missing numeric field ${label}`);
+    input.value = value; input.listeners.get('input')();
+  }
+  return { editor, native, applied, field, apply(profile) {
+    descendants(roots.get(profile)).find(element => element.tag === 'button' && element.textContent === 'Apply settings').listeners.get('click')();
+  } };
+}
+
+for (const [profile, label, stage, parameter] of [[0, 'Wet', 0, 'wet'], [0, 'Feedback', 0, 'feedback'], [5, 'Depth · ms', 1, 'depthMs']]) {
+  test(`blank required ${label} remains invalid instead of becoming zero`, () => {
+    const h = voiceEditorHarness(); h.field(profile, label, '');
+    assert(Number.isNaN(h.editor.configurations()[profile].effects[stage][parameter]));
+    h.apply(profile); assert.deepEqual(h.applied, [], 'Apply rejects the empty required field');
+  });
+}
+
+test('Start rejects blank voice settings before microphone setup and preserves the applied bundle', async () => {
+  const editor = voiceEditorHarness(); editor.field(0, 'Wet', '');
+  const h = startupHarness(undefined, { voiceConfigurations: () => editor.editor.configurations() });
+  const previous = initialVoiceEffects(); h.audio.configuredEffects = previous;
+  h.audio.configureVoiceEffects = async configurations => {
+    h.commands.push('effects');
+    NativePerformance.prototype.prepareVoiceEffects.call({}, configurations);
+    h.audio.configuredEffects = configurations;
+  };
+  await assert.rejects(h.controls.startPractice(), /Invalid voice effect/);
+  assert.deepEqual(h.commands, ['effects']);
+  assert.equal(h.audio.configuredEffects, previous);
+  assert.deepEqual(editor.editor.configurations(1)[0].effects, previous[0].effects, 'another voice Apply uses this voice’s applied stack');
+  editor.apply(1); assert.deepEqual(editor.applied, [1], 'an unrelated invalid draft does not block the selected voice');
+});
 
 test('MP3 preparation blocks replacement takes until the download is ready', async () => {
   const conversion = deferred();

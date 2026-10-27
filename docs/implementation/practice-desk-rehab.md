@@ -10,7 +10,7 @@ The existing DYC A execution, processed recording buses, mandatory lead-in click
 
 ## Chosen design
 
-Two standalone treatments used the six AF identities and four pads. Candidate A displayed parameters inline. Candidate B displayed ordered summaries with expandable per-stage settings. The independent design judge preferred B because its mobile layout keeps the pad faces visible without exposing every parameter simultaneously. The implementation takes B and adds A's larger pad action area and short count-in hint. Volume and effects remain outside the pad button, so native keyboard activation does not nest interactive controls.
+Two standalone treatments used the six AF identities and four pads. Candidate A displayed parameters inline. Candidate B displayed ordered summaries with expandable per-stage settings. The independent design judge preferred B because its mobile layout keeps the pad faces visible without exposing every parameter simultaneously. The implementation takes B and adds A's larger pad action area. Final screenshot review removed the redundant count-in hint and live-role subtitles and kept revision numbers in native diagnostics rather than operator labels. Volume and effects remain outside the pad button, so native keyboard activation does not nest interactive controls.
 
 The prototypes and actual Safari responsive screenshots are retained under `/private/tmp/rehab-candidate-a/`, `/private/tmp/rehab-candidate-b/`, and `/private/tmp/rehab-evidence/`. These are comparison artifacts, not working instrument evidence. Final screenshots must use the integrated app.
 
