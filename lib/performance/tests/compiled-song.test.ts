@@ -106,6 +106,8 @@ test('operator-approved deferred controls are visible metadata, never executable
 });
 
 test('arrangement subdivision anchors do not add a beat-four hit', () => {
+  assert.deepEqual(parseArrangementHits('123456', 6), [0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(parseArrangementHits('1234'), [0, 1, 2, 3]);
   assert.deepEqual(parseArrangementHits('(4)&a'), [3.5, 3.75]);
   assert.deepEqual(parseArrangementHits("(4)&'"), [3.5]);
   assert.deepEqual(parseArrangementHits('4'), [3]);

@@ -137,7 +137,7 @@ export function parseArrangementHits(text: string, beatsPerBar = 4): number[] | 
   while (index < value.length) {
     const anchored = /^\(([1-9]\d*)\)/.exec(value.slice(index));
     if (anchored) { anchor = Number(anchored[1]) - 1; index += anchored[0].length; continue; }
-    const numbered = /^([1-9]\d*)/.exec(value.slice(index));
+    const numbered = /^([1-9])/.exec(value.slice(index));
     if (numbered) { anchor = Number(numbered[1]) - 1; hits.push(anchor); index += numbered[0].length; continue; }
     const char = value[index++];
     if (/\s/.test(char)) continue;
