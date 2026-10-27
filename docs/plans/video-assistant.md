@@ -99,7 +99,7 @@ For the current DYC mapping, F2 supplies the initial reference BPM. Local BPM an
 
 | Contract area | Video requirement |
 | --- | --- |
-| Identity | `engineSessionId`, `epoch`, `runId`, `programDigest`, and increasing `sourceSequence`. Cue and resource IDs remain stable across the compiled artifact |
+| Identity | `engineSessionId`, `epoch`, `runId`, `programDigest`, and increasing `sourceSequence`. Logical voice, resource, cue, and effect-instance IDs remain stable across the compiled artifact. Input button IDs are separate identities |
 | Source time | Authoritative `frame` and `sampleRate` on snapshots, resolved cues, applied controls, and transport changes. Preserve integer frame meaning across serialization |
 | Musical position | Tick or continuous beat, bar, dominant meter, actual measure length, transport phase, engine BPM, and `loopIteration`. Include tempo revision and effective-frame anchors for pedal-driven tempo changes. Chart-local BPM stays metadata |
 | Action timing | Distinguish command acceptance from actual action. Support quarter-, half-, and three-quarter-beat cue offsets as well as immediate peripheral actions. Animate capture, commit, or an effect at its engine-resolved frame without imposing another beat boundary. Preserve same-frame source ordering |
@@ -110,6 +110,10 @@ For the current DYC mapping, F2 supplies the initial reference BPM. Local BPM an
 Commands follow the Performance Engine proposal for producer identity, command identity, producer sequence, run, semantic target, and timing. The loaded program remains immutable throughout a run. Stage chart and visual-program refreshes separately and activate only while stopped. Record the program digest in load/session manifests and replay provenance, without requiring it on every pad command. Reconnect requires a session/run handshake and snapshot before new input. Discard input from the old session. Video can observe acknowledged controls. It must not deduplicate audio commands independently or claim exactly-once delivery beyond the engine's bounded guarantees.
 
 The engine resolves chart cues and manual actions. A portable visual evaluator consumes their copied records and produces poses. It never advances transport, triggers samples, or reimplements chart notation. A browser animation callback samples the current performance position and draws the pose.
+
+[R1, R2, L1, and L2 identify physical buttons, not logical voices](https://github.com/anulman/show-tools/pull/2#discussion_r4385154502). Bind characters and animation parameters to resolved semantic voice, resource, cue, or effect-instance IDs. Retain the originating button as input provenance when useful. A button assignment can change without changing the identity of an ongoing voice or its animation. Do not infer an animation target from a button ID or from the current legacy channel naming.
+
+Filters owns a general effect stack, including chorus, echo, and guitar or synth transforms, with live processing and cached results for sample playback. Video observes the resolved effect instance, target, parameter values, and resource state. An animation must not imply that a live effect is processing when playback uses a cached result. Keep visual effects such as static or flashes distinct from audio effect instances. The portable video evaluator does not duplicate audio processing or manage its cache.
 
 Performance Engine's live worksheet inspection reports the A17 `chorus/video-y` note and knob tokens `[4d-`, `d`, `-1d]`, and `-3d] [4d-`. Their `d` binding, direction, range, span behavior, and effect or video routing remain undefined. Keep these as source-anchored typed TODOs shared by Filters, Video, and peripherals. Do not infer that `d` means delay or a specific animation parameter. An unresolved required binding blocks an executable load. It can appear in an explicitly incomplete inspection preview. A later binding must name the target, units, range, and timing before video consumes its engine-resolved values.
 
@@ -193,6 +197,8 @@ Fixture tests must cover beat crossings at several sample rates, 30 and 60 FPS, 
 Verify DEBUG diagnostics only in debug runs, INFO filtering in practice, and WARN filtering in live performance. A disabled diagnostic must not construct its rich payload or write an artifact. Protocol delivery and explicitly requested replay capture must still work at WARN without enabling DEBUG traces.
 
 Verify that a staged chart refresh cannot change an active run's tempo, cue program, or visual-program selection. Reconnect must reject queued input from the old session. The undefined DYC `d` bindings must remain visible with source locations and owners in inspection output and must prevent a required executable load.
+
+Verify that reassigning a physical button does not retarget an ongoing voice's animation. Two logical voices triggered through one button must retain distinct resource and animation identities. Effect feedback must distinguish live processing from playback of a cached result without requiring video to inspect or process audio.
 
 Inspect rendered images at chosen checkpoints. Pixel-perfect GPU output across platforms is not assumed. Compare deterministic pose data exactly and use a documented image tolerance where antialiasing differs. Verify transparent borders and foot registration through every selected pose.
 
