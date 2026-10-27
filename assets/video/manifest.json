@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "canvas": {
+    "width": 640,
+    "height": 800,
+    "baseline": 776
+  },
+  "publication": "All assets cleared for publication by operator in PR4 discussion_r4386243860",
+  "source": {
+    "file": "Old TV Character ideas-1.pdf",
+    "sha256": "dd3e61e0a655564d098ecdb0fa14767370df2589fd5472d1cc497f3a68eacbb7",
+    "originals": "Preserved unchanged in operator Dropbox; selected page renders in references/"
+  },
+  "models": [
+    {
+      "id": "gator-original",
+      "character": "gator",
+      "treatment": "original",
+      "poses": [
+        "/assets/video/poses/gator-original-0.png",
+        "/assets/video/poses/gator-original-1.png",
+        "/assets/video/poses/gator-original-2.png"
+      ],
+      "sourcePage": 8,
+      "sourceStrip": "source-strips/gator-original.png",
+      "sha256": "d4ef56967918d0620dbb7488de38a513e31f8584aa6b84a4c05068ff94fcc466",
+      "prompt": "Use case: background-extraction. Asset type: transparent three-pose sprite strip for an animated character library. Edit target: the supplied PDF page depicting A07 Gator Crooner. Extract ONLY the three existing full-body character drawings, keeping their original artwork, identity, colors, costume, facial expressions, outlines and props. Remove ALL page text, headings, panels, paper and floor shadows. Arrange the three figures in their original left-to-right pose order in three equal-width cells of a wide 3:2 transparent PNG. Center each complete figure within its own cell with equal scale, aligned feet near 92% of canvas height and ample transparent padding. All limbs and props must fit inside each cell without touching or crossing the cell boundaries. Do not label cells, draw dividers, add text, or add a background. Preserve the reference style exactly; do not redesign. The three poses are a sprite atlas, not one scene. Actual transparent alpha background.",
+      "generator": "built-in image_gen",
+      "originalTreatment": "Generated cleanup matching the source treatment; intact PDF page retained as reference"
+    },
+    {
+      "id": "gator-8bit",
+      "character": "gator",
+      "treatment": "8bit",
+      "poses": [
+        "/assets/video/poses/gator-8bit-0.png",
+        "/assets/video/poses/gator-8bit-1.png",
+        "/assets/video/poses/gator-8bit-2.png"
+      ],
+      "sourcePage": 8,
+      "sourceStrip": "source-strips/gator-8bit.png",
+      "sha256": "5a7d655432fc8762297bc4448292bcf16f2d35d711d6f47ab4ec570b2e5bd0cd",
+      "prompt": "Use case: style-transfer. Asset type: transparent three-pose character sprite strip. Input image is the visual identity reference, NOT a page to reproduce. Subject: A07 Gator Crooner, lanky jade alligator, burgundy suit, gold trim, cream belly, microphone tail. Create the SAME three complete poses in the same left-to-right order as the reference in this treatment: authentic coarse 8-bit pixel sprite art. Approximately 64 by 96 logical pixels per figure, large visibly square pixel clusters, 8-12 flat colors, no gradients, no antialiasing. Simplify small details but preserve the performer. Composition: exactly THREE equal-width cells across a wide 3:2 PNG. One full character centered in each cell. Each character occupies at most 80% of its cell width and 76% of canvas height. Feet share a baseline at 88% of image height. Retain ALL tails, hands, shoes and props inside their own cell. Poses should be distinctly readable. No extra figures. Background must be truly transparent: zero background color, NO glow, NO gradient, NO floor or cast shadow, NO halo. No text, titles, cell labels or dividers. Full figures fully isolated for game sprites. Preserve identity and palette while changing only the specified art treatment.",
+      "generator": "built-in image_gen"
+    },
+    {
+      "id": "gator-16bit",
+      "character": "gator",
+      "treatment": "16bit",
+      "poses": [
+        "/assets/video/poses/gator-16bit-0.png",
+        "/assets/video/poses/gator-16bit-1.png",
+        "/assets/video/poses/gator-16bit-2.png"
+      ],
+      "sourcePage": 8,
+      "sourceStrip": "source-strips/gator-16bit.png",
+      "sha256": "29f8fe3e05a187b0bc7ce4ad68a6a3cb463f5594e4958e16c070abf0ffde1326",
+      "prompt": "Use case: style-transfer. Asset type: transparent three-pose character sprite strip. Input image is the visual identity reference, NOT a page to reproduce. Subject: A07 Gator Crooner, lanky jade alligator, burgundy suit, gold trim, cream belly, microphone tail. Create the SAME three complete poses in the same left-to-right order as the reference in this treatment: rich 16-bit era pixel sprite art. Approximately 128 by 192 logical pixels per figure, crisp controlled pixel clusters, 20-28 colors with stepped shading and selective highlights. More detailed than 8-bit, but visibly pixel art. Composition: exactly THREE equal-width cells across a wide 3:2 PNG. One full character centered in each cell. Each character occupies at most 80% of its cell width and 76% of canvas height. Feet share a baseline at 88% of image height. Retain ALL tails, hands, shoes and props inside their own cell. Poses should be distinctly readable. No extra figures. Background must be truly transparent: zero background color, NO glow, NO gradient, NO floor or cast shadow, NO halo. No text, titles, cell labels or dividers. Full figures fully isolated for game sprites. Preserve identity and palette while changing only the specified art treatment.",
+      "generator": "built-in image_gen"
+    },
+    {
+      "id": "gator-tex-avery",
+      "character": "gator",
+      "treatment": "tex-avery",
+      "poses": [
+        "/assets/video/poses/gator-tex-avery-0.png",
+        "/assets/video/poses/gator-tex-avery-1.png",
+        "/assets/video/poses/gator-tex-avery-2.png"
+      ],
+      "sourcePage": 8,
+      "sourceStrip": "source-strips/gator-tex-avery.png",
+      "sha256": "52ce62eb6a66a42d4890113a88c73bddd7438c6206dd7e4149d4b4b98d6c76e9",
+      "prompt": "Use case: style-transfer. Asset type: transparent three-pose character sprite strip. Input image is the visual identity reference, NOT a page to reproduce. Subject: A07 Gator Crooner, lanky jade alligator, burgundy suit, gold trim, cream belly, microphone tail. Create the SAME three complete poses in the same left-to-right order as the reference in this treatment: classic Tex Avery-style hand-drawn theatrical cartoon animation. Smooth crisp ink outlines, expressive rubber-hose hands, appealing exaggerated mouth/trunk poses, flat cel color with restrained shadows. Keep the character recognizable and costume intact. These should look like polished hand-painted animation cels, not pixel art. Composition: exactly THREE equal-width cells across a wide 3:2 PNG. One full character centered in each cell. Each character occupies at most 80% of its cell width and 76% of canvas height. Feet share a baseline at 88% of image height. Retain ALL tails, hands, shoes and props inside their own cell. Poses should be distinctly readable. No extra figures. Background must be truly transparent: zero background color, NO glow, NO gradient, NO floor or cast shadow, NO halo. No text, titles, cell labels or dividers. Full figures fully isolated for game sprites. Preserve identity and palette while changing only the specified art treatment.",
+      "generator": "built-in image_gen"
+    },
+    {
+      "id": "tapir-original",
+      "character": "tapir",
+      "treatment": "original",
+      "poses": [
+        "/assets/video/poses/tapir-original-0.png",
+        "/assets/video/poses/tapir-original-1.png",
+        "/assets/video/poses/tapir-original-2.png"
+      ],
+      "sourcePage": 30,
+      "sourceStrip": "source-strips/tapir-original.png",
+      "sha256": "66b65612a9dac25319f46fd037fbe2c40f00ae79386e66e1f1720cce7809d877",
+      "prompt": "Use case: background-extraction. Asset type: transparent three-pose sprite strip for an animated character library. Edit target: the supplied PDF page depicting A29 The Tapir Tenor. Extract ONLY the three existing full-body character drawings, keeping their original artwork, identity, colors, costume, facial expressions, outlines and props. Remove ALL page text, headings, panels, paper and floor shadows. Arrange the three figures in their original left-to-right pose order in three equal-width cells of a wide 3:2 transparent PNG. Center each complete figure within its own cell with equal scale, aligned feet near 92% of canvas height and ample transparent padding. All limbs and props must fit inside each cell without touching or crossing the cell boundaries. Do not label cells, draw dividers, add text, or add a background. Preserve the reference style exactly; do not redesign. The three poses are a sprite atlas, not one scene. Actual transparent alpha background.",
+      "generator": "built-in image_gen",
+      "originalTreatment": "Generated cleanup matching the source treatment; intact PDF page retained as reference"
+    },
+    {
+      "id": "tapir-8bit",
+      "character": "tapir",
+      "treatment": "8bit",
+      "poses": [
+        "/assets/video/poses/tapir-8bit-0.png",
+        "/assets/video/poses/tapir-8bit-1.png",
+        "/assets/video/poses/tapir-8bit-2.png"
+      ],
+      "sourcePage": 30,
+      "sourceStrip": "source-strips/tapir-8bit.png",
+      "sha256": "1784b575b10d40f229b61eef4d499960d65948b6b3a3b9a84b12c54bf325cdaf",
+      "prompt": "Use case: style-transfer. Asset type: transparent three-pose character sprite strip. Input image is the visual identity reference, NOT a page to reproduce. Subject: A29 The Tapir Tenor, rotund charcoal tapir, plum tuxedo, cream shirt, copper trumpet trunk. Create the SAME three complete poses in the same left-to-right order as the reference in this treatment: authentic coarse 8-bit pixel sprite art. Approximately 64 by 96 logical pixels per figure, large visibly square pixel clusters, 8-12 flat colors, no gradients, no antialiasing. Simplify small details but preserve the performer. Composition: exactly THREE equal-width cells across a wide 3:2 PNG. One full character centered in each cell. Each character occupies at most 80% of its cell width and 76% of canvas height. Feet share a baseline at 88% of image height. Retain ALL tails, hands, shoes and props inside their own cell. Poses should be distinctly readable. No extra figures. Background must be truly transparent: zero background color, NO glow, NO gradient, NO floor or cast shadow, NO halo. No text, titles, cell labels or dividers. Full figures fully isolated for game sprites. Preserve identity and palette while changing only the specified art treatment.",
+      "generator": "built-in image_gen"
+    },
+    {
+      "id": "tapir-16bit",
+      "character": "tapir",
+      "treatment": "16bit",
+      "poses": [
+        "/assets/video/poses/tapir-16bit-0.png",
+        "/assets/video/poses/tapir-16bit-1.png",
+        "/assets/video/poses/tapir-16bit-2.png"
+      ],
+      "sourcePage": 30,
+      "sourceStrip": "source-strips/tapir-16bit.png",
+      "sha256": "266eb83a08e716019c534572040f5004a98711c3533ce53907df3d45d1573e7d",
+      "prompt": "Use case: style-transfer. Asset type: transparent three-pose character sprite strip. Input image is the visual identity reference, NOT a page to reproduce. Subject: A29 The Tapir Tenor, rotund charcoal tapir, plum tuxedo, cream shirt, copper trumpet trunk. Create the SAME three complete poses in the same left-to-right order as the reference in this treatment: rich 16-bit era pixel sprite art. Approximately 128 by 192 logical pixels per figure, crisp controlled pixel clusters, 20-28 colors with stepped shading and selective highlights. More detailed than 8-bit, but visibly pixel art. Composition: exactly THREE equal-width cells across a wide 3:2 PNG. One full character centered in each cell. Each character occupies at most 80% of its cell width and 76% of canvas height. Feet share a baseline at 88% of image height. Retain ALL tails, hands, shoes and props inside their own cell. Poses should be distinctly readable. No extra figures. Background must be truly transparent: zero background color, NO glow, NO gradient, NO floor or cast shadow, NO halo. No text, titles, cell labels or dividers. Full figures fully isolated for game sprites. Preserve identity and palette while changing only the specified art treatment.",
+      "generator": "built-in image_gen"
+    },
+    {
+      "id": "tapir-tex-avery",
+      "character": "tapir",
+      "treatment": "tex-avery",
+      "poses": [
+        "/assets/video/poses/tapir-tex-avery-0.png",
+        "/assets/video/poses/tapir-tex-avery-1.png",
+        "/assets/video/poses/tapir-tex-avery-2.png"
+      ],
+      "sourcePage": 30,
+      "sourceStrip": "source-strips/tapir-tex-avery.png",
+      "sha256": "4076131856f51e37992d3ef9a6944165adfff10c5fc441e95f684a5b95f427cc",
+      "prompt": "Use case: style-transfer. Asset type: transparent three-pose character sprite strip. Input image is the visual identity reference, NOT a page to reproduce. Subject: A29 The Tapir Tenor, rotund charcoal tapir, plum tuxedo, cream shirt, copper trumpet trunk. Create the SAME three complete poses in the same left-to-right order as the reference in this treatment: classic Tex Avery-style hand-drawn theatrical cartoon animation. Smooth crisp ink outlines, expressive rubber-hose hands, appealing exaggerated mouth/trunk poses, flat cel color with restrained shadows. Keep the character recognizable and costume intact. These should look like polished hand-painted animation cels, not pixel art. Composition: exactly THREE equal-width cells across a wide 3:2 PNG. One full character centered in each cell. Each character occupies at most 80% of its cell width and 76% of canvas height. Feet share a baseline at 88% of image height. Retain ALL tails, hands, shoes and props inside their own cell. Poses should be distinctly readable. No extra figures. Background must be truly transparent: zero background color, NO glow, NO gradient, NO floor or cast shadow, NO halo. No text, titles, cell labels or dividers. Full figures fully isolated for game sprites. Preserve identity and palette while changing only the specified art treatment.",
+      "generator": "built-in image_gen"
+    }
+  ]
+}
