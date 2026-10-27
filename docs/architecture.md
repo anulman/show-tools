@@ -136,3 +136,9 @@ The local WASM clock keeps practice usable on a static host. Song modules keep D
 The default manual WASM clock excludes aubio. The optional full WASM build and existing native tracker build link GPL-3.0-or-later aubio. The standalone native performance, sequencer, and sampler targets do not use aubio. Effect is MIT-licensed. MP3 export uses an MIT wrapper around LGPL-2.0-or-later LAME. The [MP3 notice](../ui/practice/licenses/README.md) records that copyleft exception.
 
 The rationale above uses this session's explicit requirements, repository code, and commit history. It does not claim an external design review or hardware measurement. Useful changes to inspect with `git show` are `0b34710` for the practice architecture, `75f3afb` for cowbell variants, `91e45b7` for voice centering, `7eb9e09` for Sheets jitter, `fea846a` for lead-in exclusion, and `86fd6ec` for MP3 export.
+
+## Peripheral wiring diagnostics are separate from musical control
+
+[lib/peripherals](../lib/peripherals/README.md) supplies a native operator-run I-PAC probe, capture summaries, and a portable C++ input latch and explicit light math. The Mac and Linux host adapters report actual keyboard and relative-axis input. A guarded single-LED command requires an explicit operator invocation, observed compatible output descriptor, selected channel, and wiring confirmation. Tests open no devices.
+
+These tools do not configure firmware or song bindings. Performance Engine still owns musical resolution, applied frames, tempo, and semantic light feedback. Device adapters own actual IO and consumer cadence. The current PF compatibility fixture does not establish the new 6/8 or relative-control contracts, and production browser pad integration remains coordinated work. Local WASM practice remains independent of peripherals and the relay.

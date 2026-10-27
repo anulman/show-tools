@@ -1,0 +1,24 @@
+name: Peripheral native checks
+on:
+  pull_request:
+    paths:
+      - 'lib/peripherals/**'
+      - 'lib/performance/**'
+      - 'lib/sequencer/**'
+      - 'lib/sampler/**'
+      - 'lib/beat-tracker/**'
+      - '.github/workflows/peripherals.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  native:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: cmake -S lib/peripherals -B /tmp/show-tools-peripherals -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build /tmp/show-tools-peripherals --parallel
+      - run: ctest --test-dir /tmp/show-tools-peripherals --output-on-failure
