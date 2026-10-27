@@ -18,6 +18,8 @@ For deterministic inspection, `renderAt(seconds)` pauses and samples an exact pr
 
 ## Sources and treatments
 
+The [asset handoff](../../assets/video/README.md) links the editable Figma gallery and motion study. [Figma metadata](../../assets/video/figma.json) maps all eight models and 24 poses to their component and artwork node IDs.
+
 The source references are A07 Gator Crooner on page 8 and A29 The Tapir Tenor on page 30 of `Old TV Character ideas-1.pdf`. The operator's PDFs remain untouched in Dropbox. Selected page renders are under `assets/video/references/`.
 
 `assets/video/manifest.json` records publication clearance, PDF checksum, source pages, all eight built-in image-generation prompts, input-strip checksums, and production pose paths. The Original treatment is generated cleanup matching the source drawing, not a claim that generation preserved every source pixel. The 8-bit, 16-bit, and Tex Avery treatments are generated interpretations. No third-party character assets are used.

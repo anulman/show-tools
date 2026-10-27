@@ -1,0 +1,254 @@
+{
+  "version": 1,
+  "verifiedOn": "2026-10-27",
+  "file": {
+    "key": "QWreOYAnaje2LlywefJFiK",
+    "url": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK",
+    "team": "Aidan's Starter team",
+    "teamKey": "team::1560555073068228678",
+    "pageId": "0:1"
+  },
+  "gallery": {
+    "nodeId": "2:12",
+    "url": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=2-12",
+    "instances": 24
+  },
+  "motionStudy": {
+    "nodeId": "2:154",
+    "url": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=2-154",
+    "durationSeconds": 4,
+    "easing": "HOLD",
+    "poseSequence": [
+      {
+        "seconds": 0,
+        "pose": 0
+      },
+      {
+        "seconds": 1,
+        "pose": 1
+      },
+      {
+        "seconds": 2.5,
+        "pose": 2
+      },
+      {
+        "seconds": 3,
+        "pose": 1
+      },
+      {
+        "seconds": 3.5,
+        "pose": 0
+      },
+      {
+        "seconds": 4,
+        "pose": 0
+      }
+    ],
+    "export": {
+      "fps": 5,
+      "frames": 20,
+      "durationSeconds": 4,
+      "duplicateEndpointRemoved": true
+    }
+  },
+  "models": [
+    {
+      "id": "gator-original",
+      "componentSetId": "2:23",
+      "poses": [
+        {
+          "pose": 0,
+          "componentId": "2:20",
+          "artworkNodeId": "2:24",
+          "path": "assets/video/poses/gator-original-0.png"
+        },
+        {
+          "pose": 1,
+          "componentId": "2:21",
+          "artworkNodeId": "2:25",
+          "path": "assets/video/poses/gator-original-1.png"
+        },
+        {
+          "pose": 2,
+          "componentId": "2:22",
+          "artworkNodeId": "2:26",
+          "path": "assets/video/poses/gator-original-2.png"
+        }
+      ]
+    },
+    {
+      "id": "gator-8bit",
+      "componentSetId": "2:39",
+      "poses": [
+        {
+          "pose": 0,
+          "componentId": "2:36",
+          "artworkNodeId": "2:40",
+          "path": "assets/video/poses/gator-8bit-0.png"
+        },
+        {
+          "pose": 1,
+          "componentId": "2:37",
+          "artworkNodeId": "2:41",
+          "path": "assets/video/poses/gator-8bit-1.png"
+        },
+        {
+          "pose": 2,
+          "componentId": "2:38",
+          "artworkNodeId": "2:42",
+          "path": "assets/video/poses/gator-8bit-2.png"
+        }
+      ]
+    },
+    {
+      "id": "gator-16bit",
+      "componentSetId": "2:55",
+      "poses": [
+        {
+          "pose": 0,
+          "componentId": "2:52",
+          "artworkNodeId": "2:56",
+          "path": "assets/video/poses/gator-16bit-0.png"
+        },
+        {
+          "pose": 1,
+          "componentId": "2:53",
+          "artworkNodeId": "2:57",
+          "path": "assets/video/poses/gator-16bit-1.png"
+        },
+        {
+          "pose": 2,
+          "componentId": "2:54",
+          "artworkNodeId": "2:58",
+          "path": "assets/video/poses/gator-16bit-2.png"
+        }
+      ]
+    },
+    {
+      "id": "gator-tex-avery",
+      "componentSetId": "2:71",
+      "poses": [
+        {
+          "pose": 0,
+          "componentId": "2:68",
+          "artworkNodeId": "2:72",
+          "path": "assets/video/poses/gator-tex-avery-0.png"
+        },
+        {
+          "pose": 1,
+          "componentId": "2:69",
+          "artworkNodeId": "2:73",
+          "path": "assets/video/poses/gator-tex-avery-1.png"
+        },
+        {
+          "pose": 2,
+          "componentId": "2:70",
+          "artworkNodeId": "2:74",
+          "path": "assets/video/poses/gator-tex-avery-2.png"
+        }
+      ]
+    },
+    {
+      "id": "tapir-original",
+      "componentSetId": "2:87",
+      "poses": [
+        {
+          "pose": 0,
+          "componentId": "2:84",
+          "artworkNodeId": "2:88",
+          "path": "assets/video/poses/tapir-original-0.png"
+        },
+        {
+          "pose": 1,
+          "componentId": "2:85",
+          "artworkNodeId": "2:89",
+          "path": "assets/video/poses/tapir-original-1.png"
+        },
+        {
+          "pose": 2,
+          "componentId": "2:86",
+          "artworkNodeId": "2:90",
+          "path": "assets/video/poses/tapir-original-2.png"
+        }
+      ]
+    },
+    {
+      "id": "tapir-8bit",
+      "componentSetId": "2:103",
+      "poses": [
+        {
+          "pose": 0,
+          "componentId": "2:100",
+          "artworkNodeId": "2:104",
+          "path": "assets/video/poses/tapir-8bit-0.png"
+        },
+        {
+          "pose": 1,
+          "componentId": "2:101",
+          "artworkNodeId": "2:105",
+          "path": "assets/video/poses/tapir-8bit-1.png"
+        },
+        {
+          "pose": 2,
+          "componentId": "2:102",
+          "artworkNodeId": "2:106",
+          "path": "assets/video/poses/tapir-8bit-2.png"
+        }
+      ]
+    },
+    {
+      "id": "tapir-16bit",
+      "componentSetId": "2:119",
+      "poses": [
+        {
+          "pose": 0,
+          "componentId": "2:116",
+          "artworkNodeId": "2:120",
+          "path": "assets/video/poses/tapir-16bit-0.png"
+        },
+        {
+          "pose": 1,
+          "componentId": "2:117",
+          "artworkNodeId": "2:121",
+          "path": "assets/video/poses/tapir-16bit-1.png"
+        },
+        {
+          "pose": 2,
+          "componentId": "2:118",
+          "artworkNodeId": "2:122",
+          "path": "assets/video/poses/tapir-16bit-2.png"
+        }
+      ]
+    },
+    {
+      "id": "tapir-tex-avery",
+      "componentSetId": "2:135",
+      "poses": [
+        {
+          "pose": 0,
+          "componentId": "2:132",
+          "artworkNodeId": "2:136",
+          "path": "assets/video/poses/tapir-tex-avery-0.png"
+        },
+        {
+          "pose": 1,
+          "componentId": "2:133",
+          "artworkNodeId": "2:137",
+          "path": "assets/video/poses/tapir-tex-avery-1.png"
+        },
+        {
+          "pose": 2,
+          "componentId": "2:134",
+          "artworkNodeId": "2:138",
+          "path": "assets/video/poses/tapir-tex-avery-2.png"
+        }
+      ]
+    }
+  ],
+  "sourceReferences": {
+    "directory": "assets/video/references/",
+    "uploadedToFigma": false,
+    "optional": true
+  },
+  "livePerformanceEngineSubscription": false
+}
