@@ -266,10 +266,10 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
   const sections: ChartSection[] = [], bars: ChartBar[] = [];
   let section: ChartSection | null = null;
   const padRow = (column: number) => ({
-    L1: at(source.values, mapping.controls.find(c => c.buttonId === 'L1')?.cueRow ?? 1, column),
-    L2: at(source.values, mapping.controls.find(c => c.buttonId === 'L2')?.cueRow ?? 1, column),
-    R1: at(source.values, mapping.controls.find(c => c.buttonId === 'R1')?.cueRow ?? 1, column),
-    R2: at(source.values, mapping.controls.find(c => c.buttonId === 'R2')?.cueRow ?? 1, column),
+    L1: at(source.values, mapping.controls.find(c => c.buttonId === 'L1')?.cueRow ?? 1, column).trim(),
+    L2: at(source.values, mapping.controls.find(c => c.buttonId === 'L2')?.cueRow ?? 1, column).trim(),
+    R1: at(source.values, mapping.controls.find(c => c.buttonId === 'R1')?.cueRow ?? 1, column).trim(),
+    R2: at(source.values, mapping.controls.find(c => c.buttonId === 'R2')?.cueRow ?? 1, column).trim(),
   });
   let previousColumn = 0;
   for (const [bar, column] of [...columns].sort(([a], [b]) => a - b)) {

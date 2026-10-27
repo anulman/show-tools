@@ -5,6 +5,7 @@ import type { SongMapping } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
 import dycMapping from '../../../songs/dance-yrself-clean.mapping.json';
+import { encodeCompiledProgram } from '../compiled-native.js';
 
 function fixture(): { source: SongSource; mapping: SongMapping } {
   const values = Array.from({ length: 24 }, () => Array<string>(6).fill(''));
@@ -59,6 +60,16 @@ test('fractional stop separates applicability from execution and preserves sourc
   assert.equal(cue?.source.note, 'Exit after beat four');
   assert.equal(cue?.voiceId, 'cowbell');
   assert.equal(cue?.buttonId, 'R2');
+});
+
+test('whitespace-only control cells stay blank in display and leave native instructions unchanged', async () => {
+  const { source, mapping } = fixture();
+  const baseline = await compileSong(source, mapping);
+  const values = source.values.map(row => [...row]); values[18][4] = '    ';
+  const spaced = await compileSong({ ...source, values }, mapping);
+  assert.equal(spaced.chart.bars[2].cues.R2, '');
+  assert.notEqual(spaced.source.digest, baseline.source.digest, 'provenance still preserves the actual source edit');
+  assert.deepEqual(encodeCompiledProgram(spaced), encodeCompiledProgram(baseline));
 });
 
 test('unknown action syntax and unbound knob spans block execution without discarding known cues', async () => {
