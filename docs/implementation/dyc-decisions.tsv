@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-10-27T08:51:33Z	ground	Stack DYC implementation on effects ab56a67	Preserve reviewed ABI2 stems and live lifecycle	ab56a67	branch prepared
+2026-10-27T08:51:33Z	design	Use native domain tables and immutable take selections	Separate cue time from action time and preserve layers	docs/implementation/dyc-performance.md	selected
+2026-10-27T08:51:33Z	capture	Propose actual-entry routing and printed-repeat playback	Earlier merged Filters plan interpretation	docs/plans/filters-and-patches.md	superseded by operator override below
+2026-10-27T08:56:00Z	capture	Switch on arm; reject overlap; evolve effect history across loops	Latest explicit operator answers supersede earlier interpretation	docs/implementation/dyc-performance.md	native and Filters owners notified
+2026-10-27T09:02:57Z	compiler	Verify source import and source-located compiler before runtime integration	Catch notation and provenance errors before audio execution	lib/performance/tests/compiled-song.test.ts; scripts/tests/song-source.test.ts	17 tests pass; draft reports unresolved authoring facts

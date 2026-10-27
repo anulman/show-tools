@@ -1,0 +1,27 @@
+{
+  "mappingVersion": 1,
+  "notationVersion": "dyc-v1",
+  "songId": "dance-yrself-clean",
+  "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg",
+  "sheetId": 101,
+  "sheetName": "01 Dance Yrself Clean",
+  "titleCell": "B1",
+  "bpmCell": "F2",
+  "sectionRow": 4,
+  "barRow": 5,
+  "leadInColumn": 2,
+  "startBar": 1,
+  "endBar": 76,
+  "meter": { "numerator": 4, "denominator": 4 },
+  "controls": [
+    { "buttonId": "L1", "voiceId": "whistle", "cueRow": 20, "arrangementRow": 13, "nameNoteCell": "A20" },
+    { "buttonId": "L2", "voiceId": "bing-bong", "cueRow": 21, "arrangementRow": 12, "nameNoteCell": "A21" },
+    { "buttonId": "R1", "voiceId": "drums-claps", "cueRow": 18, "arrangementRow": 10, "nameNoteCell": "A18" },
+    { "buttonId": "R2", "voiceId": "cowbell", "cueRow": 19, "arrangementRow": 11, "nameNoteCell": "A19" }
+  ],
+  "cueWindow": null,
+  "capturePolicies": [],
+  "variantRules": [],
+  "overrides": [],
+  "deferredRows": []
+}
