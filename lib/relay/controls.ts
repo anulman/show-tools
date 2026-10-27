@@ -7,7 +7,7 @@ const gain = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
 const identifier = Schema.String.check(Schema.isPattern(/^[\w-]{8,128}$/));
 export const ControlSchema = Schema.Union([
   Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2', 'mushroom', 'tempo']) }),
-  Schema.Struct({ id: Schema.Literal('knob'), value: gain }),
+  Schema.Struct({ id: Schema.Literal('knob'), value: Schema.Number.check(Schema.isFinite()) }),
 ]);
 export const ControlMessageSchema = Schema.Struct({ commandId: identifier, control: ControlSchema });
 export const ProducerSchema = Schema.Struct({ producerId: identifier });

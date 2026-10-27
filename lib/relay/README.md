@@ -46,7 +46,7 @@ Send `Authorization: Bearer <token>` on API requests. The health endpoint is pub
 | `GET /api/controls` | Streams controls to the claimed producer |
 | `POST /api/controls` | Submits `{ "commandId": "...", "control": { "id": "L1" } }` |
 
-Control IDs are `L1`, `L2`, `R1`, `R2`, `mushroom`, and `knob`. A knob control includes a finite `value` between zero and one.
+Control IDs are `L1`, `L2`, `R1`, `R2`, `mushroom`, `tempo`, and `knob`. A knob control includes a finite signed relative `value`. The relay preserves direction and command identity. Native chart eligibility and musical time determine whether it activates audio; zero does not refresh rotation activity.
 
 Use a unique command ID for each action. A repeated ID with the same control is a duplicate. Reusing an ID for another control returns a conflict. A 202 receipt means accepted for delivery. The producer's later `control` event reports `applied: true` or `applied: false` and any error.
 

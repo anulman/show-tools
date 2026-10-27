@@ -35,7 +35,20 @@ export interface Chart {
   controlNames: Record<ChannelId, string>;
   annotatedThroughBar: number;
 }
-export type LiveEffectDefinition = { readonly kind: 'slapback'; readonly delayMs: number; readonly feedback: number; readonly wet: number };
+export const VOICE_PROFILE_COUNT = 6;
+export const DEFAULT_LIVE_PROFILE = 4;
+export const ROTATION_LIVE_PROFILE = 5;
+export type LiveEffectDefinition =
+  | { readonly kind: 'slapback'; readonly delayMs: number; readonly feedback: number; readonly wet: number }
+  | { readonly kind: 'chorus'; readonly rateHz: number; readonly depthMs: number; readonly baseDelayMs: number; readonly wet: number };
+export interface VoiceEffectConfiguration { readonly profile: number; readonly effects: readonly LiveEffectDefinition[] }
+export interface VoiceEffectsState extends VoiceEffectConfiguration {
+  readonly prepared: boolean;
+  readonly revision: number;
+  readonly activity: 'standby' | 'live' | 'tail' | 'capture';
+  readonly rotationEligible: boolean;
+  readonly rotationRemainingBeats: number;
+}
 export interface LiveEffectsState {
   prepared: boolean;
   active: boolean;
@@ -78,6 +91,7 @@ export interface PracticeState extends TransportState {
   lifecycle?: string;
   chart?: ChartMetadata;
   liveEffects?: LiveEffectsState;
+  voiceEffects?: readonly VoiceEffectsState[];
   tempoHits?: TempoHitState;
 }
 export interface StartOptions {

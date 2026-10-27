@@ -35,6 +35,9 @@ class Effect {
 struct SlapbackParameters { double delay_ms = 100, feedback = 0, wet = .25; };
 std::unique_ptr<Effect> make_slapback(double sample_rate, SlapbackParameters parameters = {}) noexcept;
 
+struct ChorusParameters { double rate_hz = .8, depth_ms = 5, base_delay_ms = 20, wet = .35; };
+std::unique_ptr<Effect> make_chorus(double sample_rate, ChorusParameters parameters = {}) noexcept;
+
 class Rack {
  public:
   static std::unique_ptr<Rack> create(std::unique_ptr<Effect>* stages, size_t count) noexcept;

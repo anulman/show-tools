@@ -10,6 +10,7 @@ import { compileSong, canonicalSongJson, inspectCompiledSong } from '../lib/perf
 import { compiledProgramBytes } from '../lib/performance/compiled-native.js';
 import { NativePerformance } from '../lib/performance/wasm-performance.js';
 import { CONTROL_IDS } from '../lib/performance/model.js';
+import type { LiveEffectDefinition } from '../lib/performance/model.js';
 import { PF } from '../lib/performance/wasm-abi.js';
 import source from '../songs/dance-yrself-clean.source.json';
 import mapping from '../songs/dance-yrself-clean.mapping.json';
@@ -18,7 +19,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = await mkdtemp(join(tmpdir(), 'show-tools-dyc-'));
 const execute = promisify(execFile);
 const finite = Schema.Number.check(Schema.isFinite());
-const ResultSchema = Schema.Struct({ frames: Schema.Int, phase: Schema.Int, bpm: finite, tempoHits: Schema.Int, events: Schema.Int,
+const ResultSchema = Schema.Struct({ frames: Schema.Int, phase: Schema.Int, bpm: finite, tempoHits: Schema.Int, events: Schema.Int, rotations: Schema.Int,
   takes: Schema.Array(Schema.Struct({ voice: Schema.Int, ready: Schema.Int, frames: Schema.Int, period: Schema.Int, revision: Schema.Int })),
   stems: Schema.Array(Schema.Struct({ energy: finite, sum: finite, peak: finite, nonzero: Schema.Int })),
 });
@@ -46,9 +47,15 @@ await command('cmake', ['-S', 'lib/performance', '-B', build, '-DCMAKE_BUILD_TYP
 await command('cmake', ['--build', build, '--target', 'compiled_song_host', '--parallel', '4']);
 const module = await WebAssembly.compile(await readFile(join(root, 'ui/practice/wasm/manual-clock.wasm')));
 function presses(rate: number) {
-  return song.cues.map(cue => ({ frame: cue.bar === 0 ? 1 : Math.ceil((song.chart.beatsPerBar + 1 + (cue.bar - 1) * song.chart.beatsPerBar + (cue.cueBeat ?? 0)) * rate * 60 / song.chart.bpm) + 1,
-    button: CONTROL_IDS.indexOf(cue.buttonId), source: cue.source.a1, text: cue.source.text }))
-    .sort((a, b) => a.frame - b.frame || a.button - b.button);
+  const at = (position: number) => Math.ceil((song.chart.beatsPerBar + 1 + position) * rate * 60 / song.chart.bpm) + 1;
+  const pads = song.cues.map(cue => ({ frame: cue.bar === 0 ? 1 : at((cue.bar - 1) * song.chart.beatsPerBar + (cue.cueBeat ?? 0)),
+    button: CONTROL_IDS.indexOf(cue.buttonId), value: 0, source: cue.source.a1, text: cue.source.text }));
+  assert.equal(song.rotation?.windows.length, 10, 'actual DYC declares all ten rotation spans');
+  const rotations = song.rotation.windows.flatMap(window => [1, -1, 0].map((value, index) => ({
+    frame: at((window.begin.bar - 1) * song.chart.beatsPerBar + window.begin.beat + [0, .25, .375][index]),
+    button: 5, value, source: window.source.a1, text: window.source.text,
+  })));
+  return [...pads, ...rotations].sort((a, b) => a.frame - b.frame || a.button - b.button);
 }
 function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
   let memory: WebAssembly.Memory;
@@ -58,7 +65,7 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
   memory = instance.exports.memory;
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
   const native = new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE, clickGain: 0 });
-  let frame = 0, next = 0, events = 0, tempoHits = 0;
+  let frame = 0, next = 0, events = 0, tempoHits = 0, rotations = 0;
   const stems = Array.from({ length: 4 }, () => ({ energy: 0, sum: 0, peak: 0, nonzero: 0 }));
   function drain() {
     for (const event of native.events()) {
@@ -80,7 +87,11 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
     frame += count; drain();
   }
   try {
-    native.prepareLiveEffects([{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }]);
+    native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => {
+      const effects: LiveEffectDefinition[] = [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }];
+      if (profile === PF.BACKUP_PROFILE) effects.push({ kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: .35 });
+      return { profile, effects };
+    }));
     const pointer = native.call('malloc', bytes.length);
     try { new Uint8Array(memory.buffer, pointer, bytes.length).set(bytes); native.call('pf_load_compiled_bytes', native.handle, pointer, bytes.length); }
     finally { native.invoke('free', pointer); }
@@ -92,7 +103,14 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
       assert(frame < rate * 500);
       while (next < plan.length && plan[next].frame === frame) {
         const press = plan[next++];
-        try { native.control({ id: CONTROL_IDS[press.button] }); }
+        try {
+          native.control(press.button === 5 ? { id: 'knob', value: press.value } : { id: CONTROL_IDS[press.button] });
+          if (press.button === 5 && press.value) {
+            const backup = native.voiceEffects().find(voice => voice.profile === PF.BACKUP_PROFILE);
+            assert(backup?.rotationEligible && backup.rotationRemainingBeats > .49, `rotation did not activate at ${press.source}`);
+            rotations++;
+          }
+        }
         catch (error) { throw new Error(`Press rejected at frame ${frame}, ${press.source} ${press.text}: ${error instanceof Error ? error.message : String(error)}`); }
         drain();
       }
@@ -101,7 +119,7 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
     }
     assert.equal(next, plan.length);
     process(128, true);
-    return { frames: frame, phase: PF.ENDED, bpm: native.state().bpm, tempoHits, events, stems,
+    return { frames: frame, phase: PF.ENDED, bpm: native.state().bpm, tempoHits, events, rotations, stems,
       takes: song.takes.map((_, index) => { const take = native.compiledTake(index); return { voice: take.voice, ready: Number(take.ready), frames: take.frames, period: take.period, revision: take.revision }; }) };
   } finally { native.dispose(); }
 }
@@ -109,7 +127,7 @@ const reports = [];
 let failed = false;
 for (const rate of [44100, 48000]) {
   const plan = presses(rate), script = join(directory, `presses-${rate}.tsv`);
-  await writeFile(script, plan.map(press => `${press.frame}\t${press.button}`).join('\n') + '\n');
+  await writeFile(script, plan.map(press => `${press.frame}\t${press.button}\t${press.value}`).join('\n') + '\n');
   await writeFile(join(directory, `source-presses-${rate}.json`), JSON.stringify(plan, null, 2));
   let native: Result | null = null, browser: Result | null = null;
   const errors: string[] = [];
@@ -121,6 +139,7 @@ for (const rate of [44100, 48000]) {
     try {
       assert.deepEqual(native.takes, browser.takes); assert.equal(native.frames, browser.frames); assert.equal(native.events, browser.events);
       assert.equal(native.tempoHits, 2); assert.equal(browser.tempoHits, 2); assert.equal(native.takes.length, 9);
+      assert.equal(native.rotations, 20); assert.equal(browser.rotations, 20);
       assert(native.takes.every(take => take.ready && take.frames > 0 && take.period >= take.frames && take.revision === 1));
       for (let index = 0; index < 4; index++) {
         assert(native.stems[index].energy > 0);

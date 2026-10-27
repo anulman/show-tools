@@ -15,7 +15,7 @@
 
 namespace {
 constexpr uint32_t block_frames = 1024;
-struct Press { uint64_t frame; int button; };
+struct Press { uint64_t frame; int button; double value; };
 struct Stem {
   double energy = 0, sum = 0, peak = 0;
   uint64_t nonzero = 0;
@@ -82,19 +82,30 @@ int main(int argc, char** argv) {
     ++line_number;
     if (!line.empty() && line.back() == '\r') line.pop_back();
     const size_t tab = line.find('\t');
-    uint64_t frame = 0, button = 0;
-    if (tab == std::string::npos || line.find('\t', tab + 1) != std::string::npos
-      || !number(std::string_view(line).substr(0, tab), frame) || !number(std::string_view(line).substr(tab + 1), button)
-      || button >= PF_CHANNELS || frame >= max_frames || (!presses.empty() && frame < presses.back().frame)) {
+    const size_t value_tab = tab == std::string::npos ? std::string::npos : line.find('\t', tab + 1);
+    uint64_t frame = 0, button = 0; double value = 0;
+    bool valid_value = true;
+    if (value_tab != std::string::npos) {
+      const std::string_view text = std::string_view(line).substr(value_tab + 1);
+      const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+      valid_value = !text.empty() && parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && std::isfinite(value);
+    }
+    if (tab == std::string::npos || !valid_value
+      || !number(std::string_view(line).substr(0, tab), frame) || !number(std::string_view(line).substr(tab + 1, value_tab == std::string::npos ? value_tab : value_tab - tab - 1), button)
+      || (button >= PF_CHANNELS && button != 5) || (button != 5 && value != 0) || frame >= max_frames || (!presses.empty() && frame < presses.back().frame)) {
       return fail("Invalid or unsorted press script at line " + std::to_string(line_number));
     }
-    presses.push_back({frame, int(button)});
+    presses.push_back({frame, int(button), value});
   }
   if (!script.eof()) return fail("Could not read press script");
   std::unique_ptr<pf_engine, decltype(&pf_destroy)> engine(pf_create(double(sample_rate), PF_PRACTICE, 32, 30, 4), pf_destroy);
   if (!engine) return fail("Could not create performance engine");
   const pf_effect_definition slapback{PF_EFFECT_SLAPBACK, 1, {{100, 0, .25}}};
-  if (pf_prepare_live_effects(engine.get(), &slapback, 1, 1) < 0
+  pf_effect_definition chorus{}; chorus.type = PF_EFFECT_CHORUS; chorus.version = 1;
+  chorus.parameters.chorus = {.8, 5, 20, .35};
+  std::array<pf_effect_definition, PF_VOICE_PROFILES + 1> effects{}; effects.fill(slapback); effects.back() = chorus;
+  std::array<uint32_t, PF_VOICE_PROFILES> counts{}, revisions{}; counts.fill(1); counts[PF_BACKUP_PROFILE] = 2; revisions.fill(1);
+  if (pf_prepare_voice_effects(engine.get(), effects.data(), counts.data(), revisions.data()) < 0
     || pf_load_compiled_bytes(engine.get(), bytes.data(), uint32_t(bytes.size())) < 0) return fail(pf_error(engine.get()));
   std::array<double, PF_FIELDS> snapshot{}; pf_snapshot(engine.get(), snapshot.data());
   if (pf_set_microphone(engine.get(), 1) < 0 || pf_set_click(engine.get(), 0) < 0 || pf_set_click_gain(engine.get(), 0) < 0
@@ -105,6 +116,7 @@ int main(int argc, char** argv) {
   std::array<std::array<float, block_frames>, 4> output{};
   std::array<Stem, 4> stems{};
   uint64_t frame = 0;
+  uint64_t rotations = 0;
   size_t next_press = 0;
   auto process = [&](uint32_t frames, bool must_be_silent) {
     for (uint32_t offset = 0; offset < frames; ++offset) input[offset] = float((int((frame + offset) % 97) - 48) / 256.0);
@@ -125,7 +137,12 @@ int main(int argc, char** argv) {
     if (snapshot[PF_PHASE] != PF_COUNT_IN && snapshot[PF_PHASE] != PF_PLAYING) return fail("Transport stopped before ENDED");
     if (frame >= max_frames) return fail("Performance exceeded the 500 second fixture guard");
     while (next_press < presses.size() && presses[next_press].frame == frame) {
-      if (pf_control(engine.get(), presses[next_press].button, 0, nullptr, 0) < 0) return fail("Press rejected at frame " + std::to_string(frame) + ": " + pf_error(engine.get()));
+      if (pf_control(engine.get(), presses[next_press].button, presses[next_press].value, nullptr, 0) < 0) return fail("Press rejected at frame " + std::to_string(frame) + ": " + pf_error(engine.get()));
+      if (presses[next_press].button == 5 && presses[next_press].value != 0) {
+        std::array<double, PF_VOICE_FIELDS> backup{}; pf_voice_info(engine.get(), PF_BACKUP_PROFILE, backup.data());
+        if (backup[PF_VOICE_ROTATION_ELIGIBLE] != 1 || backup[PF_VOICE_ROTATION_REMAINING] <= .49) return fail("Rotation did not activate at frame " + std::to_string(frame));
+        ++rotations;
+      }
       ++next_press;
       if (!events.drain(engine.get())) return 1;
     }
@@ -137,7 +154,7 @@ int main(int argc, char** argv) {
   if (!process(128, true)) return 1;
   pf_snapshot(engine.get(), snapshot.data());
   std::cout << std::setprecision(17) << "{\"frames\":" << frame << ",\"phase\":" << snapshot[PF_PHASE]
-            << ",\"bpm\":" << snapshot[PF_BPM] << ",\"tempoHits\":" << events.tempo_hits << ",\"events\":" << events.count << ",\"takes\":[";
+            << ",\"bpm\":" << snapshot[PF_BPM] << ",\"tempoHits\":" << events.tempo_hits << ",\"events\":" << events.count << ",\"rotations\":" << rotations << ",\"takes\":[";
   for (uint32_t id = 0; id < uint32_t(take_count); ++id) {
     std::array<double, PF_TAKE_FIELDS> take{}; pf_compiled_take_info(engine.get(), id, take.data());
     if (id) std::cout << ',';

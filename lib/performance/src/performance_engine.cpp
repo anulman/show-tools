@@ -53,15 +53,18 @@ bool numeric_channel(double value) { return integer(value) && value >= 0 && valu
 bool frame(double value) { return std::isfinite(value) && std::abs(value) <= safe_frame; }
 }
 
+struct EffectProfile {
+  std::unique_ptr<patches::Rack> rack;
+  pf_effect_definition definitions[PF_MAX_LIVE_EFFECTS]{};
+  uint32_t count = 0, revision = 0;
+};
 struct pf_engine {
   bt_tracker* tracker = nullptr;
   st_engine* sampler = nullptr;
   sq_engine* sequencer = nullptr;
   Song* song = nullptr;
   std::unique_ptr<compiled::Program> compiled;
-  std::unique_ptr<patches::Rack> live_rack;
-  pf_effect_definition live_definitions[PF_MAX_LIVE_EFFECTS]{};
-  uint32_t live_count = 0, live_revision = 0;
+  EffectProfile profiles[PF_VOICE_PROFILES];
   double tempo_info[PF_TEMPO_FIELDS]{};
   double tempo_epoch = -1;
   bool live_authorized = false;
@@ -101,16 +104,45 @@ bool recording(const pf_engine* engine, int id) {
   return data[ST_SLOT_RECORDING] != 0;
 }
 bool running(const pf_engine* engine) { return engine->phase == PF_COUNT_IN || engine->phase == PF_PLAYING; }
-bool live_active(const pf_engine* engine) { return engine->mode == PF_PRACTICE && engine->live_authorized && engine->microphone && engine->live_rack && running(engine); }
+bool live_active(const pf_engine* engine) { return engine->mode == PF_PRACTICE && engine->live_authorized && engine->microphone && engine->profiles[PF_DEFAULT_PROFILE].rack && running(engine); }
 void clear_live(pf_engine* engine) {
   engine->live_authorized = false;
-  if (engine->live_rack) engine->live_rack->reset();
+  for (auto& profile : engine->profiles) if (profile.rack) profile.rack->reset();
+}
+bool valid_effect(const pf_effect_definition& effect) {
+  if (effect.version != 1) return false;
+  if (effect.type == PF_EFFECT_SLAPBACK) {
+    const auto& p = effect.parameters.slapback;
+    return std::isfinite(p.delay_ms) && p.delay_ms >= 40 && p.delay_ms <= 250 && std::isfinite(p.feedback) && p.feedback >= 0 && p.feedback <= .7 && std::isfinite(p.wet) && p.wet >= 0 && p.wet <= 1;
+  }
+  if (effect.type == PF_EFFECT_CHORUS) {
+    const auto& p = effect.parameters.chorus;
+    return std::isfinite(p.rate_hz) && p.rate_hz >= .05 && p.rate_hz <= 5 && std::isfinite(p.depth_ms) && p.depth_ms >= 0 && p.depth_ms <= 9 && std::isfinite(p.base_delay_ms) && p.base_delay_ms >= 10 && p.base_delay_ms <= 40 && std::isfinite(p.wet) && p.wet >= 0 && p.wet <= 1;
+  }
+  return false;
 }
 bool same_effect(const pf_effect_definition& left, const pf_effect_definition& right) {
-  return left.type == right.type && left.version == right.version
-    && left.parameters.slapback.delay_ms == right.parameters.slapback.delay_ms
-    && left.parameters.slapback.feedback == right.parameters.slapback.feedback
-    && left.parameters.slapback.wet == right.parameters.slapback.wet;
+  if (left.type != right.type || left.version != right.version) return false;
+  if (left.type == PF_EFFECT_CHORUS) {
+    const auto& a = left.parameters.chorus; const auto& b = right.parameters.chorus;
+    return a.rate_hz == b.rate_hz && a.depth_ms == b.depth_ms && a.base_delay_ms == b.base_delay_ms && a.wet == b.wet;
+  }
+  const auto& a = left.parameters.slapback; const auto& b = right.parameters.slapback;
+  return a.delay_ms == b.delay_ms && a.feedback == b.feedback && a.wet == b.wet;
+}
+std::unique_ptr<patches::Rack> prepare_rack(double rate, const pf_effect_definition* effects, uint32_t count) {
+  std::unique_ptr<patches::Effect> stages[PF_MAX_LIVE_EFFECTS];
+  for (uint32_t index = 0; index < count; ++index) {
+    if (effects[index].type == PF_EFFECT_SLAPBACK) {
+      const auto& p = effects[index].parameters.slapback;
+      stages[index] = patches::make_slapback(rate, {p.delay_ms, p.feedback, p.wet});
+    } else {
+      const auto& p = effects[index].parameters.chorus;
+      stages[index] = patches::make_chorus(rate, {p.rate_hz, p.depth_ms, p.base_delay_ms, p.wet});
+    }
+    if (!stages[index]) return nullptr;
+  }
+  return patches::Rack::create(stages, count);
 }
 bool disjoint_audio(const float* const* spans, unsigned count, uint32_t frames) {
   const uint64_t bytes = uint64_t(frames) * sizeof(float);
@@ -175,7 +207,7 @@ void silence(pf_engine* engine, int reason = 3) {
 int sample_result(pf_engine* engine, int result) { return result < 0 ? fail(engine, PF_ACTION_FAILED, st_error(engine->sampler)) : result; }
 int sequence_result(pf_engine* engine, int result) { return result < 0 ? fail(engine, PF_ACTION_FAILED, sq_error(engine->sequencer)) : result; }
 int execute(pf_engine* engine, int id, const Cue& cue, double when) {
-  if (engine->live_count && (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM)) return fail(engine, PF_CAPTURE_EFFECTS_UNAVAILABLE);
+  if (engine->profiles[PF_DEFAULT_PROFILE].count && (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM)) return fail(engine, PF_CAPTURE_EFFECTS_UNAVAILABLE);
   switch (cue.kind) {
     case PF_ARM:
       if (sample_result(engine, st_start(engine->sampler, id, when, 0)) < 0) return -1;
@@ -230,7 +262,7 @@ int press(pf_engine* engine, int id) {
   }
   engine->selected = id;
   const Cue& cue = current_cue(engine, id);
-  if (engine->live_count && (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM)) return fail(engine, PF_CAPTURE_EFFECTS_UNAVAILABLE);
+  if (engine->profiles[PF_DEFAULT_PROFILE].count && (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM)) return fail(engine, PF_CAPTURE_EFFECTS_UNAVAILABLE);
   if (cue.kind == PF_NONE) return 0;
   if (cue.kind == PF_UNSUPPORTED) return fail(engine, PF_UNSUPPORTED_CUE);
   if (cue.kind == PF_TAP) {
@@ -277,8 +309,8 @@ void queue_tracker(pf_engine* engine, const double* event) {
 }
 void render_segment(pf_engine* engine, const float* input, float* left, float* right, float* live_left, float* live_right, unsigned count, double start) {
   if (!count) return;
-  if (engine->compiled && engine->live_rack) {
-    engine->compiled->render(input, left, right, live_left, live_right, count, start, engine->bpm, live_active(engine), *engine->live_rack);
+  if (engine->compiled && engine->profiles[PF_DEFAULT_PROFILE].rack) {
+    engine->compiled->render(input, left, right, live_left, live_right, count, start, engine->bpm, live_active(engine), *engine->profiles[PF_DEFAULT_PROFILE].rack, *engine->profiles[PF_BACKUP_PROFILE].rack);
     if (engine->compiled->error() != PF_OK) {
       int error = engine->compiled->error(); engine->compiled->clear_error();
       if (error != PF_LOOP_MISMATCH) { engine->phase = PF_IDLE; engine->count_remaining = 0; clear_live(engine); }
@@ -287,7 +319,7 @@ void render_segment(pf_engine* engine, const float* input, float* left, float* r
   }
   else if (live_active(engine)) for (unsigned index = 0; index < count; ++index) {
     float value = input && std::isfinite(input[index]) ? input[index] : 0;
-    patches::Stereo output = engine->live_rack->process({value, value});
+    patches::Stereo output = engine->profiles[PF_DEFAULT_PROFILE].rack->process({value, value});
     if (live_left) live_left[index] += output.left;
     if (live_right) live_right[index] += output.right;
   }
@@ -356,7 +388,7 @@ const char* pf_message(int code) {
     case PF_UNSUPPORTED_CUE: return "Unsupported chart cue";
     case PF_INVALID_COMMAND_ID: return "Command ID must be a nonempty string of at most 200 characters";
     case PF_COMMAND_CONFLICT: return "Command ID was already used for another control";
-    case PF_INVALID_KNOB: return "Knob value must be between zero and one";
+    case PF_INVALID_KNOB: return "Rotation must be a finite signed relative value";
     case PF_INVALID_CHANNEL: return "Unknown channel";
     case PF_INVALID_START: return "Invalid practice start options";
     case PF_ALLOCATION_FAILED: return "Could not allocate performance program";
@@ -452,10 +484,20 @@ int pf_configure(pf_engine* engine, double bpm, int beats, int bars, int end, in
 }
 int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields) {
   if (!engine || engine->mode != PF_PRACTICE || running(engine)) return fail(engine, PF_INVALID_PROGRAM, "Stop before loading a compiled song");
-  auto identity = engine->live_rack ? nullptr : patches::Rack::create(nullptr, 0);
-  const patches::Rack* definition = engine->live_rack ? engine->live_rack.get() : identity.get();
+  auto identity = engine->profiles[PF_DEFAULT_PROFILE].rack ? nullptr : patches::Rack::create(nullptr, 0);
+  const patches::Rack* definition = engine->profiles[PF_DEFAULT_PROFILE].rack ? engine->profiles[PF_DEFAULT_PROFILE].rack.get() : identity.get();
   if (!definition) return fail(engine, PF_ALLOCATION_FAILED);
-  auto prepared = compiled::Program::create(data, fields, engine->rate, *definition, engine->live_revision);
+  auto prepared = compiled::Program::create(data, fields, engine->rate, *definition, engine->profiles[PF_DEFAULT_PROFILE].revision);
+  auto backup = engine->profiles[PF_BACKUP_PROFILE].rack ? nullptr : patches::Rack::create(nullptr, 0);
+  if (!engine->profiles[PF_BACKUP_PROFILE].rack && !backup) return fail(engine, PF_ALLOCATION_FAILED);
+  if (prepared) {
+    const patches::Rack* definitions[PF_CHANNELS]; uint32_t revisions[PF_CHANNELS];
+    for (int voice = 0; voice < PF_CHANNELS; ++voice) {
+      definitions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].rack.get() : definition;
+      revisions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].revision : engine->profiles[PF_DEFAULT_PROFILE].revision;
+    }
+    if (!prepared->prepare_effects(definitions, revisions)) return fail(engine, PF_ALLOCATION_FAILED);
+  }
   if (!prepared) return fail(engine, PF_INVALID_PROGRAM, "Invalid compiled song or insufficient prepared resources");
   auto song = std::unique_ptr<Song>(new (std::nothrow) Song);
   if (!song) return fail(engine, PF_ALLOCATION_FAILED);
@@ -463,7 +505,8 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   song->cues = new (std::nothrow) Cue[(song->bars + 1) * PF_CHANNELS];
   if (!song->cues) return fail(engine, PF_ALLOCATION_FAILED);
   silence(engine);
-  if (identity) engine->live_rack = std::move(identity);
+  if (identity) engine->profiles[PF_DEFAULT_PROFILE].rack = std::move(identity);
+  if (backup) engine->profiles[PF_BACKUP_PROFILE].rack = std::move(backup);
   prepared->tempo_handler(engine, chart_tempo_hit);
   engine->beats_per_bar = prepared->beats_per_bar(); engine->bpm = prepared->initial_bpm(); engine->end = prepared->end_bar();
   delete engine->song; engine->song = song.release(); engine->compiled = std::move(prepared);
@@ -513,7 +556,7 @@ int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int l
   engine->error_code = PF_OK; engine->error = ""; engine->trigger_count = 0;
   silence(engine);
   for (bool& suppressed : engine->suppressed) suppressed = false;
-  engine->live_authorized = engine->mode == PF_PRACTICE && engine->microphone && bool(engine->live_rack);
+  engine->live_authorized = engine->mode == PF_PRACTICE && engine->microphone && bool(engine->profiles[PF_DEFAULT_PROFILE].rack);
   if (engine->compiled) engine->compiled->start(start, engine->count_beats, engine->processed, bpm);
   emit(engine, PF_STATE);
   return 0;
@@ -559,40 +602,80 @@ int pf_set_microphone(pf_engine* engine, int enabled) {
   }
   engine->error_code = PF_OK; engine->error = ""; emit(engine, PF_STATE); return 0;
 }
-int pf_prepare_live_effects(pf_engine* engine, const pf_effect_definition* effects, uint32_t count, uint32_t revision) {
+int pf_prepare_voice_effects(pf_engine* engine, const pf_effect_definition* effects, const uint32_t* counts, const uint32_t* revisions) {
   if (!engine) return -1;
-  if (engine->mode != PF_PRACTICE || running(engine) || engine->live_authorized || count > PF_MAX_LIVE_EFFECTS
-    || (count && !effects) || !revision || revision < engine->live_revision) return fail(engine, PF_INVALID_EFFECTS);
+  if (engine->mode != PF_PRACTICE || running(engine) || engine->live_authorized || !counts || !revisions) return fail(engine, PF_INVALID_EFFECTS);
   for (int id = 0; id < ST_CHANNELS; ++id) {
     double queued[SQ_RECORD_FIELDS]; sq_record_info(engine->sequencer, id, queued);
-    if (recording(engine, id) || queued[SQ_RECORD_PRESENT]) return fail(engine, PF_INVALID_EFFECTS, "Stop capture before preparing live effects");
+    if (recording(engine, id) || queued[SQ_RECORD_PRESENT]) return fail(engine, PF_INVALID_EFFECTS, "Stop capture before preparing voice effects");
   }
   for (const Pending& pending : engine->pending) if (pending.present && (pending.cue.kind == PF_ARM || pending.cue.kind == PF_COMMIT_ARM)) return fail(engine, PF_INVALID_EFFECTS);
-  for (uint32_t index = 0; index < count; ++index) {
-    const auto& effect = effects[index]; const auto& parameters = effect.parameters.slapback;
-    if (effect.type != PF_EFFECT_SLAPBACK || effect.version != 1 || !std::isfinite(parameters.delay_ms)
-      || parameters.delay_ms < 40 || parameters.delay_ms > 250 || !std::isfinite(parameters.feedback)
-      || parameters.feedback < 0 || parameters.feedback > .7 || !std::isfinite(parameters.wet)
-      || parameters.wet < 0 || parameters.wet > 1) return fail(engine, PF_INVALID_EFFECTS);
+  uint32_t offsets[PF_VOICE_PROFILES]{}, total = 0; bool changed[PF_VOICE_PROFILES]{};
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
+    const auto& old = engine->profiles[voice];
+    if (counts[voice] > PF_MAX_LIVE_EFFECTS || !revisions[voice] || revisions[voice] < old.revision || (counts[voice] && !effects)) return fail(engine, PF_INVALID_EFFECTS);
+    offsets[voice] = total;
+    bool same = counts[voice] == old.count;
+    for (uint32_t stage = 0; stage < counts[voice]; ++stage) {
+      const auto& effect = effects[total + stage];
+      if (!valid_effect(effect)) return fail(engine, PF_INVALID_EFFECTS);
+      if (same && !same_effect(effect, old.definitions[stage])) same = false;
+    }
+    if (revisions[voice] == old.revision && !same) return fail(engine, PF_INVALID_EFFECTS);
+    changed[voice] = !old.rack || revisions[voice] != old.revision;
+    total += counts[voice];
   }
-  if (revision == engine->live_revision) {
-    if (count != engine->live_count) return fail(engine, PF_INVALID_EFFECTS);
-    for (uint32_t index = 0; index < count; ++index) if (!same_effect(effects[index], engine->live_definitions[index])) return fail(engine, PF_INVALID_EFFECTS);
-    if (engine->compiled && !engine->compiled->prepare_effects(*engine->live_rack, revision)) return fail(engine, PF_ALLOCATION_FAILED, "Could not refresh prepared capture resources");
-    engine->error_code = PF_OK; engine->error = ""; return 0;
+  std::unique_ptr<patches::Rack> racks[PF_VOICE_PROFILES];
+  const patches::Rack* definitions[PF_CHANNELS];
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
+    if (changed[voice]) {
+      racks[voice] = prepare_rack(engine->rate, counts[voice] ? effects + offsets[voice] : nullptr, counts[voice]);
+      if (!racks[voice]) return fail(engine, PF_ALLOCATION_FAILED);
+    }
+    if (voice < PF_CHANNELS) definitions[voice] = changed[voice] ? racks[voice].get() : engine->profiles[voice].rack.get();
   }
-  std::unique_ptr<patches::Effect> stages[PF_MAX_LIVE_EFFECTS];
-  for (uint32_t index = 0; index < count; ++index) {
-    const auto& parameters = effects[index].parameters.slapback;
-    stages[index] = patches::make_slapback(engine->rate, {parameters.delay_ms, parameters.feedback, parameters.wet});
-    if (!stages[index]) return fail(engine, PF_ALLOCATION_FAILED, "Could not prepare live effects");
+  if (engine->compiled && !engine->compiled->prepare_effects(definitions, revisions)) return fail(engine, PF_ALLOCATION_FAILED, "Could not prepare voice capture resources");
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
+    auto& profile = engine->profiles[voice];
+    if (racks[voice]) profile.rack = std::move(racks[voice]);
+    profile.count = counts[voice]; profile.revision = revisions[voice];
+    for (uint32_t stage = 0; stage < profile.count; ++stage) profile.definitions[stage] = effects[offsets[voice] + stage];
   }
-  auto prepared = patches::Rack::create(stages, count);
-  if (!prepared) return fail(engine, PF_ALLOCATION_FAILED, "Could not prepare live effects");
-  if (engine->compiled && !engine->compiled->prepare_effects(*prepared, revision)) return fail(engine, PF_ALLOCATION_FAILED, "Could not prepare compiled capture resources");
-  engine->live_rack = std::move(prepared); engine->live_count = count; engine->live_revision = revision;
-  for (uint32_t index = 0; index < count; ++index) engine->live_definitions[index] = effects[index];
   engine->error_code = PF_OK; engine->error = ""; emit(engine, PF_STATE); return 0;
+}
+int pf_prepare_live_effects(pf_engine* engine, const pf_effect_definition* effects, uint32_t count, uint32_t revision) {
+  if (!engine || count > PF_MAX_LIVE_EFFECTS || (count && !effects)) return fail(engine, PF_INVALID_EFFECTS);
+  pf_effect_definition all[PF_VOICE_PROFILES * PF_MAX_LIVE_EFFECTS]; uint32_t counts[PF_VOICE_PROFILES], revisions[PF_VOICE_PROFILES];
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
+    counts[voice] = count; revisions[voice] = revision;
+    for (uint32_t stage = 0; stage < count; ++stage) all[voice * count + stage] = effects[stage];
+  }
+  return pf_prepare_voice_effects(engine, all, counts, revisions);
+}
+void pf_voice_info(const pf_engine* engine, uint32_t profile, double* out) {
+  if (!out) return;
+  std::fill(out, out + PF_VOICE_FIELDS, 0);
+  if (!engine || profile >= PF_VOICE_PROFILES) return;
+  const auto& voice = engine->profiles[profile];
+  out[PF_VOICE_PREPARED] = bool(voice.rack); out[PF_VOICE_REVISION] = voice.revision; out[PF_VOICE_STAGE_COUNT] = voice.count;
+  if (live_active(engine)) out[PF_VOICE_ACTIVITY] = engine->compiled ? engine->compiled->profile_activity(profile) : profile == PF_DEFAULT_PROFILE ? PF_VOICE_LIVE : PF_VOICE_STANDBY;
+  if (engine->compiled && profile == PF_BACKUP_PROFILE) {
+    out[PF_VOICE_ROTATION_ELIGIBLE] = engine->compiled->rotation_eligible(); out[PF_VOICE_ROTATION_REMAINING] = engine->compiled->rotation_remaining();
+  }
+}
+void pf_voice_effect_info(const pf_engine* engine, uint32_t profile, uint32_t stage, double* out) {
+  if (!out) return;
+  std::fill(out, out + PF_VOICE_EFFECT_FIELDS, 0);
+  if (!engine || profile >= PF_VOICE_PROFILES || stage >= engine->profiles[profile].count) return;
+  const auto& effect = engine->profiles[profile].definitions[stage];
+  out[PF_VOICE_EFFECT_TYPE] = effect.type; out[PF_VOICE_EFFECT_VERSION] = effect.version;
+  if (effect.type == PF_EFFECT_SLAPBACK) {
+    const auto& p = effect.parameters.slapback;
+    out[PF_VOICE_EFFECT_PARAMETER_0] = p.delay_ms; out[PF_VOICE_EFFECT_PARAMETER_1] = p.feedback; out[PF_VOICE_EFFECT_PARAMETER_2] = p.wet;
+  } else {
+    const auto& p = effect.parameters.chorus;
+    out[PF_VOICE_EFFECT_PARAMETER_0] = p.rate_hz; out[PF_VOICE_EFFECT_PARAMETER_1] = p.depth_ms; out[PF_VOICE_EFFECT_PARAMETER_2] = p.base_delay_ms; out[PF_VOICE_EFFECT_PARAMETER_3] = p.wet;
+  }
 }
 void pf_tempo_info(const pf_engine* engine, double* out) {
   if (!out) return;
@@ -603,33 +686,33 @@ void pf_live_info(const pf_engine* engine, double* out) {
   if (!out) return;
   std::fill(out, out + PF_LIVE_FIELDS, 0);
   if (!engine) return;
-  out[PF_LIVE_PREPARED] = bool(engine->live_rack); out[PF_LIVE_ACTIVE] = live_active(engine);
-  out[PF_LIVE_REVISION] = engine->live_revision; out[PF_LIVE_STAGE_COUNT] = engine->live_count;
-  out[PF_LIVE_CAPTURE_SUPPORTED] = bool(engine->compiled) || engine->live_count == 0;
+  out[PF_LIVE_PREPARED] = bool(engine->profiles[PF_DEFAULT_PROFILE].rack); out[PF_LIVE_ACTIVE] = live_active(engine);
+  out[PF_LIVE_REVISION] = engine->profiles[PF_DEFAULT_PROFILE].revision; out[PF_LIVE_STAGE_COUNT] = engine->profiles[PF_DEFAULT_PROFILE].count;
+  out[PF_LIVE_CAPTURE_SUPPORTED] = bool(engine->compiled) || engine->profiles[PF_DEFAULT_PROFILE].count == 0;
 }
 int pf_control(pf_engine* engine, int control, double value, const uint16_t* command_id, uint32_t command_length) {
   if (!engine) return -1;
   engine->error_code = PF_OK; engine->error = "";
   if ((!command_id && command_length) || (command_id && (!command_length || command_length > 200))) {
-    fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, -1, 0, control, value); return -1;
+    fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, 0, control, value); return -1;
   }
   if (command_id) {
     bool nonspace = false;
     for (uint32_t index = 0; index < command_length; ++index) if (!whitespace(command_id[index])) nonspace = true;
-    if (!nonspace) { fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, -1, 0, control, value); return -1; }
+    if (!nonspace) { fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, 0, control, value); return -1; }
     for (const Dedup& item : engine->dedup) if (item.present && item.length == command_length && std::memcmp(item.id, command_id, command_length * sizeof(uint16_t)) == 0) {
-      if (item.control != control || (control == 5 && item.value != value)) { fail(engine, PF_COMMAND_CONFLICT); emit(engine, PF_CONTROL, -1, 0, control, value); return -1; }
-      emit(engine, PF_CONTROL, -1, 1, control, value); return 0;
+      if (item.control != control || (control == 5 && item.value != value)) { fail(engine, PF_COMMAND_CONFLICT); emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, 0, control, value); return -1; }
+      emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, 1, control, value); return 0;
     }
   }
   int result = 0;
   if (channel(control)) result = press(engine, control);
   else if (control == 4) { engine->phase = PF_IDLE; engine->count_remaining = 0; silence(engine); }
   else if (control == 5) {
-    if (!std::isfinite(value) || value < 0 || value > 1) result = fail(engine, PF_INVALID_KNOB);
-    else {
-      double info[ST_CHANNEL_FIELDS]; st_channel_info(engine->sampler, engine->selected, info);
-      result = sample_result(engine, st_set_channel(engine->sampler, engine->selected, value, int(info[ST_CHANNEL_MUTED])));
+    if (!std::isfinite(value)) result = fail(engine, PF_INVALID_KNOB);
+    else if (engine->compiled && live_active(engine)) {
+      int code = engine->compiled->rotate(value, engine->processed, engine->bpm);
+      if (code != PF_OK) result = fail(engine, code);
     }
   } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
   else result = fail(engine, PF_INVALID_CHANNEL);
@@ -637,7 +720,7 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
     Dedup& item = engine->dedup[engine->dedup_cursor++ % dedup_capacity];
     item.present = true; std::memcpy(item.id, command_id, command_length * sizeof(uint16_t)); item.length = command_length; item.control = control; item.value = value;
   }
-  emit(engine, PF_CONTROL, -1, result >= 0, control, value);
+  emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, result >= 0, control, value);
   return result;
 }
 int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {

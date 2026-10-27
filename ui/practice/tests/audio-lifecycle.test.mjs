@@ -2,7 +2,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
 import vm from 'node:vm';
+import { webcrypto } from 'node:crypto';
+import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.ts';
+import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
+
+function prepareUIContext(context) {
+  for (const [key, value] of Object.entries({ crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut })) if (!(key in context)) context[key] = value;
+  vm.createContext(context);
+}
+import { loadSong } from '../../../songs/index.ts';
 import { PracticeAudio } from '../audio.js';
+import { NativePerformance } from '../../../lib/performance/wasm-performance.ts';
 import { createPeripheralInput, peripheralCommandId } from '../peripheral-input.ts';
 
 function deferred() {
@@ -64,7 +74,7 @@ for (const action of ['stopPractice', 'panic']) {
       playableBars: chart => chart.bars.length - 1,
       PracticeAudio: { create: () => preparing.promise },
     };
-    vm.createContext(context);
+    prepareUIContext(context);
     vm.runInContext(`${uiSource}\nfunction render() {}\nchart = { bars: Array(218) }; song = { chart, program: { lengthBeats: 4, events: [] } };\nglobalThis.ui = { startPractice, stopPractice, panic };`, context);
     const starting = context.ui.startPractice();
     await context.ui[action]();
@@ -97,7 +107,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
     document: { querySelector: () => new Element(), querySelectorAll: () => [] },
     PracticeAudio: { create: () => preparing.promise },
   };
-  vm.createContext(context);
+  prepareUIContext(context);
   const source = (await sourceForVM(new URL('../app.ts', import.meta.url))).replace(/^import .*;\n/gm, '').split('elements.start.addEventListener(')[0];
   vm.runInContext(`${source}\nfunction render() {}\nchart = { bars: Array(218) }; song = { chart, program: { lengthBeats: 4, events: [] } }; globalThis.recordDemo = toggleOutputRecording;`, context);
   const first = context.recordDemo();
@@ -107,7 +117,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
   assert.equal(recorders, 1);
 });
 
-function startupHarness(microphone = async () => {}, { autoPlay = true, convert = async () => new Blob(['mp3'], { type: 'audio/mpeg' }) } = {}) {
+function startupHarness(microphone = async () => {}, { autoPlay = true, convert = async () => new Blob(['mp3'], { type: 'audio/mpeg' }), voiceConfigurations = initialVoiceEffects(), compiled = true, loadedSong } = {}) {
   const commands = [];
   class Element {
     constructor(selector) {
@@ -127,7 +137,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   }
   const audio = {
     subscribe() {}, onEvent() {}, outputStream: {},
-    async configureLiveEffects(effects) { commands.push('effects'); this.configuredEffects = effects; },
+    async configureVoiceEffects(effects) { commands.push('effects'); this.configuredEffects = effects; },
     async enableMicrophone() { commands.push('microphone'); await microphone(); },
     async disableMicrophone() { commands.push('microphone-off'); },
     async setClick(enabled) { commands.push(`click:${enabled}`); },
@@ -141,7 +151,8 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   const revoked = [];
   const context = {
     Map, Set, Blob, URL: { createObjectURL(blob) { assert.equal(blob.type, 'audio/mpeg'); return 'blob:test'; }, revokeObjectURL(url) { revoked.push(url); } },
-    recordingToMp3: convert,
+    recordingToMp3: convert, loadedSong,
+    createVoiceEffectsEditor: () => ({ configurations: () => typeof voiceConfigurations === 'function' ? voiceConfigurations() : voiceConfigurations }),
     window: { isSecureContext: true, MediaRecorder: Recorder }, MediaRecorder: Recorder, CONTROLS: [],
     HTMLElement: Element, HTMLSpanElement: Element, HTMLHeadingElement: Element, HTMLAnchorElement: Element,
     HTMLDivElement: Element, HTMLButtonElement: Element, HTMLParagraphElement: Element, HTMLInputElement: Element,
@@ -149,10 +160,72 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     document: { querySelector: selector => { const element = new Element(selector); elements.set(selector, element); return element; }, querySelectorAll: () => [] },
     playableBars: () => 76, PracticeAudio: { create: async () => { creations++; return audio; } },
   };
-  vm.createContext(context);
-  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
+  prepareUIContext(context);
+  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = loadedSong?.chart || { bars: Array(76) }; song = loadedSong || { chart, program: {}, compiled: ${compiled ? '{ executable: true }' : 'undefined'} }; globalThis.controls = { applyVoiceEffects, startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
   return { commands, controls: context.controls, audio, elements, revoked, get creations() { return creations; } };
 }
+
+function voiceEditorHarness() {
+  class Element {
+    children = []; listeners = new Map(); attributes = {}; dataset = {}; value = '';
+    constructor(tag) { this.tag = tag; }
+    append(...children) { this.children.push(...children); }
+    get lastElementChild() { return this.children.at(-1); }
+    get valueAsNumber() { return this.value === '' ? NaN : Number(this.value); }
+    setAttribute(name, value) { this.attributes[name] = value; }
+    addEventListener(name, callback) { this.listeners.set(name, callback); }
+    reportValidity() { return this.value !== ''; }
+    querySelector() { return null; }
+  }
+  const roots = new Map(), applied = [];
+  const editor = createVoiceEffectsEditor(profile => applied.push(profile));
+  const original = globalThis.document;
+  try {
+    globalThis.document = { createElement: tag => new Element(tag) };
+    for (const profile of [0, 1, 5]) {
+      const root = new Element('div'); roots.set(profile, root);
+      editor.mount({ id: `voice-${profile}`, name: `Voice ${profile}`, profile }, root);
+    }
+  } finally {
+    if (original === undefined) delete globalThis.document;
+    else globalThis.document = original;
+  }
+  const native = initialVoiceEffects().map(configuration => ({ ...configuration, prepared: true, revision: 1, activity: 'standby', rotationEligible: false, rotationRemainingBeats: 0 }));
+  editor.render(native, false);
+  function descendants(element) { return [element, ...element.children.flatMap(descendants)]; }
+  function field(profile, label, value) {
+    const input = descendants(roots.get(profile)).find(element => element.attributes['aria-label']?.endsWith(label));
+    assert(input, `missing numeric field ${label}`);
+    input.value = value; input.listeners.get('input')();
+  }
+  return { editor, native, applied, field, apply(profile) {
+    descendants(roots.get(profile)).find(element => element.tag === 'button' && element.textContent === 'Apply settings').listeners.get('click')();
+  } };
+}
+
+for (const [profile, label, stage, parameter] of [[0, 'Wet', 0, 'wet'], [0, 'Feedback', 0, 'feedback'], [5, 'Depth · ms', 1, 'depthMs']]) {
+  test(`blank required ${label} remains invalid instead of becoming zero`, () => {
+    const h = voiceEditorHarness(); h.field(profile, label, '');
+    assert(Number.isNaN(h.editor.configurations()[profile].effects[stage][parameter]));
+    h.apply(profile); assert.deepEqual(h.applied, [], 'Apply rejects the empty required field');
+  });
+}
+
+test('Start rejects blank voice settings before microphone setup and preserves the applied bundle', async () => {
+  const editor = voiceEditorHarness(); editor.field(0, 'Wet', '');
+  const h = startupHarness(undefined, { voiceConfigurations: () => editor.editor.configurations() });
+  const previous = initialVoiceEffects(); h.audio.configuredEffects = previous;
+  h.audio.configureVoiceEffects = async configurations => {
+    h.commands.push('effects');
+    NativePerformance.prototype.prepareVoiceEffects.call({}, configurations);
+    h.audio.configuredEffects = configurations;
+  };
+  await assert.rejects(h.controls.startPractice(), /Invalid voice effect/);
+  assert.deepEqual(h.commands, ['effects']);
+  assert.equal(h.audio.configuredEffects, previous);
+  assert.deepEqual(editor.editor.configurations(1)[0].effects, previous[0].effects, 'another voice Apply uses this voice’s applied stack');
+  editor.apply(1); assert.deepEqual(editor.applied, [1], 'an unrelated invalid draft does not block the selected voice');
+});
 
 test('MP3 preparation blocks replacement takes until the download is ready', async () => {
   const conversion = deferred();
@@ -318,8 +391,8 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
     window: { addEventListener(_type, listener) { keydown = listener; } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: () => padCalls++,
   };
-  vm.createContext(context);
-  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const sources'));
+  prepareUIContext(context);
+  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const liveVoiceStates'));
   vm.runInContext(adapterSource + keyboardSource, context);
   const event = { target: new Element(), repeat: false, timeStamp: 0, preventDefault() {} };
   keydown({ ...event, code: 'KeyQ' });
@@ -343,8 +416,8 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }),
   };
-  vm.createContext(context);
-  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const sources'));
+  prepareUIContext(context);
+  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const liveVoiceStates'));
   const releaseSource = source.slice(source.indexOf('function releasePresses'), source.indexOf('async function triggerPad'));
   const handlers = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('function postPerformanceEvent'));
   vm.runInContext(adapterSource + releaseSource + handlers, context);
@@ -380,22 +453,27 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
 });
 
 for (const bypass of [false, true]) {
-  test(`web effect configuration applies before microphone setup, bypass=${bypass}`, async () => {
-    const h = startupHarness();
-    h.elements.get('#effects-enabled').checked = !bypass;
-    h.elements.get('#effects-delay').value = '125';
-    h.elements.get('#effects-feedback').value = '0.3';
-    h.elements.get('#effects-wet').value = '0.4';
+  test(`per-voice effect configuration applies before microphone setup, bypass=${bypass}`, async () => {
+    const configurations = initialVoiceEffects();
+    configurations[1] = { profile: 1, effects: bypass ? [] : [{ kind: 'slapback', delayMs: 125, feedback: .3, wet: .4 }] };
+    const h = startupHarness(undefined, { voiceConfigurations: configurations });
     await h.controls.startPractice();
-    assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), bypass ? [] : [{ kind: 'slapback', delayMs: 125, feedback: 0.3, wet: 0.4 }]);
+    assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), configurations);
     assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
+    assert.equal(h.audio.configuredEffects[0].effects[0].delayMs, 100, 'tuning one voice does not change the other host draft');
   });
 }
+
+test('applying a stopped voice configuration does not open the microphone or start recording', async () => {
+  const h = startupHarness();
+  await h.controls.applyVoiceEffects(1);
+  assert.deepEqual(h.commands, ['effects']);
+});
 
 test('Stop cancels a start waiting for effects preparation', async () => {
   const h = startupHarness();
   const waiting = deferred();
-  h.audio.configureLiveEffects = () => waiting.promise;
+  h.audio.configureVoiceEffects = () => waiting.promise;
   const starting = h.controls.startPractice();
   await h.controls.stopPractice();
   waiting.resolve();
@@ -403,3 +481,42 @@ test('Stop cancels a start waiting for effects preparation', async () => {
   assert(!h.commands.includes('microphone'));
   assert(!h.commands.includes('start'));
 });
+
+test('Space on an effect disclosure, action button or link never toggles transport', async () => {
+  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const keyboardSource = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('window.addEventListener("keyup"'));
+  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const liveVoiceStates'));
+  let keydown;
+  let starts = 0, panics = 0, pads = 0, prevented = 0;
+  class Element {
+    constructor(kind) { this.kind = kind; }
+    closest(selector) { return selector.split(',').includes(this.kind) ? this : null; }
+  }
+  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+    window: { addEventListener(_type, callback) { keydown = callback; } },
+    act: action => action(), flash() {}, isRunning: () => false, startPractice: () => starts++, stopPractice() {}, panic: () => panics++, triggerPad: () => pads++,
+  };
+  prepareUIContext(context); vm.runInContext(adapterSource + keyboardSource, context);
+  const event = { code: 'Space', repeat: false, timeStamp: 0, preventDefault() { prevented++; } };
+  for (const kind of ['summary', 'button', 'a', 'input', 'select']) keydown({ ...event, target: new Element(kind) });
+  assert.equal(starts, 0);
+  assert.equal(prevented, 0, 'native Space behavior remains available to the focused element');
+  keydown({ ...event, target: new Element('body') });
+  assert.equal(starts, 1);
+  keydown({ ...event, code: 'KeyQ', target: new Element('button') });
+  assert.equal(pads, 1, 'pad keys remain available outside value editors');
+  keydown({ ...event, code: 'Escape', target: new Element('input') });
+  assert.equal(panics, 1);
+});
+
+for (const id of ['drunk-girls', 'i-can-change']) {
+  test(`${id} starts with dry identity processing in every profile, including hidden live routes`, async () => {
+    const song = await loadSong(id);
+    assert.equal(song.compiled, undefined, 'this source has no compiled per-voice capture support');
+    const h = startupHarness(undefined, { loadedSong: song, voiceConfigurations: initialVoiceEffects() });
+    await h.controls.startPractice();
+    assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), initialVoiceEffects('dry'));
+    assert(h.audio.configuredEffects.every(configuration => configuration.effects.length === 0));
+    assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
+  });
+}

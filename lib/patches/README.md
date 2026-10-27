@@ -1,6 +1,6 @@
 # Render live voice and replay processed takes
 
-This standalone C++17 module renders ordered, full-output effects. Slapback is the first effect type. A take stores the exact processed live PCM for playback and auxiliary original source PCM for evolving effect history. Cached audio never enters its baked effects stack again.
+This standalone C++17 module renders ordered, full-output effects. Slapback and Chorus are prepared effect types. A take stores the exact processed live PCM for playback and auxiliary original source PCM for evolving effect history. Cached audio never enters its baked effects stack again.
 
 The performance engine owns routing, effect activation, capture admission and recording boundaries. This module supplies prepared racks, capture storage and evolving playback; it does not select musical controls or schedule captures. The practice desk is the supported browser UI. Native/WASM fixtures do not establish physical device latency.
 
@@ -114,3 +114,25 @@ Slapback accepts sample rates from 1,000 through 384,000 Hz, delay from 40 throu
 Each channel has independent fractional-delay interpolation. Mono therefore remains equal on both sides unless another stage deliberately changes stereo. Output is complete dry-plus-delayed audio. The generic rack does not apply that formula to other effect types.
 
 Fixed zero wet has no audible release. Fixed zero feedback releases for exactly `ceil(sample_rate * delay_ms / 1000)` frames, including the last fractional-delay impulse contribution. Positive feedback with nonzero wet has a 12-second release cap. Residual audio after that cap is truncated; this first milestone has no release-end fade or energy-based early completion. Serial rack release bounds add. The native tests verify PCM state correctness within the declared release interval. Auditioning, live parameter smoothing, and production drain completion remain follow-up work.
+
+
+## Chorus limits and state
+
+```cpp
+ChorusParameters parameters{.8, 5, 20, .35};
+auto chorus = make_chorus(48000, parameters);
+```
+
+The parameter order is `rate_hz`, `depth_ms`, `base_delay_ms`, and `wet`. Admitted ranges are 0.05–5 Hz, 0–9 ms, 10–40 ms, and 0–1. The sample-rate range is 1,000–384,000 Hz. All values must be finite. The defaults above are editable engineering starting values, not operator preferences.
+
+The stage adds one sinusoidally modulated, linearly interpolated delayed copy to the direct input: `output = input + wet * delayed_input`. There is no feedback or automatic normalization. This belongs to the modulated-delay chorus family described in [Julius O. Smith's Physical Audio Signal Processing](https://www.dsprelated.com/freebooks/pasp/Chorus_Effect.html). The implementation is local C++ and has no new library dependency.
+
+Delay is `base_delay_ms + depth_ms * sin(2 * pi * phase)`, with phase starting at zero and advancing by `rate_hz / sample_rate` per frame. The independent parameter bounds keep delay between 1 and 49 ms. Depth zero reduces to a fixed fractional delay; wet zero is exact identity. Direct latency is zero. Equal left/right source stays exactly centered: the two independent source rings use the same modulation phase, without crossfeed or stereo widening. Existing stereo differences remain separate.
+
+Snapshots and prepared state copies retain both rings, cursor, and modulation phase. Reset clears the rings and restores phase zero. Phase keeps advancing through zero-source rests and natural release, and evolving playback never resets it at a loop wrap. Captured printed PCM is never fed through its baked Chorus again. Factory, snapshot, and destruction allocate or reclaim memory; process, prepared copy, reset, commit, and playback do neither.
+
+Each ring has `ceil(sample_rate * (base_delay_ms + depth_ms) / 1000) + 2` frames. At the supported maximum this is 18,818 frames per channel, or 150,544 ring bytes per effect instance, plus its object. `memory_bytes()` includes both rings. Budget every live, detached-tail, take snapshot, and playback instance separately.
+
+With nonzero wet, the release bound is `ceil(sample_rate * (base_delay_ms + depth_ms) / 1000)` frames; wet zero has no audible release. After that many zero-input frames, all possible interpolated reads refer only to zero source. This is a maximum support bound, not a promise of energy on its final frame. Serial Rack release bounds add. The delayed branch uses the complete upstream output, so Slapback then Chorus also modulates the slapback repeats; the host must not add a second dry contribution around either full-output stage.
+
+Native/WASM fixtures exercise an independent source-history oracle, modulation phase, snapshot/reset, channel independence, ordered nonlinear composition, processed capture, evolving wraps, endpoint continuation, zero-source rests, and natural Stop. These prove PCM behavior under fixed parameters; they do not establish a physical callback deadline. Song routing, activation windows, knob activity expiry, and stopped venue configuration belong to Performance Engine and its bridge.

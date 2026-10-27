@@ -53,6 +53,59 @@ class Slapback final : public Effect {
   uint32_t capacity_, cursor_ = 0;
   double delay_;
 };
+constexpr ParameterDescriptor chorus_parameters[] = {
+  {"rate_hz", .05, 5, .8}, {"depth_ms", 0, 9, 5}, {"base_delay_ms", 10, 40, 20}, {"wet", 0, 1, .35}
+};
+class Chorus final : public Effect {
+ public:
+  Chorus(double rate, ChorusParameters parameters, float* rings, uint32_t capacity) noexcept:
+    descriptor_{"chorus", 1, 0, parameters.wet == 0 ? 0 : uint64_t(std::ceil(
+      rate * (parameters.base_delay_ms + parameters.depth_ms) / 1000)), chorus_parameters, 4, true, true},
+    parameters_(parameters), rate_(rate), rings_(rings), capacity_(capacity), increment_(parameters.rate_hz / rate) {}
+  ~Chorus() override { delete[] rings_; }
+  const EffectDescriptor& descriptor() const noexcept override { return descriptor_; }
+  Stereo process(Stereo input) noexcept override {
+    constexpr double tau = 6.283185307179586476925286766559;
+    double delay = rate_ * (parameters_.base_delay_ms + parameters_.depth_ms * std::sin(tau * phase_)) / 1000;
+    double position = double(cursor_) - delay;
+    if (position < 0) position += capacity_;
+    uint32_t first = uint32_t(position), next = (first + 1) % capacity_;
+    double fraction = position - first;
+    double l = rings_[first] + fraction * (double(rings_[next]) - rings_[first]);
+    double r = rings_[capacity_ + first] + fraction * (double(rings_[capacity_ + next]) - rings_[capacity_ + first]);
+    rings_[cursor_] = input.left;
+    rings_[capacity_ + cursor_] = input.right;
+    cursor_ = (cursor_ + 1) % capacity_;
+    phase_ += increment_;
+    if (phase_ >= 1) phase_ -= 1;
+    return {float(input.left + parameters_.wet * l), float(input.right + parameters_.wet * r)};
+  }
+  void reset() noexcept override { std::fill(rings_, rings_ + size_t(capacity_) * 2, 0); cursor_ = 0; phase_ = 0; }
+  bool compatible(const Effect& other) const noexcept override {
+    const auto* candidate = dynamic_cast<const Chorus*>(&other);
+    return candidate && rate_ == candidate->rate_ && parameters_.rate_hz == candidate->parameters_.rate_hz
+      && parameters_.depth_ms == candidate->parameters_.depth_ms && parameters_.base_delay_ms == candidate->parameters_.base_delay_ms
+      && parameters_.wet == candidate->parameters_.wet;
+  }
+  void copy_state(const Effect& other) noexcept override {
+    const auto& source = static_cast<const Chorus&>(other);
+    std::copy(source.rings_, source.rings_ + size_t(capacity_) * 2, rings_);
+    cursor_ = source.cursor_; phase_ = source.phase_;
+  }
+  std::unique_ptr<Effect> snapshot() const noexcept override {
+    auto result = make_chorus(rate_, parameters_);
+    if (result) static_cast<Chorus*>(result.get())->copy_state(*this);
+    return result;
+  }
+  size_t memory_bytes() const noexcept override { return sizeof(*this) + size_t(capacity_) * 2 * sizeof(float); }
+ private:
+  EffectDescriptor descriptor_;
+  ChorusParameters parameters_;
+  double rate_;
+  float* rings_;
+  uint32_t capacity_, cursor_ = 0;
+  double increment_, phase_ = 0;
+};
 bool output_valid(float* left, float* right, uint32_t frames) noexcept { return !frames || (left && right && left != right); }
 Stereo input_at(const float* left, const float* right, uint32_t index) noexcept {
   return {left ? left[index] : 0, right ? right[index] : left ? left[index] : 0};
@@ -67,6 +120,19 @@ std::unique_ptr<Effect> make_slapback(double rate, SlapbackParameters parameters
   float* rings = new (std::nothrow) float[size_t(capacity) * 2]{};
   if (!rings) return nullptr;
   auto* effect = new (std::nothrow) Slapback(rate, parameters, rings, capacity);
+  if (!effect) delete[] rings;
+  return std::unique_ptr<Effect>(effect);
+}
+std::unique_ptr<Effect> make_chorus(double rate, ChorusParameters parameters) noexcept {
+  if (!std::isfinite(rate) || rate < 1000 || rate > 384000
+    || !std::isfinite(parameters.rate_hz) || parameters.rate_hz < .05 || parameters.rate_hz > 5
+    || !std::isfinite(parameters.depth_ms) || parameters.depth_ms < 0 || parameters.depth_ms > 9
+    || !std::isfinite(parameters.base_delay_ms) || parameters.base_delay_ms < 10 || parameters.base_delay_ms > 40
+    || !std::isfinite(parameters.wet) || parameters.wet < 0 || parameters.wet > 1) return nullptr;
+  uint32_t capacity = uint32_t(std::ceil(rate * (parameters.base_delay_ms + parameters.depth_ms) / 1000)) + 2;
+  float* rings = new (std::nothrow) float[size_t(capacity) * 2]{};
+  if (!rings) return nullptr;
+  auto* effect = new (std::nothrow) Chorus(rate, parameters, rings, capacity);
   if (!effect) delete[] rings;
   return std::unique_ptr<Effect>(effect);
 }

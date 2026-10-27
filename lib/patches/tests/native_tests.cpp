@@ -548,6 +548,184 @@ void capture_period_admission() {
   std::puts("PASS period admission is atomic, virtual suffix exceeds PCM capacity, commit/start perform no DSP, pins and reuse preserve metadata");
 }
 
+std::unique_ptr<Rack> chorus(double rate = 1000, ChorusParameters parameters = {}) {
+  std::unique_ptr<Effect> stages[] = {make_chorus(rate, parameters)};
+  auto rack = Rack::create(stages, 1); require(bool(rack), "chorus preparation"); return rack;
+}
+Stereo chorus_oracle(const std::vector<Stereo>& history, unsigned frame, double rate, ChorusParameters parameters) {
+  constexpr double pi = 3.14159265358979323846;
+  double phase = std::fmod(double(frame) * parameters.rate_hz / rate, 1.0);
+  double delay = rate * (parameters.base_delay_ms + parameters.depth_ms * std::sin(2 * pi * phase)) / 1000;
+  double position = double(frame) - delay;
+  int64_t first = int64_t(std::floor(position));
+  double fraction = position - double(first);
+  auto sample = [&](int64_t index) { return index >= 0 && uint64_t(index) < history.size() ? history[size_t(index)] : Stereo{}; };
+  Stereo a = sample(first), b = sample(first + 1), input = history[frame];
+  return {float(input.left + parameters.wet * (a.left + fraction * (double(b.left) - a.left))),
+    float(input.right + parameters.wet * (a.right + fraction * (double(b.right) - a.right)))};
+}
+Stereo clipped(Stereo input, float bound) {
+  return {std::max(-bound, std::min(bound, input.left)), std::max(-bound, std::min(bound, input.right))};
+}
+void chorus_validation_and_impulses() {
+  for (double invalid : {0., 999., 384001., std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()})
+    require(!make_chorus(invalid), "chorus invalid sample rate rejected");
+  for (unsigned field = 0; field < 4; ++field) {
+    const double below[] = {.049, -.01, 9.99, -.01}, above[] = {5.01, 9.01, 40.01, 1.01};
+    for (double invalid : {below[field], above[field], std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::infinity(), -std::numeric_limits<double>::infinity()}) {
+      ChorusParameters p;
+      if (field == 0) p.rate_hz = invalid;
+      if (field == 1) p.depth_ms = invalid;
+      if (field == 2) p.base_delay_ms = invalid;
+      if (field == 3) p.wet = invalid;
+      require(!make_chorus(1000, p), "chorus every parameter validates finite bounds");
+    }
+  }
+  require(bool(make_chorus(1000, {.05, 0, 10, 0})) && bool(make_chorus(384000, {5, 9, 40, 1})), "chorus inclusive parameter and sample-rate bounds");
+  auto effect = make_chorus(1000);
+  const auto& descriptor = effect->descriptor();
+  require(std::strcmp(descriptor.type, "chorus") == 0 && descriptor.version == 1 && descriptor.parameter_count == 4, "chorus descriptor identity and four parameters");
+  require(descriptor.latency_frames == 0 && descriptor.maximum_tail_frames == 25 && descriptor.deterministic_source_replay && descriptor.complete_state_snapshot, "chorus direct latency and replay capability");
+  auto fixed = chorus(1000, {.8, 0, 20.5, .5}), dry = chorus(1000, {5, 9, 40, 0});
+  require(dry->maximum_tail_frames() == 0, "chorus wet zero releases immediately");
+  {
+    NoHeap guard;
+    for (unsigned frame = 0; frame < 100; ++frame) {
+      Stereo actual = fixed->process({frame == 0 ? 1.f : 0.f, 0});
+      equal(actual, {frame == 0 ? 1.f : frame == 20 || frame == 21 ? .25f : 0.f, 0}, "chorus zero depth is fractional dry-plus-delayed impulse with stereo isolation");
+      Stereo input = source_at(frame);
+      equal(dry->process(input), input, "chorus wet zero is exact identity despite modulation");
+    }
+  }
+  std::puts("PASS chorus finite validation, full-output fractional impulse, zero wet, descriptor and stereo isolation");
+}
+void chorus_independent_oracle_and_state() {
+  constexpr unsigned frames = 8000, warm = 317;
+  ChorusParameters parameters{5, 9, 20, .65};
+  auto rack = chorus(1000, parameters), fixed = chorus(1000, {5, 0, 20, .65});
+  std::vector<Stereo> history(frames), actual(frames);
+  for (unsigned i = 0; i < frames; ++i) history[i] = source_at(i);
+  bool modulation_changes_audio = false;
+  {
+    NoHeap guard;
+    for (unsigned i = 0; i < warm; ++i) equal(rack->process(history[i]), chorus_oracle(history, i, 1000, parameters), "chorus warmup independent absolute-phase oracle");
+  }
+  auto saved = rack->snapshot(), restored = chorus(1000, parameters), wrong = chorus(1000, {5, 8, 20, .65});
+  require(saved && restored->copy_state(*saved), "chorus snapshot contains nonzero modulation phase and ring cursor");
+  {
+    NoHeap guard;
+    require(!rack->copy_state(*wrong), "chorus incompatible parameters reject atomically");
+    for (unsigned i = warm; i < frames; ++i) {
+      actual[i] = rack->process(history[i]);
+      equal(actual[i], chorus_oracle(history, i, 1000, parameters), "chorus independent unbounded-history oracle over forty modulation periods");
+      equal(restored->process(history[i]), actual[i], "chorus snapshot restores phase cursor and history exactly");
+    }
+    rack->reset(); restored->reset();
+    for (unsigned i = 0; i < frames; ++i) {
+      actual[i] = rack->process(history[i]);
+      equal(actual[i], chorus_oracle(history, i, 1000, parameters), "chorus reset returns to cold phase and zero ring");
+      Stereo fixed_output = fixed->process(history[i]);
+      modulation_changes_audio = modulation_changes_audio || std::abs(actual[i].left - fixed_output.left) > .01f;
+    }
+  }
+  require(modulation_changes_audio, "chorus modulation PCM differs from fixed delay");
+  fixture.insert(fixture.end(), actual.begin(), actual.end());
+  auto mono = chorus(44100, {.8, 5, 20, .35});
+  {
+    NoHeap guard;
+    for (unsigned i = 0; i < 5000; ++i) { float source = source_at(i).left; Stereo output = mono->process({source,source}); require(output.left == output.right, "chorus shared modulation keeps mono exactly centered"); }
+  }
+  std::puts("PASS chorus independent absolute-phase history oracle, modulation, forty wraps, warm snapshot, reset and mono centering");
+}
+void chorus_order_and_capture() {
+  ChorusParameters parameters{5, 9, 20, .7};
+  std::unique_ptr<Effect> before_stages[] = {std::unique_ptr<Effect>(new ReferenceEffect(ReferenceEffect::Kind::clip, .3f)), make_chorus(1000, parameters)};
+  std::unique_ptr<Effect> after_stages[] = {make_chorus(1000, parameters), std::unique_ptr<Effect>(new ReferenceEffect(ReferenceEffect::Kind::clip, .3f))};
+  auto before = Rack::create(before_stages, 2), after = Rack::create(after_stages, 2);
+  std::vector<Stereo> raw(1000), limited(1000);
+  for (unsigned i = 0; i < raw.size(); ++i) { raw[i] = source_at(i); limited[i] = clipped(raw[i], .3f); }
+  bool differs = false;
+  {
+    NoHeap guard;
+    for (unsigned i = 0; i < raw.size(); ++i) {
+      Stereo first = before->process(raw[i]), second = after->process(raw[i]);
+      equal(first, chorus_oracle(limited, i, 1000, parameters), "nonlinear clip before chorus matches independent stage-order oracle");
+      equal(second, clipped(chorus_oracle(raw, i, 1000, parameters), .3f), "chorus before nonlinear clip matches independent stage-order oracle");
+      differs = differs || std::abs(first.left - second.left) > .01f;
+    }
+  }
+  require(differs, "chorus nonlinear stage order changes output");
+  constexpr unsigned warm = 317, length = 73, period = 109, count = period * 8 + 19;
+  auto live = chorus(1000, parameters); auto take = ProcessedTake::create(*live, length, 19);
+  auto playback = Playback::create(*take);
+  std::vector<Stereo> phase_zero(warm + count + 60), endpoint(warm + length + count + 60), output(count + 60);
+  for (unsigned i = 0; i < warm; ++i) phase_zero[i] = endpoint[i] = source_at(i + 800);
+  for (unsigned i = 0; i < count; ++i) {
+    unsigned phase = i % period;
+    phase_zero[warm + i] = phase < length ? source_at(phase) : Stereo{};
+    unsigned end_phase = (length + i) % period;
+    endpoint[warm + length + i] = end_phase < length ? source_at(end_phase) : Stereo{};
+  }
+  for (unsigned i = 0; i < length; ++i) endpoint[warm + i] = source_at(i);
+  std::array<float, length> sl{}, sr{}, pl{}, pr{};
+  for (unsigned i = 0; i < length; ++i) { sl[i] = source_at(i).left; sr[i] = source_at(i).right; }
+  {
+    NoHeap guard;
+    for (unsigned i = 0; i < warm; ++i) live->process(phase_zero[i]);
+    require(take->begin(*live) && take->capture(*live, sl.data(), sr.data(), pl.data(), pr.data(), length) && take->commit(period), "chorus capture prefix and virtual zero suffix");
+    for (unsigned i = 0; i < 111; ++i) live->process(source_at(i + 3000));
+    require(playback->start(true), "chorus phase-zero captured playback");
+    for (unsigned i = 0; i < count; ++i) {
+      output[i] = playback->next();
+      equal(output[i], chorus_oracle(phase_zero, warm + i, 1000, parameters), "chorus evolving original-source loops and suffix match independent oracle");
+      if (i < length) equal(output[i], take->sample(i), "chorus first cycle exact printed provenance");
+    }
+    playback->stop();
+    for (unsigned i = 0; i < 60; ++i) {
+      output[count + i] = playback->next();
+      equal(output[count + i], chorus_oracle(phase_zero, warm + count + i, 1000, parameters), "chorus multi-loop Stop follows independent zero-input oracle");
+    }
+    require(playback->state() == PlaybackState::idle, "chorus finite release completes");
+    require(playback->start_at_capture_end(true), "chorus durable endpoint continuation");
+    for (unsigned i = 0; i < count; ++i) {
+      output[i] = playback->next();
+      equal(output[i], chorus_oracle(endpoint, warm + length + i, 1000, parameters), "chorus endpoint restores modulation phase after live advances and evolves across wraps");
+    }
+    playback->stop();
+    for (unsigned i = 0; i < 60; ++i) {
+      output[count + i] = playback->next();
+      equal(output[count + i], chorus_oracle(endpoint, warm + length + count + i, 1000, parameters), "chorus endpoint multi-wrap Stop tail oracle");
+    }
+    require(playback->state() == PlaybackState::idle && take->reset_for_capture(), "chorus tail ends and permits bank reuse");
+  }
+  fixture.insert(fixture.end(), output.begin(), output.end());
+  std::puts("PASS chorus nonlinear order, original-source evolving capture, zero suffix, endpoint phase provenance and finite Stop");
+}
+void chorus_release_bounds() {
+  for (double rate : {1000., 44100., 384000.}) for (double base : {10., 40.}) {
+    ChorusParameters parameters{5, 9, base, 1};
+    auto rack = chorus(rate, parameters);
+    unsigned prefix = unsigned(std::ceil(.75 * rate / parameters.rate_hz)) + 1;
+    unsigned tail = unsigned(std::ceil(rate * (base + 9) / 1000));
+    require(rack->maximum_tail_frames() == tail, "chorus release bound is ceil maximum modulated delay");
+    std::vector<Stereo> history(prefix + tail + 3), actual(history.size());
+    for (unsigned i = 0; i < prefix; ++i) history[i] = source_at(i + 1500);
+    {
+      NoHeap guard;
+      for (unsigned i = 0; i < history.size(); ++i) {
+        actual[i] = rack->process(history[i]);
+        equal(actual[i], chorus_oracle(history, i, rate, parameters), "chorus release bound at min-delay corner and high sample rate matches independent history");
+        if (rate == 1000 && base == 10 && i == prefix - 1) equal(actual[i],
+          {history[i].left + history[i - 1].left, history[i].right + history[i - 1].right},
+          "chorus minimum-delay phase reads the immediately preceding source frame");
+        if (i >= prefix + tail) equal(actual[i], {}, "chorus has exact zero source contribution after maximum tail");
+      }
+    }
+    fixture.insert(fixture.end(), actual.begin(), actual.end());
+  }
+  std::puts("PASS chorus exact zero after finite tail at minimum delay corner and 1k/44.1k/384k rates");
+}
+
 bool write_pcm(const char* path, const std::vector<Stereo>& pcm) {
   static_assert(sizeof(Stereo) == sizeof(float) * 2);
   FILE* file = std::fopen(path, "wb");
@@ -571,7 +749,7 @@ void demo(const char* prefix) {
 }
 }
 int main(int argc, char** argv) {
-  validation_and_order(); impulses(); arbitrary_stop(false); arbitrary_stop(true); block_partitioning_and_heap(); appended_capture_and_reuse(); mono_source_storage(); finite_slapback_release(); evolving_history(); capture_period_history(); capture_period_admission();
+  validation_and_order(); impulses(); arbitrary_stop(false); arbitrary_stop(true); block_partitioning_and_heap(); appended_capture_and_reuse(); mono_source_storage(); finite_slapback_release(); evolving_history(); capture_period_history(); capture_period_admission(); chorus_validation_and_impulses(); chorus_independent_oracle_and_state(); chorus_order_and_capture(); chorus_release_bounds();
   if (argc == 3 && std::strcmp(argv[1], "--fixture") == 0) require(write_pcm(argv[2], fixture), "write deterministic fixture");
   else if (argc == 3 && std::strcmp(argv[1], "--demo") == 0) demo(argv[2]);
   else require(argc == 1, "usage: patch_engine_tests [--fixture PATH | --demo PREFIX]");

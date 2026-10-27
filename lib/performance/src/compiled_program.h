@@ -11,6 +11,11 @@ class Program {
   static std::unique_ptr<Program> create(const double* data, uint32_t fields, double rate, const patches::Rack& definition, uint32_t revision) noexcept;
   ~Program();
   bool prepare_effects(const patches::Rack& definition, uint32_t revision) noexcept;
+  bool prepare_effects(const patches::Rack* const* definitions, const uint32_t* revisions) noexcept;
+  int rotate(double value, double frame, double bpm) noexcept;
+  bool rotation_eligible() const noexcept;
+  double rotation_remaining() const noexcept;
+  int profile_activity(int profile) const noexcept;
   void observe(void* context, void (*notify)(void*, double)) noexcept { observer_context_ = context; observer_ = notify; }
   void outcomes(void* context, void (*notify)(void*, double, int, int, int)) noexcept { outcome_context_ = context; outcome_ = notify; }
   void tempo_handler(void* context, int (*hit)(void*, int)) noexcept { tempo_context_ = context; tempo_hit_ = hit; }
@@ -21,7 +26,7 @@ class Program {
   int press(int button, double frame, double bpm, bool microphone) noexcept;
   void beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm) noexcept;
   void render(const float* input, float* left, float* right, float* live_left, float* live_right,
-    uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack) noexcept;
+    uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack, patches::Rack& backup_rack) noexcept;
   void set_channel(int button, double gain, bool muted) noexcept;
   VoiceInfo channel_info(int button, double bpm) const noexcept;
   void take_info(uint32_t take, double* out) const noexcept;
@@ -40,6 +45,7 @@ class Program {
   struct Member;
   struct PlaybackCue;
   struct Pending;
+  struct RotationWindow { double begin = 0, end = 0; };
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   Program() = default;
@@ -60,7 +66,11 @@ class Program {
   void remember_cues(double frame, double bpm) noexcept;
   bool commit_period(int take, uint32_t& period) const noexcept;
   std::unique_ptr<double[]> table_;
-  uint32_t fields_ = 0, prepared_revision_ = 0;
+  uint32_t fields_ = 0, prepared_revision_[PF_CHANNELS]{};
+  std::unique_ptr<RotationWindow[]> rotation_windows_;
+  int rotation_count_ = 0, monitor_route_ = PF_DEFAULT_PROFILE;
+  double rotation_hold_ = .5, rotation_deadline_ = -1;
+  bool handed_off_[PF_CHANNELS]{};
   std::unique_ptr<Take[]> takes_;
   std::unique_ptr<Cue[]> cues_;
   std::unique_ptr<Member[]> members_;
@@ -74,7 +84,7 @@ class Program {
   int binding_[PF_CHANNELS]{0, 1, 2, 3}, selection_[PF_CHANNELS]{-1, -1, -1, -1};
   bool muted_[PF_CHANNELS]{}, suppressed_[PF_CHANNELS]{};
   double gain_[PF_CHANNELS]{1, 1, 1, 1};
-  uint64_t drain_[PF_CHANNELS + 1]{};
+  uint64_t drain_[PF_VOICE_PROFILES]{};
   double rate_ = 0, bpm_ = 120, early_ = 0, late_ = 0, anchor_frame_ = 0, anchor_position_ = 0, query_position_ = 0, query_frame_ = 0;
   double capture_bpm_ = 120;
   ActiveCapture active_capture_;

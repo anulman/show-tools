@@ -1,7 +1,7 @@
 import { SampleEngine, SampleRecorder } from '../sampler/wasm-sampler.js';
 import { AudioSequenceEngine } from '../sequencer/wasm-sequencer.js';
 import { CONTROL_IDS } from './model.js';
-import type { ChannelId, ChartControls, Control, CueAction, LiveEffectDefinition, LiveEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
+import type { ChannelId, ChartControls, Control, CueAction, LiveEffectDefinition, LiveEffectsState, VoiceEffectConfiguration, VoiceEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
 import { PF } from './wasm-abi.js';
 import { ST } from '../sampler/wasm-abi.js';
 
@@ -26,6 +26,8 @@ export class NativePerformance {
   readonly eventPointer: number;
   readonly commandPointer: number;
   readonly effectPointer: number;
+  readonly effectCountPointer: number;
+  readonly effectRevisionPointer: number;
   readonly liveLeftPointer: number;
   readonly liveRightPointer: number;
   readonly liveLeft: Float32Array;
@@ -34,7 +36,6 @@ export class NativePerformance {
   readonly commandIds = new Map<number, string>();
   runId: string;
   disposed = false;
-  preparedLiveEffects: readonly LiveEffectDefinition[] | undefined;
 
   constructor({ api, sampleRate, mode = PF.PRACTICE, maxVoices = 32, maxSeconds = 30, clickGain = 1, ...song }: Options) {
     if (!(api.memory instanceof WebAssembly.Memory)) throw new Error('Performance WASM memory is unavailable');
@@ -58,7 +59,9 @@ export class NativePerformance {
       this.trackerEventPointer = this.allocate(512 * 12 * 8);
       this.eventPointer = this.allocate(PF.EVENT_CAPACITY * PF.EVENT_FIELDS * 8);
       this.commandPointer = this.allocate(801);
-      this.effectPointer = this.allocate(PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
+      this.effectPointer = this.allocate(PF.VOICE_PROFILES * PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
+      this.effectCountPointer = this.allocate(PF.VOICE_PROFILES * 4);
+      this.effectRevisionPointer = this.allocate(PF.VOICE_PROFILES * 4);
       this.liveLeftPointer = this.allocate(BLOCK * 4);
       this.liveRightPointer = this.allocate(BLOCK * 4);
       this.liveLeft = new Float32Array(this.memory.buffer, this.liveLeftPointer, BLOCK);
@@ -199,34 +202,73 @@ export class NativePerformance {
     } : null };
   }
   prepareLiveEffects(effects: readonly LiveEffectDefinition[]) {
-    if (!Array.isArray(effects) || effects.length > PF.MAX_LIVE_EFFECTS) throw new Error('Invalid live effects stack');
-    for (const effect of effects) {
-      if (!effect || typeof effect !== 'object' || effect.kind !== 'slapback'
-        || !Number.isFinite(effect.delayMs) || effect.delayMs < 40 || effect.delayMs > 250
-        || !Number.isFinite(effect.feedback) || effect.feedback < 0 || effect.feedback > 0.7
-        || !Number.isFinite(effect.wet) || effect.wet < 0 || effect.wet > 1) throw new Error('Invalid slapback effect');
-    }
-    const previous = this.liveEffects();
-    const unchanged = previous.prepared && this.preparedLiveEffects?.length === effects.length
-      && effects.every((effect, index) => {
-        const old = this.preparedLiveEffects?.[index];
-        return old !== undefined && old.kind === effect.kind && old.delayMs === effect.delayMs && old.feedback === effect.feedback && old.wet === effect.wet;
-      });
-    const phase = this.state().phase;
-    if (unchanged && (phase === 'playing' || phase === 'count-in')) return previous;
-    if (!unchanged && previous.revision >= 4294967295) throw new Error('Live effect revision limit reached. Reload practice.');
-    const view = new DataView(this.memory.buffer, this.effectPointer, PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
-    for (const [index, effect] of effects.entries()) {
-      const offset = index * PF.EFFECT_BYTES;
-      view.setUint32(offset + PF.EFFECT_TYPE_OFFSET, PF.EFFECT_SLAPBACK, true);
-      view.setUint32(offset + PF.EFFECT_VERSION_OFFSET, 1, true);
-      view.setFloat64(offset + PF.EFFECT_DELAY_OFFSET, effect.delayMs, true);
-      view.setFloat64(offset + PF.EFFECT_FEEDBACK_OFFSET, effect.feedback, true);
-      view.setFloat64(offset + PF.EFFECT_WET_OFFSET, effect.wet, true);
-    }
-    this.call('pf_prepare_live_effects', this.handle, effects.length ? this.effectPointer : 0, effects.length, unchanged ? previous.revision : previous.revision + 1);
-    this.preparedLiveEffects = effects.map(effect => ({ ...effect }));
+    this.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects })));
     return this.liveEffects();
+  }
+  prepareVoiceEffects(configurations: readonly VoiceEffectConfiguration[]): readonly VoiceEffectsState[] {
+    if (!Array.isArray(configurations) || configurations.length !== PF.VOICE_PROFILES) throw new Error('Configure all six voice profiles');
+    const profiles = new Map<number, readonly LiveEffectDefinition[]>();
+    for (const configuration of configurations) {
+      if (!configuration || !Number.isInteger(configuration.profile) || configuration.profile < 0 || configuration.profile >= PF.VOICE_PROFILES
+        || profiles.has(configuration.profile) || !Array.isArray(configuration.effects) || configuration.effects.length > PF.MAX_LIVE_EFFECTS) throw new Error('Invalid voice effects configuration');
+      for (const effect of configuration.effects) {
+        if (!effect || typeof effect !== 'object' || !Number.isFinite(effect.wet) || effect.wet < 0 || effect.wet > 1) throw new Error('Invalid voice effect');
+        if (effect.kind === 'slapback') {
+          if (!Number.isFinite(effect.delayMs) || effect.delayMs < 40 || effect.delayMs > 250 || !Number.isFinite(effect.feedback) || effect.feedback < 0 || effect.feedback > .7) throw new Error('Invalid slapback effect');
+        } else if (effect.kind === 'chorus') {
+          if (!Number.isFinite(effect.rateHz) || effect.rateHz < .05 || effect.rateHz > 5 || !Number.isFinite(effect.depthMs) || effect.depthMs < 0 || effect.depthMs > 9
+            || !Number.isFinite(effect.baseDelayMs) || effect.baseDelayMs < 10 || effect.baseDelayMs > 40) throw new Error('Invalid chorus effect');
+        } else throw new Error('Unsupported voice effect');
+      }
+      profiles.set(configuration.profile, configuration.effects);
+    }
+    const old = this.voiceEffects();
+    const view = new DataView(this.memory.buffer, this.effectPointer, PF.VOICE_PROFILES * PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
+    const counts = new Uint32Array(this.memory.buffer, this.effectCountPointer, PF.VOICE_PROFILES);
+    const revisions = new Uint32Array(this.memory.buffer, this.effectRevisionPointer, PF.VOICE_PROFILES);
+    let stage = 0, allUnchanged = true;
+    for (const previous of old) {
+      const effects = profiles.get(previous.profile);
+      if (!effects) throw new Error('Missing voice profile');
+      const unchanged = previous.prepared && effects.length === previous.effects.length && effects.every((effect, index) => {
+        const before = previous.effects[index];
+        return before?.kind === effect.kind && effect.wet === before.wet && (effect.kind === 'slapback' && before.kind === 'slapback'
+          ? effect.delayMs === before.delayMs && effect.feedback === before.feedback
+          : effect.kind === 'chorus' && before.kind === 'chorus' && effect.rateHz === before.rateHz && effect.depthMs === before.depthMs && effect.baseDelayMs === before.baseDelayMs);
+      });
+      if (!unchanged && previous.revision >= 4294967295) throw new Error('Voice effect revision limit reached. Reload practice.');
+      allUnchanged &&= unchanged;
+      counts[previous.profile] = effects.length; revisions[previous.profile] = unchanged ? Math.max(1, previous.revision) : previous.revision + 1;
+      for (const effect of effects) {
+        const offset = stage++ * PF.EFFECT_BYTES;
+        view.setUint32(offset + PF.EFFECT_TYPE_OFFSET, effect.kind === 'slapback' ? PF.EFFECT_SLAPBACK : PF.EFFECT_CHORUS, true);
+        view.setUint32(offset + PF.EFFECT_VERSION_OFFSET, 1, true);
+        if (effect.kind === 'slapback') {
+          view.setFloat64(offset + PF.EFFECT_DELAY_OFFSET, effect.delayMs, true); view.setFloat64(offset + PF.EFFECT_FEEDBACK_OFFSET, effect.feedback, true); view.setFloat64(offset + PF.EFFECT_WET_OFFSET, effect.wet, true);
+        } else {
+          view.setFloat64(offset + PF.EFFECT_CHORUS_RATE_OFFSET, effect.rateHz, true); view.setFloat64(offset + PF.EFFECT_CHORUS_DEPTH_OFFSET, effect.depthMs, true);
+          view.setFloat64(offset + PF.EFFECT_CHORUS_DELAY_OFFSET, effect.baseDelayMs, true); view.setFloat64(offset + PF.EFFECT_CHORUS_WET_OFFSET, effect.wet, true);
+        }
+      }
+    }
+    const phase = this.decode(Array.from(this.query('pf_snapshot'))).phase;
+    if (allUnchanged && (phase === 'playing' || phase === 'count-in')) return old;
+    this.call('pf_prepare_voice_effects', this.handle, stage ? this.effectPointer : 0, this.effectCountPointer, this.effectRevisionPointer);
+    return this.voiceEffects();
+  }
+  voiceEffects(): readonly VoiceEffectsState[] {
+    const activity: readonly VoiceEffectsState['activity'][] = ['standby', 'live', 'tail', 'capture'];
+    return Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => {
+      const data = Array.from(this.query('pf_voice_info', profile));
+      const effects = Array.from({ length: data[PF.VOICE_STAGE_COUNT] }, (_, stage): LiveEffectDefinition => {
+        const effect = this.query('pf_voice_effect_info', profile, stage);
+        if (effect[PF.VOICE_EFFECT_TYPE] === PF.EFFECT_SLAPBACK) return { kind: 'slapback', delayMs: effect[PF.VOICE_EFFECT_PARAMETER_0], feedback: effect[PF.VOICE_EFFECT_PARAMETER_1], wet: effect[PF.VOICE_EFFECT_PARAMETER_2] };
+        if (effect[PF.VOICE_EFFECT_TYPE] === PF.EFFECT_CHORUS) return { kind: 'chorus', rateHz: effect[PF.VOICE_EFFECT_PARAMETER_0], depthMs: effect[PF.VOICE_EFFECT_PARAMETER_1], baseDelayMs: effect[PF.VOICE_EFFECT_PARAMETER_2], wet: effect[PF.VOICE_EFFECT_PARAMETER_3] };
+        throw new Error('Unknown native voice effect');
+      });
+      return { profile, effects, prepared: data[PF.VOICE_PREPARED] === 1, revision: data[PF.VOICE_REVISION], activity: activity[data[PF.VOICE_ACTIVITY]] ?? 'standby',
+        rotationEligible: data[PF.VOICE_ROTATION_ELIGIBLE] === 1, rotationRemainingBeats: data[PF.VOICE_ROTATION_REMAINING] };
+    });
   }
   liveEffects(): LiveEffectsState {
     const data = this.query('pf_live_info');
@@ -277,7 +319,7 @@ export class NativePerformance {
       startBar: data[PF.START_BAR], endBar: data[PF.END_BAR], loop: data[PF.LOOP] === 1, automatic: data[PF.AUTOMATIC] === 1, click: data[PF.CLICK] === 1, selectedChannel: CONTROL_IDS[data[PF.SELECTED_CHANNEL]],
       runId: this.runId, seq: data[PF.SEQUENCE], channels, looping: channels.filter(channel => channel.looping).map(channel => channel.id), recording, microphone: data[PF.MICROPHONE] === 1, error: data[PF.ERROR] ? this.message(data[PF.ERROR]) : null };
   }
-  state() { return { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), tempoHits: this.tempoHitInfo() }; }
+  state() { return { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), voiceEffects: this.voiceEffects(), tempoHits: this.tempoHitInfo() }; }
   snapshot() { return this.state(); }
   get processedFrames() { return this.query('pf_snapshot')[PF.FRAME]; }
   get clickEnabled() { return this.query('pf_snapshot')[PF.CLICK_ENABLED] === 1; }
