@@ -440,6 +440,114 @@ void evolving_history() {
   }
   std::puts("PASS evolving iterations differ from printed first pass and preserve continuous stop tail");
 }
+void capture_period_history() {
+  for (bool warm : {false, true}) for (unsigned length : {1u, 73u}) for (unsigned silence : {0u, 39u}) {
+    const unsigned period = length + silence;
+    auto live = serial();
+    auto take = ProcessedTake::create(*live, length, 11);
+    auto playback = Playback::create(*take);
+    if (warm) for (unsigned i = 0; i < 83; ++i) live->process(source_at(i + 900));
+    auto initial = live->snapshot();
+    std::vector<float> source_l(length), source_r(length), printed_l(length), printed_r(length);
+    for (unsigned i = 0; i < length; ++i) { Stereo source = source_at(i); source_l[i] = source.left; source_r[i] = source.right; }
+    require(take->begin(*live), "period capture begins at warm boundary");
+    require(take->capture(*live, source_l.data(), source_r.data(), printed_l.data(), printed_r.data(), length), "period capture prefix");
+    auto endpoint = live->snapshot();
+    {
+      NoHeap guard;
+      if (length > 1) {
+        require(!take->commit(length - 1), "period shorter than capture rejected");
+        require(take->state() == TakeState::capturing && take->length() == length && take->period() == 0, "invalid period leaves capture metadata unchanged");
+      }
+      require(take->commit(period), "commit independent loop period without heap");
+      require(take->length() == length && take->period() == period && take->capacity() == length, "capture prefix and virtual period remain distinct");
+      equal(take->sample(length), {}, "virtual suffix is not printed microphone audio");
+    }
+    for (unsigned i = 0; i < 111; ++i) live->process(source_at(i + 1700));
+    auto oracle = initial->snapshot();
+    std::vector<Stereo> output(period * 3 + 17);
+    {
+      NoHeap guard;
+      require(playback->start(true), "phase-zero period playback starts without heap");
+      for (unsigned i = 0; i < output.size(); ++i) {
+        unsigned phase = i % period;
+        Stereo expected = oracle->process(phase < length ? source_at(phase) : Stereo{});
+        output[i] = playback->next();
+        equal(output[i], expected, "phase-zero printed prefix and zero suffix follow evolving full-period oracle");
+        if (i < length) equal(output[i], take->sample(i), "phase-zero first prefix remains exact printed capture");
+      }
+      playback->stop();
+      for (unsigned i = 0; i < 200; ++i) equal(playback->next(), oracle->process({}), "period multi-wrap Stop retains full original and zero-source history");
+      playback->reset();
+      require(oracle->copy_state(*endpoint), "restore independent endpoint oracle");
+      require(playback->start_at_capture_end(true), "endpoint continuation starts without heap or seek");
+      require(!take->reset_for_capture(), "endpoint continuation pins take");
+      for (unsigned i = 0; i < output.size(); ++i) {
+        unsigned phase = (length + i) % period;
+        Stereo expected = oracle->process(phase < length ? source_at(phase) : Stereo{});
+        output[i] = playback->next();
+        equal(output[i], expected, "endpoint continuation uses durable capture-end state and wraps without reset");
+      }
+      playback->stop();
+      require(!take->reset_for_capture(), "endpoint release keeps take pinned");
+      for (unsigned i = 0; i < 200; ++i) equal(playback->next(), oracle->process({}), "endpoint continuation Stop drains continuous oracle");
+      playback->reset();
+      require(oracle->copy_state(*endpoint) && playback->start_at_capture_end(false), "endpoint nonloop continuation");
+      for (unsigned i = 0; i < silence + 200; ++i) equal(playback->next(), oracle->process({}), "nonloop endpoint plays only zero suffix then natural release");
+      playback->reset();
+      require(oracle->copy_state(*initial) && playback->start(false), "phase-zero nonloop period start");
+      for (unsigned i = 0; i < period + 200; ++i) {
+        Stereo input = i < length ? source_at(i) : Stereo{};
+        equal(playback->next(), oracle->process(input), "nonloop phase-zero emits prefix and zero suffix before natural release");
+      }
+      playback->reset();
+      require(oracle->copy_state(*endpoint) && playback->start_at_capture_end(true), "endpoint immediate Stop start");
+      playback->stop();
+      for (unsigned i = 0; i < 200; ++i) equal(playback->next(), oracle->process({}), "Stop before endpoint continuation frame preserves exact capture-end history");
+      playback->reset();
+      require(take->reset_for_capture() && take->period() == 0 && take->length() == 0, "period metadata resets only after playback unpins");
+      require(!playback->start_at_capture_end(true) && !playback->start(true), "reused bank cannot start either mode before new commit");
+    }
+    fixture.insert(fixture.end(), output.begin(), output.end());
+  }
+  std::puts("PASS distinct capture cutoff and loop period, warm ordered nonlinear oracle, durable endpoint continuation, zero suffix, wraps and Stop");
+}
+void capture_period_admission() {
+  uint64_t calls = 0;
+  std::unique_ptr<Effect> stages[] = {std::unique_ptr<Effect>(new ReferenceEffect(ReferenceEffect::Kind::gain, 1, true, &calls))};
+  auto live = Rack::create(stages, 1);
+  auto take = ProcessedTake::create(*live, 2, 12, 1);
+  auto playback = Playback::create(*take);
+  std::array<float, 2> source{.2f,.4f}, left{}, right{};
+  {
+    NoHeap guard;
+    require(take->period() == 0 && !playback->start_at_capture_end(true), "prepared endpoint start rejected");
+    require(playback->state() == PlaybackState::idle && calls == 0, "uncommitted endpoint rejection does not advance DSP");
+    require(take->begin(*live) && !playback->start_at_capture_end(false), "capturing endpoint start rejected");
+    require(take->capture(*live, source.data(), nullptr, left.data(), right.data(), 2) && calls == 2, "counted period source processed once");
+    require(!take->commit(1) && calls == 2 && take->state() == TakeState::capturing, "short period rejected without DSP or capture mutation");
+    require(take->commit(std::numeric_limits<uint32_t>::max()), "virtual period beyond PCM capacity admitted");
+    require(take->period() == std::numeric_limits<uint32_t>::max() && take->length() == 2 && calls == 2, "virtual period does not process or store suffix at commit");
+    require(!take->commit(2) && take->period() == std::numeric_limits<uint32_t>::max(), "recommit cannot change sealed period");
+    require(playback->start_at_capture_end(true) && calls == 2, "endpoint start copies state without DSP");
+    equal(playback->next(), {}, "huge virtual period reads implicit zero suffix");
+    require(calls == 3, "one virtual suffix frame advances DSP exactly once");
+    require(!playback->start(true, 1) && playback->state() == PlaybackState::playing, "unsupported arbitrary seek preserves active endpoint playback");
+    equal(playback->next(), {}, "rejected seek preserves endpoint suffix cursor and state");
+    require(calls == 4, "rejected seek neither advances nor replays DSP");
+    playback->reset();
+    require(take->reset_for_capture() && take->period() == 0, "huge virtual period reset has no suffix work");
+    require(take->begin(*live) && take->capture(*live, source.data(), nullptr, left.data(), right.data(), 2), "reuse period bank");
+    uint64_t before = calls;
+    require(take->commit() && take->period() == take->length(), "default commit preserves whole-take period");
+    require(playback->start_at_capture_end(true) && calls == before, "full-period endpoint start is state copy only");
+    equal(playback->next(), {.2f,.2f}, "full-period endpoint wraps directly to original source");
+    require(calls == before + 1, "full-period endpoint wrap advances exactly one frame");
+    playback->reset();
+  }
+  std::puts("PASS period admission is atomic, virtual suffix exceeds PCM capacity, commit/start perform no DSP, pins and reuse preserve metadata");
+}
+
 bool write_pcm(const char* path, const std::vector<Stereo>& pcm) {
   static_assert(sizeof(Stereo) == sizeof(float) * 2);
   FILE* file = std::fopen(path, "wb");
@@ -463,7 +571,7 @@ void demo(const char* prefix) {
 }
 }
 int main(int argc, char** argv) {
-  validation_and_order(); impulses(); arbitrary_stop(false); arbitrary_stop(true); block_partitioning_and_heap(); appended_capture_and_reuse(); mono_source_storage(); finite_slapback_release(); evolving_history();
+  validation_and_order(); impulses(); arbitrary_stop(false); arbitrary_stop(true); block_partitioning_and_heap(); appended_capture_and_reuse(); mono_source_storage(); finite_slapback_release(); evolving_history(); capture_period_history(); capture_period_admission();
   if (argc == 3 && std::strcmp(argv[1], "--fixture") == 0) require(write_pcm(argv[2], fixture), "write deterministic fixture");
   else if (argc == 3 && std::strcmp(argv[1], "--demo") == 0) demo(argv[2]);
   else require(argc == 1, "usage: patch_engine_tests [--fixture PATH | --demo PREFIX]");

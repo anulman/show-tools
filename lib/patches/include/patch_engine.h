@@ -68,9 +68,10 @@ class ProcessedTake {
   bool capture(Rack& live, const float* left, const float* right, float* out_left, float* out_right, uint32_t frames) noexcept;
   bool append_processed(const Rack& live, const float* source_left, const float* source_right,
     const float* processed_left, const float* processed_right, uint32_t frames) noexcept;
-  bool commit() noexcept;
+  bool commit(uint32_t period_frames = 0) noexcept;
   bool reset_for_capture() noexcept;
   uint32_t length() const noexcept { return length_; }
+  uint32_t period() const noexcept { return period_; }
   uint32_t capacity() const noexcept { return capacity_; }
   uint64_t revision() const noexcept { return revision_; }
   uint32_t source_channels() const noexcept { return source_channels_; }
@@ -79,14 +80,14 @@ class ProcessedTake {
   Stereo sample(uint32_t frame) const noexcept;
  private:
   friend class Playback;
-  ProcessedTake(std::unique_ptr<Rack> initial, float* source, Stereo* printed, uint32_t capacity, uint64_t revision, uint32_t source_channels) noexcept;
+  ProcessedTake(std::unique_ptr<Rack> initial, std::unique_ptr<Rack> end, float* source, Stereo* printed, uint32_t capacity, uint64_t revision, uint32_t source_channels) noexcept;
   bool source_valid(const float* left, const float* right, uint32_t frames) const noexcept;
   void write_source(uint32_t frame, Stereo source) noexcept;
   Stereo read_source(uint32_t frame) const noexcept;
-  std::unique_ptr<Rack> initial_;
+  std::unique_ptr<Rack> initial_, end_;
   float* source_;
   Stereo* printed_;
-  uint32_t capacity_, source_channels_, length_ = 0;
+  uint32_t capacity_, source_channels_, length_ = 0, period_ = 0;
   uint64_t revision_;
   TakeState state_ = TakeState::prepared;
   mutable uint64_t active_playbacks_ = 0;
@@ -102,6 +103,7 @@ class Playback {
   Playback(const Playback&) = delete;
   Playback& operator=(const Playback&) = delete;
   bool start(bool loop, uint32_t start_frame = 0) noexcept;
+  bool start_at_capture_end(bool loop) noexcept;
   void stop() noexcept;
   void reset() noexcept;
   Stereo next() noexcept;
