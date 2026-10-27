@@ -224,6 +224,38 @@ void malformed_capture_graphs_preserve_loaded_take() {
   until(engine, 1);
   require(take(engine, 0)[PF_TAKE_LENGTH] <= 1, "old program can record again after rejected replacements");
 }
+void stale_bank_rejection_preserves_looping_transport() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, .2, .2, 1, 2, 1, 0, 0, 1, 2, 3,
+    0, 1, 0, 2, 0, 1,
+    0, 0, 1, -1, PF_ARM, 0, 0, 0, -1, -1,
+    0, 0, 2, -1, PF_COMMIT, 0, 0, -1, 0, 0,
+    0, 0, 1
+  };
+  Engine engine; prepare(engine, song);
+  ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1); ok(engine, press(engine, 0));
+  until(engine, 2); ok(engine, press(engine, 0)); pf_stop(engine);
+  pf_effect_definition edited{PF_EFFECT_SLAPBACK, 1, {{80, 0, .5}}};
+  ok(engine, pf_prepare_live_effects(engine, &edited, 1, 2));
+  ok(engine, pf_start(engine, 120, 0, 1, 4, 1, 0)); until(engine, 1); ok(engine, press(engine, 0));
+  until(engine, 2); ok(engine, press(engine, 0)); until(engine, 4, 4); until(engine, 1);
+  const auto retained = take(engine, 0);
+  const auto before = channel(engine, 0);
+  std::array<float, 128> input{}, left{}, right{}, live_left{}, live_right{}; input.fill(.25f);
+  heap_allocations = heap_frees = 0; watch_heap = true;
+  require(press(engine, 0) < 0 && state(engine)[PF_ERROR] == PF_TAKE_UNAVAILABLE, "stale spare bank rejects recapture before route or owner mutation");
+  require(take(engine, 0) == retained && channel(engine, 0) == before, "rejected recapture preserves committed playback, phase, pending action and lights");
+  ok(engine, pf_process_stems(engine, input.data(), left.data(), right.data(), live_left.data(), live_right.data(), input.size()));
+  watch_heap = false;
+  require(heap_allocations == 0 && heap_frees == 0, "stale-bank rejection and continued playback require no callback heap operations");
+  require(state(engine)[PF_PHASE] == PF_PLAYING && channel(engine, 0)[PF_CHANNEL_LOOPING], "rejected recapture never stops the running transport");
+  require(std::all_of(left.begin(), left.end(), [](float value) { return std::abs(value - .375f) < 1e-6; }), "rejected recapture retains audible current-revision loop");
+  require(std::all_of(live_left.begin(), live_left.end(), [](float value) { return std::abs(value - .375f) < 1e-6; }), "rejected recapture preserves default live routing");
+  pf_stop(engine); ok(engine, pf_prepare_live_effects(engine, &edited, 1, 2));
+  ok(engine, pf_start(engine, 120, 0, 1, 4, 1, 0)); until(engine, 1); ok(engine, press(engine, 0));
+  render(engine, 128);
+  require(channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING, "stopped preparation refreshes spare bank and permits capture again");
+}
 void prepared_capture_reuses_banks_without_heap_work() {
   Engine engine; prepare(engine, table());
   std::array<float, 128> input{}, left{}, right{}, live_left{}, live_right{}; input.fill(.25f);
@@ -264,4 +296,4 @@ void prepared_capture_reuses_banks_without_heap_work() {
   require(heap_allocations == 0 && heap_frees == 0, "idempotent stopped preparation avoids allocations when all reusable banks are current");
 }
 }
-int main() { capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
+int main() { capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }

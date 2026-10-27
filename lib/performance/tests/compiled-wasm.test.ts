@@ -154,3 +154,38 @@ test('stopped identical effect preparation refreshes reusable banks after a venu
     }
   } finally { native.dispose(); }
 });
+
+test('stale venue bank rejects recapture nonfatally during transport until stopped preparation', async () => {
+  const native = engine(Array.from(encodeCompiledProgram(await fixture({ inTransportRecapture: true }))));
+  const edited = [{ kind: 'slapback', delayMs: 150, feedback: 0, wet: .5 }] satisfies Parameters<NativePerformance['prepareLiveEffects']>[0];
+  function startAndCapture(runId: string) {
+    native.setMicrophone(true);
+    native.start({ runId, bpm: 120, countInBars: 0, startBar: 1, endBar: 4, loop: true });
+    until(native, 1);
+    native.control({ id: 'R1' });
+    until(native, 2);
+    native.control({ id: 'R1' });
+  }
+  try {
+    native.prepareLiveEffects([{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }]);
+    startAndCapture('old-venue');
+    native.stop();
+    native.prepareLiveEffects(edited);
+    startAndCapture('new-venue');
+    until(native, 4, 4);
+    until(native, 1);
+    const before = native.compiledTake(0);
+    const channels = native.state().channels;
+    assert.throws(() => native.control({ id: 'R1' }), /No reusable take bank/);
+    assert.deepEqual(native.compiledTake(0), before);
+    assert.deepEqual(native.state().channels, channels);
+    const output = render(native, 128);
+    assert.equal(native.state().phase, 'playing');
+    assert(output.mixed.every(channel => channel.every(sample => Math.abs(sample - .375) < 1e-6)));
+    assert(output.live.every(channel => channel.every(sample => Math.abs(sample - .375) < 1e-6)));
+    native.stop();
+    native.prepareLiveEffects(edited);
+    startAndCapture('refreshed');
+    assert.equal(native.compiledTake(0).revision, 2);
+  } finally { native.dispose(); }
+});

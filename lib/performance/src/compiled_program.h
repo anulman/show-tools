@@ -47,7 +47,7 @@ class Program {
   double position(double frame, double bpm) const noexcept;
   void apply_pending(double frame, double bpm) noexcept;
   std::unique_ptr<double[]> table_;
-  uint32_t fields_ = 0;
+  uint32_t fields_ = 0, prepared_revision_ = 0;
   std::unique_ptr<Take[]> takes_;
   std::unique_ptr<Cue[]> cues_;
   std::unique_ptr<Member[]> members_;

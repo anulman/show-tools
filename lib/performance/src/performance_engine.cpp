@@ -343,7 +343,7 @@ const char* pf_message(int code) {
     case PF_INVALID_EFFECTS: return "Invalid live effects configuration";
     case PF_CAPTURE_EFFECTS_UNAVAILABLE: return "Sample capture with effects is not available in this build. Bypass effects to record samples.";
     case PF_CAPTURE_BUSY: return "Another capture is armed or recording. Finish it before arming this voice.";
-    case PF_TAKE_UNAVAILABLE: return "Prepared take resources are still in use. Wait for their playback tails to finish.";
+    case PF_TAKE_UNAVAILABLE: return "No reusable take bank is available. Wait for playback tails, or stop and prepare effects before recapturing after a venue edit.";
     case PF_CUE_LATE: return "The cue's execution boundary has already passed.";
     default: return "Unknown performance error";
   }

@@ -1,10 +1,11 @@
 import { compileSong } from '../../compiled-song.js';
 
-export async function compiledCaptureFixture() {
+export async function compiledCaptureFixture({ inTransportRecapture = false } = {}) {
   const values = Array.from({ length: 24 }, () => Array<string>(6).fill(''));
   values[0][1] = 'Compiled capture fixture'; values[1][5] = '120'; values[3][2] = 'A';
   values[4] = ['Bar', '', '1', '2', '3', '4'];
   values[17][1] = 'rb'; values[17][2] = 'crb'; values[17][3] = 'cb'; values[17][4] = '4xe';
+  if (inTransportRecapture) { values[17][1] = ''; values[17][2] = 'r'; values[17][3] = 'c'; values[17][4] = ''; }
   values[9] = ['', '', '-', '-', "-'", "-'"];
   return compileSong({ sourceVersion: 1, spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', range: 'A1:F24', values, notes: {} }, {
     mappingVersion: 1, notationVersion: 'dyc-v1', songId: 'fixture', spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture',

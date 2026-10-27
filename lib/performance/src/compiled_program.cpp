@@ -142,7 +142,7 @@ bool Program::prepare_effects(const patches::Rack& definition, uint32_t revision
   bool stale = !voices_[0] || !voices_[0]->compatible(definition);
   for (int id = 0; id < take_count_; ++id) for (int bank = 0; bank < 2; ++bank)
     if (bank != takes_[id].latest && (!takes_[id].cache[bank] || takes_[id].cache[bank]->revision() != revision)) stale = true;
-  if (!stale) return true;
+  if (!stale) { prepared_revision_ = revision; return true; }
   std::unique_ptr<patches::Rack> voices[PF_CHANNELS];
   std::unique_ptr<patches::ProcessedTake> caches[PF_COMPILED_MAX_TAKES][2];
   std::unique_ptr<patches::Playback> players[PF_COMPILED_MAX_TAKES][2];
@@ -163,6 +163,7 @@ bool Program::prepare_effects(const patches::Rack& definition, uint32_t revision
     takes_[id].cache[bank] = std::move(caches[id][bank]);
     takes_[id].playback[bank] = std::move(players[id][bank]);
   }
+  prepared_revision_ = revision;
   return true;
 }
 void Program::start(int start_bar, int count_in_beats, double frame) noexcept {
@@ -195,7 +196,7 @@ double Program::position(double frame, double bpm) const noexcept { return ancho
 int Program::available_bank(int id) const noexcept {
   if (id < 0 || id >= take_count_) return -1;
   const Take& take = takes_[id];
-  for (int bank = 0; bank < 2; ++bank) if (bank != take.latest && !(capturing_ == id && capture_bank_ == bank) && take.playback[bank] && take.playback[bank]->state() == patches::PlaybackState::idle) return bank;
+  for (int bank = 0; bank < 2; ++bank) if (bank != take.latest && !(capturing_ == id && capture_bank_ == bank) && take.cache[bank] && take.cache[bank]->revision() == prepared_revision_ && take.playback[bank] && take.playback[bank]->state() == patches::PlaybackState::idle) return bank;
   return -1;
 }
 void Program::switch_route(int voice) noexcept {
