@@ -7,7 +7,7 @@ export class BeatTracker {
   static async create({ audioContext, startingBpm = null,
     wasmUrl = new URL('../../../lib/beat-tracker/dist/beat-tracker.wasm', import.meta.url),
     workletUrl = new URL('./beat-worklet.js', import.meta.url),
-    processorName = 'beat-tracker', processorOptions = {}, outputChannels = 1 } = {}) {
+    processorName = 'beat-tracker', processorOptions = {}, outputChannels = 1, outputChannelCounts = [outputChannels] } = {}) {
     const ownsContext = !audioContext;
     const context = audioContext || new AudioContext({ latencyHint: 'interactive' });
     const resume = context.resume();
@@ -19,7 +19,7 @@ export class BeatTracker {
       const module = await WebAssembly.compile(await response.arrayBuffer());
       await context.audioWorklet.addModule(workletUrl);
       tracker.node = new AudioWorkletNode(context, processorName, {
-        numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [outputChannels],
+        numberOfInputs: 1, numberOfOutputs: outputChannelCounts.length, outputChannelCount: outputChannelCounts,
         channelCount: 1, channelCountMode: 'explicit', processorOptions: { ...processorOptions, module },
       });
       await tracker.awaitReady();

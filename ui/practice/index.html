@@ -23,6 +23,7 @@
     </section>
 
     <div id="error" class="error" role="alert" hidden></div>
+    <section id="chart-source" class="chart-source" aria-label="Chart source and inspection"></section>
     <noscript><p class="error">Enable JavaScript to use the practice desk.</p></noscript>
 
     <section class="transport" aria-label="Song transport">
@@ -53,6 +54,25 @@
         <div class="capture-options"><label class="switch" title="The lead-in always clicks. This controls the click during the song."><input id="click" type="checkbox"><span class="switch-track"></span><span>Song click</span></label><span class="capture-note">Lead-in always clicks. Press a pad for its chart cue.</span></div>
       </div>
 
+    </section>
+
+    <section class="live-effects" aria-labelledby="effects-heading">
+      <div class="section-heading"><h2 id="effects-heading">Live voice effects</h2><span id="effects-status" role="status">Set effects before Start.</span></div>
+      <div class="effects-controls audio-device-controls">
+        <label class="field"><span>MICROPHONE / SOUND CARD INPUT</span><select id="input-device" aria-label="Microphone input device"><option value="">System default input</option></select></label>
+        <label class="field"><span>SOUND CARD OUTPUT</span><select id="output-device" aria-label="Audio output device"><option value="">System default output</option></select></label>
+        <button id="refresh-devices" class="secondary" type="button">Refresh audio devices</button>
+      </div>
+      <p id="device-hint" class="effects-note">Choose devices while stopped. Device names appear after microphone permission; confirm the physical monitoring relationship separately.</p>
+      <div class="effects-controls">
+        <label class="switch"><input id="effects-enabled" type="checkbox" checked><span class="switch-track"></span><span>Slapback</span></label>
+        <label class="field"><span>DELAY · MS</span><input id="effects-delay" type="number" min="40" max="250" step="1" value="100" inputmode="decimal"></label>
+        <label class="field"><span>FEEDBACK</span><input id="effects-feedback" type="number" min="0" max="0.7" step="0.05" value="0" inputmode="decimal"></label>
+        <label class="field"><span>WET AMOUNT</span><input id="effects-wet" type="number" min="0" max="1" step="0.05" value="0.25" inputmode="decimal"></label>
+      </div>
+      <p id="effects-capture-hint" class="effects-note">Slapback processes live voice and demo downloads. Sample capture with effects is unavailable in this build. Bypass Slapback to capture samples.</p>
+      <label class="monitor-setting field"><span>LIVE MONITORING · CONFIRM YOUR PHYSICAL SETUP AFTER START</span><select id="monitor-relationship" aria-describedby="monitor-hint"><option value="unknown">Not confirmed · monitoring off</option><option value="different-devices">Input and output are different devices</option><option value="same-usb-interface">Same USB audio interface</option><option value="same-non-usb">Same non-USB device · monitoring off</option></select></label>
+      <p id="monitor-hint" class="effects-note">Downloads include processed voice even when live monitoring is off.</p>
     </section>
 
     <section class="auxiliary" aria-label="Recording and stop controls">

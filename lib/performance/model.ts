@@ -1,5 +1,7 @@
+import type { CompiledSong } from './compiled-song.js';
+
 export type ChannelId = 'L1' | 'L2' | 'R1' | 'R2';
-export type ControlId = ChannelId | 'mushroom' | 'knob';
+export type ControlId = ChannelId | 'mushroom' | 'knob' | 'tempo';
 export type Control = { readonly id: Exclude<ControlId, 'knob'> } | { readonly id: 'knob'; readonly value: number };
 export const CONTROL_IDS: readonly ChannelId[] = ['L1', 'L2', 'R1', 'R2'];
 export const CONTROLS: readonly { id: ChannelId; key: string; shortcut: string; color: string }[] = [
@@ -33,6 +35,16 @@ export interface Chart {
   controlNames: Record<ChannelId, string>;
   annotatedThroughBar: number;
 }
+export type LiveEffectDefinition = { readonly kind: 'slapback'; readonly delayMs: number; readonly feedback: number; readonly wet: number };
+export interface LiveEffectsState {
+  prepared: boolean;
+  active: boolean;
+  revision: number;
+  stageCount: number;
+  captureSupported: boolean;
+}
+export interface TempoHitObservation { beatHint: 1 | null; source: 'pedal' | 'chart'; estimated: boolean }
+export interface TempoHitState { count: number; latest: (TempoHitObservation & { frame: number; bpm: number }) | null }
 export interface ChannelSettings { gain?: number; muted?: boolean }
 export type PadLight = { kind: 'off' | 'cue' | 'steady' } | { kind: 'releasing'; remainingMs: number };
 export interface ChannelState {
@@ -65,6 +77,8 @@ export interface PracticeState extends TransportState {
   error: string | null;
   lifecycle?: string;
   chart?: ChartMetadata;
+  liveEffects?: LiveEffectsState;
+  tempoHits?: TempoHitState;
 }
 export interface StartOptions {
   bpm?: number;
@@ -79,7 +93,7 @@ export interface PracticeEvent {
   v: 1;
   runId: string;
   seq: number;
-  type: 'state' | 'beat' | 'control' | 'fault';
+  type: 'state' | 'beat' | 'control' | 'fault' | 'tempo-hit';
   state: PracticeState;
   frame?: number;
   sampleRate?: number;
@@ -87,6 +101,8 @@ export interface PracticeEvent {
   commandId?: string;
   applied?: boolean;
   error?: string;
+  tempoHit?: TempoHitObservation;
+  cueIndex?: number;
 }
 export interface ControlMessage { commandId: string; control: Control }
 export interface ProgramEvent { atBeat: number; sampleId: ChannelId; gain?: number }
@@ -110,4 +126,5 @@ export interface SongScript {
   program: Program;
   practice: { startBar: number; endBar: number };
   description: string;
+  compiled?: CompiledSong;
 }

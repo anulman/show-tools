@@ -12,6 +12,7 @@ export const HELP = `Usage: show-tools sheets [SONG_SLUG_OR_SET_LIST_NUMBER] [--
        show-tools songs
 
 Commands:
+  chart          Fetch, compile, and inspect mapped performance charts
   sheets [song]  Run Sheets following; open the set list or a song's lead-in
   songs          List song slugs and 1-indexed set-list numbers
 
@@ -145,6 +146,7 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
 
 export async function main(args = process.argv.slice(2)) {
   try {
+    if (args[0] === 'chart') { await (await import('./chart-compiler.js')).runChartCompiler(args.slice(1)); return; }
     const command = parseCommand(args);
     if (command.kind === 'help') { process.stdout.write(HELP); return; }
     if (command.kind === 'songs') { process.stdout.write(SONGS.map((song, index) => `${index + 1}  ${song.id}  ${song.title.replace(/^\d+ · /, '')}`).join('\n') + '\n'); return; }

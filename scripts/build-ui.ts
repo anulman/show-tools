@@ -2,6 +2,7 @@ import { build } from 'esbuild';
 import { cp, mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = resolve(root, 'dist');
@@ -43,8 +44,18 @@ async function copyAssets(directory: string): Promise<void> {
 await copyAssets(resolve(root, 'ui/practice'));
 await mkdir(resolve(output, 'ui/practice/wasm'), { recursive: true });
 await cp(resolve(root, 'ui/practice/wasm/manual-clock.wasm'), resolve(output, 'ui/practice/wasm/manual-clock.wasm'));
-const browserFiles = Object.keys(result.metafile.outputs).filter(path => path.endsWith('.js')).map(path => '/' + relative(output, resolve(root, path)).replaceAll('\\', '/'));
+const browserFiles = Object.keys(result.metafile.outputs).filter(path => path.endsWith('.js') && !path.endsWith('/sw.js')).map(path => '/' + relative(output, resolve(root, path)).replaceAll('\\', '/'));
 const worker = resolve(output, 'ui/practice/sw.js');
-await writeFile(worker, (await readFile(worker, 'utf8')).replace('"__BUILD_MODULE_FILES__"', JSON.stringify(browserFiles)));
+const offlineFiles = [...browserFiles, '/ui/practice/index.html', '/ui/practice/style.css', '/ui/practice/icon.svg',
+  '/ui/practice/manifest.webmanifest', '/ui/practice/wasm/manual-clock.wasm'].sort();
+const offlineHash = createHash('sha256');
+for (const path of offlineFiles) {
+  offlineHash.update(path).update('\0').update(await readFile(resolve(output, '.' + path))).update('\0');
+}
+const cacheId = offlineHash.digest('hex');
+await writeFile(worker, (await readFile(worker, 'utf8'))
+  .replace('__BUILD_CACHE_ID__', cacheId)
+  .replace('"__BUILD_MODULE_FILES__"', JSON.stringify(offlineFiles)));
+await writeFile(resolve(output, 'ui/practice/offline-manifest.json'), JSON.stringify({ cacheId, files: offlineFiles }, null, 2));
 await writeFile(resolve(output, 'build-meta.json'), JSON.stringify(result.metafile, null, 2));
 process.stdout.write('Built the practice desk and deterministic Sheets extension in dist/ui/practice/.\n');

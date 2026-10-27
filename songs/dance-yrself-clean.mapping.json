@@ -1,0 +1,37 @@
+{
+  "mappingVersion": 2,
+  "notationVersion": "dyc-v1",
+  "songId": "dance-yrself-clean",
+  "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg",
+  "sheetId": 101,
+  "sheetName": "01 Dance Yrself Clean",
+  "titleCell": "B1",
+  "bpmCell": "F2",
+  "sectionRow": 4,
+  "barRow": 5,
+  "leadInColumn": 2,
+  "startBar": 1,
+  "endBar": 76,
+  "meter": { "numerator": 4, "denominator": 4 },
+  "controls": [
+    { "buttonId": "L1", "voiceId": "whistle", "cueRow": 20, "arrangementRow": 13, "nameNoteCell": "A20" },
+    { "buttonId": "L2", "voiceId": "bing-bong", "cueRow": 21, "arrangementRow": 12, "nameNoteCell": "A21" },
+    { "buttonId": "R1", "voiceId": "drums-claps", "cueRow": 18, "arrangementRow": 10, "nameNoteCell": "A18" },
+    { "buttonId": "R2", "voiceId": "cowbell", "cueRow": 19, "arrangementRow": 11, "nameNoteCell": "A19" }
+  ],
+  "cueWindow": { "earlyMs": 25, "lateMs": 25, "ties": "reject" },
+  "capturePolicies": [
+    { "voiceId": "cowbell", "retention": "variant", "gain": 1 },
+    { "voiceId": "drums-claps", "retention": "layer", "gain": 1 },
+    { "voiceId": "whistle", "retention": "layer", "gain": 1 },
+    { "voiceId": "bing-bong", "retention": "layer", "gain": 1 }
+  ],
+  "layerGroups": [
+    { "id": "drums-claps-main", "voiceId": "drums-claps", "armCells": ["B18", "D18"] },
+    { "id": "whistle-main", "voiceId": "whistle", "armCells": ["AT20", "AV20"] },
+    { "id": "bing-bong-main", "voiceId": "bing-bong", "armCells": ["F21", "H21"] }
+  ],
+  "variantRules": [{ "voiceId": "cowbell", "row": 11, "fromBar": 1, "sampledOnly": true }],
+  "overrides": [],
+  "deferredRows": [{ "row": 17, "reason": "Operator deferred knob d execution for the first A-section run. Future audio effects react to rotation signal existence; video consumes signed values." }]
+}

@@ -1,9 +1,10 @@
 import { PerformanceProcessor } from './runtime/performance-worklet.js';
-import type { ChannelId, ChannelSettings, Control, StartOptions } from '../../lib/performance/model.js';
+import type { ChannelId, ChannelSettings, Control, LiveEffectDefinition, StartOptions } from '../../lib/performance/model.js';
 
 type PracticeMessage = { id: number } & (
   | { command: 'practice.start'; payload: StartOptions & { runId: string } }
   | { command: 'practice.stop'; payload?: object }
+  | { command: 'practice.effects'; payload: { effects: readonly LiveEffectDefinition[] } }
   | { command: 'practice.control'; payload: { control: Control; commandId?: string } }
   | { command: 'practice.channel'; payload: { channelId: ChannelId; settings: ChannelSettings } }
   | { command: 'practice.select'; payload: { channelId: ChannelId } }
@@ -25,6 +26,7 @@ export class PracticeProcessor extends PerformanceProcessor {
       switch (command) {
         case 'practice.start': this.native.start(message.payload); break;
         case 'practice.stop': this.native.stop(); break;
+        case 'practice.effects': this.native.prepareLiveEffects(message.payload.effects); break;
         case 'practice.control': this.native.control(message.payload.control, message.payload.commandId); break;
         case 'practice.channel': this.native.setChannel(message.payload.channelId, message.payload.settings); break;
         case 'practice.select': this.native.selectChannel(message.payload.channelId); break;

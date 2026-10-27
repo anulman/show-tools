@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
 import vm from 'node:vm';
 import { PracticeAudio } from '../audio.js';
+import { createPeripheralInput, peripheralCommandId } from '../peripheral-input.ts';
 
 function deferred() {
   let resolve;
@@ -44,7 +45,7 @@ for (const action of ['stopPractice', 'panic']) {
     class FakeElement {
       constructor(selector) {
         this.id = selector.slice(1);
-        this.value = ({ '#bpm': '98', '#start-section': '1', '#end-bar': '76', '#count-in': '1' })[selector] || '';
+        this.value = ({ '#bpm': '98', '#start-section': '1', '#end-bar': '76', '#count-in': '1', '#effects-delay': '100', '#effects-feedback': '0', '#effects-wet': '0.25' })[selector] || '';
         this.checked = true;
         this.textContent = '';
       }
@@ -110,7 +111,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   const commands = [];
   class Element {
     constructor(selector) {
-      this.value = ({ '#bpm': '98', '#start-section': '1', '#end-bar': '76', '#count-in': '1' })[selector] || '';
+      this.value = ({ '#bpm': '98', '#start-section': '1', '#end-bar': '76', '#count-in': '1', '#effects-delay': '100', '#effects-feedback': '0', '#effects-wet': '0.25' })[selector] || '';
       this.checked = selector !== '#click';
       this.textContent = '';
     }
@@ -126,6 +127,8 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   }
   const audio = {
     subscribe() {}, onEvent() {}, outputStream: {},
+    async configureLiveEffects(effects) { commands.push('effects'); this.configuredEffects = effects; },
+    async setOutputDevice(deviceId) { this.outputDeviceId = deviceId; },
     async enableMicrophone() { commands.push('microphone'); await microphone(); },
     async disableMicrophone() { commands.push('microphone-off'); },
     async setClick(enabled) { commands.push(`click:${enabled}`); },
@@ -148,7 +151,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     playableBars: () => 76, PracticeAudio: { create: async () => { creations++; return audio; } },
   };
   vm.createContext(context);
-  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
+  vm.runInContext(`${uiSource}\nasync function refreshAudioDevices() {}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = { bars: Array(76) }; song = { chart, program: {} }; globalThis.controls = { startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
   return { commands, controls: context.controls, audio, elements, revoked, get creations() { return creations; } };
 }
 
@@ -190,11 +193,11 @@ test('failed MP3 preparation retains the previous download and permits another t
 test('Start opens the microphone and records by default on every run, with song click off', async () => {
   const { commands, controls } = startupHarness();
   await controls.startPractice();
-  assert.deepEqual(commands, ['microphone', 'click:false', 'start', 'record-start']);
+  assert.deepEqual(commands, ['effects', 'microphone', 'click:false', 'start', 'record-start']);
   await controls.stopPractice();
   assert.deepEqual(commands.slice(-3), ['record-stop', 'stop', 'microphone-off']);
   await controls.startPractice();
-  assert.deepEqual(commands.slice(-4), ['microphone', 'click:false', 'start', 'record-start']);
+  assert.deepEqual(commands.slice(-5), ['effects', 'microphone', 'click:false', 'start', 'record-start']);
   await controls.panic();
   assert.deepEqual(commands.slice(-3), ['record-stop', 'panic', 'microphone-off']);
 });
@@ -312,15 +315,92 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   let panicCalls = 0;
   let padCalls = 0;
   class Element { closest() { return true; } }
-  const context = { Element, heldKeys: new Set(), CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
     window: { addEventListener(_type, listener) { keydown = listener; } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: () => padCalls++,
   };
   vm.createContext(context);
-  vm.runInContext(keyboardSource, context);
-  const event = { target: new Element(), repeat: false, preventDefault() {} };
+  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const sources'));
+  vm.runInContext(adapterSource + keyboardSource, context);
+  const event = { target: new Element(), repeat: false, timeStamp: 0, preventDefault() {} };
   keydown({ ...event, code: 'KeyQ' });
   keydown({ ...event, code: 'Escape' });
   assert.equal(padCalls, 0);
   assert.equal(panicCalls, 1);
+});
+
+test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses held/repeat events', async () => {
+  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const listeners = new Map();
+  const commands = [];
+  let panicCalls = 0;
+  class Element {
+    constructor(editing = false) { this.editing = editing; }
+    closest() { return this.editing; }
+  }
+  const controls = [{ key: 'KeyQ', id: 'L1' }, { key: 'KeyW', id: 'R1' }, { key: 'KeyA', id: 'L2' }, { key: 'KeyS', id: 'R2' }];
+  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: controls,
+    document: { querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
+    window: { addEventListener(type, listener) { listeners.set(type, listener); } },
+    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }),
+  };
+  vm.createContext(context);
+  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const sources'));
+  const releaseSource = source.slice(source.indexOf('function releasePresses'), source.indexOf('async function triggerPad'));
+  const handlers = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('function postPerformanceEvent'));
+  vm.runInContext(adapterSource + releaseSource + handlers, context);
+  const event = { target: new Element(), code: 'KeyQ', repeat: false, timeStamp: 123, preventDefault() {} };
+  for (const control of controls) {
+    const key = { ...event, code: control.key };
+    const before = commands.length;
+    listeners.get('keydown')(key);
+    listeners.get('keydown')(key);
+    listeners.get('keydown')({ ...key, repeat: true });
+    assert.equal(commands.length, before + 1);
+    listeners.get('keyup')(key);
+    vm.runInContext('releasePresses()', context);
+    listeners.get('keydown')({ ...key, repeat: true });
+    assert.equal(commands.length, before + 1, 'a held repeat after refocus does not perform');
+    listeners.get('keydown')(key);
+    assert.equal(commands.length, before + 2, `fresh ${control.key} performs on the first press after refocus`);
+    assert.equal(commands.at(-1).id, control.id);
+    listeners.get('keyup')(key);
+  }
+  vm.runInContext('releasePresses()', context);
+  const escape = { ...event, code: 'Escape', target: new Element(true) };
+  listeners.get('keydown')(escape);
+  assert.equal(panicCalls, 1, 'the first Escape after reconnect panics even with a field focused');
+  listeners.get('keydown')({ ...escape, repeat: true });
+  assert.equal(panicCalls, 1);
+  listeners.get('keyup')(escape);
+  vm.runInContext('releasePresses()', context);
+  listeners.get('keydown')(escape);
+  assert.equal(panicCalls, 2, 'Escape also works when it is the first input after focus loss');
+  assert.equal(commands.length, 8);
+  assert.equal(new Set(commands.map(command => command.commandId)).size, 8);
+});
+
+for (const bypass of [false, true]) {
+  test(`web effect configuration applies before microphone setup, bypass=${bypass}`, async () => {
+    const h = startupHarness();
+    h.elements.get('#effects-enabled').checked = !bypass;
+    h.elements.get('#effects-delay').value = '125';
+    h.elements.get('#effects-feedback').value = '0.3';
+    h.elements.get('#effects-wet').value = '0.4';
+    await h.controls.startPractice();
+    assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), bypass ? [] : [{ kind: 'slapback', delayMs: 125, feedback: 0.3, wet: 0.4 }]);
+    assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
+  });
+}
+
+test('Stop cancels a start waiting for effects preparation', async () => {
+  const h = startupHarness();
+  const waiting = deferred();
+  h.audio.configureLiveEffects = () => waiting.promise;
+  const starting = h.controls.startPractice();
+  await h.controls.stopPractice();
+  waiting.resolve();
+  await starting;
+  assert(!h.commands.includes('microphone'));
+  assert(!h.commands.includes('start'));
 });

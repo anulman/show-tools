@@ -6,7 +6,7 @@ const positiveInteger = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 const gain = Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 }));
 const identifier = Schema.String.check(Schema.isPattern(/^[\w-]{8,128}$/));
 export const ControlSchema = Schema.Union([
-  Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2', 'mushroom']) }),
+  Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2', 'mushroom', 'tempo']) }),
   Schema.Struct({ id: Schema.Literal('knob'), value: gain }),
 ]);
 export const ControlMessageSchema = Schema.Struct({ commandId: identifier, control: ControlSchema });
@@ -30,10 +30,12 @@ export const StateSchema = Schema.Struct({
 });
 export const EnvelopeSchema = Schema.Struct({
   v: Schema.Literal(1), runId: Schema.NonEmptyString, seq: nonnegativeInteger,
-  type: Schema.Literals(['state', 'beat', 'control', 'fault']), state: StateSchema,
+  type: Schema.Literals(['state', 'beat', 'control', 'fault', 'tempo-hit']), state: StateSchema,
   frame: Schema.optionalKey(Schema.Number), sampleRate: Schema.optionalKey(Schema.Number),
   commandId: Schema.optionalKey(Schema.String), control: Schema.optionalKey(ControlSchema),
   applied: Schema.optionalKey(Schema.Boolean), error: Schema.optionalKey(Schema.String),
+  tempoHit: Schema.optionalKey(Schema.Struct({ beatHint: Schema.NullOr(Schema.Literal(1)), source: Schema.Literals(['pedal', 'chart']), estimated: Schema.Boolean })),
+  cueIndex: Schema.optionalKey(nonnegativeInteger),
 });
 export type PerformanceEnvelope = typeof EnvelopeSchema.Type;
 export const validateEnvelope = Schema.decodeUnknownSync(EnvelopeSchema);

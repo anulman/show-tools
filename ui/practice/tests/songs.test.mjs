@@ -8,7 +8,7 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   assert.deepEqual(loaded.map(song => song.chart.bpm), [98, 144, 117]);
   assert.deepEqual(loaded.map(song => song.chart.bars[0].column), [3, 4, 4]);
   assert.deepEqual(loaded.map(song => song.practice.endBar), [76, 16, 16]);
-  assert.deepEqual(loaded.map(song => playableBars(song.chart)), [217, 128, 169]);
+  assert.deepEqual(loaded.map(song => playableBars(song.chart)), [76, 128, 169]);
   assert.equal(loaded[0].chart.sections[0].label, 'Instrumental A1');
   assert.equal(loaded[1].chart.sections[0].label, 'Intro 1');
   assert.equal(loaded[2].chart.sections[0].label, 'Intro 1');
@@ -16,10 +16,12 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   assert.equal(loaded[1].chart.bars[7].partial, false, 'starred section changes are not partial bars');
   assert.notDeepEqual(loaded[0].program, loaded[1].program);
   assert.notDeepEqual(loaded[1].program, loaded[2].program);
+  assert.equal(loaded[0].compiled.chart, loaded[0].chart, 'DYC exposes the compiled source chart');
+  assert(loaded[0].compiled.cues.length > 0, 'DYC provides compiled chart instructions');
+  for (const song of loaded.slice(1)) assert(song.program.controls);
   for (const song of loaded) {
     assert.match(song.description, /Chart/);
     assert.deepEqual(song.program.events, [], 'songs do not auto-play synthetic samples');
-    assert(song.program.controls);
     for (const event of song.program.events) assert(event.atBeat >= 0 && event.atBeat < song.program.lengthBeats);
   }
   await assert.rejects(loadSong('not-on-the-set-list'), /registered/);

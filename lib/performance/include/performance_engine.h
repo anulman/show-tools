@@ -15,12 +15,28 @@ enum pf_timing { PF_NOW = 0, PF_BAR = 1 };
 enum pf_capture_kind { PF_CONTINUOUS = 0, PF_SPARSE = 1, PF_WHOLE_BAR = 2 };
 enum pf_light { PF_OFF = 0, PF_CUE = 1, PF_STEADY = 2, PF_RELEASING = 3 };
 enum pf_channel_status { PF_EMPTY = 0, PF_READY = 1, PF_ARMED = 2, PF_RECORDING = 3, PF_STOPPING = 4, PF_LOOPING = 5 };
-enum pf_event_type { PF_STATE = 1, PF_BEAT = 2, PF_CONTROL = 3, PF_FAULT = 4 };
+enum pf_event_type { PF_STATE = 1, PF_BEAT = 2, PF_CONTROL = 3, PF_FAULT = 4, PF_TEMPO_HIT = 5 };
 enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_ACTION_FAILED = 3,
   PF_MICROPHONE_REQUIRED = 4, PF_NO_RECORDING = 5, PF_NO_SAMPLE = 6, PF_PATTERN_REQUIRED = 7,
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
-  PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 1 };
+  PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
+  PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 4, PF_MAX_LIVE_EFFECTS = 64 };
+enum pf_compiled_limits { PF_COMPILED_MAGIC = 0x50464331, PF_COMPILED_VERSION = 2, PF_COMPILED_HEADER_FIELDS = 16, PF_COMPILED_TAKE_FIELDS = 9, PF_COMPILED_CUE_FIELDS = 11, PF_COMPILED_MEMBER_FIELDS = 3, PF_COMPILED_PLAYBACK_FIELDS = 3, PF_COMPILED_MAX_TAKES = 32 };
+enum pf_compiled_take_field { PF_TAKE_VOICE, PF_TAKE_READY, PF_TAKE_LENGTH, PF_TAKE_CAPACITY, PF_TAKE_REVISION, PF_TAKE_PHASE, PF_TAKE_PLAYBACK_STATE, PF_TAKE_PERIOD, PF_TAKE_FIELDS };
+enum pf_tempo_field { PF_TEMPO_COUNT, PF_TEMPO_FRAME, PF_TEMPO_HINT, PF_TEMPO_SOURCE, PF_TEMPO_ESTIMATED, PF_TEMPO_BPM, PF_TEMPO_FIELDS };
+enum pf_effect_type { PF_EFFECT_SLAPBACK = 1 };
+typedef struct pf_slapback_parameters { double delay_ms, feedback, wet; } pf_slapback_parameters;
+typedef struct pf_effect_definition {
+  uint32_t type, version;
+  union { pf_slapback_parameters slapback; } parameters;
+} pf_effect_definition;
+enum pf_effect_layout {
+  PF_EFFECT_TYPE_OFFSET = 0, PF_EFFECT_VERSION_OFFSET = 4,
+  PF_EFFECT_DELAY_OFFSET = 8, PF_EFFECT_FEEDBACK_OFFSET = 16,
+  PF_EFFECT_WET_OFFSET = 24, PF_EFFECT_BYTES = 32
+};
+enum pf_live_field { PF_LIVE_PREPARED, PF_LIVE_ACTIVE, PF_LIVE_REVISION, PF_LIVE_STAGE_COUNT, PF_LIVE_CAPTURE_SUPPORTED, PF_LIVE_FIELDS };
 /* Program cue rows are fixed-width doubles. Bar zero is the lead-in.
    Positions are zero-based beats. The variant is -1 or a sampler variant ID.
    Tap cues use that same variant ID to select a retained sparse pattern. */
@@ -41,7 +57,7 @@ enum pf_channel_field { PF_CHANNEL_GAIN, PF_CHANNEL_MUTED, PF_CHANNEL_LOOPING,
    STATE begins at 8; CHANNELS begins at 36. */
 enum pf_event_field { PF_EVENT_TYPE, PF_EVENT_SEQUENCE, PF_EVENT_FRAME, PF_EVENT_RATE,
   PF_EVENT_ERROR, PF_EVENT_APPLIED, PF_EVENT_CONTROL, PF_EVENT_VALUE,
-  PF_EVENT_STATE, PF_EVENT_CHANNELS = 36, PF_EVENT_FIELDS = 68 };
+  PF_EVENT_STATE, PF_EVENT_CHANNELS = 36, PF_EVENT_CUE = 68, PF_EVENT_FIELDS = 69 };
 
 uint32_t pf_abi_version(void);
 pf_engine* pf_create(double sample_rate, int mode, int max_voices, double max_seconds, int beats_per_bar);
@@ -56,6 +72,14 @@ sq_engine* pf_sequencer(pf_engine* engine);
 int pf_configure(pf_engine* engine, double bpm, int beats_per_bar, int bar_count, int default_end_bar,
   int program_length, const double* events, int event_count,
   const double* cues, int cue_count, const double* playback, int playback_count);
+/* Compiled records use the versioned double-table format. All tables and capture
+   resources are validated/prepared before an atomic stopped replacement. */
+int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields);
+/* Portable artifact encoding is the same table as little-endian IEEE754 doubles. */
+int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t bytes);
+void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out);
+/* Shared pedal/star tempo evidence. Control 6 submits an unhinted pedal hit. */
+void pf_tempo_info(const pf_engine* engine, double* out);
 int pf_clock_command(pf_engine* engine, int type, double value, double frame, double client_sequence, double epoch);
 int pf_start(pf_engine* engine, double bpm, int count_in_bars, int start_bar, int end_bar, int loop, int automatic);
 void pf_stop(pf_engine* engine);
@@ -68,6 +92,20 @@ int pf_set_automatic(pf_engine* engine, int automatic);
 int pf_set_click(pf_engine* engine, int enabled);
 int pf_set_click_gain(pf_engine* engine, double gain);
 int pf_set_microphone(pf_engine* engine, int enabled);
+/* Preparation copies definitions and allocates while stopped, with no active or
+   pending capture. Count zero prepares identity processing. Revisions are positive
+   and host-owned; same revision and definitions are idempotent, lower or conflicting
+   revisions fail. Failed preparation preserves the previous rack and revision. */
+int pf_prepare_live_effects(pf_engine* engine, const pf_effect_definition* effects, uint32_t count, uint32_t revision);
+void pf_live_info(const pf_engine* engine, double* out);
+/* Planar float outputs add to caller-cleared buffers. Every output and input may
+   be null. Non-null spans must not overlap. Overlap returns -1 without changing
+   engine state, last error, or output. Live input is mono and maps to both channels.
+   Start authorizes live only with microphone ready and effects prepared. Stop,
+   Panic, end, fatal fault, or mic loss gate/reset it; mic readiness alone cannot
+   reauthorize. Null live outputs discard audio while advancing DSP once. */
+int pf_process_stems(pf_engine* engine, const float* input, float* sample_click_left, float* sample_click_right,
+  float* live_left, float* live_right, uint32_t frames);
 /* Process adds output, advances the owned clock, and executes all musical
    decisions. No JavaScript callbacks are used. One caller owns each engine. */
 int pf_process(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames);

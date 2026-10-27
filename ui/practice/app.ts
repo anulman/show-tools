@@ -1,10 +1,16 @@
 import { PracticeAudio } from './audio.js';
+import type { MonitoringRelationship } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
-import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript } from '../../lib/performance/model.js';
+import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, LiveEffectDefinition } from '../../lib/performance/model.js';
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
 import { createChartFollower, openCurrentChart } from './open-chart.js';
 import { recordingToMp3 } from './recording-export.js';
+import { installChartPanel } from './chart-panel.js';
+import { decodeCompiledSong } from '../../lib/performance/compiled-song.js';
+import type { CompiledSong } from '../../lib/performance/compiled-song.js';
+import { createPeripheralInput, peripheralCommandId } from './peripheral-input.js';
+import type { PeripheralInput } from './peripheral-input.js';
 
 function requiredElement<T extends Element>(selector: string, constructor: { new(): T }, root: ParentNode = document): T {
   const element = root.querySelector(selector);
@@ -42,11 +48,24 @@ const elements = {
   'record-demo': requiredElement('#record-demo', HTMLButtonElement),
   'download-demo': requiredElement('#download-demo', HTMLAnchorElement),
   'recording-hint': requiredElement('#recording-hint', HTMLSpanElement),
+  'effects-enabled': requiredElement('#effects-enabled', HTMLInputElement),
+  'effects-delay': requiredElement('#effects-delay', HTMLInputElement),
+  'effects-feedback': requiredElement('#effects-feedback', HTMLInputElement),
+  'effects-wet': requiredElement('#effects-wet', HTMLInputElement),
+  'effects-status': requiredElement('#effects-status', HTMLSpanElement),
+  'input-device': requiredElement('#input-device', HTMLSelectElement),
+  'output-device': requiredElement('#output-device', HTMLSelectElement),
+  'refresh-devices': requiredElement('#refresh-devices', HTMLButtonElement),
+  'device-hint': requiredElement('#device-hint', HTMLParagraphElement),
+  'effects-capture-hint': requiredElement('#effects-capture-hint', HTMLParagraphElement),
+  'monitor-relationship': requiredElement('#monitor-relationship', HTMLSelectElement),
+  'monitor-hint': requiredElement('#monitor-hint', HTMLParagraphElement),
   'offline-status': requiredElement('#offline-status', HTMLSpanElement),
 };
 const startLabel = requiredElement('#start span:last-child', HTMLSpanElement);
 const recordLabel = requiredElement('#record-demo span:last-child', HTMLSpanElement);
 const sectionProgress = requiredElement('#section-progress > span', HTMLSpanElement);
+const chartSource = requiredElement('#chart-source', HTMLElement);
 interface PadElements {
   shell: HTMLElement; button: HTMLButtonElement; mute: HTMLButtonElement; status: HTMLSpanElement;
   cue: HTMLElement; sampleStatus: HTMLSpanElement; volume: HTMLInputElement;
@@ -54,6 +73,19 @@ interface PadElements {
 }
 const pads = new Map<ChannelId, PadElements>();
 const heldKeys = new Set<string>();
+let keyboardInput: PeripheralInput | undefined;
+let keyboardSession = 0;
+let keyboardConnected = false;
+function keyboardEdge(event: KeyboardEvent, edge: 'press' | 'release') {
+  const mapping = new Map([...CONTROLS.map(control => [control.key, control.id] as const), ['Escape', 'mushroom'] as const]);
+  keyboardInput ??= createPeripheralInput({ producerId: 'practice-keyboard', mapping });
+  if (!keyboardConnected) {
+    keyboardInput.connect({ sessionId: String(keyboardSession++), releasedCodes: [...mapping.keys()] });
+    keyboardConnected = true;
+  }
+  return keyboardInput.inject({ sessionId: String(keyboardSession - 1), sourceTimeMs: event.timeStamp, kind: 'key', code: event.code,
+    edge, repeat: edge === 'press' && event.repeat });
+}
 const sources = new Map<ChannelId, string>();
 let chart: Chart | undefined;
 let song: SongScript | undefined;
@@ -63,6 +95,7 @@ let outputCapture: 'idle' | 'starting' | 'waiting' | 'recording' | 'stopping' = 
 let audio: PracticeAudio | undefined;
 let preparing: Promise<PracticeAudio> | null = null;
 let starting = false;
+let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorker } | { kind: 'pending' } | { kind: 'reloading' } = { kind: 'current' };
 let transportGeneration = 0;
 type DisplayState = Pick<PracticeState, 'phase' | 'bar' | 'beat' | 'selectedChannel' | 'channels'> & Partial<PracticeState>;
 let state: DisplayState = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
@@ -91,6 +124,13 @@ function beatName(position: number): string {
 }
 
 function cueLabel(cue: string): string {
+  const compiled = song?.compiled?.cues.find(action => action.source.text.trim() === cue.trim());
+  if (compiled) {
+    const names = { arm: 'Arm capture', commit: 'Commit + loop', 'commit-arm': 'Commit + arm', stop: 'Stop loop', play: 'Play' };
+    const target = compiled.execution.kind === 'next-bar' ? 'next bar' : compiled.execution.kind === 'beat' ? beatName(compiled.execution.beat) : 'now';
+    const action = compiled.tempoBeatHint ? 'Play + tempo hit' : compiled.captureTail === 'silence-to-bar-end' ? 'Commit + join · rest to bar end' : names[compiled.kind];
+    return `${action} · ${target}${compiled.cueBeat === null ? '' : ` · cue ${beatName(compiled.cueBeat)}`}`;
+  }
   const action = parseControlCue(cue);
   if (action.kind === 'tap') {
     const beats = action.beats.map(beatName);
@@ -114,7 +154,7 @@ async function ensureAudio() {
   elements.start.disabled = true;
   startLabel.textContent = 'Preparing audio…';
   const generation = songGeneration;
-  preparing = PracticeAudio.create({ chart: song.chart, program: song.program }).then(async instance => {
+  preparing = PracticeAudio.create({ chart: song.chart, program: song.program, compiled: song.compiled }).then(async instance => {
     if (generation !== songGeneration) {
       await instance.dispose();
       throw new Error('The song changed while audio was preparing.');
@@ -122,7 +162,10 @@ async function ensureAudio() {
     audio = instance;
     audio.subscribe(render);
     audio.onEvent(event => {
-      if (generation === songGeneration && audio === instance) postPerformanceEvent(event);
+      if (generation === songGeneration && audio === instance) {
+        postPerformanceEvent(event);
+        if (event.type === 'control' && event.applied === false && event.error) showError(new Error(event.error));
+      }
     });
     return instance;
   }).finally(() => { preparing = null; render(state); });
@@ -140,16 +183,55 @@ function flash(id: ChannelId | 'mushroom', held = false) {
 
 function releasePresses() {
   heldKeys.clear();
+  keyboardInput?.disconnect();
+  if (keyboardConnected) keyboardConnected = false;
   document.querySelectorAll('.pressed').forEach(element => element.classList.remove('pressed'));
 }
 
-async function triggerPad(id: ChannelId) {
+async function triggerPad(id: ChannelId, commandId?: string) {
   const generation = transportGeneration;
   const instance = await ensureAudio();
   if (generation !== transportGeneration) return;
   await instance.selectChannel(id);
   if (generation !== transportGeneration) return;
-  await instance.control({ id });
+  await instance.control({ id }, { commandId });
+}
+
+function liveEffectDefinitions(): readonly LiveEffectDefinition[] {
+  if (!elements['effects-enabled'].checked) return [];
+  const delayMs = Number(elements['effects-delay'].value);
+  const feedback = Number(elements['effects-feedback'].value);
+  const wet = Number(elements['effects-wet'].value);
+  if (!Number.isFinite(delayMs) || delayMs < 40 || delayMs > 250) throw new Error('Choose a slapback delay from 40 to 250 ms.');
+  if (!Number.isFinite(feedback) || feedback < 0 || feedback > 0.7) throw new Error('Choose feedback from 0 to 0.7.');
+  if (!Number.isFinite(wet) || wet < 0 || wet > 1) throw new Error('Choose a wet amount from 0 to 1.');
+  return [{ kind: 'slapback', delayMs, feedback, wet }];
+}
+
+function monitoringRelationship(value: string): MonitoringRelationship {
+  switch (value) {
+    case 'unknown': case 'different-devices': case 'same-usb-interface': case 'same-non-usb': return value;
+    default: throw new Error('Choose the physical input/output relationship.');
+  }
+}
+
+async function refreshAudioDevices() {
+  if (!navigator.mediaDevices?.enumerateDevices) throw new Error('Audio device enumeration needs localhost or HTTPS in a supported browser.');
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  for (const { kind, select } of [{ kind: 'audioinput', select: elements['input-device'] }, { kind: 'audiooutput', select: elements['output-device'] }]) {
+    const previous = select.value;
+    const defaultOption = document.createElement('option');
+    defaultOption.value = ''; defaultOption.textContent = kind === 'audioinput' ? 'System default input' : 'System default output';
+    select.replaceChildren(defaultOption);
+    devices.filter(device => device.kind === kind && device.deviceId && device.deviceId !== 'default').forEach((device, index) => {
+      const option = document.createElement('option');
+      option.value = device.deviceId;
+      option.textContent = device.label || `${kind === 'audioinput' ? 'Input' : 'Output'} ${index + 1} · name needs permission`;
+      select.append(option);
+    });
+    if (Array.from(select.options).some(option => option.value === previous)) select.value = previous;
+  }
+  elements['device-hint'].textContent = 'Selected devices apply at Start. Confirm physical input/output identity and USB-interface status separately; device names alone do not establish monitoring eligibility.';
 }
 
 async function startPractice() {
@@ -160,30 +242,37 @@ async function startPractice() {
   const endBar = Number(elements['end-bar'].value);
   if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Choose a tempo between 40 and 240 BPM.');
   if (!Number.isInteger(endBar) || endBar < startBar || endBar > playableBars(chart)) throw new Error(`Choose an end bar from ${startBar} to ${playableBars(chart)}. Partial bars are not sequenced yet.`);
+  const effects = liveEffectDefinitions();
   const generation = ++transportGeneration;
   starting = true;
   render(state);
   let instance: PracticeAudio | undefined;
   let startedRecording = false;
+  let microphoneGeneration: number | undefined;
   try {
     instance = await ensureAudio();
     if (generation !== transportGeneration) return;
-    await instance.enableMicrophone();
-    if (generation !== transportGeneration) { await instance.disableMicrophone(); return; }
+    await instance.configureLiveEffects(effects);
+    if (generation !== transportGeneration) return;
+    await instance.setOutputDevice(elements['output-device'].value);
+    if (generation !== transportGeneration) return;
+    microphoneGeneration = await instance.enableMicrophone({ deviceId: elements['input-device'].value || undefined });
+    if (generation !== transportGeneration) { await instance.disableMicrophone(microphoneGeneration); return; }
     if (outputCapture === 'idle') { await toggleOutputRecording(); startedRecording = true; }
-    if (generation !== transportGeneration) { finishOutputRecording(); await instance.disableMicrophone(); return; }
+    if (generation !== transportGeneration) { finishOutputRecording(); await instance.disableMicrophone(microphoneGeneration); return; }
     await instance.setClick(elements.click.checked);
     if (generation !== transportGeneration) return;
     await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar,
       loop: elements.loop.checked, automatic: false });
+    void refreshAudioDevices().catch(showError);
   } catch (error) {
     if (startedRecording) finishOutputRecording();
-    if (instance) await instance.disableMicrophone().catch(() => {});
+    if (instance && microphoneGeneration !== undefined) await instance.disableMicrophone(microphoneGeneration).catch(() => {});
     throw error;
   } finally { starting = false; render(state); }
 }
 
-async function stopPerformance(command: 'stop' | 'panic') {
+async function stopPerformance(command: 'stop' | 'panic', commandId?: string) {
   transportGeneration++;
   chartFollower?.stop();
   finishOutputRecording();
@@ -191,7 +280,7 @@ async function stopPerformance(command: 'stop' | 'panic') {
   const instance = audio;
   if (!instance) return;
   const results = await Promise.allSettled([
-    command === 'stop' ? instance.stop() : instance.control({ id: 'mushroom' }),
+    command === 'stop' ? instance.stop() : instance.control({ id: 'mushroom' }, { commandId }),
     instance.disableMicrophone(),
   ]);
   const failure = results.find(result => result.status === 'rejected');
@@ -208,7 +297,7 @@ async function stopPerformance(command: 'stop' | 'panic') {
 
 function stopPractice() { return stopPerformance('stop'); }
 
-function panic() { return stopPerformance('panic'); }
+function panic(commandId?: string) { return stopPerformance('panic', commandId); }
 
 function makePads() {
   for (const control of CONTROLS) {
@@ -299,6 +388,7 @@ function render(next: Partial<PracticeState>) {
     finishOutputRecording();
     if (audio) void audio.disableMicrophone().catch(showError);
   }
+  applyPendingPracticeUpdate();
   if (!chart) return;
   const running = isRunning();
   const displayBar = state.bar || Number(elements['start-section'].value) || 1;
@@ -315,9 +405,29 @@ function render(next: Partial<PracticeState>) {
   elements['bar-number'].textContent = inCountIn ? 'IN' : String(displayBar).padStart(2, '0');
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
-  elements.start.disabled = running || starting || switching || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
+  elements.start.disabled = song?.compiled?.executable === false || running || starting || switching || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
   elements['song-select'].disabled = switching || outputCapture !== 'idle';
   elements['record-demo'].disabled = outputCapture === 'starting' || outputCapture === 'stopping';
+  const effectsLocked = running || starting || switching || Boolean(preparing) || outputCapture !== 'idle';
+  elements['input-device'].disabled = effectsLocked;
+  elements['output-device'].disabled = effectsLocked;
+  for (const element of [elements['effects-enabled'], elements['effects-delay'], elements['effects-feedback'], elements['effects-wet']]) element.disabled = effectsLocked;
+  const effects = state.liveEffects;
+  elements['effects-status'].textContent = effects?.active
+    ? `Live voice active · revision ${effects.revision}`
+    : effects?.prepared ? `Prepared · revision ${effects.revision}. Set effects before Start.` : 'Set effects before Start.';
+  const compiledCapture = effects?.captureSupported === true || song?.compiled?.executable === true;
+  elements['effects-capture-hint'].hidden = !elements['effects-enabled'].checked;
+  elements['effects-capture-hint'].textContent = compiledCapture
+    ? 'Capture stores processed voice. Arm selects the voice stack immediately; recording starts at its chart boundary. Effects continue evolving during playback.'
+    : 'This chart is not ready for effect-enabled sample capture. Resolve and load the compiled chart inspection before performing it.';
+  elements['monitor-relationship'].disabled = !audio?.microphone || starting;
+  elements['monitor-relationship'].value = audio?.monitoringRelationship || 'unknown';
+  elements['monitor-hint'].textContent = audio?.monitoringRelationship === 'different-devices' || audio?.monitoringRelationship === 'same-usb-interface'
+    ? 'Confirmed setup. Live monitoring follows the active voice. Downloads include processed voice.'
+    : audio?.monitoringRelationship === 'same-non-usb'
+      ? 'Same non-USB device confirmed. Live monitoring stays off. Downloads include processed voice.'
+      : 'Live monitoring is off. Confirm your physical setup after Start. Downloads still include processed voice.';
   startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start practice';
   elements.stop.disabled = !starting && !running && !recording;
   elements['transport-hint'].textContent = inCountIn ? 'Listen for the downbeat.' : state.phase === 'playing' ? 'Space to stop. Esc stops everything.' : Number(elements['count-in'].value) === 0 ? 'Start on the next beat.' : `${elements['count-in'].value === '1' ? 'One bar' : 'Two bars'} of clicks, then you're in.`;
@@ -481,6 +591,12 @@ elements['song-select'].addEventListener('change', () => act(() => switchSong(el
 elements.stop.addEventListener('click', () => act(stopPractice));
 elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic); });
 elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording));
+elements['effects-enabled'].addEventListener('change', () => render(state));
+elements['refresh-devices'].addEventListener('click', () => act(refreshAudioDevices));
+elements['monitor-relationship'].addEventListener('change', () => act(() => {
+  if (!audio) throw new Error('Start the microphone before confirming the monitoring setup.');
+  audio.setMonitoringRelationship(monitoringRelationship(elements['monitor-relationship'].value));
+}));
 elements.click.addEventListener('change', () => act(async () => {
   if (audio) await audio.setClick(elements.click.checked);
 }));
@@ -497,20 +613,26 @@ window.addEventListener('keydown', event => {
   if (event.repeat || heldKeys.has(event.code)) return;
   if (event.code === 'Escape') {
     event.preventDefault();
+    const input = keyboardEdge(event, 'press');
+    if (!input) return;
     heldKeys.add(event.code);
     flash('mushroom', true);
-    act(panic);
+    act(() => panic(peripheralCommandId(input)));
     return;
   }
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || (event.target instanceof Element && event.target.closest('input,select,textarea,[contenteditable=true]'))) return;
   const control = CONTROLS.find(control => control.key === event.code);
   if (!control && event.code !== 'Space') return;
   event.preventDefault();
-  heldKeys.add(event.code);
-  if (control) { flash(control.id, true); act(() => triggerPad(control.id)); }
-  else act(() => isRunning() ? stopPractice() : startPractice());
+  if (control) {
+    const input = keyboardEdge(event, 'press');
+    if (!input) return;
+    heldKeys.add(event.code);
+    flash(control.id, true); act(() => triggerPad(control.id, peripheralCommandId(input)));
+  } else { heldKeys.add(event.code); act(() => isRunning() ? stopPractice() : startPractice()); }
 });
 window.addEventListener('keyup', event => {
+  if (event.code === 'Escape' || CONTROLS.some(control => control.key === event.code)) keyboardEdge(event, 'release');
   heldKeys.delete(event.code);
   const control = CONTROLS.find(control => control.key === event.code);
   if (control) pads.get(control.id)?.button.classList.remove('pressed');
@@ -544,7 +666,7 @@ for (const entry of SONGS) {
   elements['song-select'].append(option);
 }
 elements.start.disabled = true;
-async function switchSong(id: string): Promise<void> {
+async function switchSong(id: string, imported?: CompiledSong): Promise<void> {
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
   const generation = ++songGeneration;
@@ -558,7 +680,11 @@ async function switchSong(id: string): Promise<void> {
     if (previousAudio) await previousAudio.stop();
     if (previousAudio) await previousAudio.dispose();
     if (preparing) await preparing.catch(() => {});
-    const loaded = await loadSong(id);
+    const loaded: SongScript = imported ? {
+      id: imported.id, chart: imported.chart, program: { lengthBeats: imported.chart.beatsPerBar, events: [] }, compiled: imported,
+      practice: { startBar: imported.chart.bars[0]?.bar || 1, endBar: imported.chart.annotatedThroughBar },
+      description: 'Chart-compiled performance. Source cells and native instructions are available below.',
+    } : await loadSong(id);
     if (generation !== songGeneration) return;
     song = loaded;
     chart = loaded.chart;
@@ -592,16 +718,57 @@ async function switchSong(id: string): Promise<void> {
     }
   }
 }
+const chartPanel = installChartPanel(chartSource, {
+  isBusy: () => isRunning() || starting || switching || preparing !== null || outputCapture !== 'idle',
+  onLoad: async input => {
+    const compiled = decodeCompiledSong(input);
+    if (!compiled.executable) throw new Error('Resolve the chart inspection errors before loading.');
+    if (isRunning() || starting || switching || preparing || outputCapture !== 'idle') throw new Error('Stop practice and finish the recording before loading a chart.');
+    await switchSong(compiled.id, compiled);
+  },
+});
 await act(() => switchSong('dance-yrself-clean'));
 
 if (new URLSearchParams(location.search).has('test')) {
   window.practiceDesk = { get audio() { return audio; }, get state() { return state; }, get chart() { return chart; } };
 }
 
+function applyPendingPracticeUpdate() {
+  if (offlineUpdate.kind === 'current' || offlineUpdate.kind === 'reloading') return;
+  elements['offline-status'].textContent = 'Update ready. It will apply when practice and recording finish.';
+  if (isRunning() || starting || switching || preparing || outputCapture !== 'idle') return;
+  if (offlineUpdate.kind === 'waiting') {
+    offlineUpdate.worker.postMessage({ type: 'activate-when-idle' });
+    return;
+  }
+  offlineUpdate = { kind: 'reloading' };
+  location.reload();
+}
+
 if ('serviceWorker' in navigator && window.isSecureContext && !new URLSearchParams(location.search).has('test')) {
+  let hadController = Boolean(navigator.serviceWorker.controller);
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!navigator.serviceWorker.controller) return;
+    if (hadController) {
+      offlineUpdate = { kind: 'pending' };
+      applyPendingPracticeUpdate();
+    }
+    hadController = true;
+  });
   navigator.serviceWorker.register('./sw.js', { type: 'module' }).then(async registration => {
+    const noticeWaiting = () => {
+      if (registration.waiting) {
+        offlineUpdate = { kind: 'waiting', worker: registration.waiting };
+        applyPendingPracticeUpdate();
+      }
+    };
+    registration.addEventListener('updatefound', () => {
+      registration.installing?.addEventListener('statechange', noticeWaiting);
+    });
+    window.addEventListener('focus', noticeWaiting);
+    noticeWaiting();
     await navigator.serviceWorker.ready;
-    if (registration.active) elements['offline-status'].textContent = 'Practice files cached for offline use.';
+    if (registration.active && offlineUpdate.kind === 'current') elements['offline-status'].textContent = 'Practice files cached for offline use.';
   }).catch(() => { elements['offline-status'].textContent = 'Offline cache unavailable.'; });
 }
 

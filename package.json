@@ -10,10 +10,11 @@
     "build": "npm run build:wasm && npm run build:ui",
     "build:ui": "node --import tsx scripts/build-ui.ts",
     "build:wasm": "bash lib/beat-tracker/scripts/build-manual-wasm.sh",
-    "test": "node --import tsx --test lib/sampler/tests/*.test.mjs lib/sequencer/tests/*.test.mjs ui/practice/tests/*.test.mjs lib/beat-tracker/tests/manual_wasm_tests.mjs scripts/tests/*.test.ts lib/peripherals/tests/*.test.ts",
+    "test": "node --import tsx --test lib/performance/tests/*.test.ts lib/sampler/tests/*.test.mjs lib/sequencer/tests/*.test.mjs ui/practice/tests/*.test.mjs ui/practice/tests/*.test.ts lib/beat-tracker/tests/manual_wasm_tests.mjs scripts/tests/*.test.ts lib/peripherals/tests/*.test.ts",
     "test:follower": "SHOW_TOOLS_FOLLOWER_TESTS=1 npm test",
     "typecheck": "tsc --noEmit",
     "check:layout": "node --import tsx scripts/check-ui-layout.ts",
+    "verify:dyc": "node --import tsx scripts/verify-dyc-performance.ts",
     "test:peripherals": "node --import tsx lib/peripherals/scripts/verify.ts",
     "peripherals:summary": "node --import tsx lib/peripherals/scripts/summarize.ts",
     "build:video": "node --import tsx scripts/build-video-motion.ts && node --import tsx scripts/build-video.ts",
@@ -21,16 +22,18 @@
   },
   "dependencies": {
     "effect": "4.0.6",
-    "pixi.js": "8.22.0",
-    "wasm-media-encoders": "0.7.0"
+    "fast-xml-parser": "5.11.2",
+    "fflate": "0.8.3",
+    "wasm-media-encoders": "0.7.0",
+    "pixi.js": "8.22.0"
   },
   "devDependencies": {
     "@types/chrome": "0.3.6",
     "@types/node": "26.6.5",
     "esbuild": "0.28.2",
-    "sharp": "0.35.5",
     "tsx": "4.23.15",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "sharp": "0.35.5"
   },
   "bin": {
     "show-tools": "./show-tools"

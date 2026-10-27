@@ -1,7 +1,7 @@
 import { SampleEngine, SampleRecorder } from '../sampler/wasm-sampler.js';
 import { AudioSequenceEngine } from '../sequencer/wasm-sequencer.js';
 import { CONTROL_IDS } from './model.js';
-import type { ChannelId, ChartControls, Control, CueAction, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions } from './model.js';
+import type { ChannelId, ChartControls, Control, CueAction, LiveEffectDefinition, LiveEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
 import { PF } from './wasm-abi.js';
 import { ST } from '../sampler/wasm-abi.js';
 
@@ -9,7 +9,7 @@ const BLOCK = 8192;
 const PHASES: readonly Phase[] = ['idle', 'count-in', 'playing', 'ended'];
 const STATUSES: readonly PracticeState['channels'][number]['status'][] = ['empty', 'ready', 'armed', 'recording', 'stopping', 'looping'];
 type Options = { api: WebAssembly.Exports; sampleRate: number; mode?: number; maxVoices?: number; maxSeconds?: number; clickGain?: number;
-  bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program };
+  bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program; compiledProgram?: readonly number[] };
 
 export class NativePerformance {
   readonly api: WebAssembly.Exports;
@@ -25,17 +25,23 @@ export class NativePerformance {
   readonly trackerEventPointer: number;
   readonly eventPointer: number;
   readonly commandPointer: number;
+  readonly effectPointer: number;
+  readonly liveLeftPointer: number;
+  readonly liveRightPointer: number;
+  readonly liveLeft: Float32Array;
+  readonly liveRight: Float32Array;
   readonly allocations: number[] = [];
   readonly commandIds = new Map<number, string>();
   runId: string;
   disposed = false;
+  preparedLiveEffects: readonly LiveEffectDefinition[] | undefined;
 
   constructor({ api, sampleRate, mode = PF.PRACTICE, maxVoices = 32, maxSeconds = 30, clickGain = 1, ...song }: Options) {
     if (!(api.memory instanceof WebAssembly.Memory)) throw new Error('Performance WASM memory is unavailable');
     const beatsPerBar = song.beatsPerBar ?? 4;
     if (!Number.isFinite(sampleRate) || !Number.isInteger(maxVoices) || maxVoices < 1 || maxVoices > ST.MAX_VOICES
       || !Number.isFinite(maxSeconds) || maxSeconds <= 0 || maxSeconds > 30 || !Number.isInteger(mode) || mode < PF.TRACKER || mode > PF.PRACTICE
-      || !Number.isSafeInteger(beatsPerBar) || beatsPerBar < 1 || beatsPerBar > 2147483647 || mode === PF.PRACTICE && beatsPerBar !== 4) throw new Error('Invalid native performance options');
+      || !Number.isSafeInteger(beatsPerBar) || beatsPerBar < 1 || beatsPerBar > 2147483647 || mode === PF.PRACTICE && beatsPerBar !== 4 && beatsPerBar !== 6) throw new Error('Invalid native performance options');
     this.api = api; this.memory = api.memory; this.sampleRate = sampleRate; this.runId = song.runId ?? 'unstarted';
     if (this.call('pf_abi_version') !== PF.ABI_VERSION) throw new Error('Performance WASM ABI mismatch. Rebuild and reload practice.');
     this.handle = this.call('pf_create', sampleRate, mode, maxVoices, maxSeconds, beatsPerBar);
@@ -52,10 +58,16 @@ export class NativePerformance {
       this.trackerEventPointer = this.allocate(512 * 12 * 8);
       this.eventPointer = this.allocate(PF.EVENT_CAPACITY * PF.EVENT_FIELDS * 8);
       this.commandPointer = this.allocate(801);
+      this.effectPointer = this.allocate(PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
+      this.liveLeftPointer = this.allocate(BLOCK * 4);
+      this.liveRightPointer = this.allocate(BLOCK * 4);
+      this.liveLeft = new Float32Array(this.memory.buffer, this.liveLeftPointer, BLOCK);
+      this.liveRight = new Float32Array(this.memory.buffer, this.liveRightPointer, BLOCK);
       this.call('pf_set_click_gain', this.handle, clickGain);
       if (mode === PF.PRACTICE) {
         sampler.ids.push(...CONTROL_IDS);
-        this.configure(song);
+        if (song.compiledProgram) this.configureCompiled(song.compiledProgram);
+        else this.configure(song);
       }
     } catch (error) {
       sequencer?.dispose(); sampler?.dispose();
@@ -164,6 +176,64 @@ export class NativePerformance {
     this.runId = runId; this.commandIds.clear();
   }
   stop() { this.invoke('pf_stop', this.handle); }
+  configureCompiled(program: readonly number[]) {
+    if (!Array.isArray(program) || program.length < PF.COMPILED_HEADER_FIELDS || program.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program');
+    const pointer = this.call('malloc', program.length * 8);
+    if (!pointer) throw new Error('Performance WASM memory limit reached');
+    try {
+      new Float64Array(this.memory.buffer, pointer, program.length).set(program);
+      this.call('pf_configure_compiled', this.handle, pointer, program.length);
+    } finally { this.invoke('free', pointer); }
+  }
+  compiledTake(index: number) {
+    if (!Number.isSafeInteger(index) || index < 0 || index >= PF.COMPILED_MAX_TAKES) throw new Error('Invalid compiled take index');
+    const info = this.query('pf_compiled_take_info', index);
+    return { voice: info[PF.TAKE_VOICE], ready: info[PF.TAKE_READY] === 1, frames: info[PF.TAKE_LENGTH],
+      capacity: info[PF.TAKE_CAPACITY], revision: info[PF.TAKE_REVISION], phase: info[PF.TAKE_PHASE], playbackState: info[PF.TAKE_PLAYBACK_STATE], period: info[PF.TAKE_PERIOD] };
+  }
+  tempoHitInfo(): TempoHitState {
+    const info = this.query('pf_tempo_info');
+    return { count: info[PF.TEMPO_COUNT], latest: info[PF.TEMPO_COUNT] ? {
+      frame: info[PF.TEMPO_FRAME], beatHint: info[PF.TEMPO_HINT] === 1 ? 1 : null,
+      source: info[PF.TEMPO_SOURCE] === 1 ? 'chart' : 'pedal', estimated: info[PF.TEMPO_ESTIMATED] === 1, bpm: info[PF.TEMPO_BPM],
+    } : null };
+  }
+  prepareLiveEffects(effects: readonly LiveEffectDefinition[]) {
+    if (!Array.isArray(effects) || effects.length > PF.MAX_LIVE_EFFECTS) throw new Error('Invalid live effects stack');
+    for (const effect of effects) {
+      if (!effect || typeof effect !== 'object' || effect.kind !== 'slapback'
+        || !Number.isFinite(effect.delayMs) || effect.delayMs < 40 || effect.delayMs > 250
+        || !Number.isFinite(effect.feedback) || effect.feedback < 0 || effect.feedback > 0.7
+        || !Number.isFinite(effect.wet) || effect.wet < 0 || effect.wet > 1) throw new Error('Invalid slapback effect');
+    }
+    const previous = this.liveEffects();
+    const unchanged = previous.prepared && this.preparedLiveEffects?.length === effects.length
+      && effects.every((effect, index) => {
+        const old = this.preparedLiveEffects?.[index];
+        return old !== undefined && old.kind === effect.kind && old.delayMs === effect.delayMs && old.feedback === effect.feedback && old.wet === effect.wet;
+      });
+    const phase = this.state().phase;
+    if (unchanged && (phase === 'playing' || phase === 'count-in')) return previous;
+    if (!unchanged && previous.revision >= 4294967295) throw new Error('Live effect revision limit reached. Reload practice.');
+    const view = new DataView(this.memory.buffer, this.effectPointer, PF.MAX_LIVE_EFFECTS * PF.EFFECT_BYTES);
+    for (const [index, effect] of effects.entries()) {
+      const offset = index * PF.EFFECT_BYTES;
+      view.setUint32(offset + PF.EFFECT_TYPE_OFFSET, PF.EFFECT_SLAPBACK, true);
+      view.setUint32(offset + PF.EFFECT_VERSION_OFFSET, 1, true);
+      view.setFloat64(offset + PF.EFFECT_DELAY_OFFSET, effect.delayMs, true);
+      view.setFloat64(offset + PF.EFFECT_FEEDBACK_OFFSET, effect.feedback, true);
+      view.setFloat64(offset + PF.EFFECT_WET_OFFSET, effect.wet, true);
+    }
+    this.call('pf_prepare_live_effects', this.handle, effects.length ? this.effectPointer : 0, effects.length, unchanged ? previous.revision : previous.revision + 1);
+    this.preparedLiveEffects = effects.map(effect => ({ ...effect }));
+    return this.liveEffects();
+  }
+  liveEffects(): LiveEffectsState {
+    const data = this.query('pf_live_info');
+    const stageCount = data[PF.LIVE_STAGE_COUNT];
+    return { prepared: data[PF.LIVE_PREPARED] === 1, active: data[PF.LIVE_ACTIVE] === 1,
+      revision: data[PF.LIVE_REVISION], stageCount, captureSupported: data[PF.LIVE_CAPTURE_SUPPORTED] === 1 };
+  }
   selectChannel(id: ChannelId) { this.call('pf_select', this.handle, this.channel(id)); }
   setAutomatic(value: boolean) { this.call('pf_set_automatic', this.handle, this.boolean(value, 'Automatic')); }
   setClick(value: boolean) { this.call('pf_set_click', this.handle, this.boolean(value, 'Click')); }
@@ -181,6 +251,7 @@ export class NativePerformance {
     for (let index = 0; index < units.length; index++) units[index] = commandId?.charCodeAt(index) ?? 0;
     let id: number;
     if (control.id === 'mushroom') id = 4;
+    else if (control.id === 'tempo') id = 6;
     else if (control.id === 'knob') { if (!Number.isFinite(control.value)) throw new Error('Invalid knob value'); id = 5; }
     else id = this.channel(control.id);
     const result = this.invoke('pf_control', this.handle, id, control.id === 'knob' ? control.value : 0, commandId ? this.commandPointer : 0, units.length);
@@ -199,13 +270,14 @@ export class NativePerformance {
         : { kind: info[PF.CHANNEL_LIGHT] === PF.CUE ? 'cue' : info[PF.CHANNEL_LIGHT] === PF.STEADY ? 'steady' : 'off' };
       return { id, gain: info[PF.CHANNEL_GAIN], muted: info[PF.CHANNEL_MUTED] === 1, looping: info[PF.CHANNEL_LOOPING] === 1, ready: info[PF.CHANNEL_READY] === 1, status, light };
     });
-    const active = channels.find(channel => channel.status === 'armed' || channel.status === 'recording' || channel.status === 'stopping');
+    const active = channels.find(channel => channel.status === 'recording')
+      ?? channels.find(channel => channel.status === 'armed') ?? channels.find(channel => channel.status === 'stopping');
     const recording = active && (active.status === 'armed' || active.status === 'recording' || active.status === 'stopping') ? { id: active.id, status: active.status } : null;
     return { phase, bar: data[PF.BAR_NUMBER] < 0 ? null : data[PF.BAR_NUMBER], beat: data[PF.BEAT_NUMBER] < 0 ? null : data[PF.BEAT_NUMBER], countInRemaining: data[PF.COUNT_IN_REMAINING], bpm: data[PF.BPM],
       startBar: data[PF.START_BAR], endBar: data[PF.END_BAR], loop: data[PF.LOOP] === 1, automatic: data[PF.AUTOMATIC] === 1, click: data[PF.CLICK] === 1, selectedChannel: CONTROL_IDS[data[PF.SELECTED_CHANNEL]],
       runId: this.runId, seq: data[PF.SEQUENCE], channels, looping: channels.filter(channel => channel.looping).map(channel => channel.id), recording, microphone: data[PF.MICROPHONE] === 1, error: data[PF.ERROR] ? this.message(data[PF.ERROR]) : null };
   }
-  state() { return this.decode(Array.from(this.query('pf_snapshot'))); }
+  state() { return { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), tempoHits: this.tempoHitInfo() }; }
   snapshot() { return this.state(); }
   get processedFrames() { return this.query('pf_snapshot')[PF.FRAME]; }
   get clickEnabled() { return this.query('pf_snapshot')[PF.CLICK_ENABLED] === 1; }
@@ -226,27 +298,39 @@ export class NativePerformance {
     const rows = new Float64Array(this.memory.buffer, this.eventPointer, count * PF.EVENT_FIELDS);
     return Array.from({ length: count }, (_, index): PracticeEvent => {
       const event = rows.subarray(index * PF.EVENT_FIELDS, (index + 1) * PF.EVENT_FIELDS);
-      const type = event[PF.EVENT_TYPE] === PF.BEAT ? 'beat' : event[PF.EVENT_TYPE] === PF.CONTROL ? 'control' : event[PF.EVENT_TYPE] === PF.FAULT ? 'fault' : 'state';
+      const type = event[PF.EVENT_TYPE] === PF.BEAT ? 'beat' : event[PF.EVENT_TYPE] === PF.CONTROL ? 'control' : event[PF.EVENT_TYPE] === PF.FAULT ? 'fault' : event[PF.EVENT_TYPE] === PF.TEMPO_HIT ? 'tempo-hit' : 'state';
       const state = this.decode(event.subarray(PF.EVENT_STATE, PF.EVENT_CHANNELS), event.subarray(PF.EVENT_CHANNELS));
       const result: PracticeEvent = { v: 1, runId: this.runId, seq: event[PF.EVENT_SEQUENCE], type, state };
       if (event[PF.EVENT_FRAME] >= 0) { result.frame = event[PF.EVENT_FRAME]; result.sampleRate = event[PF.EVENT_RATE]; }
       if (event[PF.EVENT_ERROR]) result.error = this.message(event[PF.EVENT_ERROR]);
       if (type === 'control') {
         const id = event[PF.EVENT_CONTROL];
-        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : { id: CONTROL_IDS[id] };
+        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : id === 6 ? { id: 'tempo' } : { id: CONTROL_IDS[id] };
         result.applied = event[PF.EVENT_APPLIED] === 1;
         const commandId = this.commandIds.get(result.seq);
         if (commandId) { result.commandId = commandId; this.commandIds.delete(result.seq); }
       }
+      if (type === 'tempo-hit') result.tempoHit = { beatHint: event[PF.EVENT_VALUE] === 1 ? 1 : null,
+        source: event[PF.EVENT_CONTROL] === 1 ? 'chart' : 'pedal', estimated: event[PF.EVENT_APPLIED] === 1 };
+      if (event[PF.EVENT_CUE] >= 0) result.cueIndex = event[PF.EVENT_CUE];
       return result;
     });
   }
-  process(input: Float32Array | null | undefined, outputs: Float32Array[], length: number) {
+  process(input: Float32Array | null | undefined, outputs: Float32Array[], length: number, liveOutputs?: Float32Array[]) {
     for (let offset = 0; offset < length; offset += BLOCK) {
       const count = Math.min(BLOCK, length - offset);
       if (input) { const block = input.subarray(offset, offset + count); this.sampler.input.set(block); this.sampler.input.fill(0, block.length, count); }
       this.sampler.left.fill(0, 0, count); this.sampler.right.fill(0, 0, count);
-      this.call('pf_process', this.handle, input ? this.sampler.inputPointer : 0, this.sampler.leftPointer, outputs[1] ? this.sampler.rightPointer : 0, count);
+      if (liveOutputs) {
+        this.liveLeft.fill(0, 0, count); this.liveRight.fill(0, 0, count);
+        this.call('pf_process_stems', this.handle, input ? this.sampler.inputPointer : 0,
+          this.sampler.leftPointer, outputs[1] ? this.sampler.rightPointer : 0,
+          liveOutputs[0] ? this.liveLeftPointer : 0, liveOutputs[1] ? this.liveRightPointer : 0, count);
+        liveOutputs[0]?.set(this.liveLeft.subarray(0, count), offset);
+        liveOutputs[1]?.set(this.liveRight.subarray(0, count), offset);
+      } else {
+        this.call('pf_process', this.handle, input ? this.sampler.inputPointer : 0, this.sampler.leftPointer, outputs[1] ? this.sampler.rightPointer : 0, count);
+      }
       outputs[0]?.set(this.sampler.left.subarray(0, count), offset);
       outputs[1]?.set(this.sampler.right.subarray(0, count), offset);
     }

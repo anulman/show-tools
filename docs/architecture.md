@@ -2,7 +2,7 @@
 
 The practice desk is a browser instrument that records your microphone into loops and plays those loops against a song chart. A shared C++ performance engine owns musical time and execution. The browser worklet supplies audio blocks, and the page displays state and submits controls.
 
-This account describes the shared C++ performance engine as of October 25, 2026. The [development guide](development.md) covers starting another session and dividing the next work. The [practice guide](../ui/practice/README.md) covers performing a take.
+This account describes the shared C++ performance engine as of October 27, 2026. The [development guide](development.md) covers starting another session and dividing the next work. The [practice guide](../ui/practice/README.md) covers performing a take.
 
 ## Musical time starts with audio frames
 
@@ -25,7 +25,7 @@ flowchart LR
 	transport -->|"capture and playback at that frame"| samples["C++ sample capture and mixer"]
 ```
 
-The worklet receives microphone PCM and produces stereo PCM for the browser's output. The UI receives snapshots and events after audio decisions. It can stall without becoming the source of beat timing.
+The worklet receives mono microphone PCM and produces separate stereo sample/click and processed-live buses for browser routing. The UI receives snapshots and events after audio decisions. It can stall without becoming the source of beat timing.
 
 ```mermaid
 flowchart LR
@@ -55,7 +55,7 @@ The TypeScript bridges have narrower jobs:
 - [wasm-sequencer.ts](../lib/sequencer/wasm-sequencer.ts) maps pattern names and labels to native IDs and reads sequencer state.
 - [wasm-sampler.ts](../lib/sampler/wasm-sampler.ts) maps sample and variant names to native IDs and exposes native sample commands and metadata.
 
-The browser worklet calls `pf_process()` for each block. It does not call a JavaScript beat handler to decide which sound plays. The old JavaScript sequencer and TypeScript transport implementations are removed. An old WASM artifact without the performance API fails startup instead of falling back to JavaScript scheduling. `pf_abi_version()` checks the binary against the generated interface constants.
+The practice worklet calls `pf_process_stems()` for each block. That entry point uses the same C++ clock and musical execution as `pf_process()` while exposing a distinct processed-live stereo stem. It does not call a JavaScript beat handler to decide which sound plays. The old JavaScript sequencer and TypeScript transport implementations are removed. An old WASM artifact without the performance API fails startup instead of falling back to JavaScript scheduling. `pf_abi_version()` checks the binary against the generated interface constants.
 
 The combined browser module has a fixed 256 MiB heap and cannot grow it during audio processing. Song configuration, pattern definition, capture preparation, and file loading are command-time operations that may allocate. Native block processing, beat dispatch, capture, rendering, triggering, and commit do not allocate or reclaim sample or pattern memory. Active voices keep their old buffer when a replacement take commits. Active and queued patterns likewise retain their copied definition when that pattern ID is redefined.
 
@@ -65,7 +65,9 @@ Native diagnostic queries can expose borrowed PCM views in the WASM heap. These 
 
 Each song is a loadable module under [songs](../songs/README.md), beside its JSON chart snapshot. `SongScript` supplies a parsed chart, a `Program`, and a practice range. The registry loads the selected module on demand.
 
-The snapshots contain values, explicit column positions, and control-row notes. Notes supply song-specific pad names. The practice page does not read the live spreadsheet's values at runtime. Selecting columns in Sheets does not refresh a snapshot. Chart changes require updating the snapshot and rebuilding.
+The practice desk can explicitly fetch public worksheet values and notes, import frozen source or compiled JSON, inspect diagnostics, and load executable artifacts while stopped. Browser and CLI share the importer and compiler; SHA-256 digests identify their inputs. Selecting columns in Sheets does not refresh the loaded song. Unknown notation and missing capture or cue policies remain visible with source coordinates and block execution.
+
+Compiled songs separate buttons, logical voices, immutable takes, and retained selections. Schema 2 distinguishes capture cutoff, logical loop end, and the anchor take of an explicit doubling group. TypeScript validates and lowers those facts into version 2 numeric tables. ABI 4 loaders prepare them atomically. C++ owns cue resolution, pending actions, exact capture, layers, variants, fractional stops, and events. Programs support 4/4 and six eighth-note counts in 6/8. The shared native tempo-hit intent preserves clock phase, serial, and epoch; physical pedal input remains disconnected pending its installation facts.
 
 `compileChartControls` turns cells into typed actions. The TypeScript bridge uploads those actions as copied instruction data while the engine is stopped. When you press a pad, C++ resolves that pad's row in the active column. A future column's cue does not run early because it is visible on screen. A blank cell performs no action.
 
@@ -73,9 +75,9 @@ For example, `rb` pressed during the lead-in queues capture at the first song ba
 
 Number-only notation describes manual hits. Beats are 1 through 4. The subdivisions `e`, `&`, and `a` divide each beat into sixteenths. In `&a]`, the bracket identifies the phrase end, so the hits are 4& and 4a. A generic tap cue plays one hit per press. Without that press, normal loop playback continues.
 
-Dance Yrself Clean contains a deliberate song-specific exception. Its cowbell uses complete recordings of bar 3 for the double sound and bar 4 for the single sound. The three presses arm bar 3, commit it and arm bar 4, then commit bar 4. Its script reads the cowbell arrangement row and selects the double take where marked, currently bars 8 and 10. You do not need to double-tap those playback marks. Selection changes an already-playing loop and respects an explicit stop.
+The current DYC source captures three distinct cowbell variants at bars 10, 11, and 12. R1/L1/L2 matching pairs form explicit doubled groups, all gains start at unity, and numeric cues use configurable 25 ms early/late windows with ties rejected. J21 ends recording at beat 3 and continues zero source through the remaining bar; its eight-count loop joins the existing group at phase six without a note restart. `1p*` plays and emits the shared tempo-hit intent at the accepted press frame with beat hint 1. The hint never rephases time. Knob `d` execution is deferred. These authoring decisions are settled.
 
-That exception lives in [dance-yrself-clean.ts](../songs/dance-yrself-clean.ts), not the shared UI. The script produces `barPlayback` data when the song loads. C++ executes that data on the corresponding downbeats. Song scripts do not receive per-beat callbacks. Generic sparse capture still extracts individual attacks near hinted beat positions. DYC's whole-bar cowbell hints bypass extraction because the quiet sounds were not being selected reliably. Those full bars intentionally retain their silence and any other captured sound.
+F21 arms Bing-Bong during bar 4 while R1 records through bar 5. Their recording intervals are disjoint: R1 ends when Bing-Bong begins. Future preparation is permitted during a recording. Native state separates the live route, active capture, and pending reservation; monitoring changes on arm while R1's own rack continues capturing. Shared-boundary commits execute before recording starts in either press order. The first full-source run exposed an overly broad armed-owner guard; the source was not at fault. Older cowbell PCM fixtures establish legacy sampler compatibility only.
 
 Drunk Girls and I Can Change have timing and section snapshots, but their pad-action rows are blank. Choosing one does not supply a completed arrangement. All current songs start with empty samples.
 
@@ -85,15 +87,17 @@ Drunk Girls and I Can Change have timing and section snapshots, but their pad-ac
 
 Pad light states come from C++. The UI renders those states. An available unused cue pulses when the loop is inactive. Armed actions, recording, and playing loops glow steadily. A queued stop pulses with diminishing strength until its boundary. Completed stops turn the light off. A redesign can change their appearance while the native engine remains the owner of musical state.
 
-Samples begin at unity gain. Each pad's slider adjusts its channel. Mute preserves the loop's phase. Stop and Panic cancel pending actions, commit active captures, and silence sample output and click. Their browser handlers also cancel startup work and release the microphone, including when a backend command fails.
+Samples begin at unity gain. Each pad's slider adjusts its channel. Mute preserves loop phase. Stop and Panic cancel pending actions and silence output. Compiled Stop discards an incomplete draft that cannot satisfy its declared period, preserving any earlier committed take. Browser handlers cancel startup work and release the microphone even when a command fails.
 
 ## A demo download has a separate audio route
 
 There are two kinds of recording. Sample capture records microphone input into a loop. Demo recording records the performance for download.
 
-The worklet output contains rendered samples and the enabled click. That stereo output goes both to speakers and to the demo recording destination. A separate microphone branch downmixes live voice to mono and adds it to both recording channels. That branch does not monitor live voice through speakers. Sample stereo stays unchanged.
+The worklet exposes two stereo outputs. Output zero contains rendered samples and click. Output one contains the default live voice after its prepared C++ effects stack. Both outputs connect once to the demo recording destination. There is no separate raw-microphone recording branch. Mono input reaches left and right equally before effects; stereo samples retain their channels.
 
-This explains the earlier balance fix. Centering belongs on the recording's live-voice branch. Downmixing the entire output would also destroy sample stereo.
+Sample/click output reaches speakers through its existing route. Processed live voice reaches speakers through a separate monitoring gate. The operator confirms whether input/output are different physical devices or the same USB audio interface. Either condition permits live monitoring. Same non-USB hardware or unknown identity leaves that gate closed. The adapter does not infer USB classification or compare unrelated input/output device IDs. Microphone loss, replacement, Stop, and disposal invalidate that confirmation. Downloads contain processed live voice independently of the monitor gate.
+
+Live effects are prepared atomically while stopped, before microphone startup and transport Start. The UI configures slapback in this first integrated capability. Native state reports the applied revision and actual live activation. Parameters stay fixed during a run. Start authorizes live processing; Stop/Panic, microphone loss, end, and fatal transport faults clear that authorization and delay state. Later microphone readiness alone cannot rearm it. Rejected parameter or capture commands are not fatal transport faults.
 
 **Start practice** requests the microphone and prepares demo recording automatically. The lead-in always clicks, even with song click off. The prepared recorder waits until the UI receives the first `playing` state, excluding the lead-in from the download. Its start is therefore tied to a delivered state update rather than a sample-exact worklet export boundary.
 
@@ -119,11 +123,11 @@ The intended EliteDesk owns audio processing and hardware controls. Other device
 
 The approved effects design processes live mono microphone into stereo through the default or capture-target voice stack, then caches that processed result for sampled playback. Cached audio must not pass through its baked stack again. Logical voice IDs are separate from button IDs. Per-effect venue tuning belongs in the web UI. Eligible monitors and room outputs receive processed live audio when input/output are different physical devices or the same confirmed USB interface. Downloads remain processed independently of that monitoring decision.
 
-The standalone [patches module](../lib/patches/README.md) begins this work with generic full-output C++ effects and a processed-cache release prototype. Its synthetic live render produces both output and exact cached stereo PCM. Playback reads that PCM while an auxiliary rack consumes retained source silently to maintain release state. Natural stop tails come from zero-input continuation of that auxiliary state, never from processing cached output again. Restore capture-start state only when a new loop iteration actually starts. This preserves the recorded phase's tail, rather than claiming the same feedback history as an endlessly processed source loop.
+The [patches module](../lib/patches/README.md) supplies full-output C++ effects and prepared processed takes. Arm immediately switches live processing to the target voice stack. Capture starts at its declared boundary and retains sanitized original mono source, printed stereo PCM, and DSP state. The first playback iteration uses printed PCM while shadow processing original source; later iterations emit the evolving source-processing result. Loop wrap resets only the source cursor. Natural stop tails continue the reached DSP state with zero input. Printed PCM never enters its baked stack again.
 
-This module is not yet connected to `pf_process()`, sampler capture, browser stems, or venue controls. The current practice route still captures raw mono input and adds the separate recording-only microphone branch described above. Those routes change together in a coordinated performance ABI milestone. Native capture preparation also needs an audit before callback application because current arm controls reach allocating `st_prepare()` calls. Standalone DSP verification does not prove the browser feature or native host callback safe.
+The compiled path prepares two cache banks per take while stopped. Overlapping recording intervals reject atomically; future arming for a disjoint interval is allowed. Live-route, active-capture, and pending-reservation state are separate. Detached monitoring tails use prepared snapshots so a still-recording rack keeps consuming original input. At commit, playback takes sole ownership of the completed history; a same-voice new capture begins a fresh source epoch. Latest committed takes retain their graph revision after venue edits. Stopped preparation refreshes reusable banks without replacing that cache. Prepared processing/control application allocates no C++ heap memory. Playback uses unit-rate loops and explicit suffixes; arbitrary seek and live tempo stretching are unsupported.
 
-EliteDesk work can use the complete native performance library, including song transport, sequencing, sampling, and click rendering. Its manual-tempo CMake target excludes aubio and libsndfile. The separate tracker executable still processes WAV files rather than live devices. A live audio host, a loader for compiled song instructions, physical control drivers, and a hardware event producer remain to be built. That work connects the shared engine to the machine; it does not require another port of the musical logic.
+EliteDesk work can use the complete native performance library, including song transport, sequencing, sampling, and click rendering. Its manual-tempo CMake target excludes aubio and libsndfile. The separate tracker executable still processes WAV files rather than live devices. The stopped native loader already accepts portable compiled song instructions. A live audio host, physical control drivers, and a hardware event producer remain to be built. That work connects the shared engine to the machine; it does not require another port of the musical logic.
 
 The native processing path uses prepared buffers and fixed queues. Configuration, preparation, and loading can allocate outside that path. JavaScript state serialization still allocates objects and arrays, so the whole browser worklet is not allocation-free. A live native host needs its own realtime audit. Browser correctness tests do not prove hardware audio latency or absence of underruns.
 

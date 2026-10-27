@@ -78,16 +78,22 @@ export class BeatProcessor extends AudioWorkletProcessor {
 
   process(inputs, outputs) {
     if (this.disposed) return false;
-    const output = outputs[0];
+    if (this.processingFailed) {
+      for (const bus of outputs) for (const channel of bus) channel.fill(0);
+      return true;
+    }
+    const output = outputs[0] || [];
+    const liveOutput = outputs[1];
     if (!this.hasProcessed) {
       this.frameOrigin = currentFrame; this.hasProcessed = true; this.reply({ type: 'started' });
     }
     try {
-      this.native.process(inputs[0]?.[0], output, output[0]?.length || 0);
+      this.native.process(inputs[0]?.[0], output, output[0]?.length || liveOutput?.[0]?.length || 0, liveOutput);
       this.publishNativeEvents();
       return true;
     } catch (error) {
-      for (const channel of output) channel.fill(0);
+      try { this.native.stop(); } catch { this.processingFailed = true; }
+      for (const bus of outputs) for (const channel of bus) channel.fill(0);
       this.port.postMessage({ type: 'fault', message: error.message });
       return true;
     }

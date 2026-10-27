@@ -44,6 +44,7 @@ export class PerformanceProcessor extends BeatProcessor {
         }
         case 'sample.stop': value = this.sequencer.silence(payload.sampleId); break;
         case 'record.start':
+          if (this.native.liveEffects().stageCount > 0) throw new Error('Use the compiled song pad to capture processed voice; direct sampler recording does not capture the effects stem.');
           this.recorder.prepare(payload.sampleId, { maxSeconds: payload.maxSeconds ?? 30 });
           this.sequencer.cancelRecording(payload.sampleId);
           this.sampler.stop(payload.sampleId);
@@ -54,6 +55,7 @@ export class PerformanceProcessor extends BeatProcessor {
           value = this.recorder.stop(payload.sampleId, this.processedFrames);
           break;
         case 'sequence.record':
+          if (payload.action === 'start' && this.native.liveEffects().stageCount > 0) throw new Error('Use the compiled song pad to capture processed voice; direct sampler recording does not capture the effects stem.');
           value = this.sequencer.armRecording(payload.sampleId, payload);
           break;
         case 'sequence.recordCancel': value = this.sequencer.cancelRecording(payload.sampleId); break;
@@ -71,6 +73,7 @@ export class PerformanceProcessor extends BeatProcessor {
         case 'sequence.cancel': value = this.sequencer.cancelQueue(); break;
         case 'sequence.markOne': value = this.sequencer.markOne(); break;
         case 'performance.stopAll':
+          if (this.nativeMode() === 2) { this.native.stop(); break; }
           this.sequencer.stop();
           this.recorder.stopAll('stopped');
           this.sampler.stopAll();

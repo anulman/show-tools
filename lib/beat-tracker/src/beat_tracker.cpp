@@ -86,6 +86,11 @@ void bt_process(bt_tracker* t, const float* mono, uint32_t frames) {
     t->rms = std::sqrt(t->level_squared);
 }
 
+int bt_tempo_hit(bt_tracker* t, double event_frame, int* estimated) {
+    if (estimated) *estimated = 0;
+    if (!t || !std::isfinite(event_frame) || event_frame != double(t->frame)) return BT_INVALID;
+    return t->tap(event_frame, false, estimated);
+}
 void bt_snapshot(const bt_tracker* t, double* out) {
     if (!t || !out) return;
     std::fill(out, out + BT_S_COUNT, 0.0);
