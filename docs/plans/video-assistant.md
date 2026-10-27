@@ -95,6 +95,8 @@ Performance Engine owns semantic commands, compiled-song schema, and performance
 
 The October 27 review requires a dominant song meter supporting at least 4/4 and 6/4, with explicit lengths for occasional short measures. This does not require a general map of localized meter changes. [Local chart BPM is metadata and never changes clock BPM](https://github.com/anulman/show-tools/pull/1#discussion_r4384945413). During performance, tempo changes come from the BPM pedal and take effect through Performance Engine. Video consumes the engine's resolved tempo changes and source frames. Neither a chart row nor a Figma reference tempo starts another clock.
 
+For the current DYC mapping, F2 supplies the initial reference BPM. Local BPM and detected start-time rows remain inspection metadata. Video seeking follows resolved performance frames and measure ticks, rather than detected chart start times.
+
 | Contract area | Video requirement |
 | --- | --- |
 | Identity | `engineSessionId`, `epoch`, `runId`, `programDigest`, and increasing `sourceSequence`. Cue and resource IDs remain stable across the compiled artifact |
@@ -105,9 +107,11 @@ The October 27 review requires a dominant song meter supporting at least 4/4 and
 | Presentation | Observer-side mapping between source frames and output presentation time. Include calibration age and uncertainty. Network receipt time is not source time |
 | Replay | Ordered resolved cue and control records, initial checkpoint, program and asset digests, pedal-driven tempo history, measure lengths, loop history, and discontinuities. Chart-local BPM cannot reconstruct performed tempo |
 
-Commands follow the Performance Engine proposal for producer identity, command identity, producer sequence, run, expected program digest, semantic target, and timing. Video can observe acknowledged controls. It must not deduplicate audio commands independently or claim exactly-once delivery beyond the engine's bounded guarantees.
+Commands follow the Performance Engine proposal for producer identity, command identity, producer sequence, run, semantic target, and timing. The loaded program remains immutable throughout a run. Stage chart and visual-program refreshes separately and activate only while stopped. Record the program digest in load/session manifests and replay provenance, without requiring it on every pad command. Reconnect requires a session/run handshake and snapshot before new input. Discard input from the old session. Video can observe acknowledged controls. It must not deduplicate audio commands independently or claim exactly-once delivery beyond the engine's bounded guarantees.
 
 The engine resolves chart cues and manual actions. A portable visual evaluator consumes their copied records and produces poses. It never advances transport, triggers samples, or reimplements chart notation. A browser animation callback samples the current performance position and draws the pose.
+
+Performance Engine's live worksheet inspection reports the A17 `chorus/video-y` note and knob tokens `[4d-`, `d`, `-1d]`, and `-3d] [4d-`. Their `d` binding, direction, range, span behavior, and effect or video routing remain undefined. Keep these as source-anchored typed TODOs shared by Filters, Video, and peripherals. Do not infer that `d` means delay or a specific animation parameter. An unresolved required binding blocks an executable load. It can appear in an explicitly incomplete inspection preview. A later binding must name the target, units, range, and timing before video consumes its engine-resolved values.
 
 For local WASM, relate engine frame zero to AudioContext frame time through the bridge. Calibrate that time to output presentation time using browser timing facilities where available. Account for output latency and configurable display offset. A background-tab pause must not advance animation by callback count. On resume, obtain fresh state and evaluate the current pose.
 
@@ -187,6 +191,8 @@ The phase order reduces asset risk before expanding the cast. It also leaves one
 Fixture tests must cover beat crossings at several sample rates, 30 and 60 FPS, rational FPS such as 30000/1001, mid-beat pedal-tempo changes, multiple same-frame cues, loop endpoints, seeking backward, snapshot watermarks, gaps, duplicates, stale epochs, and bounded queues. Include 4/4 and 6/4 songs with short measures, quarter-, half-, and three-quarter-beat cues, and immediate peripheral effects. Changing chart-local BPM metadata must leave evaluated timing unchanged. Replaying each frame sequentially and requesting frames out of order must produce the same pose, including after a pedal-tempo change or a short measure.
 
 Verify DEBUG diagnostics only in debug runs, INFO filtering in practice, and WARN filtering in live performance. A disabled diagnostic must not construct its rich payload or write an artifact. Protocol delivery and explicitly requested replay capture must still work at WARN without enabling DEBUG traces.
+
+Verify that a staged chart refresh cannot change an active run's tempo, cue program, or visual-program selection. Reconnect must reject queued input from the old session. The undefined DYC `d` bindings must remain visible with source locations and owners in inspection output and must prevent a required executable load.
 
 Inspect rendered images at chosen checkpoints. Pixel-perfect GPU output across platforms is not assumed. Compare deterministic pose data exactly and use a documented image tolerance where antialiasing differs. Verify transparent borders and foot registration through every selected pose.
 
