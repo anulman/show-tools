@@ -108,6 +108,7 @@ class Playback {
   bool render(float* left, float* right, uint32_t frames) noexcept;
   PlaybackState state() const noexcept { return state_; }
   uint32_t phase() const noexcept { return phase_; }
+  uint64_t release_remaining_frames() const noexcept { return release_remaining_; }
   size_t memory_bytes() const noexcept;
  private:
   Playback(const ProcessedTake& take, std::unique_ptr<Rack> shadow) noexcept;

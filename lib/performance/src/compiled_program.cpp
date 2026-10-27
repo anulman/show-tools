@@ -158,14 +158,16 @@ bool Program::prepare_effects(const patches::Rack& definition, uint32_t revision
   }
   for (int voice = 0; voice < PF_CHANNELS; ++voice) voices_[voice] = std::move(voices[voice]);
   for (int id = 0; id < take_count_; ++id) for (int bank = 0; bank < 2; ++bank) if (caches[id][bank]) {
-    takes_[id].cache[bank] = std::move(caches[id][bank]); takes_[id].playback[bank] = std::move(players[id][bank]);
+    takes_[id].playback[bank].reset();
+    takes_[id].cache[bank] = std::move(caches[id][bank]);
+    takes_[id].playback[bank] = std::move(players[id][bank]);
   }
   return true;
 }
 void Program::start(int start_bar, int count_in_beats, double frame) noexcept {
   stop(); start_ = start_bar; phase_ = count_in_beats ? PF_COUNT_IN : PF_PLAYING; bar_ = count_in_beats ? 0 : start_bar;
   anchor_frame_ = frame; anchor_position_ = (start_bar - 1) * beats_ - count_in_beats - 1;
-  query_position_ = anchor_position_;
+  query_position_ = anchor_position_; query_frame_ = frame;
   for (int id = 0; id < cue_count_; ++id) cues_[id].used = false;
   for (int voice = 0; voice < PF_CHANNELS; ++voice) suppressed_[voice] = false;
 }
@@ -215,7 +217,7 @@ int Program::press(int button, double frame, double bpm, bool microphone) noexce
   }
   int voice = binding_[button];
   if (found < 0) {
-    VoiceInfo info = channel_info(button);
+    VoiceInfo info = channel_info(button, bpm);
     if (!info.ready) return PF_NO_SAMPLE;
     if (info.looping) { stop_voice(voice, false); suppressed_[voice] = true; return PF_OK; }
     suppressed_[voice] = false;
@@ -316,7 +318,7 @@ int Program::execute(int id, double) noexcept {
 }
 void Program::apply_pending(double frame, double bpm) noexcept {
   double now = position(frame, bpm);
-  query_position_ = now;
+  query_position_ = now; query_frame_ = frame;
   for (int button = 0; button < PF_CHANNELS; ++button) if (pending_[button].cue >= 0
     && frame >= std::ceil(anchor_frame_ + (pending_[button].position - anchor_position_) * rate_ * 60 / bpm)) {
     int cue = pending_[button].cue; pending_[button].cue = -1;
@@ -367,28 +369,38 @@ void Program::render(const float* input, float* left, float* right, float* live_
       if (right) right[offset] += float(value.right * gain);
     }
   }
-  query_position_ = position(frame + frames, bpm);
+  query_position_ = position(frame + frames, bpm); query_frame_ = frame + frames;
 }
 void Program::set_channel(int button, double gain, bool muted) noexcept {
   if (button < 0 || button >= PF_CHANNELS) return;
   int voice = binding_[button]; gain_[voice] = gain; muted_[voice] = muted;
 }
-VoiceInfo Program::channel_info(int button) const noexcept {
+VoiceInfo Program::channel_info(int button, double bpm) const noexcept {
   VoiceInfo info; if (button < 0 || button >= PF_CHANNELS) return info;
   int voice = binding_[button];
   info.gain = gain_[voice]; info.muted = muted_[voice];
   for (int id = 0; id < take_count_; ++id) if (takes_[id].voice == voice) {
     info.ready = info.ready || takes_[id].latest >= 0;
-    for (const auto& playback : takes_[id].playback) info.looping = info.looping || playback->state() == patches::PlaybackState::playing;
+    for (const auto& playback : takes_[id].playback) {
+      info.looping = info.looping || playback->state() == patches::PlaybackState::playing;
+      info.release_ms = std::max(info.release_ms, playback->release_remaining_frames() * 1000.0 / rate_);
+    }
   }
-  info.status = info.looping ? PF_LOOPING : info.ready ? PF_READY : PF_EMPTY;
+  info.status = info.looping ? PF_LOOPING : info.release_ms > 0 ? PF_STOPPING : info.ready ? PF_READY : PF_EMPTY;
   if (capturing_ >= 0 && takes_[capturing_].voice == voice) info.status = PF_RECORDING;
   if (pending_[button].cue >= 0) {
     info.pending = cues_[pending_[button].cue].kind;
     if (info.pending == PF_ARM || info.pending == PF_COMMIT_ARM) info.status = PF_ARMED;
-    if (info.pending == PF_STOP) info.status = PF_STOPPING;
+    if (info.pending == PF_STOP) {
+      info.status = PF_STOPPING;
+      if (info.looping) {
+        double stop_frame = std::ceil(anchor_frame_ + (pending_[button].position - anchor_position_) * rate_ * 60 / bpm);
+        info.release_ms = std::max(info.release_ms, std::max(0.0, stop_frame - query_frame_) * 1000 / rate_);
+      }
+    }
   }
   info.light = info.looping || info.status == PF_RECORDING || info.status == PF_ARMED ? PF_STEADY : PF_OFF;
+  if (info.release_ms > 0 && info.status == PF_STOPPING) info.light = PF_RELEASING;
   if (info.light == PF_OFF && (phase_ == PF_COUNT_IN || phase_ == PF_PLAYING)) for (int id = 0; id < cue_count_; ++id) {
     const Cue& cue = cues_[id];
     if (cue.button != button || cue.used) continue;

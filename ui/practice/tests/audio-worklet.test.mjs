@@ -8,6 +8,8 @@ import { sourceForVM } from '../../../scripts/source-for-vm.ts';
 import { loadSong } from '../../../songs/index.ts';
 import { SampleEngine as TestSampleEngine } from '../../../lib/sampler/tests/support/wasm-runtime.ts';
 import { withoutPerformanceExports } from './support/wasm-exports.ts';
+import { compiledCaptureFixture } from '../../../lib/performance/tests/fixtures/compiled-capture.ts';
+import { encodeCompiledProgram } from '../../../lib/performance/compiled-native.ts';
 
 const rate = 8000;
 const program = { lengthBeats: 16, events: Array.from({ length: 16 }, (_, atBeat) => [
@@ -31,7 +33,7 @@ const sources = await Promise.all(['../runtime/beat-worklet.js', '../runtime/per
   .map(async path => (await sourceForVM(new URL(path, import.meta.url))).replace(/^import .*;\n/gm, '').replace(/export class /g, 'class ')));
 
 class Harness {
-  constructor({ bpm = 120, countInBars = 1, automatic = false, loop = true, preload = false, chartControls = controls(), audibleClick = false, barPlayback = [], barCount = 8, liveEffects, microphone = false } = {}) {
+  constructor({ bpm = 120, countInBars = 1, automatic = false, loop = true, preload = false, chartControls = controls(), audibleClick = false, barPlayback = [], barCount = 8, liveEffects, microphone = false, compiledProgram } = {}) {
     this.frame = 0;
     this.sequence = 0;
     this.request = 0;
@@ -45,7 +47,7 @@ class Harness {
       registerProcessor: (name, processor) => processors.set(name, processor) };
     vm.createContext(this.sandbox);
     vm.runInContext(sources.join('\n'), this.sandbox);
-    this.processor = new (processors.get('practice'))({ processorOptions: { module: wasm, clickGain: audibleClick ? 1 : 0, practice: { barCount, endBar: barCount, program: { ...program, controls: { ...chartControls, bars: chartControls.bars.slice(0, barCount) }, barPlayback: barPlayback.filter(cue => cue.bar <= barCount) } } } });
+    this.processor = new (processors.get('practice'))({ processorOptions: { module: wasm, clickGain: audibleClick ? 1 : 0, practice: { barCount, endBar: barCount, compiledProgram, program: { ...program, controls: { ...chartControls, bars: chartControls.bars.slice(0, barCount) }, barPlayback: barPlayback.filter(cue => cue.bar <= barCount) } } } });
     assert.equal(messages[0].type, 'ready', messages[0].message);
     assert.equal(this.processor.sampler.api.memory.buffer, this.processor.api.memory.buffer, 'sample storage shares the actual clock WASM instance');
     assert.equal(this.processor.sampler.snapshot().metadata.backend, 'cpp-wasm');
@@ -109,6 +111,45 @@ class Harness {
   state() { return this.command('state').state.practice; }
   dispose() { this.processor.receive({ type: 'dispose' }); }
 }
+
+test('compiled program crosses the real worklet control port and renders processed layers into both stems', async () => {
+  const song = await compiledCaptureFixture();
+  const t = new Harness({ compiledProgram: Array.from(encodeCompiledProgram(song)), barCount: 4,
+    liveEffects: [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }], microphone: true });
+  function advance(bar) {
+    for (let attempt = 0; attempt < 1000; attempt++) {
+      if (t.state().bar === bar && t.state().phase === 'playing') return;
+      t.render(128, { input: new Float32Array(128).fill(.25) });
+    }
+    throw new Error(`Worklet did not reach bar ${bar}`);
+  }
+  try {
+    assert.equal(t.state().liveEffects.captureSupported, true);
+    t.command('practice.control', { control: { id: 'R1' }, commandId: '["keyboard","first",0]' });
+    advance(1);
+    const handoff = { control: { id: 'R1' }, commandId: '["keyboard","first",1]' };
+    t.command('practice.control', handoff);
+    t.command('practice.control', handoff);
+    advance(2);
+    assert.equal(t.processor.native.compiledTake(0).frames, 16000);
+    assert.equal(t.processor.native.compiledTake(0).ready, true);
+    t.command('practice.control', { control: { id: 'R1' }, commandId: '["keyboard","first",2]' });
+    advance(3);
+    const output = t.renderStems(128, { input: new Float32Array(128).fill(.25) });
+    assert(output.mixed.every(channel => channel.every(value => Math.abs(value - .625) < 1e-6)));
+    assert(output.live.every(channel => channel.every(value => Math.abs(value - .3125) < 1e-6)));
+    for (const [command, payload] of [['record.start', { sampleId: 'L1' }], ['sequence.record', { sampleId: 'L1', action: 'start' }]]) {
+      t.port.onmessage({ data: { id: ++t.request, command, payload } });
+      const reply = t.performance.at(-1);
+      assert.equal(reply.ok, false);
+      assert.match(reply.error, /compiled song pad/);
+      assert.equal(t.processor.native.compiledTake(0).frames, 16000);
+    }
+    t.command('practice.stop');
+    const silence = t.renderStems(1000, { input: new Float32Array(1000).fill(.25) });
+    assert([...silence.mixed, ...silence.live].every(channel => channel.every(value => value === 0)));
+  } finally { t.dispose(); }
+});
 
 test('actual manual WASM renders four count-in beats before first song PCM without UI polls', () => {
   for (const chunk of [127, 128, 16000]) {

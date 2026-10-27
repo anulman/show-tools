@@ -20,7 +20,7 @@ class Program {
   void render(const float* input, float* left, float* right, float* live_left, float* live_right,
     uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack) noexcept;
   void set_channel(int button, double gain, bool muted) noexcept;
-  VoiceInfo channel_info(int button) const noexcept;
+  VoiceInfo channel_info(int button, double bpm) const noexcept;
   void take_info(uint32_t take, double* out) const noexcept;
   int beats_per_bar() const noexcept { return beats_; }
   int bars() const noexcept { return bars_; }
@@ -60,7 +60,7 @@ class Program {
   bool muted_[PF_CHANNELS]{}, suppressed_[PF_CHANNELS]{};
   double gain_[PF_CHANNELS]{1, 1, 1, 1};
   uint64_t drain_[PF_CHANNELS + 1]{};
-  double rate_ = 0, bpm_ = 120, early_ = 0, late_ = 0, anchor_frame_ = 0, anchor_position_ = 0, query_position_ = 0;
+  double rate_ = 0, bpm_ = 120, early_ = 0, late_ = 0, anchor_frame_ = 0, anchor_position_ = 0, query_position_ = 0, query_frame_ = 0;
   int owner_ = -1, capturing_ = -1, capture_bank_ = -1, route_ = -1, error_ = PF_OK;
   void* observer_context_ = nullptr;
   void (*observer_)(void*, double) = nullptr;

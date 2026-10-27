@@ -25,6 +25,7 @@ void require(bool condition, const char* message) { if (!condition) { std::fprin
 void ok(pf_engine* engine, int result) { if (result < 0) { std::fprintf(stderr, "%s\n", pf_error(engine)); std::abort(); } }
 std::array<double, PF_FIELDS> state(pf_engine* engine) { std::array<double, PF_FIELDS> out{}; pf_snapshot(engine, out.data()); return out; }
 std::array<double, PF_TAKE_FIELDS> take(pf_engine* engine, int id) { std::array<double, PF_TAKE_FIELDS> out{}; pf_compiled_take_info(engine, id, out.data()); return out; }
+std::array<double, PF_CHANNEL_FIELDS> channel(pf_engine* engine, int id) { std::array<double, PF_CHANNEL_FIELDS> out{}; pf_channel_info(engine, id, out.data()); return out; }
 struct Engine {
   pf_engine* value = pf_create(8000, PF_PRACTICE, 32, 30, 4);
   Engine() { require(value, "engine creation"); }
@@ -101,10 +102,19 @@ void capture_layers_and_boundaries() {
   until(engine, 3, 4); ok(engine, press(engine, 0));
   auto clock = state(engine);
   auto remaining = uint32_t(std::ceil(clock[PF_CLOCK_BEAT_FRAME] + 1000) - clock[PF_FRAME]);
-  auto stop = render(engine, remaining + 801);
+  auto scheduled = channel(engine, 0);
+  require(scheduled[PF_CHANNEL_LIGHT] == PF_RELEASING && scheduled[PF_CHANNEL_RELEASE_MS] > 0, "scheduled stop reports a diminishing release countdown");
+  auto stop = render(engine, remaining + 1);
   require(std::abs(stop.left[remaining - 1] - .625f) < 1e-6, "fractional stop does not run before 4e");
   require(std::abs(stop.left[remaining] - .125f) < 1e-6, "fractional stop starts natural release exactly at 4e");
-  require(stop.left[remaining + 800] == 0, "effected playback tail drains without another baked pass");
+  auto releasing = channel(engine, 0);
+  require(releasing[PF_CHANNEL_LIGHT] == PF_RELEASING && releasing[PF_CHANNEL_STATUS] == PF_STOPPING && !releasing[PF_CHANNEL_LOOPING] && releasing[PF_CHANNEL_RELEASE_MS] > 0, "audible layered tails retain release light after individual stop");
+  auto half_tail = render(engine, 399);
+  auto halfway = channel(engine, 0);
+  require(half_tail.left.back() != 0 && halfway[PF_CHANNEL_LIGHT] == PF_RELEASING && halfway[PF_CHANNEL_RELEASE_MS] > 0 && halfway[PF_CHANNEL_RELEASE_MS] < releasing[PF_CHANNEL_RELEASE_MS], "release countdown decreases with rendered tail frames");
+  auto ended = render(engine, 401);
+  auto released = channel(engine, 0);
+  require(ended.left.back() == 0 && released[PF_CHANNEL_LIGHT] == PF_OFF && released[PF_CHANNEL_RELEASE_MS] == 0, "effected playback tail drains and release light turns off");
   require(state(engine)[PF_FRAME] > start, "one native clock advances all operations");
   pf_stop(engine);
   auto silent = render(engine, 1000);

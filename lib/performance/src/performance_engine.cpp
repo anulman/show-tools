@@ -747,7 +747,7 @@ void pf_channel_info(const pf_engine* engine, int id, double* out) {
   if (!engine || !channel(id)) return;
   double settings[ST_CHANNEL_FIELDS]; st_channel_info(engine->sampler, id, settings);
   if (engine->compiled) {
-    const auto info = engine->compiled->channel_info(id);
+    const auto info = engine->compiled->channel_info(id, engine->bpm);
     out[PF_CHANNEL_GAIN] = info.gain; out[PF_CHANNEL_MUTED] = info.muted;
     out[PF_CHANNEL_LOOPING] = info.looping; out[PF_CHANNEL_READY] = info.ready; out[PF_CHANNEL_STATUS] = info.status;
     out[PF_CHANNEL_LIGHT] = info.light; out[PF_CHANNEL_RELEASE_MS] = info.release_ms; out[PF_CHANNEL_PENDING_KIND] = info.pending;
