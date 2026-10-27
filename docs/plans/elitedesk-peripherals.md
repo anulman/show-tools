@@ -1,8 +1,8 @@
 # EliteDesk peripherals before live audio hosting
 
-This plan prioritizes one working button, lamp, and knob for the operator's October 26 wiring session. The shared C++ engine continues to decide musical behavior. A new portable peripheral module translates inputs and displays its decisions. Live audio-device hosting follows this milestone.
+This plan prioritizes one working button, lamp, and knob for the operator's first wiring session. The shared C++ engine continues to decide musical behavior. A new portable peripheral module translates inputs and displays its decisions. Live audio-device hosting follows this milestone.
 
-Status is proposed, with source inspection complete. No peripheral implementation, device connection, service startup, or physical verification has occurred. This plan follows the operator's [updated workstreams brief](/Users/anulman/dev/show-tools/docs/workstreams.md), which supersedes the audio-hosting-first order in [development.md](../development.md).
+Status is proposed, with source inspection complete. No peripheral implementation, device connection, service startup, or physical verification has occurred. This plan follows the operator's [updated workstreams brief](https://github.com/anulman/show-tools/blob/main/docs/workstreams.md), which supersedes the audio-hosting-first order in [development.md](../development.md).
 
 ## Planning checklist
 
@@ -36,6 +36,18 @@ The operator must supply these hardware facts before a pin-level wiring sheet ca
 
 Use those identifiers to inspect manufacturer documentation before selecting pins, resistors, drivers, or supply connections. This plan does not infer GPIO availability from the HP EliteDesk name.
 
+## October 27 operator decisions
+
+The operator's [timing review](https://github.com/anulman/show-tools/pull/1#discussion_r4384585331) requires at least 6/4, occasional short measures, quarter-, half-, and three-quarter-beat cue and capture positions, and instantaneous peripheral actions. The [tempo clarification](https://github.com/anulman/show-tools/pull/1#discussion_r4384945413) keeps a dominant meter with occasional short measures. It does not request arbitrary local meter changes. Chart-local BPM never changes clock BPM. The BPM pedal drives tempo changes.
+
+The [manual-control decision](https://github.com/anulman/show-tools/pull/1#discussion_r4384853149) requires a press on an already-recorded voice to toggle playback immediately when no other action is sufficiently nearby. Performance Engine owns the proximity rule, tie ordering, and resulting action. The tolerance remains unresolved. Peripheral adapters send the press without choosing a chart action or guessing a tolerance.
+
+The [lighting clarification](https://github.com/anulman/show-tools/pull/1#discussion_r4384919863) returns an expired scheduled light override to the current semantic state's normal pattern. The examples are playing solid, inactive off, and recording with a standard pulse. These requirements change the earlier preserve-recording-as-steady proposal. The hardware feedback watchdog remains a separate failure case.
+
+The [logging decision](https://github.com/anulman/show-tools/pull/1#discussion_r4384901380) applies to everything related to the performance engine. Debug runs use DEBUG, practice uses INFO, and performance uses WARN. The diagnostic trace described below is a debug artifact, not routine performance logging.
+
+These are target requirements. The current ABI and browser behavior described above do not already implement them. Performance Engine coordinates their shared representation before peripheral implementation.
+
 ## Portable control and light data
 
 Propose `lib/peripherals/` for C++ normalization, light projection, native tests, simulated adapters, and device-specific adapters. Keep any browser controls or lamp preview under `ui/practice/`. New scripting uses TypeScript. Effect may manage device connection lifetime and external-data validation outside synchronous control projection and rendering. Read its installed AGENTS.md before writing Effect code.
@@ -46,7 +58,7 @@ The proposed data separates three things:
 | --- | --- | --- |
 | Physical input | Device session, input ID, sample sequence, device timestamp if available, host monotonic receipt time, and switch/absolute/delta value | Device adapter |
 | Semantic command | Producer and command identity, sequence, current run/program identity, target, action, and timing policy | Performance Engine contract |
-| Light snapshot | Engine session, epoch, run, program digest, source sequence, source frame/rate, channel light kind, release interval, and projection revision | Engine plus peripheral presentation |
+| Light snapshot | Engine session, epoch, run, program digest, source sequence, source frame/rate, current semantic baseline, optional timed override, and projection revision | Performance Engine contract plus peripheral presentation |
 
 Use separate variants for switch edges, absolute axes, and relative encoders. Validate packet framing, bounded lengths, finite values, and device identities at ingress. Derive semantic types from the coordinated schema rather than copying another command vocabulary. Device timestamps aid diagnostics and ordering within a device session. They are not audio-frame timestamps.
 
@@ -60,11 +72,15 @@ For mechanical switches, propose a configurable 5 ms stable-state debounce as an
 
 Encoder transitions need their own valid-transition decoder and configured counts per detent. Do not apply a generic switch debounce that drops legitimate quadrature steps. Prefer decoded detents if the controller already supplies them. A potentiometer needs calibration, clamping, and a noise deadband based on its measured range. Neither type is assumed to exist yet.
 
+The BPM pedal is a separate semantic input from the gain knob. Its exact hardware and gesture remain unconfirmed. Do not infer tap-tempo, an analog axis, a key mapping, or a pinout. Forward ordered pedal observations through the coordinated tempo command. Report the engine's actual effective frame and tempo revision. Loading a chart, moving into a bar with BPM metadata, or reconnecting a controller must not change clock BPM. Performance Engine defines initial tempo and the pedal gesture policy.
+
 The first knob assignment remains selected-channel gain. A pad selects its channel as today. Absolute knobs use soft takeover after channel selection or reconnect, so a stale physical position does not jump gain. Relative encoders accumulate from the acknowledged gain. Knob push has no assignment until a push switch is confirmed. Patch assignment waits for the coordinated patch contract.
 
 Preserve per-device input sequence. The host assigns a total command order when it accepts inputs from multiple producers. Coalesce high-rate absolute knob updates only between discrete commands. A knob update before a channel-selecting press must not move after it. Use a bounded queue with explicit overflow diagnostics. On overflow, discard pending ordinary input and require snapshot recovery and release rearming. Preserve an independent Panic request path so knob traffic cannot prevent a stop.
 
-Device IO and network publication never touch the engine concurrently. One thread owns engine calls and copied state. `pf_process()` alone advances musical time. A command applies at its acknowledged engine boundary, and C++ chooses any quantized chart boundary. Do not backdate delayed physical presses to a guessed beat.
+Device IO and network publication never touch the engine concurrently. One thread owns engine calls and copied state. `pf_process()` alone advances musical time. A command applies at its acknowledged engine boundary, and C++ chooses any quantized chart boundary. Do not backdate delayed physical presses to a guessed beat. Immediate commands must not wait for a beat, bar, or lamp refresh. Apply them at the earliest eligible engine boundary under the coordinated command policy. A mechanical debounce and device delivery still introduce latency. Trace those separately from musical quantization. For a recorded voice with no sufficiently nearby cue, C++ toggles playback immediately. The normalizer must neither convert that press into a quantized launch nor duplicate the engine's cue-proximity resolver.
+
+Represent musical cue and capture positions using the shared exact fractional timing contract. Preserve quarter-, half-, and three-quarter-beat offsets without rounding to whole beats. Feedback supplies explicit meter, measure boundaries, and beat units. Do not assume four beats per measure in input mapping, release deadlines, pulse anchoring, or fixtures. Any current four-beat engine restriction needs a coordinated engine change before the new timing cases can pass.
 
 There is a preparation constraint before live audio. `pf_control()` can reach `st_prepare()` through capture actions and allocate. The offline demo can alternate command preparation and block processing on one thread. A production callback must not drain arbitrary pad commands under a realtime-safe claim. Coordinate preparation or preallocation with Performance Engine before a device-host milestone. Reset and configuration also remain outside live processing.
 
@@ -72,30 +88,27 @@ There is a preparation constraint before live audio. `pf_control()` can reach `s
 
 The portable light projector takes a snapshot and an explicit presentation frame and returns bounded brightness for each channel. The same C++ function compiles natively and to WASM. It does not resolve cues, launch samples, or advance engine time.
 
-Propose these hardware display rules:
+Separate the current semantic baseline from a temporary display override. The operator confirmed playing solid, inactive off, and recording with a standard pulse as baseline examples. Performance Engine must settle the canonical recording waveform, armed and stopping states, cue indication, override priority, and interaction with simultaneous capture and playback. Do not infer those rules from the old `steady` flag or implement independent hardware precedence.
 
-| Native kind | Physical lamp behavior |
-| --- | --- |
-| `off` | Zero brightness |
-| `cue` | One smooth pulse per engine beat, ranging from 25% to 100%, with the peak at the beat anchor |
-| `steady` | Full brightness while the native state persists |
-| `releasing` | Diminishing pulses over the engine release interval, then zero at the deadline |
+The earlier one-pulse-per-beat cue proposal and the browser's release keyframe curve remain display candidates for coordinated review. They do not override the operator's recording-pulse requirement. Any adopted beat-relative pattern consumes the engine's declared beat unit and anchor rather than a hard-coded 4/4 cycle.
 
-Use the browser's existing release keyframe fractions and brightness peaks as the initial shared release curve. Compute normalized progress from release start and deadline frames. An update to the same release revision must not restart the fade. An engine state transition overrides the animation. Stop and Panic clear active output according to engine state. A supported unused cue may subsequently reappear according to the engine's existing rules.
+A timed override carries its ID/revision, pattern, and start and expiry frames. At expiry, recompute the baseline from the latest semantic state. Do not restore the state captured when the override began, and do not unconditionally turn the lamp off. If recording begins during an override, expiry reveals the recording pulse. If playback stops during it, expiry reveals inactive off. A release animation ending at a stop boundary reaches zero only when the resulting current baseline is inactive. Repeated snapshots of the same override must not restart it.
 
-The shared schema needs release start and deadline, beat anchor, tempo/phase revision, and clock discontinuity information. The current ABI provides remaining release milliseconds and clock/frame state, not this complete contract. Until the coordinated change lands, fixtures may derive a provisional deadline from a captured frame, rate, and remaining duration. Do not present that approximation as a new authoritative ABI.
+A physical button release only clears the held latch. A light override expiry changes presentation. A queued musical stop changes playback through C++. None of these events substitutes for another.
+
+The shared schema needs current semantic state, timed override identity and interval, release start and deadline where applicable, beat unit and anchor, tempo/phase revision, and clock discontinuity information. The current ABI provides remaining release milliseconds and clock/frame state, not this complete contract. Until the coordinated change lands, fixtures may derive a provisional deadline from a captured frame, rate, and remaining duration. Do not present that approximation as a new authoritative ABI.
 
 Propose a host output cadence of 60 Hz with a full refresh at 10 Hz and changed-value writes between refreshes. These are starting targets, not measured hardware capabilities. The device capability handshake determines supported PWM resolution, binary-only output, maximum update rate, channel mapping, and watchdog support. Clamp and quantize in the device adapter. A binary lamp uses a documented threshold and loses smooth dimming. PWM frequency belongs to the identified controller/driver, independently of the host update cadence.
 
 Interpolate presentation only from a recent engine anchor and host-to-engine calibration. Audio continues independently if presentation stalls. On tempo revision, seek, restart, loop discontinuity, or epoch change, consume the new anchor and invalidate older output. Never use event receipt time as the beat. Stop extrapolating when the feedback lease expires.
 
-Propose a 500 ms output lease with all lamps dark after expiry. A controller-side watchdog is needed to enforce darkness if the USB cable or host process disappears. If the identified hardware cannot enforce that, document the limitation rather than claiming fail-dark behavior. Device disconnection does not stop engine audio automatically.
+For lost device feedback, retain the proposed 500 ms output lease with all lamps dark after expiry. This connectivity timeout is distinct from a scheduled light override returning to its current semantic baseline. A controller-side watchdog is needed to enforce darkness if the USB cable or host process disappears. If the identified hardware cannot enforce that, document the limitation rather than claiming fail-dark behavior. Device disconnection does not stop engine audio automatically.
 
 ## Command identity and reconnection
 
 Performance Engine coordinates the shared contracts. Its October 26 proposal separates a versioned semantic JSON schema from the PF binary ABI. Commands carry `producerId`, `commandId`, `producerSequence`, `runId`, expected `programDigest`, action, target, and timing. The host orders accepted commands. Native results identify applied frame, epoch, and result.
 
-Feedback proposes `engineSessionId`, epoch, run, program digest, source sequence, audio frame and sample rate, musical position, loop iteration, tempo/phase, light state, discontinuity reason, and dropped-event count. Peripherals requested release start/deadline frames and revision, plus beat anchors for presentation. These are coordinated proposals, not implemented fields. No shared header or bridge changes belong to this planning commit.
+Feedback proposes `engineSessionId`, epoch, run, program digest, source sequence, audio frame and sample rate, musical position, loop iteration, tempo/phase, semantic baseline and light override state, explicit meter and beat unit, discontinuity reason, and dropped-event count. Peripherals requested release and override start/expiry frames and revision, plus beat anchors for presentation. The October 27 timing decisions also require immediate controls, exact fractional positions, and pedal-driven tempo revisions without chart-BPM side effects. These are coordinated proposals, not implemented fields. No shared header or bridge changes belong to this planning commit.
 
 Current native command deduplication retains 256 successful controls. IDs are at most 200 UTF-16 code units. Current control events do not include command ID or an explicit applied-frame acknowledgment. The existing bridge correlates events. Do not claim exactly-once delivery across cache eviction, process restart, or reconnect.
 
@@ -128,29 +141,38 @@ For the software demo, load a small synthetic native program with R1 cues for `r
 The expected operator sequence is concrete:
 
 1. Start the offline fixture. R1 shows a beat-relative cue pulse.
-2. Press and hold the button. Exactly one R1 command arms capture. The lamp becomes steady.
-3. Release the button. The held indicator clears while the lamp retains native armed or capture state.
+2. Press and hold the button. Exactly one R1 command arms capture. Display the coordinated armed state, then the standard recording pulse when capture begins.
+3. Release the button. The held indicator clears while the lamp continues the current armed or recording pattern.
 4. In the commit cue, press again. Commit occurs at the native bar boundary and playback starts. The lamp stays steady.
 5. Turn the knob after takeover. Acknowledged R1 gain changes while timing and mute remain intact.
 6. At the queued-stop cue, press again. The lamp releases to zero at the native stop boundary.
-7. Exercise Panic through the simulated control, then disconnect the device. No stale press replays when reconnected. Verify the lamp watchdog separately from engine state.
+7. Inject a scheduled lamp override while recording, then let it expire. The recording pulse resumes. Repeat while playing and while inactive to verify solid on and off respectively.
+8. At a location outside the agreed cue-proximity window, press a recorded voice to toggle playback immediately. This step depends on Performance Engine resolving that window.
+9. Exercise Panic through the simulated control, then disconnect the device. No stale press replays when reconnected. Verify the lamp watchdog separately from scheduled-override expiry.
+
+The current-engine fixture first covers existing `rb`, `cb`, and `xb` behavior. Target recording pulse, timed overrides, immediate toggle fallback, variable measures, and fractional timing enter the fixture with the coordinated engine contract changes. Do not mark these target cases passed using the current four-beat implementation. Inject BPM-pedal input in simulation until the physical pedal and its gesture are identified.
 
 This proves controls and feedback on the identified circuit only after it runs physically. The offline fixture does not prove audio-device latency, microphone quality, lamp current margins, or reliable performance under an operating-system audio callback.
 
 ## Simulated verification and implementation phases
 
-Phase 1 implements the portable normalizer/projector plus a fake-clock device adapter under `lib/peripherals/`. Compile the same core natively and to WASM. Run an offline fixture against the actual performance library with cleared output buffers, synthetic PCM, and one engine owner. Emit a machine-readable trace of raw input, accepted command, native result, engine frame, light state, and quantized brightness. A TypeScript comparison tool checks native and WASM traces. Proposed commands and filenames are introduced in that milestone, not represented here as runnable tools.
+Phase 1 implements the portable normalizer/projector plus a fake-clock device adapter under `lib/peripherals/`. Compile the same core natively and to WASM. Run an offline fixture against the actual performance library with cleared output buffers, synthetic PCM, and one engine owner. In DEBUG runs, emit a machine-readable trace of raw input, accepted command, native result, engine frame, light state, and quantized brightness. A TypeScript comparison tool checks native and WASM traces. Proposed commands and filenames are introduced in that milestone, not represented here as runnable tools.
 
 Verify observable behavior with these cases:
 
 - Contact bounce, held reports, and release produce exactly one activation per stable press. A held reconnect produces no activation.
-- Clock crossings inside different block sizes produce the same capture, commit, playback, and stop frames.
+- Clock crossings inside different block sizes produce the same capture, commit, playback, and stop frames. Include a 6/4 dominant meter and an explicitly short measure using the shared meter representation.
+- Quarter-, half-, and three-quarter-beat cue and capture offsets preserve their resolved frames. Immediate pad actions do not wait for a beat crossing or lamp output tick.
+- A recorded voice toggles immediately outside the agreed cue-proximity window. Exercise the exact window boundary, overlapping cues, and precedence once Performance Engine specifies that policy.
+- Chart-local BPM changes, chart load, and reconnect leave clock BPM unchanged. An accepted BPM-pedal command changes tempo at its acknowledged frame and refreshes pulse anchors.
 - A channel-selecting press between knob values preserves target order. Absolute reconnect takeover prevents gain jumps. Invalid knob values are rejected at ingress.
-- Cue pulse peaks match engine beat anchors. Steady and off are exact endpoints. Repeated release snapshots do not restart fading. Release ends at its deadline.
+- Adopted pulse patterns match engine beat anchors and beat units. Playing solid, inactive off, and the agreed recording pulse are verified baselines. Override expiry reveals the latest baseline after transitions during the override. Duplicate snapshots do not restart it. Test the separate connectivity timeout and queued-stop release deadline.
 - Tempo revisions, loop wraps, new runs, epoch changes, and stale snapshots invalidate old projection. Include feedback gaps and dropped-event recovery.
 - Knob floods cannot block Panic. Queue overflow causes explicit recovery. Replayed IDs do not duplicate controls within the supported dedup window.
 - Simulated disconnects cancel pending IO, clear physical latches, stop output after the lease, and recover from the current snapshot.
 - Native and WASM core outputs agree on fixed input/frame fixtures. Quantized lamp levels match exactly. Separate any floating-point comparison tolerance from command/frame identity.
+
+Apply one engine-wide logging profile across the peripheral core, adapters, host queues, and observers. DEBUG allows detailed traces and artifacts, INFO is the practice threshold, and WARN is the performance threshold. Filter before expensive formatting or artifact creation. Keep essential acknowledgments and state feedback as functional protocol data regardless of logging level. Counters and bounded diagnostic records can cross to an observer, but no logging sink or file IO runs in the audio callback. Verify that INFO omits debug traces and WARN omits DEBUG and INFO records across all peripheral-related components.
 
 Phase 2 adds one device adapter after hardware identification. Verify parsing with recorded packets before real IO. Then execute the first circuit's input, lamp, knob, and reconnect checks. Record actual switch debounce, output rate, watchdog behavior, and latency. Label each result as physical or simulated. Commit the adapter, terminal sheet, and verification evidence together without bulk temporary traces.
 
@@ -164,6 +186,6 @@ Each phase ends with relevant native CMake tests, native/WASM conformance, and a
 
 Planning verification inspected the existing implementation and checked document links and diff whitespace. No compile or runtime checks are claimed for a documentation-only milestone. No files outside this plan are changed. No services, audio devices, controller IO, or firmware flashing are started.
 
-The hardware questions above are the only facts needed from the operator to choose the first circuit. The recommended initial behavior uses existing pad actions, selected-channel gain, and native light kinds. Beat-relative pulsing and the proposed timeout values are recommendations for plan review. They do not change existing browser behavior in this milestone.
+The hardware questions above are the only facts needed from the operator to choose the first circuit. The first compatibility fixture uses existing pad actions and selected-channel gain. Target behavior follows the October 27 immediate-control, timing, pedal, baseline-light, and logging decisions. Beat-relative pulsing and the proposed timeout values are recommendations for plan review. They do not change existing browser behavior in this milestone.
 
-Shared command and light fields remain subject to Performance Engine's coordinated contract milestone. The next action after plan review is the simulated C++ milestone, followed by the terminal sheet once the parts are identified.
+The cue-proximity tolerance, initial-tempo and pedal gesture policy, recording pulse waveform, and light override priorities remain subject to Performance Engine's coordinated contract milestone. They are not hardware facts and must not be guessed by this adapter plan. Shared command and light fields remain subject to that same milestone. The next action after plan review is the simulated C++ milestone, followed by the terminal sheet once the parts are identified.
