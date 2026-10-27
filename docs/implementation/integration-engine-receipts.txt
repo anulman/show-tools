@@ -15,3 +15,117 @@ pr9-independent-fixed-bridge-probe.log
 PASS meter 4 duration 16000 user BPM preserved and old PCM audible after rejected replacements
 PASS meter 6 duration 24000 user BPM preserved and old PCM audible after rejected replacements
 PASS immediate lead-in rejected at compiler before engine creation
+
+Endpoint continuation module 1a5ecde5b9277f097c29c408867f41a3ae44cfa2
+Authenticated publication receipt, coordinator transcript 2026-10-27 line 10962:
+To https://github.com/anulman/show-tools.git
+   07b2a2f..1a5ecde  1a5ecde5b9277f097c29c408867f41a3ae44cfa2 -> feat/processed-capture-cache
+Sanitizer build CTest receipt:
+Start testing: Oct 27 13:24 EDT
+----------------------------------------------------------
+1/1 Testing: patch_engine
+1/1 Test: patch_engine
+Command: "/private/tmp/cutoff-independent-san-1a5ecde/patch_engine_tests"
+Directory: /private/tmp/cutoff-independent-san-1a5ecde
+"patch_engine" start time: Oct 27 13:24 EDT
+Output:
+----------------------------------------------------------
+PASS validation, atomic rejection, identity, generic order
+PASS mono/stereo 44.1k/48k impulses, feedback
+PASS all 122 stop phases, warm=0, wraps=0/2, max_error=0, memory_bytes=19536
+PASS all 122 stop phases, warm=1, wraps=0/2, max_error=0, memory_bytes=19536
+PASS block partitions, one-frame loops, native zero allocations/frees, reset
+PASS append process-once equivalence, prepared reuse pins, unavailable seek, identity baseline
+PASS mono 12-byte versus stereo 16-byte source storage, warm evolution, in-place preservation, atomic stereo rejection, zero heap
+PASS exact zero-feedback integer/fractional release bounds and immediate wet-zero release
+PASS evolving iterations differ from printed first pass and preserve continuous stop tail
+PASS distinct capture cutoff and loop period, warm ordered nonlinear oracle, durable endpoint continuation, zero suffix, wraps and Stop
+PASS period admission is atomic, virtual suffix exceeds PCM capacity, commit/start perform no DSP, pins and reuse preserve metadata
+PASS patch engine; fixture_frames=43500
+<end of output>
+Test time =   0.64 sec
+----------------------------------------------------------
+Test Passed.
+"patch_engine" end time: Oct 27 13:24 EDT
+"patch_engine" time elapsed: 00:00:00
+----------------------------------------------------------
+
+End testing: Oct 27 13:24 EDT
+Native/WASM verifier receipt:
+-- The CXX compiler identification is AppleClang 21.0.0.21000101
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Configuring done (5.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: /private/tmp/show-tools-patches-rb2Chi/native
+[ 25%] Building CXX object CMakeFiles/patch_engine.dir/src/patch_engine.cpp.o
+[ 50%] Linking CXX static library libpatch_engine.a
+[ 50%] Built target patch_engine
+[ 75%] Building CXX object CMakeFiles/patch_engine_tests.dir/tests/native_tests.cpp.o
+[100%] Linking CXX executable patch_engine_tests
+[100%] Built target patch_engine_tests
+PASS validation, atomic rejection, identity, generic order
+PASS mono/stereo 44.1k/48k impulses, feedback
+PASS all 122 stop phases, warm=0, wraps=0/2, max_error=0, memory_bytes=19536
+PASS all 122 stop phases, warm=1, wraps=0/2, max_error=0, memory_bytes=19536
+PASS block partitions, one-frame loops, native zero allocations/frees, reset
+PASS append process-once equivalence, prepared reuse pins, unavailable seek, identity baseline
+PASS mono 12-byte versus stereo 16-byte source storage, warm evolution, in-place preservation, atomic stereo rejection, zero heap
+PASS exact zero-feedback integer/fractional release bounds and immediate wet-zero release
+PASS evolving iterations differ from printed first pass and preserve continuous stop tail
+PASS distinct capture cutoff and loop period, warm ordered nonlinear oracle, durable endpoint continuation, zero suffix, wraps and Stop
+PASS period admission is atomic, virtual suffix exceeds PCM capacity, commit/start perform no DSP, pins and reuse preserve metadata
+PASS patch engine; fixture_frames=43500
+shared:INFO: (Emscripten: Running sanity checks)
+cache:INFO: generating system headers: sysroot_install.stamp... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot_install.stamp" for subsequent builds)
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libGL-getprocaddr.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libGL-getprocaddr.a" for subsequent builds)
+system_libs:INFO: compiled 4 inputs in 0.19s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libal.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libal.a" for subsequent builds)
+system_libs:INFO: compiled 1 inputs in 0.13s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libhtml5.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libhtml5.a" for subsequent builds)
+system_libs:INFO: compiled 5 inputs in 0.15s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libstubs.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libstubs.a" for subsequent builds)
+system_libs:INFO: compiled 2 inputs in 0.14s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libnoexit.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libnoexit.a" for subsequent builds)
+system_libs:INFO: compiled 1 inputs in 0.12s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libc.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libc.a" for subsequent builds)
+system_libs:INFO: compiled 1047 inputs in 5.20s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libdlmalloc.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libdlmalloc.a" for subsequent builds)
+system_libs:INFO: compiled 2 inputs in 0.31s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libcompiler_rt.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libcompiler_rt.a" for subsequent builds)
+system_libs:INFO: compiled 184 inputs in 1.24s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libc++-noexcept.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libc++-noexcept.a" for subsequent builds)
+system_libs:INFO: compiled 57 inputs in 4.92s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libc++abi-noexcept.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libc++abi-noexcept.a" for subsequent builds)
+system_libs:INFO: compiled 17 inputs in 1.31s
+cache:INFO:  - ok
+cache:INFO: generating system library: sysroot/lib/wasm32-emscripten/libsockets.a... (this will be cached in "/private/tmp/show-tools-patches-rb2Chi/emscripten-cache/sysroot/lib/wasm32-emscripten/libsockets.a" for subsequent builds)
+system_libs:INFO: compiled 27 inputs in 0.54s
+cache:INFO:  - ok
+PASS validation, atomic rejection, identity, generic order
+PASS mono/stereo 44.1k/48k impulses, feedback
+PASS all 122 stop phases, warm=0, wraps=0/2, max_error=0, memory_bytes=19256
+PASS all 122 stop phases, warm=1, wraps=0/2, max_error=0, memory_bytes=19256
+PASS block partitions, one-frame loops, reset; allocation hooks run on native only
+PASS append process-once equivalence, prepared reuse pins, unavailable seek, identity baseline
+PASS mono 12-byte versus stereo 16-byte source storage, warm evolution, in-place preservation, atomic stereo rejection, zero heap
+PASS exact zero-feedback integer/fractional release bounds and immediate wet-zero release
+PASS evolving iterations differ from printed first pass and preserve continuous stop tail
+PASS distinct capture cutoff and loop period, warm ordered nonlinear oracle, durable endpoint continuation, zero suffix, wraps and Stop
+PASS period admission is atomic, virtual suffix exceeds PCM capacity, commit/start perform no DSP, pins and reuse preserve metadata
+PASS patch engine; fixture_frames=43500
+Native/WASM PCM verified: 43500 stereo frames, maximum absolute error 2.9802322387695312e-8.
+Artifacts: /private/tmp/show-tools-patches-rb2Chi
