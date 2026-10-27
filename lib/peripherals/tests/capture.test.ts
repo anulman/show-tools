@@ -6,7 +6,7 @@ const key = { type: 'input', platform: 'macos', device: 'fixture-keyboard', host
 const motion = { type: 'input', platform: 'linux-evdev', device: '/dev/input/fixture', hostTimeNs: '200', deviceSeconds: 1, deviceMicroseconds: 2, eventType: 2, code: 0, relative: true };
 function ndjson(values: unknown[]) { return values.map(value => JSON.stringify(value)).join('\n'); }
 
-test('capture summary retains raw identities, signed distance, gaps and precise timestamp strings', () => {
+test('capture summary retains raw identities and signed distance and accepts full-precision timestamp strings', () => {
   const summary = summarizeCapture(ndjson([
     { ...key, sequence: 0, value: 1 }, { ...key, sequence: 1, value: 0 },
     { ...motion, sequence: 0, value: 9 }, { ...motion, sequence: 1, value: -4 },
