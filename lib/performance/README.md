@@ -63,3 +63,5 @@ Default-live effects apply during count-in and playing. The click and cached sam
 ```
 
 Compilation runs offline after fetch. `--draft` saves source-located diagnostics for an unresolved song and cannot emit `.pfp` bytes. The checked-in current DYC mapping remains blocked pending operator authoring answers. Import a resolved artifact through the practice desk while stopped. Native and WASM fixture tests prove execution mechanics, not completion of that unresolved arrangement.
+
+Lead-in capture must execute at the next song bar. Immediate lead-in capture is rejected because its duration depends on the runtime count-in and is not represented by a song-bar take interval. Individual stops report native countdown and release feedback through the final audible tail, then extinguish the pad light.

@@ -203,6 +203,17 @@ test('bare numbered tap controls report a known capability gap rather than unkno
   assert(!song.diagnostics.some(d => d.source.a1 === 'E19' && d.code === 'unknown-cue'));
 });
 
+test('immediate lead-in capture is blocked before runtime preparation', async () => {
+  const { source, mapping } = fixture();
+  const baseline = await compileSong(source, mapping);
+  const values = source.values.map(row => [...row]);
+  values[17][1] = 'r';
+  const draft = await compileSong({ ...source, values }, mapping);
+  assert.equal(draft.executable, false);
+  assert(draft.diagnostics.some(diagnostic => diagnostic.code === 'lead-in-capture-capability' && diagnostic.source.a1 === 'B18'));
+  assert.throws(() => decodeCompiledSong({ ...baseline, cues: [{ ...baseline.cues[0], execution: { kind: 'now' } }, ...baseline.cues.slice(1)] }), /lead-in capture/);
+});
+
 test('imported capture graph preserves each unique arm, commit, and boundary', async () => {
   const { source, mapping } = fixture();
   const song = await compileSong(source, mapping);

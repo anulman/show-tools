@@ -112,6 +112,10 @@ test('native byte artifact and failed replacement preserve an existing prepared 
       new Uint8Array(native.memory.buffer, pointer, bytes.length).set(bytes);
       native.call('pf_load_compiled_bytes', native.handle, pointer, bytes.length);
       const state = native.state();
+      const immediateLeadIn = Array.from(encodeCompiledProgram(song));
+      immediateLeadIn[PF.COMPILED_HEADER_FIELDS + song.takes.length * PF.COMPILED_TAKE_FIELDS + 5] = 0;
+      assert.throws(() => native.configureCompiled(immediateLeadIn), /compiled|program/i);
+      assert.equal(native.state().endBar, state.endBar);
       new Uint8Array(native.memory.buffer, pointer, 8).fill(0);
       assert.throws(() => native.call('pf_load_compiled_bytes', native.handle, pointer, bytes.length), /compiled|program/i);
       assert.equal(native.state().endBar, state.endBar);

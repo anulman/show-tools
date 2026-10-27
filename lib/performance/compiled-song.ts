@@ -106,6 +106,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   for (const cue of song.cues) {
     if (cue.bar < 0 || cue.bar > bars || cue.cueBeat !== null && !validBeat(cue.cueBeat)
       || cue.execution.kind === 'beat' && !validBeat(cue.execution.beat)) throw new Error('Invalid executable cue timing.');
+    if (cue.bar === 0 && (cue.kind === 'arm' || cue.kind === 'commit-arm') && cue.execution.kind !== 'next-bar') throw new Error('Immediate lead-in capture is unsupported; arm at the next song bar.');
     if ((cue.kind === 'arm' || cue.kind === 'commit-arm') && cue.takeId === null
       || (cue.kind === 'commit' || cue.kind === 'commit-arm') && cue.commitTakeId === null
       || cue.kind === 'play' && cue.selectionId === null) throw new Error('Invalid executable cue resource.');
@@ -275,6 +276,9 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
       if (action.cueBeat !== null && (!Number.isFinite(action.cueBeat) || action.cueBeat < 0 || action.cueBeat >= mapping.meter.numerator)
         || action.execution.kind === 'beat' && (!Number.isFinite(action.execution.beat) || action.execution.beat < 0 || action.execution.beat >= mapping.meter.numerator)) {
         issue('cue-timing', 'Cue and execution beats must lie inside the current measure.', location); continue;
+      }
+      if (bar === 0 && (action.kind === 'arm' || action.kind === 'commit-arm') && action.execution.kind !== 'next-bar') {
+        issue('lead-in-capture-capability', 'Immediate lead-in capture is unsupported because its duration depends on the count-in. Declare capture at the next song bar.', location);
       }
       cues.push({ id: `${mapping.songId}/bar-${bar}/${buttonId}/${action.kind}`, bar, buttonId, voiceId, kind: action.kind,
         cueBeat: action.cueBeat, execution: action.execution, takeId: null, commitTakeId: null, selectionId: null, source: location });

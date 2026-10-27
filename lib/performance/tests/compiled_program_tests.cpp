@@ -149,6 +149,11 @@ void malformed_capture_graphs_preserve_loaded_take() {
   require(retained[PF_TAKE_READY] && retained[PF_TAKE_LENGTH] == 16000, "graph rejection fixture retains real committed audio");
   const size_t cues = PF_COMPILED_HEADER_FIELDS + size_t(good[8]) * PF_COMPILED_TAKE_FIELDS;
   std::vector<std::vector<double>> invalid;
+  for (int timing : {0, 2}) {
+    auto lead_in = good;
+    lead_in[cues + 5] = timing;
+    invalid.push_back(lead_in);
+  }
   auto changed = good;
   changed[cues + 7] = 1;
   invalid.push_back(changed);
