@@ -15,7 +15,7 @@ The I-PAC is the controller board in this parts plan. Do not introduce an additi
 ## Confirmed intended behavior
 
 - The operator expects controller inputs to appear as keyboard events, with direction and distance updates for the knob. Verify the actual SpinTrak/controller configuration and host reports before choosing an adapter. Intended behavior is not a measured USB report format.
-- The foot pedal controls BPM. Its precise gesture and mapping still need confirmation.
+- The foot pedal controls BPM through beat taps. For 6/8, the operator confirmed chart and pedal counting as `1 2 3 4 5 6` in eighth-note beats. Tapping can begin on any beat; the first tap does not identify a downbeat or reset transport position. Device key mapping and unprovided tempo-estimation details still need confirmation.
 - Other control purposes vary by song. The knob is not globally assigned to gain. Button labels may become colours such as Red, Blue, Yellow and Green; identifiers should remain consistent across songs without encoding voice identity or a fixed action.
 - Lights are the LEDs built into the arcade buttons. Browser pads should follow the same semantic lit, pulse, blink and trigger behavior.
 - Pending actions and recording need distinct pulse/blink patterns. Which state uses which pattern is not yet confirmed. Single-use triggers need a rapid attack, brief hold and decay; no numeric envelope has been selected.
