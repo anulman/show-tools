@@ -75,7 +75,7 @@ For example, `rb` pressed during the lead-in queues capture at the first song ba
 
 Number-only notation describes manual hits. Beats are 1 through 4. The subdivisions `e`, `&`, and `a` divide each beat into sixteenths. In `&a]`, the bracket identifies the phrase end, so the hits are 4& and 4a. A generic tap cue plays one hit per press. Without that press, normal loop playback continues.
 
-The current DYC source captures cowbell variants at bars 10, 11, and 12. Its mapping needs explicit retention, balance, and selection rules. `2c3`, `1p*`, cue windows, and knob-row meaning still need operator answers. The bundled compiled draft exposes these blockers; it is not an executable A-section arrangement. Older cowbell PCM fixtures establish legacy sampler compatibility only.
+The current DYC source captures three distinct cowbell variants at bars 10, 11, and 12. Their automatic marked-pattern selection and unity starting gains are settled and encoded in its mapping. Other voices still need retention/selection rules; `2c3`, `1p*`, cue windows, and knob-row meaning also need operator answers. The bundled compiled draft exposes these blockers; it is not an executable A-section arrangement. Older cowbell PCM fixtures establish legacy sampler compatibility only.
 
 Drunk Girls and I Can Change have timing and section snapshots, but their pad-action rows are blank. Choosing one does not supply a completed arrangement. All current songs start with empty samples.
 

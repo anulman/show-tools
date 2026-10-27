@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { compileSong, canonicalSongJson, decodeCompiledSong, inspectCompiledSong, parseArrangementHits } from '../compiled-song.js';
 import type { SongMapping } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
+import dycSource from '../../../songs/dance-yrself-clean.source.json';
+import dycMapping from '../../../songs/dance-yrself-clean.mapping.json';
 
 function fixture(): { source: SongSource; mapping: SongMapping } {
   const values = Array.from({ length: 24 }, () => Array<string>(6).fill(''));
@@ -92,7 +94,7 @@ test('missing approved cue and capture policies remain explicit blockers', async
   assert.equal(song.executable, false);
   assert(song.diagnostics.some(d => d.code === 'cue-window'));
   assert(song.diagnostics.some(d => d.code === 'capture-policy'));
-  assert(song.takes.every(t => t.retention === 'unresolved' && t.gain === null));
+  assert(song.takes.every(t => t.retention === 'unresolved' && t.gain === 1));
 });
 
 test('operator-approved deferred controls are visible metadata, never executable actions', async () => {
@@ -133,6 +135,25 @@ test('explicit variant rule selects only already-committed matching patterns', a
     { bar: 3, voiceId: 'cowbell', selectionId: song.selections[0].id },
     { bar: 4, voiceId: 'cowbell', selectionId: song.selections[1].id },
   ]);
+});
+
+test('current DYC preserves settled unity gains and automatic cowbell variants while unrelated semantics remain blocked', async () => {
+  const song = await compileSong(dycSource, dycMapping);
+  assert.equal(song.executable, false);
+  assert(song.takes.every(take => take.gain === 1));
+  const cowbell = song.takes.filter(take => take.voiceId === 'cowbell');
+  assert.deepEqual(cowbell.map(take => [take.begin.bar, take.phrase, take.retention]), [
+    [10, '(4)&a', 'variant'], [11, '(4)&', 'variant'], [12, '4', 'variant'],
+  ]);
+  assert(!song.diagnostics.some(diagnostic => diagnostic.code === 'capture-policy' && diagnostic.source.a1.endsWith('19')));
+  for (const [bar, take] of [[20, cowbell[1]], [28, cowbell[2]], [36, cowbell[1]], [44, cowbell[2]]] as const) {
+    const playback = song.playback.find(playback => playback.bar === bar && playback.voiceId === 'cowbell');
+    const selection = song.selections.find(selection => selection.id === playback?.selectionId);
+    assert.deepEqual(selection?.takeIds, [take.id]);
+    assert.deepEqual(selection?.gains, [1]);
+  }
+  assert(song.diagnostics.some(diagnostic => diagnostic.code === 'capture-policy' && !diagnostic.source.a1.endsWith('19')));
+  assert(song.diagnostics.some(diagnostic => diagnostic.source.a1 === 'J21' && diagnostic.code === 'unknown-cue'));
 });
 
 test('repeated frozen compilation produces byte-identical artifacts and SHA-256 provenance', async () => {

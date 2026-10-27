@@ -28,7 +28,9 @@ The fresh October 27 export has 55 rows and 220 columns. A runs through bar 76 b
 
 The operator's latest October 27 answers supersede the earlier merged-plan interpretation. Arming immediately switches live processing to the target voice stack, while capture stores audio only from the declared recording boundary. Reject overlapping armed or recording captures atomically without disrupting the existing capture. Effect history evolves across loop iterations. Retain original source and DSP state, never apply effects to already-baked PCM, and never reset history on wrap. Cache loop seams and release representation are technical verification work. These choices are settled and are not blockers.
 
-Operator questions are pending for `2c3`, the star in `1p*`, layer balance/selection and cue proximity, and whether knob `d` spans are defined or explicitly deferred for this milestone. No answer is inferred from the old parser. Chorus-on-knob follow-on stays behind the capture/A-section target and needs its own missing gesture/mapping facts.
+Samples start at 100%. Cowbell's successive captures retain distinct variants and automatically select the matching marked sound without double taps. These operator answers are encoded in the compiler/mapping and are not open questions. The current source supplies three distinct cowbell patterns, all representable by that rule.
+
+Operator questions remain for `2c3`, the star in `1p*`, other voices' layer/variant/replacement retention and selection, cue proximity, and whether knob `d` spans are defined or explicitly deferred for this milestone. No answer is inferred from the old parser. Chorus-on-knob follow-on stays behind the capture/A-section target and needs its own missing gesture/mapping facts.
 
 In 6/8, chart cues and pedal taps count six eighth notes. A tap can start on any beat and does not establish a downbeat or reset phase. DYC's current A section is 4/4. Unused hardware, LED waveform, or Video scene decisions do not block its keyboard path.
 

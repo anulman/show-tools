@@ -20,8 +20,8 @@
     { "buttonId": "R2", "voiceId": "cowbell", "cueRow": 19, "arrangementRow": 11, "nameNoteCell": "A19" }
   ],
   "cueWindow": null,
-  "capturePolicies": [],
-  "variantRules": [],
+  "capturePolicies": [{ "voiceId": "cowbell", "retention": "variant", "gain": 1 }],
+  "variantRules": [{ "voiceId": "cowbell", "row": 11, "fromBar": 1, "sampledOnly": true }],
   "overrides": [],
   "deferredRows": []
 }

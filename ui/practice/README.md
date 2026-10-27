@@ -14,7 +14,7 @@ Open <http://127.0.0.1:8082/ui/practice/>. The page runs audio locally through i
 
 Open **Chart source, compiler & inspection** to fetch a public worksheet or import frozen source JSON. The explicit mapping binds chart rows to buttons and voices. Compile, inspect the source-located report, then load a resolved song while practice and output export are stopped. You can also import a compiled song JSON directly. CLI commands are documented in the [performance guide](../../lib/performance/README.md#compile-a-worksheet).
 
-The bundled current DYC source is a blocked draft. `2c3`, `1p*`, capture retention/balance, cue windows, and knob-row meaning await operator answers. Start remains disabled for that draft. Native/WASM fixtures verify capture mechanics; the current A-section performance has not been verified.
+The bundled current DYC source is a blocked draft. `2c3`, `1p*`, other voices' retention/selection, cue windows, and knob-row meaning await operator answers. Starting gains are 100%, and cowbell's distinct captures automatically select the matching marked sound; those decisions are settled. Start remains disabled for the unresolved draft. Native/WASM fixtures verify capture mechanics; the current A-section performance has not been verified.
 
 For an executable compiled song, select the actual input and output devices while stopped, configure Slapback, and press **Start practice**. Grant microphone access. The demo recorder waits through the lead-in and starts with the song. Arm switches live processing immediately to the target voice; recording starts at the declared boundary. Commit starts the selected take or layers at its boundary without another play tap. `crb` commits the old take and starts the next capture at the same crossing.
 

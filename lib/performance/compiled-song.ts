@@ -321,8 +321,8 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
       if (open) issue('overlapping-take', 'This arm occurs before the prior take has a known commit.', cue.source);
       const takeId = `${mapping.songId}/${control.voiceId}/take-${takes.filter(t => t.voiceId === control.voiceId).length + 1}`;
       const take: CompiledTake = { id: takeId, voiceId: control.voiceId, slot: takes.length + 4, begin: cueBoundary(cue), end: null,
-        armCueId: cue.id, commitCueId: null, phrase: '', retention: policy?.retention ?? 'unresolved', gain: policy?.gain ?? null };
-      if (!policy) issue('capture-policy', `Specify layer, variant, or replacement retention and gain for ${control.voiceId}.`, cue.source);
+        armCueId: cue.id, commitCueId: null, phrase: '', retention: policy?.retention ?? 'unresolved', gain: policy?.gain ?? 1 };
+      if (!policy) issue('capture-policy', `Specify layer, variant, or replacement retention for ${control.voiceId}. Playback starts at unity gain.`, cue.source);
       else if (!Number.isFinite(policy.gain) || policy.gain < 0 || policy.gain > 4) issue('capture-gain', 'Capture playback gain must be finite and between 0 and 4.', cue.source);
       takes.push(take); open = take;
       cues[cues.findIndex(c => c.id === cue.id)] = { ...cue, takeId };
