@@ -1,0 +1,208 @@
+#include "patch_engine.h"
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <new>
+
+namespace patches {
+namespace {
+constexpr ParameterDescriptor slapback_parameters[] = {
+  {"delay_ms", 40, 250, 100}, {"feedback", 0, .7, 0}, {"wet", 0, 1, .25}
+};
+class Slapback final : public Effect {
+ public:
+  Slapback(double rate, SlapbackParameters parameters, float* rings, uint32_t capacity) noexcept:
+    descriptor_{"slapback", 1, 0, uint64_t(std::ceil(rate * 12)), slapback_parameters, 3, true, true},
+    parameters_(parameters), rate_(rate), rings_(rings), capacity_(capacity), delay_(rate * parameters.delay_ms / 1000) {}
+  ~Slapback() override { delete[] rings_; }
+  const EffectDescriptor& descriptor() const noexcept override { return descriptor_; }
+  Stereo process(Stereo input) noexcept override {
+    double position = double(cursor_) - delay_;
+    if (position < 0) position += capacity_;
+    uint32_t first = uint32_t(position), next = (first + 1) % capacity_;
+    double fraction = position - first;
+    double l = rings_[first] + fraction * (double(rings_[next]) - rings_[first]);
+    double r = rings_[capacity_ + first] + fraction * (double(rings_[capacity_ + next]) - rings_[capacity_ + first]);
+    rings_[cursor_] = float(input.left + parameters_.feedback * l);
+    rings_[capacity_ + cursor_] = float(input.right + parameters_.feedback * r);
+    cursor_ = (cursor_ + 1) % capacity_;
+    return {float(input.left + parameters_.wet * l), float(input.right + parameters_.wet * r)};
+  }
+  void reset() noexcept override { std::fill(rings_, rings_ + size_t(capacity_) * 2, 0); cursor_ = 0; }
+  bool compatible(const Effect& other) const noexcept override {
+    const auto* candidate = dynamic_cast<const Slapback*>(&other);
+    return candidate && rate_ == candidate->rate_ && parameters_.delay_ms == candidate->parameters_.delay_ms
+      && parameters_.feedback == candidate->parameters_.feedback && parameters_.wet == candidate->parameters_.wet;
+  }
+  void copy_state(const Effect& other) noexcept override {
+    const auto& source = static_cast<const Slapback&>(other);
+    std::copy(source.rings_, source.rings_ + size_t(capacity_) * 2, rings_); cursor_ = source.cursor_;
+  }
+  std::unique_ptr<Effect> snapshot() const noexcept override {
+    auto result = make_slapback(rate_, parameters_);
+    if (result) static_cast<Slapback*>(result.get())->copy_state(*this);
+    return result;
+  }
+  size_t memory_bytes() const noexcept override { return sizeof(*this) + size_t(capacity_) * 2 * sizeof(float); }
+ private:
+  EffectDescriptor descriptor_;
+  SlapbackParameters parameters_;
+  double rate_;
+  float* rings_;
+  uint32_t capacity_, cursor_ = 0;
+  double delay_;
+};
+bool output_valid(float* left, float* right, uint32_t frames) noexcept { return !frames || (left && right && left != right); }
+Stereo input_at(const float* left, const float* right, uint32_t index) noexcept {
+  return {left ? left[index] : 0, right ? right[index] : left ? left[index] : 0};
+}
+}
+std::unique_ptr<Effect> make_slapback(double rate, SlapbackParameters parameters) noexcept {
+  if (!std::isfinite(rate) || rate < 1000 || rate > 384000
+    || !std::isfinite(parameters.delay_ms) || parameters.delay_ms < 40 || parameters.delay_ms > 250
+    || !std::isfinite(parameters.feedback) || parameters.feedback < 0 || parameters.feedback > .7
+    || !std::isfinite(parameters.wet) || parameters.wet < 0 || parameters.wet > 1) return nullptr;
+  uint32_t capacity = uint32_t(std::ceil(rate * .25)) + 2;
+  float* rings = new (std::nothrow) float[size_t(capacity) * 2]{};
+  if (!rings) return nullptr;
+  auto* effect = new (std::nothrow) Slapback(rate, parameters, rings, capacity);
+  if (!effect) delete[] rings;
+  return std::unique_ptr<Effect>(effect);
+}
+Rack::Rack(std::unique_ptr<Effect>* stages, size_t count) noexcept: stages_(stages), count_(count) {}
+Rack::~Rack() { delete[] stages_; }
+std::unique_ptr<Rack> Rack::create(std::unique_ptr<Effect>* stages, size_t count) noexcept {
+  if (count > 64 || (count && !stages)) return nullptr;
+  for (size_t index = 0; index < count; ++index) if (!stages[index]) return nullptr;
+  auto* owned = count ? new (std::nothrow) std::unique_ptr<Effect>[count] : nullptr;
+  if (count && !owned) return nullptr;
+  auto* rack = new (std::nothrow) Rack(owned, count);
+  if (!rack) { delete[] owned; return nullptr; }
+  for (size_t index = 0; index < count; ++index) owned[index] = std::move(stages[index]);
+  return std::unique_ptr<Rack>(rack);
+}
+Stereo Rack::process(Stereo input) noexcept {
+  for (size_t index = 0; index < count_; ++index) input = stages_[index]->process(input);
+  return input;
+}
+bool Rack::process(const float* left, const float* right, float* out_left, float* out_right, uint32_t frames) noexcept {
+  if (!output_valid(out_left, out_right, frames)) return false;
+  for (uint32_t index = 0; index < frames; ++index) {
+    Stereo output = process(input_at(left, right, index)); out_left[index] = output.left; out_right[index] = output.right;
+  }
+  return true;
+}
+void Rack::reset() noexcept { for (size_t index = 0; index < count_; ++index) stages_[index]->reset(); }
+bool Rack::compatible(const Rack& other) const noexcept {
+  if (count_ != other.count_) return false;
+  for (size_t index = 0; index < count_; ++index) if (!stages_[index]->compatible(*other.stages_[index])) return false;
+  return true;
+}
+bool Rack::supports_capture() const noexcept {
+  for (size_t index = 0; index < count_; ++index) {
+    const auto& descriptor = stages_[index]->descriptor();
+    if (!descriptor.deterministic_source_replay || !descriptor.complete_state_snapshot) return false;
+  }
+  return true;
+}
+bool Rack::copy_state(const Rack& other) noexcept {
+  if (!compatible(other)) return false;
+  for (size_t index = 0; index < count_; ++index) stages_[index]->copy_state(*other.stages_[index]);
+  return true;
+}
+std::unique_ptr<Rack> Rack::snapshot() const noexcept {
+  auto stages = std::unique_ptr<std::unique_ptr<Effect>[]>(count_ ? new (std::nothrow) std::unique_ptr<Effect>[count_] : nullptr);
+  if (count_ && !stages) return nullptr;
+  for (size_t index = 0; index < count_; ++index) { stages[index] = stages_[index]->snapshot(); if (!stages[index]) return nullptr; }
+  return create(stages.get(), count_);
+}
+size_t Rack::memory_bytes() const noexcept {
+  size_t bytes = sizeof(*this) + count_ * sizeof(std::unique_ptr<Effect>);
+  for (size_t index = 0; index < count_; ++index) bytes += stages_[index]->memory_bytes();
+  return bytes;
+}
+uint64_t Rack::maximum_tail_frames() const noexcept {
+  uint64_t frames = 0;
+  for (size_t index = 0; index < count_; ++index) {
+    uint64_t tail = stages_[index]->descriptor().maximum_tail_frames;
+    if (tail > std::numeric_limits<uint64_t>::max() - frames) return std::numeric_limits<uint64_t>::max();
+    frames += tail;
+  }
+  return frames;
+}
+uint64_t Rack::latency_frames() const noexcept {
+  uint64_t frames = 0;
+  for (size_t index = 0; index < count_; ++index) frames += stages_[index]->descriptor().latency_frames;
+  return frames;
+}
+ProcessedTake::ProcessedTake(std::unique_ptr<Rack> initial, Stereo* source, Stereo* printed, uint32_t capacity, uint64_t revision) noexcept:
+  initial_(std::move(initial)), source_(source), printed_(printed), capacity_(capacity), revision_(revision) {}
+ProcessedTake::~ProcessedTake() { delete[] source_; delete[] printed_; }
+std::unique_ptr<ProcessedTake> ProcessedTake::create(const Rack& definition, uint32_t capacity, uint64_t revision) noexcept {
+  uint64_t bytes = uint64_t(capacity) * sizeof(Stereo) * 2 + sizeof(ProcessedTake);
+  if (!capacity || bytes > std::numeric_limits<size_t>::max() || !definition.supports_capture()) return nullptr;
+  auto initial = definition.snapshot();
+  if (!initial) return nullptr;
+  auto source = std::unique_ptr<Stereo[]>(new (std::nothrow) Stereo[capacity]);
+  auto printed = std::unique_ptr<Stereo[]>(new (std::nothrow) Stereo[capacity]);
+  if (!source || !printed) return nullptr;
+  auto* take = new (std::nothrow) ProcessedTake(std::move(initial), source.get(), printed.get(), capacity, revision);
+  if (!take) return nullptr;
+  source.release(); printed.release(); return std::unique_ptr<ProcessedTake>(take);
+}
+bool ProcessedTake::begin(const Rack& live) noexcept {
+  if (state_ != TakeState::prepared || !initial_->copy_state(live)) return false;
+  live_ = &live; state_ = TakeState::capturing; return true;
+}
+bool ProcessedTake::capture(Rack& live, const float* left, const float* right, float* out_left, float* out_right, uint32_t frames) noexcept {
+  if (state_ != TakeState::capturing || live_ != &live || frames > capacity_ - length_
+    || !output_valid(out_left, out_right, frames) || !initial_->compatible(live)) return false;
+  for (uint32_t index = 0; index < frames; ++index) {
+    Stereo source = input_at(left, right, index), output = live.process(source);
+    source_[length_] = source; printed_[length_++] = output;
+    out_left[index] = output.left; out_right[index] = output.right;
+  }
+  return true;
+}
+bool ProcessedTake::commit() noexcept {
+  if (state_ != TakeState::capturing || !length_) return false;
+  state_ = TakeState::committed; return true;
+}
+size_t ProcessedTake::memory_bytes() const noexcept { return sizeof(*this) + size_t(capacity_) * sizeof(Stereo) * 2 + initial_->memory_bytes(); }
+Stereo ProcessedTake::sample(uint32_t frame) const noexcept { return frame < length_ ? printed_[frame] : Stereo{}; }
+Playback::Playback(const ProcessedTake& take, std::unique_ptr<Rack> shadow) noexcept: take_(take), shadow_(std::move(shadow)) {}
+std::unique_ptr<Playback> Playback::create(const ProcessedTake& take) noexcept {
+  auto shadow = take.initial_->snapshot();
+  if (!shadow) return nullptr;
+  return std::unique_ptr<Playback>(new (std::nothrow) Playback(take, std::move(shadow)));
+}
+bool Playback::start(bool loop) noexcept {
+  if (take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.initial_)) return false;
+  phase_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
+}
+void Playback::stop() noexcept {
+  if (state_ != PlaybackState::playing) return;
+  release_remaining_ = shadow_->maximum_tail_frames();
+  state_ = release_remaining_ ? PlaybackState::releasing : PlaybackState::idle;
+}
+void Playback::reset() noexcept { shadow_->reset(); state_ = PlaybackState::idle; phase_ = 0; release_remaining_ = 0; }
+bool Playback::render(float* left, float* right, uint32_t frames) noexcept {
+  if (!output_valid(left, right, frames)) return false;
+  for (uint32_t index = 0; index < frames; ++index) {
+    Stereo output{};
+    if (state_ == PlaybackState::playing && phase_ == take_.length_) {
+      if (loop_) { shadow_->copy_state(*take_.initial_); phase_ = 0; }
+      else stop();
+    }
+    if (state_ == PlaybackState::playing) {
+      output = take_.printed_[phase_]; shadow_->process(take_.source_[phase_]); ++phase_;
+    } else if (state_ == PlaybackState::releasing) {
+      output = shadow_->process({});
+      if (!--release_remaining_) state_ = PlaybackState::idle;
+    }
+    left[index] = output.left; right[index] = output.right;
+  }
+  return true;
+}
+size_t Playback::memory_bytes() const noexcept { return sizeof(*this) + shadow_->memory_bytes(); }
+}
