@@ -2,7 +2,7 @@
 
 Compile the current Dance Yrself Clean worksheet into a human-verifiable performance program. The browser and CLI share deterministic fetch, compile, and inspect operations. Shared C++ executes the result in WASM and on EliteDesk. An LLM may supply mappings and invoke the compiler. Parsing never depends on an LLM.
 
-Revised October 27, 2026 after the 19 inline comments in [PR #1](https://github.com/anulman/show-tools/pull/1). This is a plan revision only. No runtime implementation, service startup, ABI change, or merge is authorized. Work stays on `review/performance-engine` in its existing isolated worktree.
+Revised October 27, 2026 after the 19 inline comments in [PR #1](https://github.com/anulman/show-tools/pull/1) and the operator's cross-workstream routing decisions in [PR #2](https://github.com/anulman/show-tools/pull/2). This is a plan revision only. No runtime implementation, service startup, ABI change, or merge is authorized. Work stays on `review/performance-engine` in its existing isolated worktree.
 
 ## Scope and source authority
 
@@ -94,11 +94,11 @@ Whitespace around a complete token can normalize. Preserve internal syntax, brac
 
 ## Capture, layers, variants, and uncued presses
 
-Retain commit-and-autoplay and replacement capture as supported operations, while adding explicit retention and layering policies. Distinguish logical voice, immutable take, layer group, and selectable variant. A new capture does not erase an earlier take unless an explicit replacement policy selects it.
+Retain commit-and-autoplay and replacement capture as supported operations, while adding explicit retention and layering policies. Distinguish logical voice, immutable take, layer group, and selectable variant. R1/R2/L1/L2 are physical button IDs, never logical voice or sample identities. A versioned input binding maps each button to cue context and a logical voice such as `cowbell`. A new capture does not erase an earlier take unless an explicit replacement policy selects it.
 
 Matching marked voice parts across capture spans can form a layer group. Compare parsed, normalized phrase identity from the corresponding voice row, not the sample's waveform or an LLM judgment. The mapping records phrase span, equality rule, layer membership, playback gain, and replace versus retain policy. Explicitly different cowbell patterns such as `(4)&a`, `(4)&`, and `4` retain separate selectable variants. Exact same-mark matching across continuation spans, layer balance, and replacement defaults remain decisions to settle against DYC examples before execution fixtures are approved.
 
-For `cl`, recommend a bounded rolling raw-input history so the preceding complete measure remains available for commit at its original engine boundaries. Capacity must cover the supported meter and capture window at the minimum tempo. Preparation happens outside processing. This is a proposed implementation strategy, not an implemented capability. Decide whether repeated commit-last operations retain distinct takes or intentionally reuse one take by authored identity.
+For `cl`, recommend bounded rolling history of the already-processed live result so the preceding complete measure remains available at its original engine boundaries. Retain logical voice, route, and graph revision provenance. Capacity must cover supported meter and capture windows at minimum tempo. Preparation happens outside processing. If the requested voice was not processed through its required route during that prior measure, report unavailable history. Do not silently process raw history later and call it the cached live result. Agree how prior voice routing is prepared before implementing retrospective capture. Decide whether repeated commit-last operations retain distinct takes or intentionally reuse one take by authored identity.
 
 Keep sparse extraction available with explicit position and radius hints. The schema can also request full-measure retention. Choose per-voice capture policy from authored mappings rather than preserving the old cowbell override automatically. Capture windows, layer selection, and retained variants all belong to C++ execution.
 
@@ -121,6 +121,7 @@ The example is a proposed input shape using current source coordinates. `require
 	"dominantMeter": { "numerator": 4, "denominator": 4, "source": "mapping-assertion" },
 	"controlRows": { "R1": 18, "R2": 19, "L1": 20, "L2": 21 },
 	"voiceRows": { "drums-claps": 10, "cowbell": 11, "bing-bong": 12, "whistle": 13 },
+	"inputBindings": { "R1": "drums-claps", "R2": "cowbell", "L1": "whistle", "L2": "bing-bong" },
 	"noteBindings": { "A17": "requires-resolution", "J19": "requires-resolution", "L19": "requires-resolution" },
 	"partialColumns": { "B": "requires-resolution", "HL": "requires-resolution", "HM": "requires-resolution", "HN": "requires-resolution" }
 }
@@ -158,12 +159,11 @@ Propose a clearly delimited JSON block prefixed by `show-tools:v1`. For example,
 
 ```json
 {
-	"kind": "effect-binding",
+	"kind": "voice-effect",
 	"voiceId": "cowbell",
-	"effectId": "slapback",
-	"parameter": "wet",
-	"sourceControlId": "knob",
-	"range": { "min": 0, "max": 1 }
+	"effectDefinitionId": "echo",
+	"instanceId": "cowbell-echo",
+	"parameters": { "delayMs": 100, "feedback": 0 }
 }
 ```
 
@@ -171,15 +171,25 @@ Only explicitly mapped notes with the version marker are parsed. Validate units,
 
 ## Effects and owner dependencies
 
-Replace the former single-slot sample-only proposal with ordered effect stacks per logical voice. Support global defaults for a voice and overrides for each effect/voice pair. Keep separate DSP state for live and sample paths. Entering a voice's capture context switches live processing from the default stack to that voice's stack. Leaving restores the default stack at an engine-owned boundary. Knob changes may request typed effects such as chorus voices.
+Replace the former single-slot sample-only proposal with ordered effect stacks per logical voice. The contract supports chorus, echo, guitar-like and synth-like transforms through versioned effect definitions, typed parameters, ordered instances, resource requirements, and required capabilities. Slapback is the first DSP demonstration, not the shape of the general song or command schema. Unsupported effect types remain owned TODOs and fail executable loading.
 
-Effects apply to live voice, sampled voice, and downloads. Filters owns DSP, stack preparation, routing, tail behavior, and parameter definitions. Recommend storing raw capture PCM plus capture stack metadata and applying the stack once on playback. That storage policy is not yet an operator decision. Define speaker monitoring and recording taps explicitly to avoid adding the old dry microphone branch to already processed voice output. Sample stereo, click isolation, feedback safety, and Stop/Panic behavior require PCM tests.
+Support voice defaults and overrides for each effect/voice pair. Tune per-effect venue parameters in the web UI. No dedicated parameter-tuning peripherals are planned. Authored knob performance cues such as chorus activation are distinct from venue tuning. Validate UI parameter changes against the selected effect definition, prepare allocating changes outside processing, and report their effective engine revision/frame. Show desired and applied values. Keep venue overrides separate from immutable compiled song defaults.
+
+Start with LIVE voice processing. The mono microphone feeds the selected logical voice's stack, producing audible live output and the processed result cached for sampled playback. Mono dry input reaches both L and R. Preserve stereo created by an effect rather than downmixing it. Entering capture switches from the default live stack to the voice's stack. Leaving restores the default stack at an engine-owned boundary.
+
+Cache the processed PCM together with voice/route/graph revision and capture timing. Sample playback uses that cached result without applying the baked capture stack a second time. Graph provenance is metadata, not a command to rerun the stack. Any intentionally additional playback processing must be explicit. Later venue parameter changes affect subsequent live processing and new captures; they cannot undo an effect already baked into a stored take. The UI needs a clear recapture indication for that case. Agree cached-tail boundaries and continuity at commit/loop boundaries with Filters. Do not infer that all effect tails fit inside the captured measure.
+
+Processed live voice and cached sample playback feed the intended room, monitor, and download mixes once each. Remove the old parallel dry microphone recording contribution for this route. Enable audible live monitoring only when input/output devices differ, or when the matching device is a USB audio interface, as specified in the operator's [monitoring comment](https://github.com/anulman/show-tools/pull/2#discussion_r4385119436). This condition concerns live monitoring, not whether processed voice enters a download. A browser may not expose enough device-type information to prove USB eligibility. Keep that uncertainty explicit and require a verified route configuration rather than infer eligibility from a friendly label. Exact verification UI and multi-output device mapping remain host design work.
+
+Filters owns DSP, prepared stack resources, output taps, and tail handling. The operator confirmed the first slapback defaults of 100 ms, zero feedback for one repeat, wet 0.25, natural tails on detach/bypass, Stop/Panic clearing history, and Start restoring defaults. Represent defaults in the effect definition and song configuration rather than hardcode them into the compiler. General effect lifecycle support must declare tail/resource behavior for each effect. Verify sample stereo, click isolation, monitoring conditions, and no duplicate dry or wet contribution with rendered PCM.
 
 Known requests are tracked as dependencies, not advertised as current features.
 
 | Request | Owner and required agreement |
 | --- | --- |
-| Ordered effects, defaults, overrides, capture-context switch, wet live/sample/download routes | Filters defines DSP resources and lifecycle. Performance Engine defines IDs, cue operations, preparation, and application results. |
+| General ordered effects, voice defaults, effect/voice overrides, live-first capture of processed results | Filters defines DSP resources, lifecycle, and output taps. Performance Engine defines separate button/voice/resource IDs, preparation, graph provenance, and cue results. Cached playback must not rerun baked effects. |
+| Per-effect venue tuning | Performance web UI edits validated effect parameters and shows engine-applied values. No dedicated tuning peripherals. |
+| Live monitoring eligibility and mono input to L/R | Host verifies differing devices or a shared USB interface. Filters provides processed mix taps without duplicate dry voice. Preserve effect-generated stereo. |
 | Knob chorus activation and `d` spans | Filters and peripherals define the operation, units, and physical normalization. Video defines y-axis mapping. Authoring semantics remain open. |
 | Pedal-driven tempo | Peripherals supplies normalized input. Performance Engine resolves clock changes and publishes applied-frame tempo history. |
 | Variable meter, short measures, fractional boundaries, retrospective commit, layers and variants | Performance Engine owns portable C++ execution and coordinated ABI changes. |
@@ -192,6 +202,8 @@ Known requests are tracked as dependencies, not advertised as current features.
 Make loaded programs immutable throughout a run. Stage refreshes separately and activate only while stopped. Song digest cannot go stale inside that run. Keep it on load/session manifests for reproducibility, not on every pad command. Reconnect performs a session/run handshake and snapshot before new input. Old queued input is discarded by session identity. No digest-specific Panic exception is needed.
 
 Commands carry producer ID, command ID, producer order, session/run identity, typed target, action, and timing. One engine owner applies ordered controls. Distinguish accepted, applied, duplicate, late, and rejected results. Report application frame and revision. Retry guarantees are bounded by the actual dedup retention policy. Coalesce knob changes only between discrete events. Never replay offline presses after reconnection.
+
+Keep source button ID and resolved logical voice/resource/cue IDs separate. A program binding revision records that resolution. Button light feedback addresses the physical button and its current binding revision, then projects the resolved voice state. Rebinding a button cannot rename or overwrite a voice resource, transfer a cached take, or display stale feedback for the prior binding. Verify explicit rebinding in the simulated adapter.
 
 Current `pf_control()` can call `press()`, then allocating `st_prepare()`. Do not drain arbitrary controls inside a device callback. Audit every command path, define bounded preallocated capture/history/stack resources, and transfer prepared ownership without concurrent mutation of the live engine. Prove an offline block-pump adapter before live device hosting.
 
@@ -216,7 +228,7 @@ Each implementation milestone ends in verification and a commit.
 3. Build shared fetch/import/compile/inspect modules and CLI/browser adapters. Test public access without OAuth, configured OAuth use, denied access, CSV with explicit note sidecars, note-bearing import, browser CORS fallback, cancellation, and staging while running. Repeated frozen compilation must be byte-identical.
 4. Implement variable measure lengths, fractional cue/capture boundaries, pedal tempo, bounded retrospective capture, layers/variants, and cue-aware toggle resolution in C++. Coordinate ABI and bridge changes before editing shared files. Test 4/4, 6/4, short measures, one/two-bar sections, 0.25/0.5/0.75 offsets, late presses, and immediate actions. Use synthetic PCM and exact frame assertions in native and WASM runners.
 5. Implement artifact loading and immutable run lifecycle in both hosts. Reject unresolved capabilities or failed preparation without replacing the loaded song. Verify staged refresh cannot mutate running program/BPM, reconnect discards stale input, bounded deduplication, allocation-free approved callback paths, and dropped-event recovery.
-6. Integrate Filters' voice stacks and peripherals/Video contracts when their capabilities exist. Verify processed live/sample/download routes once each, raw/wet capture policy, stateful effect lifetimes, input ordering, current-baseline light restoration, recording pulse, tempo anchors, and engine-wide log profiles. No synthetic result establishes physical device safety or real microphone quality.
+6. Integrate Filters' general effect definitions and voice stacks, beginning with audible live mono-to-L/R processing. Only then verify cached processed sampling and playback without rerunning the captured graph. Test web venue tuning and desired/applied revisions, route provenance for retrospective capture, separate button-to-voice bindings, eligible monitoring routes, downloads, tails/Stop/Panic/Start defaults, input ordering, current-baseline light restoration, recording pulse, tempo anchors, and engine-wide log profiles. Distinguish compiler work that can proceed independently from sample integration gated on the live route. No synthetic result establishes physical device safety or real microphone quality.
 7. Exercise browser fetch, review, and stopped load at mobile and desktop widths. Check keyboard/touch controls, Escape-to-Panic, focus, repeated Start, Stop during setup, cue feedback, export progress, and completed downloads. Update architecture, development, song, and practice-contract guides. Delete superseded DYC transformations rather than retain compatibility layers.
 
 Run relevant typecheck, tests, layout checks, WASM build, and native CMake conformance tests for implementation changes. For this docs-only revision, verify JSON examples, current source coordinates and note inventory, coverage of all 19 review comments, and absence of contradictory old constraints. No live services are needed.
@@ -225,9 +237,9 @@ After milestone 3, inspect the repeatable workflow before expanding notation. On
 
 ## Remaining decisions and review disposition
 
-The operator has settled DYC-only scope, no backward compatibility, browser operations, public fetch with optional OAuth, CSV support, broader meter/fractional timing, pedal-owned BPM changes, voice effect stacks on all required routes, log profiles, and current-baseline light restoration. Those are requirements, not questions carried forward from the old plan.
+The operator has settled DYC-only scope, no backward compatibility, browser operations, public fetch with optional OAuth, CSV support, broader meter/fractional timing, pedal-owned BPM changes, general voice effect stacks, live-first processing with cached processed results, separate button and voice identities, web venue tuning, conditional live monitoring, mono input to L/R, log profiles, and current-baseline light restoration. Those are requirements, not questions carried forward from the old plan.
 
-Open authoring questions are the exact short-measure interpretation and incomplete-column lengths; cue proximity/late-press policy; `clr`, `2c3`, `1p*`, unusual brackets, and conditional missed-cue semantics; matching/layer/replace policy; knob `d` mapping; and exact structured-note syntax. Raw versus processed stored capture remains a routing choice. Recording pulse shape and priority are a shared contract decision. Unanswered threads remain open rather than marked resolved.
+Open authoring questions are the exact short-measure interpretation and incomplete-column lengths; cue proximity/late-press policy; `clr`, `2c3`, `1p*`, unusual brackets, and conditional missed-cue semantics; matching/layer/replace policy; knob `d` mapping; and exact structured-note syntax. Prior-voice processing needed for retrospective history, cached-tail boundaries, post-capture tuning UX, and host verification of monitoring eligibility need design agreement. Recording pulse shape and priority are a shared contract decision. Processed capture storage is settled and is no longer an open raw-versus-wet choice. Unanswered threads remain open rather than marked resolved.
 
 Performance Engine owns semantic song/command/time contracts and coordinates ABI changes. Filters owns effect resources and DSP. Peripherals owns physical adapters and light projection. Video owns presentation consumers. Owner requests were exchanged directly during this revision. Their responses inform the plan, but do not constitute implemented capabilities or operator decisions on the remaining ambiguities.
 
