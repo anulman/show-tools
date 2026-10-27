@@ -43,6 +43,18 @@ For mobile checks, serve `dist/` over HTTPS. Microphone access requires a secure
 
 ## Start the filter and patch workstream
 
+The merged [effects plan](plans/filters-and-patches.md) records operator decisions. Start with portable live-first processing and processed stereo caches, not sample-only effects or dry primary takes. Keep button bindings separate from logical voices. Use web controls for venue parameter tuning; performance peripherals invoke declared cues/operations.
+
+The standalone [patches module](../lib/patches/README.md) is a native/WASM correctness milestone, not production practice integration. Run its reproducible check from the repository root.
+
+```sh
+node --import tsx scripts/verify-patches.ts
+```
+
+That command builds and runs the same C++ tests natively and through Emscripten, then compares rendered interleaved stereo float fixtures. It saves generated artifacts in a fresh temporary directory. Tests cover generic stage order, mono left/right output, exact processed capture, and state-driven cache release at arbitrary reached stop positions. The initial prototype supports fixed graphs and parameters, phase-zero starts, and unit-speed playback. It repeats source DSP inaudibly to maintain tail state; it does not claim a caching speedup or physical realtime performance.
+
+Coordinate subsequent performance headers, generated ABI, sampler stereo capture, stems, and browser route changes with Performance Engine before editing. The production practice page still uses its current raw-microphone capture and separate live recording branch. Native `pf_control()` arm can call `st_prepare()`, so move preparation out of callback application as part of that integration.
+
 Read these files before choosing the processing order.
 
 - `lib/sampler/src/sample_engine.cpp` owns capture, sample storage, voice rendering, and channel gain and mute.
@@ -54,17 +66,9 @@ Read these files before choosing the processing order.
 - `ui/practice/practice-worklet.ts` routes controls and publishes native events.
 - `lib/performance/model.ts` owns shared commands and state shapes.
 
-Define which audio a patch processes before connecting controls. Distinguish captured microphone PCM, individual sample channels, the combined sample mix, live voice, and the click. Decide whether effects change the stored take or only playback. A filter on the sample mix will not automatically process the live voice in downloads.
+Process live voice first and cache the processed result before destination gains. Replay printed PCM without its baked stack. Preserve exact musical cache intervals and natural release tails with a bounded state representation. Stop/Panic must gate live input and clear state; Start restores song defaults. Retrospective commits need matching already-processed history, not raw-source substitution. Keep DEBUG artifacts, practice INFO, and performance WARN formatting and IO outside processing.
 
-Keep song assignments in `songs/`. Keep browser editors and controls in `ui/`. Put portable low-level processing under `lib/`. Prefer TypeScript for new scripting. Use Effect at asynchronous and external-data boundaries where it helps, outside synchronous rendering and beat dispatch.
-
-Implement sample DSP in the shared C++ engine so WASM practice and the native EliteDesk use the same processing. Preserve the existing capture, trigger, variant, and mixer behavior. Keep preparation and allocation outside native rendering and capture calls.
-
-Verify bypass, parameter changes, stereo behavior, capture routing, and effect tails through Stop, Panic, and reset. Render real PCM in the sampler and sequencer tests. Check a browser take as well. Do not claim realtime safety from a typecheck or an encoding test.
-
-Use this starting brief for a new session.
-
-> Read AGENTS.md, docs/architecture.md, docs/development.md, and the audio code named in the filter section. Design the patch data model and its processing location before wiring UI controls. Keep local practice independent of a relay. Preserve capture, commit-and-autoplay, sample stereo, and the recording-only centered voice route. Identify unresolved sound-routing choices explicitly. Verify the chosen behavior with rendered PCM and a browser take. Commit each verified milestone.
+Use rendered PCM, native/WASM comparisons, allocation checks, and a browser take once the actual route is integrated. Keep hardware callback deadlines, physical microphone quality, and output device classification separate from fixture claims. Record remaining sparse-hit, resampling, parameter automation, route switching, and loop-seam work explicitly. Commit every verified milestone.
 
 ## Start the UI workstream
 

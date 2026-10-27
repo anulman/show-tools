@@ -1,0 +1,111 @@
+#ifndef SHOW_TOOLS_PATCH_ENGINE_H
+#define SHOW_TOOLS_PATCH_ENGINE_H
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+
+namespace patches {
+struct Stereo { float left = 0, right = 0; };
+struct ParameterDescriptor { const char* name; double minimum, maximum, initial; };
+struct EffectDescriptor {
+  const char* type;
+  uint32_t version;
+  uint32_t latency_frames;
+  uint64_t maximum_tail_frames;
+  const ParameterDescriptor* parameters;
+  size_t parameter_count;
+  bool deterministic_source_replay = false;
+  bool complete_state_snapshot = false;
+};
+
+class Effect {
+ public:
+  virtual ~Effect() = default;
+  virtual const EffectDescriptor& descriptor() const noexcept = 0;
+  virtual Stereo process(Stereo input) noexcept = 0;
+  virtual void reset() noexcept = 0;
+  virtual bool compatible(const Effect& other) const noexcept = 0;
+  virtual std::unique_ptr<Effect> snapshot() const noexcept = 0;
+  virtual size_t memory_bytes() const noexcept = 0;
+ private:
+  friend class Rack;
+  virtual void copy_state(const Effect& other) noexcept = 0;
+};
+
+struct SlapbackParameters { double delay_ms = 100, feedback = 0, wet = .25; };
+std::unique_ptr<Effect> make_slapback(double sample_rate, SlapbackParameters parameters = {}) noexcept;
+
+class Rack {
+ public:
+  static std::unique_ptr<Rack> create(std::unique_ptr<Effect>* stages, size_t count) noexcept;
+  ~Rack();
+  Rack(const Rack&) = delete;
+  Rack& operator=(const Rack&) = delete;
+  Stereo process(Stereo input) noexcept;
+  bool process(const float* left, const float* right, float* out_left, float* out_right, uint32_t frames) noexcept;
+  void reset() noexcept;
+  bool compatible(const Rack& other) const noexcept;
+  bool supports_capture() const noexcept;
+  bool copy_state(const Rack& other) noexcept;
+  std::unique_ptr<Rack> snapshot() const noexcept;
+  size_t memory_bytes() const noexcept;
+  uint64_t maximum_tail_frames() const noexcept;
+  uint64_t latency_frames() const noexcept;
+ private:
+  Rack(std::unique_ptr<Effect>* stages, size_t count) noexcept;
+  std::unique_ptr<Effect>* stages_;
+  size_t count_;
+};
+
+enum class TakeState { prepared, capturing, committed };
+class ProcessedTake {
+ public:
+  static std::unique_ptr<ProcessedTake> create(const Rack& definition, uint32_t capacity_frames, uint64_t revision) noexcept;
+  ~ProcessedTake();
+  ProcessedTake(const ProcessedTake&) = delete;
+  ProcessedTake& operator=(const ProcessedTake&) = delete;
+  bool begin(const Rack& live) noexcept;
+  bool capture(Rack& live, const float* left, const float* right, float* out_left, float* out_right, uint32_t frames) noexcept;
+  bool commit() noexcept;
+  uint32_t length() const noexcept { return length_; }
+  uint32_t capacity() const noexcept { return capacity_; }
+  uint64_t revision() const noexcept { return revision_; }
+  TakeState state() const noexcept { return state_; }
+  size_t memory_bytes() const noexcept;
+  Stereo sample(uint32_t frame) const noexcept;
+ private:
+  friend class Playback;
+  ProcessedTake(std::unique_ptr<Rack> initial, Stereo* source, Stereo* printed, uint32_t capacity, uint64_t revision) noexcept;
+  std::unique_ptr<Rack> initial_;
+  Stereo* source_;
+  Stereo* printed_;
+  uint32_t capacity_, length_ = 0;
+  uint64_t revision_;
+  TakeState state_ = TakeState::prepared;
+  const Rack* live_ = nullptr;
+};
+
+enum class PlaybackState { idle, playing, releasing };
+class Playback {
+ public:
+  static std::unique_ptr<Playback> create(const ProcessedTake& take) noexcept;
+  Playback(const Playback&) = delete;
+  Playback& operator=(const Playback&) = delete;
+  bool start(bool loop) noexcept;
+  void stop() noexcept;
+  void reset() noexcept;
+  bool render(float* left, float* right, uint32_t frames) noexcept;
+  PlaybackState state() const noexcept { return state_; }
+  uint32_t phase() const noexcept { return phase_; }
+  size_t memory_bytes() const noexcept;
+ private:
+  Playback(const ProcessedTake& take, std::unique_ptr<Rack> shadow) noexcept;
+  const ProcessedTake& take_;
+  std::unique_ptr<Rack> shadow_;
+  PlaybackState state_ = PlaybackState::idle;
+  uint32_t phase_ = 0;
+  uint64_t release_remaining_ = 0;
+  bool loop_ = false;
+};
+}
+#endif
