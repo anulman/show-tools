@@ -136,8 +136,8 @@ uint64_t Rack::latency_frames() const noexcept {
   for (size_t index = 0; index < count_; ++index) frames += stages_[index]->descriptor().latency_frames;
   return frames;
 }
-ProcessedTake::ProcessedTake(std::unique_ptr<Rack> initial, float* source, Stereo* printed, uint32_t capacity, uint64_t revision, uint32_t source_channels) noexcept:
-  initial_(std::move(initial)), source_(source), printed_(printed), capacity_(capacity), source_channels_(source_channels), revision_(revision) {}
+ProcessedTake::ProcessedTake(std::unique_ptr<Rack> initial, std::unique_ptr<Rack> end, float* source, Stereo* printed, uint32_t capacity, uint64_t revision, uint32_t source_channels) noexcept:
+  initial_(std::move(initial)), end_(std::move(end)), source_(source), printed_(printed), capacity_(capacity), source_channels_(source_channels), revision_(revision) {}
 ProcessedTake::~ProcessedTake() { delete[] source_; delete[] printed_; }
 std::unique_ptr<ProcessedTake> ProcessedTake::create(const Rack& definition, uint32_t capacity, uint64_t revision, uint32_t source_channels) noexcept {
   if (source_channels != 1 && source_channels != 2) return nullptr;
@@ -145,10 +145,13 @@ std::unique_ptr<ProcessedTake> ProcessedTake::create(const Rack& definition, uin
   if (!capacity || bytes > std::numeric_limits<size_t>::max() || !definition.supports_capture()) return nullptr;
   auto initial = definition.snapshot();
   if (!initial || initial->memory_bytes() > std::numeric_limits<size_t>::max() - bytes) return nullptr;
+  bytes += initial->memory_bytes();
+  auto end = definition.snapshot();
+  if (!end || end->memory_bytes() > std::numeric_limits<size_t>::max() - bytes) return nullptr;
   auto source = std::unique_ptr<float[]>(new (std::nothrow) float[size_t(capacity) * source_channels]);
   auto printed = std::unique_ptr<Stereo[]>(new (std::nothrow) Stereo[capacity]);
   if (!source || !printed) return nullptr;
-  auto* take = new (std::nothrow) ProcessedTake(std::move(initial), source.get(), printed.get(), capacity, revision, source_channels);
+  auto* take = new (std::nothrow) ProcessedTake(std::move(initial), std::move(end), source.get(), printed.get(), capacity, revision, source_channels);
   if (!take) return nullptr;
   source.release(); printed.release(); return std::unique_ptr<ProcessedTake>(take);
 }
@@ -164,6 +167,7 @@ void ProcessedTake::write_source(uint32_t frame, Stereo source) noexcept {
   if (source_channels_ == 2) source_[offset + 1] = source.right;
 }
 Stereo ProcessedTake::read_source(uint32_t frame) const noexcept {
+  if (frame >= length_) return {};
   size_t offset = size_t(frame) * source_channels_;
   return {source_[offset], source_[offset + (source_channels_ == 2)]};
 }
@@ -194,13 +198,15 @@ bool ProcessedTake::append_processed(const Rack& live, const float* source_left,
 }
 bool ProcessedTake::reset_for_capture() noexcept {
   if (active_playbacks_) return false;
-  state_ = TakeState::prepared; length_ = 0; live_ = nullptr; return true;
+  state_ = TakeState::prepared; length_ = period_ = 0; live_ = nullptr; return true;
 }
-bool ProcessedTake::commit() noexcept {
-  if (state_ != TakeState::capturing || !length_) return false;
+bool ProcessedTake::commit(uint32_t period_frames) noexcept {
+  if (state_ != TakeState::capturing || !length_ || (period_frames && period_frames < length_)) return false;
+  if (!end_->copy_state(*live_)) return false;
+  period_ = period_frames ? period_frames : length_;
   state_ = TakeState::committed; return true;
 }
-size_t ProcessedTake::memory_bytes() const noexcept { return sizeof(*this) + size_t(capacity_) * (sizeof(Stereo) + source_channels_ * sizeof(float)) + initial_->memory_bytes(); }
+size_t ProcessedTake::memory_bytes() const noexcept { return sizeof(*this) + size_t(capacity_) * (sizeof(Stereo) + source_channels_ * sizeof(float)) + initial_->memory_bytes() + end_->memory_bytes(); }
 Stereo ProcessedTake::sample(uint32_t frame) const noexcept { return frame < length_ ? printed_[frame] : Stereo{}; }
 Playback::Playback(const ProcessedTake& take, std::unique_ptr<Rack> shadow) noexcept: take_(take), shadow_(std::move(shadow)) {}
 std::unique_ptr<Playback> Playback::create(const ProcessedTake& take, PlaybackMode mode) noexcept {
@@ -219,6 +225,11 @@ bool Playback::start(bool loop, uint32_t start_frame) noexcept {
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
   phase_ = 0; iteration_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
 }
+bool Playback::start_at_capture_end(bool loop) noexcept {
+  if (take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.end_)) return false;
+  if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
+  phase_ = take_.length_; iteration_ = 1; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
+}
 void Playback::stop() noexcept {
   if (state_ != PlaybackState::playing) return;
   release_remaining_ = shadow_->maximum_tail_frames();
@@ -227,7 +238,7 @@ void Playback::stop() noexcept {
 }
 void Playback::reset() noexcept { shadow_->reset(); finish(); phase_ = 0; iteration_ = 0; }
 Stereo Playback::next() noexcept {
-  if (state_ == PlaybackState::playing && phase_ == take_.length_) {
+  if (state_ == PlaybackState::playing && phase_ == take_.period_) {
     if (loop_) {
       phase_ = 0;
       if (iteration_ != std::numeric_limits<uint64_t>::max()) ++iteration_;
@@ -235,7 +246,7 @@ Stereo Playback::next() noexcept {
   }
   if (state_ == PlaybackState::playing) {
     Stereo evolved = shadow_->process(take_.read_source(phase_));
-    Stereo output = iteration_ ? evolved : take_.printed_[phase_];
+    Stereo output = !iteration_ && phase_ < take_.length_ ? take_.printed_[phase_] : evolved;
     ++phase_; return output;
   }
   if (state_ == PlaybackState::releasing) {
