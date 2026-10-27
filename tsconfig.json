@@ -14,6 +14,6 @@
     "esModuleInterop": true,
     "isolatedModules": true
   },
-  "include": ["ui/practice/**/*.ts", "lib/relay/**/*.ts", "lib/peripherals/**/*.ts", "lib/performance/**/*.ts", "scripts/**/*.ts"],
+  "include": ["ui/practice/**/*.ts", "lib/relay/**/*.ts", "lib/peripherals/**/*.ts", "lib/performance/**/*.ts", "scripts/**/*.ts", "ui/video/**/*.ts", "lib/video/**/*.ts"],
   "exclude": ["dist", "node_modules", "lib/peripherals/build"]
 }

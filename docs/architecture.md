@@ -141,6 +141,12 @@ The default manual WASM clock excludes aubio. The optional full WASM build and e
 
 The rationale above uses this session's explicit requirements, repository code, and commit history. It does not claim an external design review or hardware measurement. Useful changes to inspect with `git show` are `0b34710` for the practice architecture, `75f3afb` for cowbell variants, `91e45b7` for voice centering, `7eb9e09` for Sheets jitter, `fea846a` for lead-in exclusion, and `86fd6ec` for MP3 export.
 
+## Video studies consume explicit time
+
+The independent [Gator and Tapir studio](../ui/video/README.md) lives under `ui/video/`. One PixiJS renderer displays eight character treatments from `assets/video/`. A small C++ utility under `lib/video/` samples held poses and restrained upper-body movement from a supplied quarter-note position; it compiles natively and to its own WASM module. It owns no timer, musical control, or transport.
+
+The studio currently runs an explicit four-second preview score. Its validated in-process performance adapter can accept authoritative PE observations, but a live subscription is not connected. Rendering never advances PE time or replays audio commands. `npm run build:video` is independent of the practice build and leaves the practice offline cache unchanged. The practice desk remains the supported audio UI. Actual CRT conversion and audiovisual synchronization remain separate verification tasks.
+
 ## Peripheral wiring diagnostics are separate from musical control
 
 [lib/peripherals](../lib/peripherals/README.md) supplies a native operator-run I-PAC probe, capture summaries, and a portable C++ input latch and explicit light math. The Mac and Linux host adapters report actual keyboard and relative-axis input. A guarded single-LED command requires an explicit operator invocation, observed compatible output descriptor, selected channel, and wiring confirmation. Tests open no devices.
