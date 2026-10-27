@@ -1,6 +1,25 @@
-# Review workstream plans with Hunk
+# Review the workstream plans
 
-Run these commands from the main checkout, `/Users/anulman/dev/show-tools`. Each opens the named workstream's committed changes in Hunk:
+Use GitHub PR comments as the durable review record:
+
+| Plan | Pull request | Branch |
+| --- | --- | --- |
+| Performance Engine | [PR #1](https://github.com/anulman/show-tools/pull/1) | `review/performance-engine` |
+| Filters and patches | [PR #2](https://github.com/anulman/show-tools/pull/2) | `review/filters-and-patches` |
+| EliteDesk peripherals | [PR #3](https://github.com/anulman/show-tools/pull/3) | `review/elitedesk-peripherals` |
+| Video Assistant | [PR #4](https://github.com/anulman/show-tools/pull/4) | `review/video-assistant` |
+
+Each PR contains one plan file. All four target `review/workstream-base`, a published snapshot of the operator's local main checkout. Remote `main` was behind that checkout when the PRs were created. The shared base keeps earlier implementation commits out of the plan diffs without updating remote `main`. Integrate or retarget the base deliberately when ready; do not automatically merge plan PRs into remote main.
+
+Write comments in the PR's Files changed view and submit the review so the owning session can retrieve it. The session revises its plan in its worktree and pushes the same branch. Keep feature implementation separate from plan review.
+
+## Recovered local review
+
+The Performance Engine PR body preserves three operator comments captured while the Hunk session was live, with their original line numbers. This is a partial recovery, not a complete export of the finished review. Additional comments were not recovered from Hunk's on-disk state.
+
+## Optional local diff browsing
+
+Hunk can still display the committed plan changes from the main checkout:
 
 ```sh
 hunk diff main...review/performance-engine
@@ -9,35 +28,19 @@ hunk diff main...review/elitedesk-peripherals
 hunk diff main...review/video-assistant
 ```
 
-The review branches are attached to the sessions' worktrees. Their new commits update these names. The main checkout stays on `main`. The three-dot comparison uses the common ancestor, so newer coordination documents on `main` do not appear as deletions in the plans.
+Hunk 0.24.0 holds review notes in memory. Closing the review removes its live session; Git branches and worktrees do not save those notes. The installed version's review store and broker source were inspected, and no durable comment archive was found in its config, state or runtime locations. Upstream tracks persistence after quit in [Hunk issue #113](https://github.com/modem-dev/hunk/issues/113).
 
-Press `c` in Hunk to leave an inline comment. Leave the window open and ask the owning session to address your Hunk comments. The agent can read the exact file and line anchors, revise its plan in its worktree, commit the revision, reply to the notes, and reload the comparison. Each plan can have its own review window.
+Do not use Hunk comments as the only record of a review. A local persistence integration would need verified save, reopen, update and crash behavior before adoption. The earlier instruction to leave the window open was a live-session requirement, not durable storage.
 
-Agents can inspect sessions through Hunk's local daemon:
-
-```sh
-hunk session list --json
-hunk session get SESSION_ID --json
-hunk session comment list SESSION_ID --type user --json
-```
-
-When several windows use the main repository, select a session ID by inspecting its source comparison. Matching only `--repo` is ambiguous in that case.
-
-After a revision, the owning agent can refresh that window:
-
-```sh
-hunk session reload SESSION_ID -- diff main...review/performance-engine
-```
-
-Use the corresponding branch for the other plans. Hunk's complete agent workflow is available through `hunk skill show`.
+Agents can load Hunk's installed skill using `hunk skill path` and inspect a live window with `hunk session list --json`. Local daemon calls may require sandbox escalation. No daemon restart or interactive Hunk launch is needed for GitHub review.
 
 ## Worktree ownership
 
-| Review branch | Owning session | Worktree |
+| Branch | Owning session | Worktree |
 | --- | --- | --- |
 | `review/performance-engine` | Performance Engine | `/Users/anulman/.codex/worktrees/d5db/show-tools` |
-| `review/filters-and-patches` | Filters & patches | `/Users/anulman/.codex/worktrees/72b3/show-tools` |
+| `review/filters-and-patches` | Filters and patches | `/Users/anulman/.codex/worktrees/72b3/show-tools` |
 | `review/elitedesk-peripherals` | EliteDesk hosting | `/Users/anulman/.codex/worktrees/f8e7/show-tools` |
 | `review/video-assistant` | Video Assistant | `/Users/anulman/.codex/worktrees/b0ba/show-tools` |
 
-These comparisons show committed changes. A session must commit its plan revision before that revision appears here. For an active uncommitted edit, open Hunk from that worktree or use its session reload `--source` option as described in the bundled skill. Do not assume a branch comparison includes another worktree's uncommitted files.
+Branch comparisons show committed changes. Commit and push each verified plan revision to update its PR. Do not include another session's edits or merge branches automatically into the operator's checkout.

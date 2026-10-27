@@ -59,7 +59,7 @@ Before implementation, the four plans should agree on command identity, transpor
 
 Each plan should state the first useful demo, phases, tests, dependencies, assumptions and a short list of decisions that need the operator. Keep real microphone/audio checks separate from fixture tests and physical-device claims separate from simulations. Do not merge plans or branches automatically into the operator's checkout.
 
-Review the plan branches directly from the main checkout using the [Hunk review guide](plan-review.md). The operator prefers inline file comments over routing feedback through a central conversation.
+Review the published plans through their [GitHub PRs](plan-review.md). GitHub comments are the durable review record; Hunk remains optional for local diff browsing because installed Hunk 0.24.0 does not persist notes after quit. The operator prefers inline file comments over routing feedback through a central conversation.
 
 ## Session registry
 
