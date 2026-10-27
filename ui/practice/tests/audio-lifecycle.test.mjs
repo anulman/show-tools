@@ -329,7 +329,7 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   assert.equal(panicCalls, 1);
 });
 
-test('keyboard bridge suppresses repeats and requires release after losing focus', async () => {
+test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses held/repeat events', async () => {
   const source = await sourceForVM(new URL('../app.ts', import.meta.url));
   const listeners = new Map();
   const commands = [];
@@ -338,7 +338,8 @@ test('keyboard bridge suppresses repeats and requires release after losing focus
     constructor(editing = false) { this.editing = editing; }
     closest() { return this.editing; }
   }
-  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+  const controls = [{ key: 'KeyQ', id: 'L1' }, { key: 'KeyW', id: 'R1' }, { key: 'KeyA', id: 'L2' }, { key: 'KeyS', id: 'R2' }];
+  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: controls,
     document: { querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }),
@@ -349,12 +350,23 @@ test('keyboard bridge suppresses repeats and requires release after losing focus
   const handlers = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('function postPerformanceEvent'));
   vm.runInContext(adapterSource + releaseSource + handlers, context);
   const event = { target: new Element(), code: 'KeyQ', repeat: false, timeStamp: 123, preventDefault() {} };
-  listeners.get('keydown')(event);
-  listeners.get('keydown')({ ...event, repeat: true });
-  assert.equal(commands.length, 1);
+  for (const control of controls) {
+    const key = { ...event, code: control.key };
+    const before = commands.length;
+    listeners.get('keydown')(key);
+    listeners.get('keydown')(key);
+    listeners.get('keydown')({ ...key, repeat: true });
+    assert.equal(commands.length, before + 1);
+    listeners.get('keyup')(key);
+    vm.runInContext('releasePresses()', context);
+    listeners.get('keydown')({ ...key, repeat: true });
+    assert.equal(commands.length, before + 1, 'a held repeat after refocus does not perform');
+    listeners.get('keydown')(key);
+    assert.equal(commands.length, before + 2, `fresh ${control.key} performs on the first press after refocus`);
+    assert.equal(commands.at(-1).id, control.id);
+    listeners.get('keyup')(key);
+  }
   vm.runInContext('releasePresses()', context);
-  listeners.get('keydown')(event);
-  assert.equal(commands.length, 1);
   const escape = { ...event, code: 'Escape', target: new Element(true) };
   listeners.get('keydown')(escape);
   assert.equal(panicCalls, 1, 'the first Escape after reconnect panics even with a field focused');
@@ -364,11 +376,8 @@ test('keyboard bridge suppresses repeats and requires release after losing focus
   vm.runInContext('releasePresses()', context);
   listeners.get('keydown')(escape);
   assert.equal(panicCalls, 2, 'Escape also works when it is the first input after focus loss');
-  listeners.get('keyup')(event);
-  listeners.get('keydown')({ ...event, timeStamp: 456 });
-  assert.equal(commands.length, 2);
-  assert.equal(commands[0].id, 'L1');
-  assert.notEqual(commands[0].commandId, commands[1].commandId);
+  assert.equal(commands.length, 8);
+  assert.equal(new Set(commands.map(command => command.commandId)).size, 8);
 });
 
 for (const bypass of [false, true]) {
