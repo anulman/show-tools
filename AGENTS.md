@@ -12,6 +12,8 @@ The operator manages the Sheets helper and Chrome CDP lifecycle. Start or restar
 
 Use `./show-tools sheets [song-slug-or-1-indexed-number] [--no-cdp] [--skip-open]` for combined Sheets following. Keep `npm run start:cdp` available for standalone browser management. Keep `.envrc` ignored; `.envrc.example` documents optional overrides. The Bash launcher supplies missing defaults and discovers an installed browser. The helper reads the same CDP port environment variable. Start processes only on explicit operator request.
 
+When a design or implementation depends on missing operator-specific facts, block that dependent work and ask concise operator questions. Do not invent hardware configuration, control purposes, protocols, timings, or workflow choices. Distinguish observed current code from intended behavior, and proposed capabilities from verified ones. Continue independent work that uses confirmed facts. For peripherals, start with `docs/hardware-inventory.md`; musical bindings belong to songs and the Performance Engine, not assumptions about button names or knob uses.
+
 Use Effect where it improves asynchronous workflows, resource cleanup, error handling, and external input validation. Keep audio-thread DSP and beat dispatch synchronous and free of Effect runtime work.
 
 # Learning more about Effect
