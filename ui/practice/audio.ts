@@ -4,7 +4,7 @@ import { Sampler } from '../../lib/sampler/sampler.js';
 import { CONTROL_IDS } from '../../lib/performance/model.js';
 import { encodeCompiledProgram } from '../../lib/performance/compiled-native.js';
 import type { CompiledSong } from '../../lib/performance/compiled-song.js';
-import type { ChannelId, ChannelSettings, Chart, ChartMetadata, Control, PracticeEvent, PracticeState, Program, StartOptions, LiveEffectDefinition } from '../../lib/performance/model.js';
+import type { ChannelId, ChannelSettings, Chart, ChartMetadata, Control, PracticeEvent, PracticeState, Program, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 
 export type MonitoringRelationship = 'unknown' | 'different-devices' | 'same-usb-interface' | 'same-non-usb';
 type MonitoringConfirmation = { kind: 'unconfirmed' } | { kind: 'confirmed'; stream: MediaStream; relationship: Exclude<MonitoringRelationship, 'unknown'> };
@@ -203,6 +203,7 @@ export class PracticeAudio {
     return this.request('practice.control', { control, commandId });
   }
   configureLiveEffects(effects: readonly LiveEffectDefinition[]) { return this.request('practice.effects', { effects }); }
+  configureVoiceEffects(configurations: readonly VoiceEffectConfiguration[]) { return this.request('practice.voice-effects', { configurations }); }
   setChannel(channelId: ChannelId, settings: ChannelSettings) { return this.request('practice.channel', { channelId, settings }); }
   selectChannel(channelId: ChannelId) { return this.request('practice.select', { channelId }); }
   setAutomatic(enabled: boolean) { return this.request('practice.automatic', { enabled }); }

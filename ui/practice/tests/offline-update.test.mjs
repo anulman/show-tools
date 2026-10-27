@@ -145,7 +145,7 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
     window: { isSecureContext: true, addEventListener(type, callback) { windowEvents.set(type, callback); } },
     location: { search: '', reload() { reloads++; } },
     elements: { 'offline-status': { textContent: '' } },
-    state: { phase: 'playing' }, chart: undefined, starting: false, switching: false, preparing: null, outputCapture: 'idle',
+    state: { phase: 'playing' }, chart: undefined, starting: false, switching: false, effectsApplying: false, preparing: null, outputCapture: 'idle',
     offlineUpdate: { kind: 'current' },
     isRunning() { return context.state.phase === 'playing' || context.state.phase === 'count-in'; },
     beginOutputRecording() {}, finishOutputRecording() {},
@@ -160,11 +160,11 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   };
 }
 
-for (const busy of ['playing', 'count-in', 'starting', 'preparing', 'switching', 'starting-export', 'waiting-export', 'recording-export', 'stopping-export']) {
+for (const busy of ['playing', 'count-in', 'starting', 'preparing', 'switching', 'effectsApplying', 'starting-export', 'waiting-export', 'recording-export', 'stopping-export']) {
   test(`update activation and reload wait through ${busy} and run once idle`, async () => {
     const h = await updateHarness();
     h.context.state.phase = busy === 'playing' || busy === 'count-in' ? busy : 'idle';
-    if (busy === 'starting' || busy === 'switching') h.context[busy] = true;
+    if (busy === 'starting' || busy === 'switching' || busy === 'effectsApplying') h.context[busy] = true;
     if (busy === 'preparing') h.context.preparing = Promise.resolve();
     if (busy.endsWith('-export')) h.context.outputCapture = busy.slice(0, -7);
     h.render();
@@ -172,6 +172,7 @@ for (const busy of ['playing', 'count-in', 'starting', 'preparing', 'switching',
     assert.equal(h.reloads, 0);
     h.context.starting = false;
     h.context.switching = false;
+    h.context.effectsApplying = false;
     h.context.preparing = null;
     h.context.outputCapture = 'idle';
     h.render({ phase: 'idle' });

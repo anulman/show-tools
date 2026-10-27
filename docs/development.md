@@ -45,15 +45,15 @@ For mobile checks, serve `dist/` over HTTPS. Microphone access requires a secure
 
 The merged [effects plan](plans/filters-and-patches.md) records operator decisions. Start with portable live-first processing and processed stereo caches, not sample-only effects or dry primary takes. Keep button bindings separate from logical voices. Use web controls for venue parameter tuning; performance peripherals invoke declared cues/operations.
 
-The [patches module](../lib/patches/README.md) supplies the prepared default-live rack used during practice and a separate processed-cache release prototype. Run its reproducible check from the repository root.
+The [patches module](../lib/patches/README.md) supplies ordered Slapback and Chorus stages for the six prepared practice profiles and evolving processed caches. Run its reproducible check from the repository root.
 
 ```sh
 node --import tsx scripts/verify-patches.ts
 ```
 
-That command builds and runs the same C++ tests natively and through Emscripten, then compares rendered interleaved stereo float fixtures. It saves generated artifacts in a fresh temporary directory. Tests cover generic stage order, mono left/right output, exact processed capture, and state-driven cache release at arbitrary reached stop positions. The initial prototype supports fixed graphs and parameters, phase-zero starts, and unit-speed playback. It repeats source DSP inaudibly to maintain tail state; it does not claim a caching speedup or physical realtime performance.
+That command builds and runs the same C++ tests natively and through Emscripten, then compares rendered interleaved stereo float fixtures. It saves generated artifacts in a fresh temporary directory. Tests cover generic stage order, mono left/right output, exact processed capture, and state-driven cache release at arbitrary reached stop positions. Prepared snapshots include complete delay and LFO state. END transfer joins a phrase at capture cutoff, consumes declared zero-source suffixes, and evolves original source across wraps. Playback remains unit-speed. These checks do not establish hardware callback performance.
 
-Coordinate performance headers, generated ABI, compiled cache preparation, stems, and browser routes with Performance Engine before editing. ABI 4 and compiled packet/schema 2 distinguish captured prefixes, logical periods, group anchors, millisecond cue windows, and native tempo-hit observations. The practice page records native sample/click and processed-live buses once each; live monitoring requires explicit physical-device confirmation. Compiled capture uses stopped preparation and switches routes immediately on arm. Its prepared endpoint snapshot joins a phrase without seeking or duplicating the outgoing live tail. Legacy and generic raw capture reject with effects enabled.
+Coordinate performance headers, generated ABI, compiled cache preparation, stems, and browser routes with Performance Engine before editing. ABI 5 and compiled packet/schema 3 retain captured prefixes, logical periods, group anchors, millisecond cue windows, and native tempo-hit observations while adding six independently prepared profiles, native graph readback, and source-located rotation windows. The practice page records native sample/click and processed-live buses once each; live monitoring requires explicit physical-device confirmation. Compiled capture uses stopped preparation and switches routes immediately on arm. Its prepared endpoint snapshot joins a phrase without seeking or duplicating the outgoing live tail. Legacy and generic raw capture reject with effects enabled.
 
 Read these files before choosing the processing order.
 
@@ -139,3 +139,9 @@ Use `npm run build:video` to build its native C++ pose module to WASM and bundle
 Use the [confirmed inventory](hardware-inventory.md) and [peripheral wiring guide](../lib/peripherals/README.md) for the complete harness. `npm run test:peripherals` builds native diagnostics, processes synthetic PCM through the current C++ engine, and compares portable native/WASM results without opening devices. `npm run peripherals:summary -- /path/to/probe.ndjson` summarizes an operator recording without assigning musical meanings.
 
 The native `peripheral-probe` provides explicit `list`, `listen`, and guarded `led` commands for Mac and Linux. Build/help/tests perform no hardware IO. Actual key maps, spinner axis/sign, LED connections and power, permissions, and firmware compatibility remain observed installation facts. Windows probe support and physical tests remain separate from Mac compilation and Linux CI. Do not run device commands unattended or change firmware/maps during automated verification.
+
+## Verify the compact voice desk
+
+Use each voice footer to edit an ordered stack while stopped. Native applied readback owns the summary; unsaved drafts must remain visibly unapplied. Verify changing one voice leaves another voice and its compatible capture banks unchanged. Existing retained takes keep their recorded graph. Test the serial backup Slapback and Chorus stack with nonzero rotations inside a marked interval, half a counted beat of native inactivity grace, tempo changes, window exit, and Stop. Zero and duplicate observations cannot extend grace. Physical knob mapping remains an installation task.
+
+Check Space on a focused effect disclosure or button before checking the body-level transport shortcut. Escape must still Panic while editing. Capture desktop and 390px screenshots from the integrated app, including expanded two-stage backup settings. Keep pad targets stable during count-in and recording. The layout comparison and verification contract are in [the desk rehab guide](implementation/practice-desk-rehab.md).

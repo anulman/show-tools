@@ -3,80 +3,50 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#191b1a">
-  <meta name="description" content="A pocket rehearsal desk for beat-synced samples and song charts.">
+  <meta name="theme-color" content="#293325">
+  <meta name="description" content="The Show Tools practice desk.">
   <title>Practice desk · Show tools</title>
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
-  <main id="practice-desk" class="desk">
-    <header class="topline">
-      <a class="brand" href="./" aria-label="Practice desk home"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span> SHOW TOOLS <span class="brand-divider">/</span> <span class="brand-page">PRACTICE DESK</span></a>
-      <span id="connection" class="connection"><i></i><span>Local WASM</span></span>
-    </header>
-
-    <section class="song-header" aria-labelledby="song-title">
-      <div><p class="eyebrow">SET LIST / REHEARSAL</p><label class="song-picker" for="song-select">Song script<select id="song-select" aria-label="Song script"></select></label><h1 id="song-title">Practice desk</h1><p id="song-description" class="song-subtitle">Loading the first song script…</p></div>
-      <div><button id="sheet-link" class="text-link" type="button" style="background:transparent;border:0;padding:0;text-align:left">Open current bar in Sheets <span aria-hidden="true">↗</span></button><span id="sheet-status" role="status" style="display:block;font-size:11px;color:var(--muted)"></span></div>
-    </section>
-
-    <div id="error" class="error" role="alert" hidden></div>
-    <section id="chart-source" class="chart-source" aria-label="Chart source and inspection"></section>
-    <noscript><p class="error">Enable JavaScript to use the practice desk.</p></noscript>
-
-    <section class="transport" aria-label="Song transport">
-      <div class="position-block">
-        <div class="position-labels"><span id="phase-label">READY TO PLAY</span><span id="range-label">A · BARS 1–76</span></div>
-        <div class="position"><div><span id="bar-number">01</span><span class="unit">BAR</span></div><span class="position-divider">/</span><div><span id="beat-number">1</span><span class="unit">BEAT</span></div><div id="beat-dots" class="beat-dots" aria-label="Four beats"><i></i><i></i><i></i><i></i></div></div>
-      </div>
-      <div class="transport-actions"><button id="start" class="primary" type="button"><span class="play-symbol" aria-hidden="true">▶</span><span>Start practice</span></button><button id="stop" class="secondary stop" type="button" disabled><span aria-hidden="true">■</span> Stop</button><p id="transport-hint">One bar of clicks, then you're in.</p></div>
-      <div class="transport-options">
-        <label class="field bpm-field"><span>TEMPO</span><div><input id="bpm" type="number" inputmode="decimal" min="40" max="240" step="1" value="98" aria-label="Tempo in BPM"><span>BPM</span></div></label>
-        <label class="field"><span>COUNT-IN</span><select id="count-in" aria-label="Count-in bars"><option value="1">1 bar</option><option value="2">2 bars</option><option value="0">None</option></select></label>
-        <label class="field section-field"><span>START AT</span><select id="start-section" aria-label="Start section"><option value="1">Instrumental A1</option></select></label>
-        <label class="field end-field"><span>END AT BAR</span><input id="end-bar" type="number" inputmode="numeric" min="1" max="217" value="76" aria-label="End bar"></label>
-        <label class="switch"><input id="loop" type="checkbox" checked><span class="switch-track"></span><span>Loop range</span></label>
-      </div>
-    </section>
-
-    <section class="chart-strip" aria-label="Chart position">
-      <div><span class="eyebrow">CURRENT SECTION</span><strong id="current-section">Instrumental A1</strong></div>
-      <div class="next-section"><span class="eyebrow">UP NEXT</span><strong id="next-section">Verse A1 <span>· bar 13</span></strong></div>
-      <div id="section-progress" class="section-progress" aria-hidden="true"><span></span></div>
-    </section>
-
-    <section class="performance" aria-label="Performance controls">
-      <div class="pad-area">
-        <div class="section-heading"><h2>Play the desk</h2><span id="sound-source" class="tiny-label">LIVE SAMPLE CAPTURE</span></div>
-        <div id="pads" class="pads"></div>
-        <div class="capture-options"><label class="switch" title="The lead-in always clicks. This controls the click during the song."><input id="click" type="checkbox"><span class="switch-track"></span><span>Song click</span></label><span class="capture-note">Lead-in always clicks. Press a pad for its chart cue.</span></div>
-      </div>
-
-    </section>
-
-    <section class="live-effects" aria-labelledby="effects-heading">
-      <div class="section-heading"><h2 id="effects-heading">Live voice effects</h2><span id="effects-status" role="status">Set effects before Start.</span></div>
-      <p class="effects-note">Uses your browser’s default microphone and audio output. Change them in browser or system sound settings before Start.</p>
-      <div class="effects-controls">
-        <label class="switch"><input id="effects-enabled" type="checkbox" checked><span class="switch-track"></span><span>Slapback</span></label>
-        <label class="field"><span>DELAY · MS</span><input id="effects-delay" type="number" min="40" max="250" step="1" value="100" inputmode="decimal"></label>
-        <label class="field"><span>FEEDBACK</span><input id="effects-feedback" type="number" min="0" max="0.7" step="0.05" value="0" inputmode="decimal"></label>
-        <label class="field"><span>WET AMOUNT</span><input id="effects-wet" type="number" min="0" max="1" step="0.05" value="0.25" inputmode="decimal"></label>
-      </div>
-      <p id="effects-capture-hint" class="effects-note">Slapback processes live voice and demo downloads. Sample capture with effects is unavailable in this build. Bypass Slapback to capture samples.</p>
-      <label class="monitor-setting field"><span>LIVE MONITORING · CONFIRM YOUR PHYSICAL SETUP AFTER START</span><select id="monitor-relationship" aria-describedby="monitor-hint"><option value="unknown">Not confirmed · monitoring off</option><option value="different-devices">Input and output are different devices</option><option value="same-usb-interface">Same USB audio interface</option><option value="same-non-usb">Same non-USB device · monitoring off</option></select></label>
-      <p id="monitor-hint" class="effects-note">Downloads include processed voice even when live monitoring is off.</p>
-    </section>
-
-    <section class="auxiliary" aria-label="Recording and stop controls">
-      <div class="demo-recording"><button id="record-demo" class="secondary" type="button"><span class="record-dot" aria-hidden="true"></span><span>Record demo</span></button><a id="download-demo" class="text-link" hidden download>Download take ↗</a><span id="recording-hint">Start practice opens the microphone and records your demo automatically.</span></div>
-      <div class="panic-group"><button id="mushroom" class="mushroom" type="button" aria-label="Panic stop all audio"><span></span></button><div><strong>Stop everything</strong><p>Mushroom button <kbd>ESC</kbd></p></div></div>
-    </section>
-
-    <footer><span>SHOW TOOLS / PRACTICE DESK</span><p>Audio runs locally in WASM. <span id="offline-status">Keep this page open to practice.</span></p><a href="./README.md">Setup &amp; notes ↗</a></footer>
-  </main>
-  <script type="module" src="./app.js"></script>
+<main id="practice-desk" class="desk">
+  <header class="topline">
+    <a class="brand" href="./">SHOW TOOLS</a><span class="brand-divider" aria-hidden="true">/</span>
+    <select id="song-select" aria-label="Song"></select>
+  </header>
+  <div id="error" class="error" role="alert" hidden></div>
+  <noscript><p class="error">Enable JavaScript to use the practice desk.</p></noscript>
+  <section class="transport" aria-label="Song transport">
+    <div class="position-block">
+      <div class="position-labels"><span id="phase-label">READY</span><span id="range-label">BARS 1–76</span></div>
+      <div class="position"><div><span id="bar-number">01</span><span class="unit">BAR</span></div><span class="position-divider">/</span><div><span id="beat-number">1</span><span class="unit">BEAT</span></div><div id="beat-dots" class="beat-dots" aria-label="Four beats"><i></i><i></i><i></i><i></i></div></div>
+    </div>
+    <div class="transport-actions"><button id="start" class="primary" type="button"><span aria-hidden="true">▶</span><span>Start practice</span></button><button id="stop" class="secondary stop" type="button" disabled>■ Stop</button><p id="transport-hint">One bar of clicks, then you're in.</p></div>
+    <div class="transport-options">
+      <label class="field"><span>TEMPO · BPM</span><input id="bpm" type="number" inputmode="decimal" min="40" max="240" step="1" value="98" aria-label="Tempo in BPM"></label>
+      <label class="field"><span>COUNT-IN</span><select id="count-in" aria-label="Count-in bars"><option value="1">1 bar</option><option value="2">2 bars</option><option value="0">None</option></select></label>
+      <label class="field section-field"><span>START AT</span><select id="start-section" aria-label="Start section"><option value="1">Instrumental A1</option></select></label>
+      <label class="field"><span>END AT BAR</span><input id="end-bar" type="number" inputmode="numeric" min="1" max="217" value="76" aria-label="End bar"></label>
+      <div class="transport-switches"><label class="switch"><input id="loop" type="checkbox" checked><span>Loop range</span></label><label class="switch"><input id="click" type="checkbox"><span>Song click</span></label></div>
+    </div>
+  </section>
+  <section id="live-voices" class="live-voices" aria-label="Live voices" hidden></section>
+  <section id="pads" class="pads" aria-label="Sample pads"></section>
+  <section class="utility" aria-label="Recording and stop controls">
+    <button id="record-demo" class="secondary" type="button"><span class="record-dot" aria-hidden="true"></span><span>Record demo</span></button>
+    <span id="recording-hint" role="status">Ready to record.</span><a id="download-demo" hidden download>Download take ↗</a>
+    <button id="mushroom" class="panic" type="button" aria-label="Panic stop all audio">Panic <kbd>ESC</kbd></button>
+  </section>
+  <details class="settings"><summary>Audio &amp; Sheets</summary><div class="settings-body">
+    <label class="field"><span>LIVE MONITORING</span><select id="monitor-relationship" aria-describedby="monitor-hint"><option value="unknown">Not confirmed · monitoring off</option><option value="different-devices">Input and output are different devices</option><option value="same-usb-interface">Same USB audio interface</option><option value="same-non-usb">Same non-USB device · monitoring off</option></select></label>
+    <button id="sheet-link" class="secondary" type="button">Open current bar in Sheets ↗</button><span id="sheet-status" role="status"></span>
+    <p id="monitor-hint">Browser-default audio. Confirm monitoring after Start.</p>
+  </div></details>
+  <section id="chart-source" class="chart-source" aria-label="Chart source and inspection"></section>
+  <footer><span id="offline-status">Local audio.</span><a href="./README.md">Setup &amp; notes ↗</a></footer>
+</main>
+<script type="module" src="./app.js"></script>
 </body>
 </html>
