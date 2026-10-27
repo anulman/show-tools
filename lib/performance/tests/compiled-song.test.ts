@@ -213,6 +213,8 @@ test('imported capture graph preserves each unique arm, commit, and boundary', a
     { ...song, takes: [{ ...song.takes[0], armCueId: 'missing' }, ...song.takes.slice(1)] },
     { ...song, takes: [{ ...song.takes[0], commitCueId: 'missing' }, ...song.takes.slice(1)] },
     { ...song, takes: [{ ...song.takes[0], end: { bar: 2, beat: 0 } }, ...song.takes.slice(1)] },
+    { ...song, selections: [{ ...song.selections[0], takeIds: song.takes.map(take => take.id), gains: song.takes.map(() => 1) }, ...song.selections.slice(1)] },
+    { ...song, playback: [{ bar: 1, voiceId: song.takes[0].voiceId, selectionId: song.selections[0].id }] },
     { ...song, chart: { ...song.chart, bars: song.chart.bars.map((bar, index) => index === 1 ? { ...bar, column: song.chart.bars[0].column } : bar) } },
   ]) assert.throws(() => decodeCompiledSong(changed));
 });

@@ -114,7 +114,8 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
       || cue.commitTakeId !== null && !song.takes.some(t => t.id === cue.commitTakeId && t.voiceId === cue.voiceId)
       || cue.selectionId !== null && !song.selections.some(s => s.id === cue.selectionId && s.voiceId === cue.voiceId)) throw new Error('Invalid executable cue reference.');
     if ((cue.kind === 'arm' || cue.kind === 'commit-arm') !== (cue.takeId !== null)
-      || (cue.kind === 'commit' || cue.kind === 'commit-arm') !== (cue.commitTakeId !== null)) throw new Error('Invalid executable capture cue kind.');
+      || (cue.kind === 'commit' || cue.kind === 'commit-arm') !== (cue.commitTakeId !== null)
+      || (cue.kind === 'commit' || cue.kind === 'commit-arm' || cue.kind === 'play') !== (cue.selectionId !== null)) throw new Error('Invalid executable capture cue kind.');
   }
   for (const take of song.takes) {
     const arms = song.cues.filter(cue => cue.takeId === take.id);
@@ -128,6 +129,12 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     }
   }
   if (song.playback.some(p => p.bar < 1 || p.bar > bars || !song.selections.some(s => s.id === p.selectionId && s.voiceId === p.voiceId))) throw new Error('Invalid executable playback reference.');
+  const selectionReady = (id: string, point: typeof PointSchema.Type) => song.selections.find(selection => selection.id === id)?.takeIds.every(id => {
+    const end = song.takes.find(take => take.id === id)?.end;
+    return end && end.bar * beats + end.beat <= point.bar * beats + point.beat;
+  });
+  if (song.cues.some(cue => cue.selectionId !== null && !selectionReady(cue.selectionId, cueBoundary(cue)))
+    || song.playback.some(playback => !selectionReady(playback.selectionId, { bar: playback.bar, beat: 0 }))) throw new Error('An executable selection cannot precede its captures.');
   return song;
 }
 
