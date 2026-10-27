@@ -325,6 +325,12 @@ int Program::press(int button, double frame, double bpm, bool microphone) noexce
       if (std::min(phase, period - phase) > 1) return PF_LOOP_MISMATCH;
     }
   }
+  if (cue.kind == PF_COMMIT_ARM && target <= now + epsilon) {
+    CommitPlan plan; int bank = -1;
+    int result = preflight_commit(cue, plan);
+    if (result == PF_OK) result = preflight_start(cue, &cue, plan.period, bank);
+    if (result != PF_OK) { if (plan.invalid_draft) discard_invalid_draft(cue); return result; }
+  }
   if (cue.tempo_hint && (!tempo_hit_ || tempo_hit_(tempo_context_, cue.tempo_hint) != PF_OK)) return PF_TEMPO_REJECTED;
   if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) { switch_route(cue.voice); if (error_ != PF_OK) return error_; }
   if (target <= now + epsilon) {
@@ -371,21 +377,60 @@ bool Program::select(int voice, int selection, bool automatic) noexcept {
   }
   selection_[voice] = selection; return true;
 }
+int Program::preflight_commit(const Cue& cue, CommitPlan& plan) const noexcept {
+  if (active_capture_.take != cue.commit) return PF_NO_RECORDING;
+  const Take& draft = takes_[cue.commit];
+  if (draft.cache[active_capture_.bank]->state() != patches::TakeState::capturing) return PF_ACTION_FAILED;
+  if (!commit_period(cue.commit, plan.period)) { plan.invalid_draft = true; return PF_LOOP_MISMATCH; }
+  double joined_phase = draft.cache[active_capture_.bank]->length() % plan.period;
+  for (int id = 0; id < member_count_; ++id) if (members_[id].selection == cue.selection && members_[id].take != cue.commit) {
+    const Take& member = takes_[members_[id].take];
+    if (member.latest < 0 || member.cache[member.latest]->state() != patches::TakeState::committed) return PF_NO_SAMPLE;
+    if (member.cache[member.latest]->period() != plan.period) return PF_LOOP_MISMATCH;
+    double phase = member.playback[member.latest]->state() == patches::PlaybackState::playing ? member.playback[member.latest]->phase() % plan.period : 0;
+    double delta = std::abs(phase - joined_phase);
+    if (std::min(delta, double(plan.period) - delta) > 1) return PF_LOOP_MISMATCH;
+  }
+  return PF_OK;
+}
+int Program::preflight_start(const Cue& cue, const Cue* staged_commit, uint32_t staged_period, int& bank) const noexcept {
+  if (active_capture_.take >= 0 && (!staged_commit || staged_commit->commit != active_capture_.take)) return PF_CAPTURE_BUSY;
+  bank = available_bank(cue.take);
+  if (bank < 0) return PF_TAKE_UNAVAILABLE;
+  const Take& take = takes_[cue.take];
+  if (take.anchor == cue.take) return PF_OK;
+  const Take& anchor = takes_[take.anchor];
+  uint32_t period;
+  double phase;
+  if (staged_commit && take.anchor == staged_commit->commit) {
+    period = staged_period; phase = anchor.cache[active_capture_.bank]->length() % period;
+  } else {
+    if (anchor.latest < 0 || anchor.playback[anchor.latest]->state() != patches::PlaybackState::playing) return PF_LOOP_MISMATCH;
+    period = anchor.cache[anchor.latest]->period(); phase = anchor.playback[anchor.latest]->phase() % period;
+  }
+  double expected = std::ceil((take.loop_end - take.begin) * rate_ * 60 / bpm_);
+  if (std::abs(double(period) - expected) > 1 || std::min(phase, double(period) - phase) > 1) return PF_LOOP_MISMATCH;
+  return PF_OK;
+}
+void Program::discard_invalid_draft(const Cue& cue) noexcept {
+  if (active_capture_.take != cue.commit) return;
+  takes_[cue.commit].cache[active_capture_.bank]->reset_for_capture(); active_capture_ = {};
+  if (live_route_ == cue.voice) switch_route(-1);
+}
 int Program::execute(int id, double) noexcept {
   const Cue& cue = cues_[id];
-  int bank = cue.take >= 0 ? available_bank(cue.take) : -1;
-  if (cue.kind == PF_ARM && active_capture_.take >= 0) return PF_CAPTURE_BUSY;
-  if ((cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) && bank < 0) return PF_TAKE_UNAVAILABLE;
-  if ((cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM) && active_capture_.take != cue.commit) return error_ = PF_NO_RECORDING;
-  if (cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM) {
+  bool commits = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
+  bool starts = cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM;
+  CommitPlan plan; int bank = -1;
+  int result = commits ? preflight_commit(cue, plan) : PF_OK;
+  if (result == PF_OK && starts) result = preflight_start(cue, commits ? &cue : nullptr, plan.period, bank);
+  if (result != PF_OK) {
+    if (plan.invalid_draft) discard_invalid_draft(cue);
+    return result;
+  }
+  if (commits) {
     Take& take = takes_[active_capture_.take];
-    uint32_t period = 0;
-    if (!commit_period(active_capture_.take, period)) {
-      take.cache[active_capture_.bank]->reset_for_capture();
-      active_capture_ = {}; if (live_route_ == cue.voice) switch_route(-1);
-      return error_ = PF_LOOP_MISMATCH;
-    }
-    if (!take.cache[active_capture_.bank]->commit(period)) return error_ = PF_NO_RECORDING;
+    if (!take.cache[active_capture_.bank]->commit(plan.period)) return error_ = PF_ACTION_FAILED;
     if (take.latest >= 0) take.playback[take.latest]->stop();
     uint64_t completed_generation = active_capture_.generation;
     take.latest = active_capture_.bank; active_capture_ = {};
@@ -395,8 +440,8 @@ int Program::execute(int id, double) noexcept {
     if (tail_generation_[cue.voice] == completed_generation) { drain_[cue.voice] = 0; tail_generation_[cue.voice] = 0; }
     voices_[cue.voice]->reset();
     if (cue.selection >= 0) {
-      if (!select(cue.voice, cue.selection, false)) return error_ = PF_NO_SAMPLE;
-    } else if (!play_take(cue.commit)) return error_ = PF_NO_SAMPLE;
+      if (!select(cue.voice, cue.selection, false)) return error_ = PF_ACTION_FAILED;
+    } else if (!play_take(cue.commit)) return error_ = PF_ACTION_FAILED;
     if (cue.kind == PF_COMMIT && live_route_ == cue.voice) switch_route(-1, true);
   }
   if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) {
@@ -428,19 +473,43 @@ void Program::apply_pending(double frame, double bpm) noexcept {
   remember_cues(frame, bpm);
   double now = position(frame, bpm);
   query_position_ = now; query_frame_ = frame;
-  // All releases at a shared frame precede every independent capture start.
+  struct Due { int cue = -1, result = PF_OK, bank = -1; CommitPlan commit; };
+  Due due[PF_CHANNELS];
+  const Cue* staged_commit = nullptr; uint32_t staged_period = 0; bool failed_commit = false;
+  for (int button = 0; button < PF_CHANNELS; ++button) {
+    if (pending_[button].cue < 0 || frame < std::ceil(anchor_frame_ + (pending_[button].position - anchor_position_) * rate_ * 60 / bpm)) continue;
+    Due& action = due[button]; action.cue = pending_[button].cue;
+    const Cue& cue = cues_[action.cue];
+    if (cue.kind != PF_COMMIT && cue.kind != PF_COMMIT_ARM) continue;
+    action.result = preflight_commit(cue, action.commit);
+    if (action.result == PF_OK && cue.kind == PF_COMMIT_ARM) action.result = preflight_start(cue, &cue, action.commit.period, action.bank);
+    if (action.result == PF_OK) { staged_commit = &cue; staged_period = action.commit.period; }
+    else failed_commit = true;
+  }
+  // Preflight incoming resources against the valid staged release, before it is
+  // published. Independent failed starts do not roll back that valid commit.
+  for (int button = 0; button < PF_CHANNELS; ++button) if (due[button].cue >= 0) {
+    Due& action = due[button]; const Cue& cue = cues_[action.cue];
+    if (cue.kind == PF_ARM) action.result = failed_commit ? PF_CAPTURE_BUSY : preflight_start(cue, staged_commit, staged_period, action.bank);
+  }
+  // All releases precede starts. A failed release never creates a vacant slot
+  // that a dependent incoming cue may silently consume at this boundary.
   for (int pass = 0; pass < 2; ++pass) for (int button = 0; button < PF_CHANNELS; ++button) {
-    if (pending_[button].cue < 0) continue;
-    int cue = pending_[button].cue;
-    bool commits = cues_[cue].kind == PF_COMMIT || cues_[cue].kind == PF_COMMIT_ARM;
-    if (commits != (pass == 0) || frame < std::ceil(anchor_frame_ + (pending_[button].position - anchor_position_) * rate_ * 60 / bpm)) continue;
+    Due& action = due[button]; if (action.cue < 0) continue;
+    const Cue& cue = cues_[action.cue];
+    bool commits = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
+    if (commits != (pass == 0)) continue;
     pending_[button] = {};
-    int result = execute(cue, frame);
+    int result = action.result;
+    if (cue.kind == PF_ARM && failed_commit) result = PF_CAPTURE_BUSY;
+    if (result == PF_OK) result = execute(action.cue, frame);
+    else if (action.commit.invalid_draft) discard_invalid_draft(cue);
     if (result != PF_OK) {
       bool admission = result == PF_CAPTURE_BUSY || result == PF_TAKE_UNAVAILABLE || result == PF_NO_RECORDING || result == PF_NO_SAMPLE || result == PF_LOOP_MISMATCH;
       if (!admission) { stop(); error_ = PF_ACTION_FAILED; return; }
+      if (commits) failed_commit = true;
       error_ = PF_OK;
-      if (outcome_) outcome_(outcome_context_, frame, button, cue, result);
+      if (outcome_) outcome_(outcome_context_, frame, button, action.cue, result);
     } else if (observer_) observer_(observer_context_, frame);
   }
 }

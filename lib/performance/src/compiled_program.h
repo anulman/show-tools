@@ -40,10 +40,14 @@ class Program {
   struct Member;
   struct PlaybackCue;
   struct Pending;
+  struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   Program() = default;
   bool reservation_available(int take, int button, int committing) const noexcept;
   int available_bank(int take) const noexcept;
+  int preflight_commit(const Cue& cue, CommitPlan& plan) const noexcept;
+  int preflight_start(const Cue& cue, const Cue* staged_commit, uint32_t staged_period, int& bank) const noexcept;
+  void discard_invalid_draft(const Cue& cue) noexcept;
   int execute(int cue, double frame) noexcept;
   bool selection_ready(int selection, int voice) const noexcept;
   bool select(int voice, int selection, bool automatic) noexcept;

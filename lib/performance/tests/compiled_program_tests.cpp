@@ -581,6 +581,114 @@ void crb_history_has_one_audible_owner() {
   require(heap_allocations == 0 && heap_frees == 0, "END history transfer and live reseed are allocation-free at shared boundary");
 }
 
+std::vector<double> missing_middle_handoff_table() {
+  return {
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 4, 8, 7, 0, 0, 1, 2, 3,
+    0, 1, 0, 2, 0, 1, 2, 0, 0,
+    0, 2, 0, 3, 0, 1, 3, 0, 0,
+    0, 3, 0, 4, 0, 1, 4, 0, 0,
+    1, 4, 0, 5, 0, 1, 5, 0, 3,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
+    0, 0, 1, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0,
+    0, 0, 2, 0, PF_ARM, 0, 0, 1, -1, -1, 0,
+    0, 0, 2, 1, PF_COMMIT, 1, 0, -1, 1, 1, 0,
+    0, 0, 3, 0, PF_ARM, 0, 0, 2, -1, -1, 0,
+    0, 0, 3, 1, PF_COMMIT, 1, 0, -1, 2, 2, 0,
+    1, 1, 3, 1, PF_ARM, 1, 0, 3, -1, -1, 0,
+    1, 1, 4, -1, PF_COMMIT, 1, 0, -1, 3, 3, 0,
+    0, 0, 1,
+    1, 0, 1, 1, 1, 1,
+    2, 0, 1, 2, 1, 1, 2, 2, 1,
+    3, 3, 1
+  };
+}
+void commit_preflights_entire_selection_before_publication() {
+  Engine engine; prepare(engine, missing_middle_handoff_table());
+  ok(engine, pf_start(engine, 120, 1, 1, 5, 0, 0)); ok(engine, press(engine, 0)); until(engine, 1); ok(engine, press(engine, 0)); until(engine, 2);
+  until(engine, 3); ok(engine, press(engine, 0)); until(engine, 3, 2); ok(engine, press(engine, 0)); ok(engine, press(engine, 1));
+  std::array<double, PF_EVENT_CAPACITY * PF_EVENT_FIELDS> events{}; pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+  until(engine, 4);
+  require(!take(engine, 1)[PF_TAKE_READY] && !take(engine, 2)[PF_TAKE_READY] && !take(engine, 3)[PF_TAKE_READY] && take(engine, 3)[PF_TAKE_LENGTH] == 0, "missing middle member prevents draft publication and dependent incoming start");
+  uint32_t count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY); int old_failures = 0, starts_cancelled = 0;
+  for (uint32_t index = 0; index < count; ++index) {
+    const double* row = events.data() + index * PF_EVENT_FIELDS;
+    require(row[PF_EVENT_TYPE] != PF_FAULT, "failed handoff preflight never becomes a fatal DSP fault");
+    if (row[PF_EVENT_TYPE] == PF_CONTROL && row[PF_EVENT_APPLIED] == 0) {
+      if (row[PF_EVENT_CUE] == 5 && row[PF_EVENT_ERROR] == PF_NO_SAMPLE) ++old_failures;
+      if (row[PF_EVENT_CUE] == 6 && row[PF_EVENT_ERROR] == PF_CAPTURE_BUSY) ++starts_cancelled;
+    }
+  }
+  require(old_failures == 1 && starts_cancelled == 1, "failed commit and cancelled dependent start each report their own source cue outcome");
+  auto first = take(engine, 0); auto draft_length = take(engine, 2)[PF_TAKE_LENGTH]; auto audio = render(engine, 128);
+  require(first[PF_TAKE_READY] && first[PF_TAKE_LENGTH] == 16000 && take(engine, 2)[PF_TAKE_LENGTH] == draft_length + 128 && state(engine)[PF_PHASE] == PF_PLAYING, "selection preflight preserves committed PCM and active old recording without resetting its live Rack");
+  require(std::all_of(audio.left.begin(), audio.left.end(), [](float value) { return std::abs(value - .3125f) < 1e-6; }), "only prior committed loop remains audible after rejected group publication");
+}
+void failed_period_blocks_same_boundary_start() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 6, 120, 6, 25, 25, 3, 5, 4, 0, 0, 1, 2, 3,
+    0, 1, 0, 3, 0, 1, 3, 0, 0,
+    0, 3, 0, 4, 2, 1, 5, 0, 0,
+    1, 4, 2, 6, 2, 1, 6, 2, 2,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
+    0, 0, 2, -1, PF_COMMIT_ARM, 1, 0, 1, 0, 0, 0,
+    0, 0, 4, 1, PF_COMMIT, 2, 2, -1, 1, 1, 0,
+    1, 1, 4, 1, PF_ARM, 2, 2, 2, -1, -1, 0,
+    1, 1, 6, 1, PF_COMMIT, 2, 2, -1, 2, 2, 0,
+    0, 0, 1, 1, 0, 1, 1, 1, 1, 2, 2, 1
+  };
+  Engine engine; prepare(engine, song); ok(engine, pf_start(engine, 120, 1, 1, 6, 0, 0)); ok(engine, press(engine, 0)); until(engine, 2); ok(engine, press(engine, 0)); until(engine, 3);
+  ok(engine, pf_control(engine, 6, 0, nullptr, 0)); render(engine, 4800); ok(engine, pf_control(engine, 6, 0, nullptr, 0));
+  until(engine, 4, 2); ok(engine, press(engine, 1)); ok(engine, press(engine, 0));
+  std::array<double, PF_EVENT_CAPACITY * PF_EVENT_FIELDS> events{}; pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+  until(engine, 4, 3);
+  require(take(engine, 0)[PF_TAKE_READY] && !take(engine, 1)[PF_TAKE_READY] && take(engine, 1)[PF_TAKE_LENGTH] == 0 && !take(engine, 2)[PF_TAKE_READY] && take(engine, 2)[PF_TAKE_LENGTH] == 0, "invalid period discards only old draft and cannot automatically start incoming capture after clearing active state");
+  uint32_t count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY); int mismatches = 0, cancelled = 0;
+  for (uint32_t index = 0; index < count; ++index) {
+    const double* row = events.data() + index * PF_EVENT_FIELDS;
+    require(row[PF_EVENT_TYPE] != PF_FAULT, "period mismatch cleanup remains nonfatal");
+    if (row[PF_EVENT_TYPE] == PF_CONTROL && row[PF_EVENT_APPLIED] == 0) {
+      if (row[PF_EVENT_CUE] == 2 && row[PF_EVENT_ERROR] == PF_LOOP_MISMATCH) ++mismatches;
+      if (row[PF_EVENT_CUE] == 3 && row[PF_EVENT_ERROR] == PF_CAPTURE_BUSY) ++cancelled;
+    }
+  }
+  require(mismatches == 1 && cancelled == 1 && channel(engine, 1)[PF_CHANNEL_STATUS] != PF_ARMED && channel(engine, 1)[PF_CHANNEL_STATUS] != PF_RECORDING, "period cleanup reports both source cues and clears the cancelled incoming reservation");
+  auto audio = render(engine, 128);
+  require(state(engine)[PF_PHASE] == PF_PLAYING && std::all_of(audio.left.begin(), audio.left.end(), [](float value) { return std::abs(value - .3125f) < 1e-6; }), "failed paired boundary preserves prior committed sample and transport");
+}
+void record_two_layers(pf_engine* engine) {
+  ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0)); until(engine, 1); ok(engine, press(engine, 0)); until(engine, 2); ok(engine, press(engine, 0)); until(engine, 3); pf_stop(engine);
+}
+void crb_unavailable_start_preserves_old_capture() {
+  Engine engine; prepare(engine, table()); record_two_layers(engine);
+  const pf_effect_definition edited{PF_EFFECT_SLAPBACK, 1, {{80, 0, .5}}}; ok(engine, pf_prepare_live_effects(engine, &edited, 1, 2));
+  ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0)); until(engine, 1); ok(engine, press(engine, 0)); until(engine, 2); pf_stop(engine);
+  ok(engine, pf_prepare_live_effects(engine, &edited, 1, 2)); record_two_layers(engine);
+  ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0)); until(engine, 1);
+  const auto old = take(engine, 0), next = take(engine, 1);
+  require(press(engine, 0) < 0 && state(engine)[PF_ERROR] == PF_TAKE_UNAVAILABLE && take(engine, 0) == old && take(engine, 1) == next && channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING, "unavailable CRB target rejects whole cue before publishing or stopping old capture");
+  render(engine, 128); require(take(engine, 0)[PF_TAKE_LENGTH] == old[PF_TAKE_LENGTH] + 128, "rejected atomic CRB keeps recording old source epoch");
+  pf_stop(engine); require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 16000 && take(engine, 1)[PF_TAKE_READY], "atomic CRB failure preserves both prior committed takes");
+}
+void independent_unavailable_arm_does_not_rollback_commit() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
+    2, 3, 0, 4, 0, 1, 4, 0, 0,
+    1, 4, 0, 5, 0, 1, 5, 0, 1,
+    2, 2, 2, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
+    2, 2, 3, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0,
+    1, 1, 3, -1, PF_ARM, 1, 0, 1, -1, -1, 0,
+    1, 1, 4, -1, PF_COMMIT, 1, 0, -1, 1, 1, 0,
+    0, 0, 1, 1, 1, 1
+  };
+  Engine engine; prepare(engine, song);
+  auto capture_next_only = [&]() { ok(engine, pf_start(engine, 120, 0, 3, 5, 0, 0)); until(engine, 3); ok(engine, press(engine, 1)); until(engine, 4); ok(engine, press(engine, 1)); until(engine, 5); pf_stop(engine); };
+  capture_next_only(); const pf_effect_definition edited{PF_EFFECT_SLAPBACK, 1, {{80, 0, .5}}}; ok(engine, pf_prepare_live_effects(engine, &edited, 1, 2)); capture_next_only();
+  const auto retained = take(engine, 1);
+  ok(engine, pf_start(engine, 120, 0, 2, 5, 0, 0)); until(engine, 2); ok(engine, press(engine, 2)); until(engine, 3); ok(engine, press(engine, 2));
+  require(press(engine, 1) < 0 && state(engine)[PF_ERROR] == PF_TAKE_UNAVAILABLE, "independent incoming unavailable bank rejects only its reservation");
+  until(engine, 4); require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 16000 && take(engine, 1) == retained, "valid standalone old commit publishes despite unrelated incoming admission failure");
+}
+
 void prepared_capture_reuses_banks_without_heap_work() {
   Engine engine; prepare(engine, table());
   std::array<float, 128> input{}, left{}, right{}, live_left{}, live_right{}; input.fill(.25f);
@@ -621,4 +729,4 @@ void prepared_capture_reuses_banks_without_heap_work() {
   require(heap_allocations == 0 && heap_frees == 0, "idempotent stopped preparation avoids allocations when all reusable banks are current");
 }
 }
-int main() { capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
+int main() { capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
