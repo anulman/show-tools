@@ -80,7 +80,7 @@ function keyboardEdge(event: KeyboardEvent, edge: 'press' | 'release') {
   const mapping = new Map([...CONTROLS.map(control => [control.key, control.id] as const), ['Escape', 'mushroom'] as const]);
   keyboardInput ??= createPeripheralInput({ producerId: 'practice-keyboard', mapping });
   if (!keyboardConnected) {
-    keyboardInput.connect({ sessionId: String(keyboardSession++), releasedCodes: keyboardSession === 1 ? [...mapping.keys()] : [] });
+    keyboardInput.connect({ sessionId: String(keyboardSession++), releasedCodes: keyboardSession === 1 ? [...mapping.keys()] : ['Escape'] });
     keyboardConnected = true;
   }
   return keyboardInput.inject({ sessionId: String(keyboardSession - 1), sourceTimeMs: event.timeStamp, kind: 'key', code: event.code,

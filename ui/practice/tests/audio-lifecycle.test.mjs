@@ -333,11 +333,15 @@ test('keyboard bridge suppresses repeats and requires release after losing focus
   const source = await sourceForVM(new URL('../app.ts', import.meta.url));
   const listeners = new Map();
   const commands = [];
-  class Element { closest() { return false; } }
+  let panicCalls = 0;
+  class Element {
+    constructor(editing = false) { this.editing = editing; }
+    closest() { return this.editing; }
+  }
   const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
-    document: { querySelectorAll: () => [] }, pads: new Map(), elements: {},
+    document: { querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
-    act: action => action(), flash() {}, triggerPad: (id, commandId) => commands.push({ id, commandId }),
+    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }),
   };
   vm.createContext(context);
   const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const sources'));
@@ -351,6 +355,15 @@ test('keyboard bridge suppresses repeats and requires release after losing focus
   vm.runInContext('releasePresses()', context);
   listeners.get('keydown')(event);
   assert.equal(commands.length, 1);
+  const escape = { ...event, code: 'Escape', target: new Element(true) };
+  listeners.get('keydown')(escape);
+  assert.equal(panicCalls, 1, 'the first Escape after reconnect panics even with a field focused');
+  listeners.get('keydown')({ ...escape, repeat: true });
+  assert.equal(panicCalls, 1);
+  listeners.get('keyup')(escape);
+  vm.runInContext('releasePresses()', context);
+  listeners.get('keydown')(escape);
+  assert.equal(panicCalls, 2, 'Escape also works when it is the first input after focus loss');
   listeners.get('keyup')(event);
   listeners.get('keydown')({ ...event, timeStamp: 456 });
   assert.equal(commands.length, 2);
