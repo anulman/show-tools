@@ -69,6 +69,10 @@ export type CompiledCue = typeof CueSchema.Type;
 export type CompiledTake = typeof TakeSchema.Type;
 export type SongDiagnostic = typeof DiagnosticSchema.Type;
 export type Execution = typeof ExecutionSchema.Type;
+function cueBoundary(cue: CompiledCue): typeof PointSchema.Type {
+  return cue.execution.kind === 'next-bar' ? { bar: cue.bar + 1, beat: 0 }
+    : { bar: Math.max(1, cue.bar), beat: cue.execution.kind === 'beat' ? cue.execution.beat : cue.cueBeat ?? 0 };
+}
 export function decodeCompiledSong(input: unknown): CompiledSong {
   const song = Schema.decodeUnknownSync(CompiledSongSchema)(input);
   if (!song.executable) return song;
@@ -88,6 +92,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     && point.bar <= bars + Number(end) && validBeat(point.beat) && (point.bar <= bars || point.beat === 0);
   const unique = (ids: readonly string[], kind: string) => { if (new Set(ids).size !== ids.length) throw new Error(`Duplicate ${kind} identity.`); };
   unique(song.voices.map(v => v.id), 'voice'); unique(song.cues.map(c => c.id), 'cue'); unique(song.takes.map(t => t.id), 'take'); unique(song.selections.map(s => s.id), 'selection');
+  unique(song.chart.bars.map(bar => String(bar.column)), 'chart column');
   if (song.takes.length > 28 || new Set(song.takes.map(t => t.slot)).size !== song.takes.length) throw new Error('Invalid prepared take resource count or slot identity.');
   for (const take of song.takes) {
     if (!song.voices.some(v => v.id === take.voiceId) || !take.end || take.gain === null || !validGain(take.gain)
@@ -108,6 +113,19 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
       || cue.takeId !== null && !song.takes.some(t => t.id === cue.takeId && t.voiceId === cue.voiceId)
       || cue.commitTakeId !== null && !song.takes.some(t => t.id === cue.commitTakeId && t.voiceId === cue.voiceId)
       || cue.selectionId !== null && !song.selections.some(s => s.id === cue.selectionId && s.voiceId === cue.voiceId)) throw new Error('Invalid executable cue reference.');
+    if ((cue.kind === 'arm' || cue.kind === 'commit-arm') !== (cue.takeId !== null)
+      || (cue.kind === 'commit' || cue.kind === 'commit-arm') !== (cue.commitTakeId !== null)) throw new Error('Invalid executable capture cue kind.');
+  }
+  for (const take of song.takes) {
+    const arms = song.cues.filter(cue => cue.takeId === take.id);
+    const commits = song.cues.filter(cue => cue.commitTakeId === take.id);
+    const arm = arms[0], commit = commits[0];
+    if (arms.length !== 1 || commits.length !== 1 || arm.id !== take.armCueId || commit.id !== take.commitCueId
+      || cueBoundary(arm).bar !== take.begin.bar || cueBoundary(arm).beat !== take.begin.beat
+      || !take.end || cueBoundary(commit).bar !== take.end.bar || cueBoundary(commit).beat !== take.end.beat
+      || !song.selections.some(selection => selection.id === commit.selectionId && selection.takeIds.includes(take.id))) {
+      throw new Error('Invalid executable capture graph.');
+    }
   }
   if (song.playback.some(p => p.bar < 1 || p.bar > bars || !song.selections.some(s => s.id === p.selectionId && s.voiceId === p.voiceId))) throw new Error('Invalid executable playback reference.');
   return song;
@@ -265,9 +283,6 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
     for (const [, column] of nonempty) issue(deferred ? 'deferred-control' : 'unbound-control', deferred?.reason ?? 'This control row needs an explicit executable binding or operator-approved deferral.', ref(row, column), deferred ? 'info' : 'error', row === 17 ? 'Filters / Video / Performance Engine' : 'Performance Engine');
   }
   const takes: CompiledTake[] = [];
-  const pointFor = (cue: CompiledCue): typeof PointSchema.Type => cue.execution.kind === 'next-bar'
-    ? { bar: cue.bar + 1, beat: 0 }
-    : { bar: Math.max(1, cue.bar), beat: cue.execution.kind === 'beat' ? cue.execution.beat : cue.cueBeat ?? 0 };
   for (const control of mapping.controls) {
     let open: CompiledTake | null = null;
     const policy = mapping.capturePolicies.find(p => p.voiceId === control.voiceId);
@@ -277,7 +292,7 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
       if (cue.kind === 'commit' || cue.kind === 'commit-arm') {
         if (!open) issue('commit-without-take', 'No preceding known arm cue supplies this commit. Resolve any earlier ambiguous cue first.', cue.source);
         else {
-          const end = pointFor(cue);
+          const end = cueBoundary(cue);
           const begin = open.begin;
           if (end.bar < begin.bar || end.bar === begin.bar && end.beat <= begin.beat) issue('capture-span', 'The commit boundary must follow the capture boundary.', cue.source);
           const final: CompiledTake = { ...open, end, commitCueId: cue.id,
@@ -294,7 +309,7 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
       if (cue.kind !== 'arm' && cue.kind !== 'commit-arm') continue;
       if (open) issue('overlapping-take', 'This arm occurs before the prior take has a known commit.', cue.source);
       const takeId = `${mapping.songId}/${control.voiceId}/take-${takes.filter(t => t.voiceId === control.voiceId).length + 1}`;
-      const take: CompiledTake = { id: takeId, voiceId: control.voiceId, slot: takes.length + 4, begin: pointFor(cue), end: null,
+      const take: CompiledTake = { id: takeId, voiceId: control.voiceId, slot: takes.length + 4, begin: cueBoundary(cue), end: null,
         armCueId: cue.id, commitCueId: null, phrase: '', retention: policy?.retention ?? 'unresolved', gain: policy?.gain ?? null };
       if (!policy) issue('capture-policy', `Specify layer, variant, or replacement retention and gain for ${control.voiceId}.`, cue.source);
       else if (!Number.isFinite(policy.gain) || policy.gain < 0 || policy.gain > 4) issue('capture-gain', 'Capture playback gain must be finite and between 0 and 4.', cue.source);

@@ -202,3 +202,17 @@ test('bare numbered tap controls report a known capability gap rather than unkno
   assert(song.diagnostics.some(d => d.source.a1 === 'E19' && d.code === 'manual-tap-capability'));
   assert(!song.diagnostics.some(d => d.source.a1 === 'E19' && d.code === 'unknown-cue'));
 });
+
+test('imported capture graph preserves each unique arm, commit, and boundary', async () => {
+  const { source, mapping } = fixture();
+  const song = await compileSong(source, mapping);
+  for (const changed of [
+    { ...song, cues: [{ ...song.cues[0], takeId: song.takes[1].id }, ...song.cues.slice(1)] },
+    { ...song, cues: song.cues.slice(1) },
+    { ...song, cues: [...song.cues, { ...song.cues[0], id: 'extra-arm' }] },
+    { ...song, takes: [{ ...song.takes[0], armCueId: 'missing' }, ...song.takes.slice(1)] },
+    { ...song, takes: [{ ...song.takes[0], commitCueId: 'missing' }, ...song.takes.slice(1)] },
+    { ...song, takes: [{ ...song.takes[0], end: { bar: 2, beat: 0 } }, ...song.takes.slice(1)] },
+    { ...song, chart: { ...song.chart, bars: song.chart.bars.map((bar, index) => index === 1 ? { ...bar, column: song.chart.bars[0].column } : bar) } },
+  ]) assert.throws(() => decodeCompiledSong(changed));
+});
