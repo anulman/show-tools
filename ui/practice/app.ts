@@ -33,7 +33,6 @@ const elements = {
   'beat-dots': requiredElement('#beat-dots', HTMLDivElement),
   'start': requiredElement('#start', HTMLButtonElement),
   'stop': requiredElement('#stop', HTMLButtonElement),
-  'transport-hint': requiredElement('#transport-hint', HTMLParagraphElement),
   'bpm': requiredElement('#bpm', HTMLInputElement),
   'count-in': requiredElement('#count-in', HTMLSelectElement),
   'start-section': requiredElement('#start-section', HTMLSelectElement),
@@ -341,9 +340,8 @@ function mountVoiceRows() {
     const main = document.createElement('div'); main.className = 'voice-main';
     const identity = document.createElement('div');
     const name = document.createElement('h2'); name.textContent = part.name;
-    const role = document.createElement('span'); role.className = 'voice-role';
-    role.textContent = part.role.kind === 'default-live' ? 'Default live voice' : 'Knob cue · ½ beat grace';
-    identity.append(name, role);
+    main.title = part.role.kind === 'default-live' ? 'Default live voice' : 'Knob cue with half-beat grace';
+    identity.append(name);
     const tools = document.createElement('div'); tools.className = 'voice-tools';
     const status = document.createElement('span'); status.className = 'voice-state'; status.textContent = 'STANDBY';
     liveVoiceStates.set(part.profile, status); tools.append(status);
@@ -412,7 +410,6 @@ function render(next: Partial<PracticeState>) {
       : 'Live monitoring is off. Confirm your physical setup after Start. Downloads still include processed voice.';
   startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start practice';
   elements.stop.disabled = !starting && !running && !recording;
-  elements['transport-hint'].textContent = inCountIn ? 'Listen for the downbeat.' : state.phase === 'playing' ? 'Space to stop. Esc stops everything.' : Number(elements['count-in'].value) === 0 ? 'Start on the next beat.' : `${elements['count-in'].value === '1' ? 'One bar' : 'Two bars'} of clicks, then you're in.`;
   for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting;
   elements['sheet-link'].setAttribute('aria-label', `Open ${inCountIn ? 'lead-in' : `bar ${displayBar}`} in Google Sheets`);
   for (const control of CONTROLS) {

@@ -29,7 +29,7 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
     for (const footer of footers) {
       const native = applied.find(item => item.profile === footer.voice.profile && item.prepared);
       footer.summary.textContent = native ? effectSummary(native.effects) : 'Not applied';
-      footer.pending.textContent = dirty(footer.voice.profile) ? 'UNAPPLIED' : `APPLIED · r${native?.revision}`;
+      footer.pending.textContent = dirty(footer.voice.profile) ? 'Unapplied' : 'Applied';
       footer.pending.dataset.dirty = String(dirty(footer.voice.profile));
       footer.root.dataset.prepared = String(Boolean(native));
       for (const input of footer.controls) input.disabled = locked;
