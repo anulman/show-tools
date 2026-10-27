@@ -1,238 +1,214 @@
 # Video Assistant plan
 
-Planning milestone, October 26, 2026. No feature implementation, dependency installation, Figma mutation, or service startup is included.
+Planning milestone, October 26, 2026, revised October 27 after the operator's PR #4 review. This plan includes no feature implementation, dependency installation, Figma mutation, service startup, or merge.
 
-Revised October 27 for the operator's shared meter, pedal-tempo, fractional-cue, and logging decisions from Performance Engine review.
+## Build a live stage for Gator and Tapir
 
-## Recommendation
+The operator selected A07 Gator Crooner and A29 The Tapir Tenor from the PDFs' A section. Build a reusable animated collection around those performers. Their poses and performances need not illustrate clock machinery, recording status, or hardware controls literally.
 
-Build a small cast of reusable Old TV characters that performs with the music. Start with A31 Mister Metronome and B14 Reel-to-Reel Cyclops. The pendulum makes beat alignment visible. The tape machine gives capture, commit, and playback a readable stage presence. Add C06 Knob Goblin after the first two assets work.
+The primary product is a live stage visual instrument. Characters stand on a digital stage in front of a background, primarily displayed on 4:3 CRT televisions. Use PixiJS for the browser scene. Offline output serves demo sharing after the live instrument works; it is not a separate music-video production workflow.
 
-Use a hybrid of cleaned pose frames and independently movable parts. Store authored motion as keyframes in musical time and evaluate the current pose from Performance Engine time. Render live in a browser. Render offline from the same assets, motion definitions, and recorded performance timeline. Pre-render short effects when their drawing complexity warrants it.
+For each character, retain the original treatment and develop 8-bit, 16-bit, and "Tex Avery animation" treatments alongside it. Every treatment uses crisp pose frames with restrained part motion. Keep a common pose vocabulary, registration baseline, and anchors so the treatments can be compared without changing the performance. Preserve the source PDFs intact.
 
-This recommendation comes from visual review of both PDFs and inspection of the current engine bridge. The references contain exploratory pose studies, not a finished animation collection. The first useful demo is two characters performing one short chart section, followed by a seekable replay and a matching video export.
+The first useful demo places Gator and Tapir on one 4:3 stage before a background. Each performs a short authored pose sequence driven by supplied Performance Engine time and control data. A comparison view shows both characters' original, 8-bit, 16-bit, and Tex Avery treatments together. Character animation is artistic performance, not a mandatory reflection of sample capture or playback state.
 
 ## Scope and evidence
 
-The authoritative scope is `/Users/anulman/dev/show-tools/docs/workstreams.md`, especially Video Assistant and coordination. Read alongside `AGENTS.md`, [architecture.md](../architecture.md), and [development.md](../development.md). The workstream brief postdates the required base checkout and is not present at that base. Do not copy unrelated parent-checkout changes into this branch.
+The authoritative starting scope is `/Users/anulman/dev/show-tools/docs/workstreams.md`, followed by the operator's inline review on [PR #4](https://github.com/anulman/show-tools/pull/4). Read alongside `AGENTS.md`, [architecture.md](../architecture.md), and [development.md](../development.md). The workstream brief postdates the required base checkout. Do not copy unrelated main-checkout changes into this branch.
 
-This plan belongs to the isolated managed workspace `/Users/anulman/.codex/worktrees/b0ba/show-tools/`, based on `619df0393c2a4fc357e4a2451b8e14e41d7421d4`. Integration remains the operator's decision.
+This plan belongs to `/Users/anulman/.codex/worktrees/b0ba/show-tools/` on `review/video-assistant`, based on `619df0393c2a4fc357e4a2451b8e14e41d7421d4`. Integration remains the operator's decision.
 
-Throughput checkpoint: one planning pass covering source evidence, rendering alternatives, shared clock requirements, and a committed plan. Prototypes and implementation wait for plan review.
+Throughput checkpoint: verify the selected source pages, revise the plan against all eight comments, check the document, commit and push the same branch, and reply to each review thread. Implementation remains a later task.
 
-### The PDFs are available and visually reviewed
+### The selected source pages are visually verified
 
-At the parent's initial check, both files were empty. At this session's recheck on October 26 at 19:02 Toronto time, both contained valid `%PDF-1.4` headers.
+At the parent's initial check, both PDFs were empty. They became available offline on October 26. Rechecked their SHA-256 hashes on October 27 against the original visual review.
 
 | Source | Bytes | Pages in this file | SHA-256 |
 | --- | ---: | ---: | --- |
 | `/Users/anulman/Dropbox/Old TV Character ideas-1.pdf` | 18,501,385 | 55 | `dd3e61e0a655564d098ecdb0fa14767370df2589fd5472d1cc497f3a68eacbb7` |
 | `/Users/anulman/Dropbox/Old TV Character ideas-2.pdf` | 17,636,797 | 54 | `9c4a8116a8d7c0d2e0802ba478619167faf431e4c6e1eecee68298e94897974a` |
 
-Used the PDF skill. Poppler was unavailable, so macOS PDFKit rendered all 109 pages to temporary PNGs. Reviewed six contact sheets covering every page, then full-page renders of the four candidates below. Text extraction corroborated names, poses, and page labels. Character recommendations follow visual evidence, not filenames or extracted descriptions alone.
+Used the PDF skill. Poppler was unavailable, so macOS PDFKit rendered all 109 pages to temporary PNGs. Reviewed six contact sheets covering every page. For this revision, inspected Gator and Tapir at full-page scale and extracted their page text directly from the PDF. The unchanged hashes confirm those renders still correspond to the source files.
 
 The collection contains 108 concepts with three poses each. File 1 contains the cover, A01 through A36, and B01 through B18. File 2 continues B19 through B36 and C01 through C36. Its printed page labels continue from 56 through 109. Keep physical PDF page and printed page separate in provenance.
 
-Observed common traits include strong silhouettes, theatrical gestures, musical machinery, dark outlines, and deliberately strange anatomy. Rendering varies across concepts. Some have coarse pixel edges; others use shaded or faceted illustration. Pose size, placement, and apparent pixel scale vary. White or pale panels and cast shadows are visible. None of these observations establishes clean alpha, separated parts, or a consistent sprite grid.
+| Selected character | Verified source | Observed artwork | Asset development |
+| --- | --- | --- | --- |
+| A07 Gator Crooner | File 1, physical page 8, printed page 8 | Lanky jade alligator in a burgundy lounge suit with gold details and cream underside. The tail ends in a microphone. Three studies show a suave stance, open-jaw croon, and embarrassed recoil | Register all three poses. Preserve the tail microphone, long silhouette, jaw expression, and suit. Prepare limited jaw, arm, and tail motion where clean separation is practical |
+| A29 The Tapir Tenor | File 1, physical page 30, printed page 30 | Rotund charcoal tapir in plum formalwear with cream shirt and copper-colored trumpet-like trunk. Three studies show a grand stance, trunk trumpet, and bashful curtsey | Register all three poses. Preserve the contrasting round silhouette, trunk, formalwear, and expressive hands. Prepare restrained trunk, hand, and body motion |
 
-| Candidate and source location | Observed design | Proposed development |
+The pages have pale presentation panels and visible differences in pose placement. The drawings are exploratory studies, not production sprite sheets. Clean transparency, separate parts, consistent pixel grids, and interchangeable pivots still require asset preparation. No rig or clean alpha is established by the PDF review.
+
+### Produce four treatments of each character
+
+| Treatment | Planned result | Review evidence |
 | --- | --- | --- |
-| A31 Mister Metronome. File 1, physical and printed page 32 | Walnut metronome body, long brass pendulum nose, red shoes. Stern tick, dance, and stumble poses | First timing demonstrator. Separate body, pendulum pivot, limbs, and face. Alternate pendulum endpoints on beats and accent the downbeat with a pose change |
-| B14 Reel-to-Reel Cyclops. File 1, physical and printed page 51 | Sage tape machine, twin reels, central eye, tape-loop legs. Walking, eye-bright, and tangled poses | First performance-state character. Reel phase follows performance time. Capture and playback select distinct poses. The tangled pose is an authored flourish, not an invented engine error state |
-| C06 Knob Goblin. File 2, physical page 24, printed page 79 | Black dial body, cream spider legs, red pointer and joints. Creep, louder twist, and recoil poses | Parameter character. Pointer follows an explicitly bound, acknowledged song parameter. The SpinTrak reports direction and distance, not a global gain value. Gait timing waits for the confirmed song pulse |
-| B23 Oscilloscope Jellyfish. File 2, physical page 5, printed page 60 | Midnight-blue scope, cyan screen trace, translucent-looking square tentacles. Wide, contracted, and trailing poses | Later accent character. Pose or tentacle pulse follows beats. The screen is decorative unless a separately specified audio-analysis feed drives it |
+| Original | Faithful production poses derived from the selected source artwork | Match silhouette, palette, costume, expressions, and props to the verified pages |
+| 8-bit | A deliberately simplified pixel treatment with crisp pose changes and restrained part motion | Review pixel grid, reduced detail, silhouette, palette, and registration alongside the original |
+| 16-bit | A richer pixel treatment of the same performer and poses | Review added shading and detail without changing identity, stage scale, or pose meaning |
+| Tex Avery animation | An expressive cartoon treatment of the same performer, using readable exaggeration and crisp pose frames | Review expression, anticipation, accents, and restrained part motion without turning every pose into continuous deformation |
 
-A14 Static Queen, B35 Equalizer Skyline, and the faceted C35 Polygon Parade Horse offer later scene or transition ideas. Their styles make useful alternatives to an all-mechanical cast. They are not part of the first asset milestone.
-
-### Current runtime facts
-
-`pf_process()` owns the clock and musical execution. [performance_engine.h](../../lib/performance/include/performance_engine.h) defines immutable event records and snapshots. Its snapshot fields include frame, epoch, clock beat frame, position beat, and dropped-event counters.
-
-[NativePerformance.events()](../../lib/performance/wasm-performance.ts) retains native sequence numbers and publishes source frame and sample rate when present. Beat events are timestamped. Most state and control events currently use an absent timestamp. `decode()` does not expose all native timing fields in public practice state.
-
-[PracticeEvent](../../lib/performance/model.ts) contains run identity, sequence, state, and optional timing and control identity. [PracticeAudio](../../ui/practice/audio.ts) adds chart metadata. The separate [tracker worklet port](../../ui/practice/runtime/beat-worklet.js) exposes a context-frame origin mapping. The practice event envelope does not yet provide a calibrated display-time contract.
-
-The inspected API has no practice seek or pause command, loop-iteration field, historical replay log, program digest, or stable visual cue representation. The queue is bounded at 512 records and can drop events. These are implementation dependencies, not features established by this plan.
+Show the eight character-treatment combinations together in a compact comparison board. Keep original source art beside the derived work. These labels specify artistic treatments, not verified emulation of a console or an assumed raster resolution. Exact pixel grids and palette limits need selection for the pixel-treatment pass; that question does not block original-pose preparation or the stage layout.
 
 ## Develop the collection in Figma
 
-Use a Figma Design file as the editable asset workshop. A full application-screen workflow or Code Layer is unnecessary for this asset family. Start with one family, not a complete design system.
+Use a Figma Design file as the editable asset workshop. Start with the Gator and Tapir family. A full application-screen workflow or Code Layer is unnecessary.
 
-The inspected MCP tool descriptions expose `upload_assets`, `generate_image`, `use_figma`, `get_motion_context`, `download_assets`, and `export_video`. No file has been created and no account-specific motion capability has been tested. Tool availability establishes possible operations, not successful exports or usable rigs.
+The inspected MCP descriptions expose `upload_assets`, `generate_image`, `use_figma`, `get_motion_context`, `download_assets`, and `export_video`. No file has been created and no account-specific motion capability has been tested. Available tools establish possible operations, not completed asset work.
 
-1. Choose an existing destination file or create a Design file through `figma-create-new-file`. Resolve its plan first. Establish a file session. Inspect local assets and variables, then call `get_libraries` before `search_design_system`. Reuse compatible foundations.
-2. Place selected page crops beside new work as references. Preserve the PDFs intact. Uploaded raster references remain raster fills. Importing a PDF crop does not separate limbs or recover vectors.
-3. Make one model sheet per selected character. Fix silhouette, relative scale, palette, outline treatment, foot baseline, pivot points, and expression vocabulary. For Mister Metronome, compare a crisp sprite treatment with a layered cutout treatment before choosing the production style.
-4. Build a small component family. Expose pose and expression variants, swappable props, and the parts needed for motion. Use compatible palette variables and deterministic names. Avoid multiplying pose, facing, prop, and expression into an enormous variant matrix. Review selected instances together at intended output size.
-5. Expand only selected assets. Add anticipation, contact, follow-through, idle, entry, and exit poses as needed by the demo. Optional `generate_image` can propose visual variations, but it consumes Figma AI credits and returns raster art. Artist cleanup must preserve identity, anchors, palette, and transparent edges. Do not promise coherent intermediate frames from image generation.
-6. Animate independent parts or swap whole poses. When enabled, `figma-use-motion` supports manual keyframe tracks, easing, and timeline duration. These APIs require the account's `metronome` feature flag. If unavailable, retain static components and author the portable keyframes outside Figma. Figma is not being proposed as a skeletal or inverse-kinematics rigging system.
-7. Export selected SVG parts where the art is truly vector and transparent PNG poses where it is raster. Record node IDs, revisions, dimensions, pivots, and licenses. `download_assets` supplies temporary URLs and bounded sets of original images and vector assets. Save selected exports promptly.
-8. For enabled motion, inspect keyframe data and normalize a supported subset into the repository motion schema. This conversion is proposed work. Do not treat generated CSS as the canonical score. Figma uses seconds, so record the reference tempo when translating authored motion to beats.
+1. Select an existing destination file or create a Design file through `figma-create-new-file`. Resolve its plan first and establish a file session. Inspect compatible local assets and variables, then call `get_libraries` before `search_design_system`.
+2. Place the two selected page crops beside the production work. Preserve the PDFs intact. A raster upload remains a raster reference; it does not separate limbs or recover vectors.
+3. Prepare original-treatment model sheets for both characters. Fix relative stage scale, foot baseline, pose bounds, pivots, and anchors. Clean the three source poses before adding motion.
+4. Expand those same poses into the 8-bit, 16-bit, and Tex Avery treatments. Show all treatments alongside each other. Add anticipation, accent, recovery, or idle poses only where the chosen short performance needs them. Do not turn this pass into an expansion of the cast.
+5. Build a small component family with character, treatment, pose, and independent part identities. Reuse palette variables where compatible. Split nested part properties rather than building an unmanageable variant matrix. Keep deterministic names and returned node IDs for exports.
+6. Optional `generate_image` can propose treatment studies and missing poses. It consumes Figma AI credits and returns raster art. Review and clean identity, edges, palette, baseline, and part registration. Do not assume coherent intermediate frames from generation.
+7. Author crisp pose holds and restrained part keyframes. When enabled, `figma-use-motion` supports manual tracks, easing, and timeline duration. It requires the account's `metronome` feature flag. If unavailable, static component work can continue and portable keyframes can be authored outside Figma. A missing motion entitlement does not block the asset library.
+8. Export transparent PNG poses or atlases and actual vector parts as SVG where appropriate. Record node IDs, source revisions, dimensions, baseline, pivots, and hashes. Normalize supported keyframes into the repository's motion package. That converter is proposed work. Figma seconds must be translated with an explicit reference tempo when a motion is authored in beats.
 
-Figma's inspected `export_video` tool produces MP4 only. It exports a top-level timeline frame, uses an asynchronous job, and has temporary downloads. It does not advertise GIF, animated SVG, transparent video, or a reusable runtime animation package. Use it for motion-review previews, then sample start, accent, and settle frames. A Figma screenshot shows resting appearance and cannot verify animation.
+Figma's inspected `export_video` produces MP4 only from a top-level timeline frame through an asynchronous job with temporary downloads. Use it for asset-motion review and inspect selected exported frames. It does not advertise GIF, animated SVG, transparent video, or a reusable runtime animation package. Resting screenshots verify appearance, not motion. Download selected assets promptly rather than depending on expiring URLs.
 
-The relevant skills are `figma-use`, `figma-generate-library`, `figma-use-motion`, and `figma-create-new-file`. Follow their scoped construction and validation rules during implementation. This planning milestone creates no file, asset, or paid generation.
+Follow `figma-use`, `figma-generate-library`, `figma-use-motion`, and `figma-create-new-file` during their applicable implementation steps. This milestone creates no Figma file or paid generation.
 
-## Compare the animation paths
+## Render a 4:3 stage with PixiJS
 
-| Option | Fits this material | Costs and limits | Recommendation |
-| --- | --- | --- | --- |
-| SVG or Canvas 2D with explicit pose evaluation | Small cast, layered parts, fixed pose atlas, transparent composition | We own scene composition, scrubbing, and export capture. Canvas APIs do not supply a musical clock | Start here for the two-character demo |
-| PixiJS scene graph | Larger cast, sprite atlases, layered parts, many simultaneous effects | Adds a renderer dependency. Disable autonomous animation advancement and render the evaluated scene. Measure target devices before choosing it for scale | Candidate if the simple renderer becomes limiting. [MIT license](https://raw.githubusercontent.com/pixijs/pixijs/dev/LICENSE) |
-| Remotion for offline composition | Frame-indexed rendering, React composition, video assembly, preview tooling | Adds React and a rendering toolchain to a currently non-React UI. Its license has eligibility conditions. Its Player must not become the live musical clock | Optional export adapter after one shared scene evaluator exists |
-| Pre-rendered clips | Complex transformations, smoke, static, perspective changes, or hand-drawn flourishes | Baked timing, decode and seek latency, storage, alpha compatibility, and visible seams. Repeated seeking is a poor live beat renderer | Short effects or a fixed arrangement, with keyframe assets for interactive material |
-| Hybrid pose frames, keyframes, and short clips | Expressive pose changes plus phase-accurate mechanical motion | Requires explicit clip boundaries and asset preparation | Recommended overall approach |
+PixiJS is the selected live renderer. Use its scene graph for the background, stage, foreground performers, pose sprites, and separately movable parts. Evaluate pose state from supplied performance time before drawing. Autonomous animation advancement must not become a musical clock.
 
-Prefer permissive code dependencies. PixiJS is MIT. Browser SVG and Canvas avoid another animation-library dependency. [Remotion's current license](https://raw.githubusercontent.com/remotion-dev/remotion/main/LICENSE.md) offers free use to eligible individuals, small for-profit organizations up to three employees, nonprofits, and evaluation. Other organizations require a Company License. Recheck the exact package version and intended use before adoption. Treat Remotion as source-available with conditions, not MIT.
+Compose for a 4:3 audience viewport, with characters on the stage in front of the background. Transparent character assets remain reusable over different backgrounds. The completed stage composition can be opaque. Keep library controls and comparison boards outside the audience output. There is no 16:9 default.
 
-[FFmpeg's license depends on build options](https://www.ffmpeg.org/legal.html). Its base is LGPL-2.1-or-later, with optional GPL components. Using an executable for export does not make the dependency permissive. Record the actual build, codecs, notices, and redistribution policy before bundling anything. No FFmpeg or Remotion code belongs on the audio callback.
+Use crisp pose frames in every treatment. Keep registration stable through pose swaps and restrained part interpolation. The pixel treatments need controlled scaling and edge sampling; choose their source grids before their production pass. Check whether pixel edges and silhouettes survive the eventual CRT path rather than assuming a browser screenshot proves television output.
 
-Figma is an external commercial authoring service. AI generation has credit costs. Asset rights and font rights remain distinct from renderer licenses. The PDFs describe original concepts, but that text alone does not establish authorship or distribution rights. Record operator-supplied provenance before publishing derived assets.
+The physical CRT signal chain, input resolution, refresh cadence, overscan, and number of outputs remain unknown. Those facts affect the device-output adapter and final safe-area check. They do not block the 4:3 scene, comparison board, asset library, or fixture-driven browser demo. Do not assume a connector or an encoder.
 
-## Consume Performance Engine time
-
-Performance Engine owns semantic commands, compiled-song schema, and performance and WASM contracts. Coordination occurred with its workstream on October 26. The following requirements agree with its proposal. They remain proposed until a coordinated implementation milestone lands. Video edits no shared header or bridge independently.
-
-The operator's [meter correction](https://github.com/anulman/show-tools/pull/3#discussion_r4385809988) requires 6/8, replacing the earlier 6/4 requirement. Support a dominant song meter of at least 4/4 or 6/8, with explicit lengths for occasional short measures. This does not require a general map of localized meter changes. [Local chart BPM is metadata and never changes clock BPM](https://github.com/anulman/show-tools/pull/1#discussion_r4384945413). During performance, tempo changes come from the BPM pedal and take effect through Performance Engine. Video consumes the engine's resolved tempo changes and source frames. Neither a chart row nor a Figma reference tempo starts another clock.
-
-Keep meter denominator, quarter-note tick position, and pedal beat unit distinct. The operator confirmed that 6/8 chart counts and pedal taps both count 1, 2, 3, 4, 5, 6 as six eighth-note pulses. With Performance Engine's 960 ticks per quarter note, each numbered beat is 480 ticks and a full 6/8 measure is 2880 ticks. Quarter-, half-, and three-quarter-beat offsets in that meter are 120, 240, and 360 ticks. Video consumes the engine's resolved frames and eighth-note position, without substituting a dotted-quarter pulse.
-
-Pedal tapping may begin on any numbered beat. Tap onset does not establish beat 1 or reset, infer, or realign bar phase, beat number, epoch, or loop iteration. An applied tempo anchor preserves continuous position. Pendulum phase and downbeat accents follow Performance Engine's existing authoritative position through tempo changes. The beat-unit question is settled. Pedal estimation, missed-tap handling, smoothing, pulse shape, retrigger, and release behavior remain unconfirmed. Do not invent them.
-
-For the current DYC mapping, F2 supplies the initial reference BPM. Local BPM and detected start-time rows remain inspection metadata. Video seeking follows resolved performance frames and measure ticks, rather than detected chart start times.
-
-| Contract area | Video requirement |
-| --- | --- |
-| Identity | `engineSessionId`, `epoch`, `runId`, `programDigest`, and increasing `sourceSequence`. Logical voice, resource, cue, and effect-instance IDs remain stable across the compiled artifact. Input button IDs are separate identities |
-| Source time | Authoritative `frame` and `sampleRate` on snapshots, resolved cues, applied controls, and transport changes. Preserve integer frame meaning across serialization |
-| Musical position | Tick or continuous beat with an explicit unit, bar, meter numerator and denominator, actual measure length, transport phase, engine BPM with its pedal beat unit, and `loopIteration`. Include tempo revision and effective-frame anchors for pedal-driven tempo changes. Chart-local BPM stays metadata |
-| Action timing | Distinguish command acceptance from actual action. Support quarter-, half-, and three-quarter-beat cue offsets as well as immediate peripheral actions. Animate capture, commit, or an effect at its engine-resolved frame without imposing another beat boundary. Preserve same-frame source ordering |
-| Recovery | A snapshot at frame S with the last included sequence, drop count, active visual cue state or sufficient checkpoint data, and discontinuity reason |
-| Presentation | Observer-side mapping between source frames and output presentation time. Include calibration age and uncertainty. Network receipt time is not source time |
-| Replay | Ordered resolved cue and control records, initial checkpoint, program and asset digests, pedal-driven tempo history, measure lengths, loop history, and discontinuities. Chart-local BPM cannot reconstruct performed tempo |
-
-Commands follow the Performance Engine proposal for producer identity, command identity, producer sequence, run, semantic target, and timing. The loaded program remains immutable throughout a run. Stage chart and visual-program refreshes separately and activate only while stopped. Record the program digest in load/session manifests and replay provenance, without requiring it on every pad command. Reconnect requires a session/run handshake and snapshot before new input. Discard input from the old session. Video can observe acknowledged controls. It must not deduplicate audio commands independently or claim exactly-once delivery beyond the engine's bounded guarantees.
-
-The engine resolves chart cues and manual actions. A portable visual evaluator consumes their copied records and produces poses. It never advances transport, triggers samples, or reimplements chart notation. A browser animation callback samples the current performance position and draws the pose.
-
-[R1, R2, L1, and L2 identify physical buttons, not logical voices](https://github.com/anulman/show-tools/pull/2#discussion_r4385154502). Bind characters and animation parameters to resolved semantic voice, resource, cue, or effect-instance IDs. Retain the originating button as input provenance when useful. A button assignment can change without changing the identity of an ongoing voice or its animation. Do not infer an animation target from a button ID or from the current legacy channel naming.
-
-Filters owns a general effect stack, including chorus, echo, and guitar or synth transforms, with live processing and cached results for sample playback. Video observes the resolved effect instance, target, parameter values, and resource state. An animation must not imply that a live effect is processing when playback uses a cached result. Keep visual effects such as static or flashes distinct from audio effect instances. The portable video evaluator does not duplicate audio processing or manage its cache.
-
-Peripherals' confirmed hardware is the I-PAC Ultimate I/O with SpinTrak. SpinTrak direction and distance require a declared song-specific mapping before they control a visual or musical parameter. Do not map rotation globally to gain or invent a range or scaling rule. Effect feedback identifies the logical voice, stack, capture revision, and effective frame. Venue parameter tuning stays in the web UI.
-
-Browser pads and physical button LEDs must consume the same semantic blink, pulse, and trigger-envelope patterns. If video displays those performance indicators, reuse that contract rather than authoring a competing envelope. Pulse period, shape, retrigger, release, and phase behavior remain unconfirmed. Keep dependent character accents and indicator rendering blocked until the operator confirms timing with Performance Engine and peripherals. This shared contract does not make every character movement an LED pattern.
-
-Performance Engine's live worksheet inspection reports the A17 `chorus/video-y` note and knob tokens `[4d-`, `d`, `-1d]`, and `-3d] [4d-`. Their `d` binding, direction, range, span behavior, and effect or video routing remain undefined. Keep these as source-anchored typed TODOs shared by Filters, Video, and peripherals. Do not infer that `d` means delay or a specific animation parameter. An unresolved required binding blocks an executable load. It can appear in an explicitly incomplete inspection preview. A later binding must name the target, units, range, and timing before video consumes its engine-resolved values.
-
-For local WASM, relate engine frame zero to AudioContext frame time through the bridge. Calibrate that time to output presentation time using browser timing facilities where available. Account for output latency and configurable display offset. A background-tab pause must not advance animation by callback count. On resume, obtain fresh state and evaluate the current pose.
-
-For a native host, one thread owns the engine. Copy timing and cue records into a bounded queue, then publish outside the audio callback. A remote display needs a calibrated source-frame mapping, not BPM extrapolation from packet arrivals. If calibration expires, freeze or fade to a neutral scene with a visible operator status until resync. Keep that status off audience output. The acceptable stale interval and measured synchronization error are acceptance criteria to establish on actual hardware.
-
-### Specify boundary behavior before implementation
-
-- Represent clips as half-open intervals. At a shared endpoint, the incoming clip owns the pose. Define ties through stable layer priority and engine source ordering.
-- Store beat-relative keyframes for rhythmic motion. Evaluate beats using the engine's effective tempo segments from pedal actions. A mid-beat tempo change preserves position and changes the following rate. Do not calculate an entire performance from the latest BPM or chart-local BPM metadata.
-- Use the compiled measure boundaries for bar-relative poses and downbeat accents. A 6/8 measure has six eighth-note units. An explicitly short measure ends at its declared length. Do not derive bars by dividing the beat count by four, treat 6/8 as six quarter notes, or stretch a short measure to the dominant meter.
-- Preserve quarter-, half-, and three-quarter-beat cue positions in the engine's tick representation until frame resolution. Immediate peripheral effects begin at the reported applied frame. Video presentation samples that result at the next available display frame, without claiming sample-exact screen output or adding musical quantization.
-- Permit second-relative tracks for effects that need fixed physical duration. Each track declares its time domain. Do not silently stretch every effect with tempo.
-- Include loop iteration in trigger identity. Clock frames continue monotonically while song position wraps. State which clips restart and which continue across the loop. Test the last frame and the first frame of the next iteration.
-- Reject stale runs and epochs. Detect sequence gaps and recover from a snapshot. A late persistent cue evaluates at its current age. An expired one-shot is skipped rather than played late. A missed cue that changes state requires checkpoint recovery.
-- Visual seeking reconstructs state from a checkpoint and subsequent records without issuing audio controls. Live audio seeking remains Performance Engine work. A deterministic scene has no unseeded randomness or accumulated animation deltas.
-- Freezing the final pose on Stop and blacking out on Panic are proposals requiring operator choice. Do not implement either as an assumed default. Confirm song-end and restart appearance with the same decision. Existing audio behavior remains authoritative.
-
-## Put assets, browser code, and portable evaluation in their owners
-
-Proposed directories do not exist at the base commit.
-
-| Location | Proposed responsibility |
-| --- | --- |
-| `assets/video/sources/` | Intact originals when the asset policy permits repository storage. Otherwise immutable external source references and checksums |
-| `assets/video/manifest.json` | Asset ID, source path, physical and printed page, crop, author, rights, tool and prompt provenance, Figma file and node revision, export hash, dimensions, alpha, pivot, and baseline |
-| `assets/video/characters/<id>/` | Selected SVG parts or PNG atlas, frame rectangles, pose names, pivot and anchor metadata, bounded review stills |
-| `assets/video/motions/` | Versioned declarative keyframes, time domain, easing, loop behavior, sprite holds, and stable asset references |
-| `ui/video/` | Library browser, motion preview, output surface, replay scrubber, browser renderer, and export adapter. Keep the practice desk supported |
-| `lib/video/` | Portable C++ cue reduction and pose interpolation when implemented, built for native and WASM. No device IO or browser rendering ownership |
-| `songs/` and the compiled artifact | Song-specific visual cue assignments, with Performance Engine ownership of schema and execution timing |
-
-Keep the C++ evaluator small and synchronous. Inputs are prepared motion data, resolved cues, and a requested frame or musical position. Output is an immutable pose buffer with transforms, visibility, and selected sprite frames. A UI or offline adapter draws those results. Prepare data outside real-time processing. Video evaluation should run outside the audio callback and must never stall audio.
-
-Use TypeScript for new tooling and browser bridges. Effect can manage asset loading, export jobs, cancellation, and input validation where useful. Read `node_modules/effect/AGENTS.md` before writing Effect code. No Effect runtime belongs in beat dispatch or pose interpolation.
-
-Keep PDF originals intact. Do not commit these temporary renders, full contact sheets, bulk frame sequences, or generated videos in this milestone. The proposed asset policy keeps manifests, selected small source assets, and approved exports in Git. Confirm that policy and decide on Git LFS or external storage before committing assets, the approximately 36 MB source PDFs, or a growing video collection. Export jobs should use pinned local assets, not expiring Figma URLs.
-
-### Keep runtime logging appropriate to the mode
-
-The [operator's logging policy](https://github.com/anulman/show-tools/pull/1#discussion_r4384901380) applies across Performance Engine integrations, including video. Debug runs may emit rich DEBUG artifacts such as pose traces, clock-calibration samples, and sampled frames. Practice filters below INFO. Live performance filters below WARN. Configure the level at the session boundary and apply it to browser, native, and export adapters.
-
-Do not generate per-frame traces, rich diagnostic artifacts, or debug serialization in ordinary practice or live performance. Logging and artifact writes stay outside the audio callback. Required cue and snapshot delivery is protocol state, not a log stream, and remains available at every level. Keep audience output free of diagnostic overlays.
-
-Replay capture is an explicit workflow with a bounded, minimal dataset for reconstruction, separate from diagnostic verbosity. It must not require DEBUG mode or enable rich debugging artifacts implicitly. If the resolved timeline was not captured, label an export as an authored preview rather than a faithful performance replay.
-
-## Produce replay, keyframes, and video from one timeline
-
-A keyframe package is the reusable output. It contains a schema version, asset digests, coordinate system, pivots, tracks, easing, time domains, and loop rules. A resolved performance timeline is a separate artifact. It supplies actual applied frames for manual actions, tempo changes, and chart cues. Neither artifact can be replaced by an MP4.
-
-For offline frame n at rational FPS P/Q, evaluate source time at `startFrame + n * sampleRate * Q / P`. Preserve the rational value until the documented sampling rule. Select the most recent discrete event at or before that time and interpolate continuous tracks. Never add a rounded samples-per-video-frame value repeatedly. At 48 kHz and 30 FPS, frame n samples `startFrame + 1600*n`.
-
-Replay uses the recorded take's resolved timeline. A chart-only export is an authored preview and cannot reproduce unrecorded manual choices. Store an explicit mapping between exported PCM frame zero and performance frame zero. Current demo recording starts on a delivered playing-state message and exports MP3, so it is not an established sample-exact audiovisual master. A synchronized recording path requires coordinated PCM and timing capture before claiming exact mux alignment.
-
-| Output | Intended use | Verification |
+| Option | Role in this plan | Tradeoff |
 | --- | --- | --- |
-| SVG parts, PNG poses or atlas, and keyframe JSON | Reusable live assets and native or WASM evaluation | Baseline, pivots, alpha edges, sprite bounds, schema, hashes, and attribution |
-| Opaque MP4 | Shareable full composition and Figma motion preview | Actual target-device decode, dimensions, duration, first and last frames, and audio offset |
-| PNG sequence with alpha | Deterministic compositing master and renderer comparison | Decode selected frames over light, dark, and checkerboard backgrounds |
-| WebM with VP8 or VP9 alpha | Optional browser overlay | Actual browser alpha support, seek behavior, and loop seam |
-| ProRes 4444 MOV | Optional editing master with alpha | Actual editor import and alpha verification. Large output stays outside normal Git |
+| PixiJS | Selected live scene renderer | Supports the sprite-and-part collection with a renderer dependency. Keep time evaluation explicit. [MIT license](https://raw.githubusercontent.com/pixijs/pixijs/dev/LICENSE) |
+| SVG or Canvas 2D alone | Comparison alternative, not the selected primary renderer | Fewer dependencies but requires more scene and asset-management code for this collection |
+| Remotion | Optional later adapter for sharing a demo | Adds React and an export toolchain. Its eligibility-based license needs review before adoption. It is not required for live readiness |
+| Pre-rendered clips | Optional short visual accents | Fixed timing, decode and seek latency, storage, alpha compatibility, and loop seams make them a poor primary interactive performer |
+| Pose frames plus runtime keyframes | Selected asset approach inside PixiJS | Preserves expressive drawings and reuses parts without requiring every movement to be a video clip |
 
-[Remotion documents alpha output](https://www.remotion.dev/docs/transparent-videos) through PNG frames with VP8 or VP9 and `yuva420p`, or ProRes 4444 with an alpha-capable pixel format. Those are proposed export targets, not tested guarantees here. The [frame-based API](https://www.remotion.dev/docs/use-current-frame) can drive an offline adapter, but it must sample this performance timeline. Keep Remotion optional until license fit and the initial export comparison are settled.
+Prefer permissive code dependencies. [Remotion's license](https://raw.githubusercontent.com/remotion-dev/remotion/main/LICENSE.md) offers free use to eligible individuals, small for-profit organizations up to three employees, nonprofits, and evaluation. Others require a Company License. It is not MIT. Recheck the exact version and use if the demo-sharing workflow needs it.
+
+[FFmpeg's license depends on build options](https://www.ffmpeg.org/legal.html). Its base is LGPL-2.1-or-later, with optional GPL components. Record the actual build, codecs, notices, and redistribution policy before bundling an export tool. Figma is a commercial authoring service, and AI generation has credit costs. No encoder or authoring service belongs on the audio callback.
+
+The [operator cleared all assets for publication](https://github.com/anulman/show-tools/pull/4#discussion_r4386243860). Record that clearance in provenance. Do not keep rights confirmation as an open question. Retain source, authoring-tool, prompt, font, and dependency records for reproducibility and attribution.
+
+## Consume Performance Engine data at the video boundary
+
+Performance Engine owns musical execution, semantic controls, timing, and the compiled-song and WASM contracts. Video accepts its authoritative time and resolved control data. It owns the asset library, stage composition, artistic motions, and mappings from supplied semantic controls to visual parameters. It does not prescribe unrelated song behavior or implement a second clock.
+
+Existing [performance_engine.h](../../lib/performance/include/performance_engine.h) snapshots include frame, epoch, clock beat frame, position beat, and dropped-event counts. [NativePerformance.events()](../../lib/performance/wasm-performance.ts) retains sequence numbers and optional frame and sample-rate fields. Beat events are timestamped; most other current events have no public timestamp. `decode()` omits some native timing fields from [PracticeEvent and PracticeState](../../lib/performance/model.ts). [PracticeAudio](../../ui/practice/audio.ts) adds chart metadata, and the [tracker port](../../ui/practice/runtime/beat-worklet.js) supplies a separate context-frame mapping. The public practice API has no complete replay or visual seek facility today.
+
+Coordinate only the data video needs. The following remains a proposed bridge contract until Performance Engine implements it.
+
+| Data | Video use |
+| --- | --- |
+| Session, epoch, run, source sequence, and program/resource identity | Reject stale observations and identify the source of poses and controls |
+| Authoritative frame and sample rate | Evaluate the pose at a source time and calibrate display presentation |
+| Musical position with explicit beat unit, actual measure length, loop iteration, and effective tempo anchors | Follow rhythmic motion across tempo changes and short measures |
+| Stable semantic control, cue, logical voice/resource, and effect-instance identities with resolved values and effective frames | Route supplied events to declared visual bindings without inferring a voice from a button ID |
+| Snapshot watermark, active state, discontinuity reason, and drop information | Recover after gaps or reconnects without replaying audio commands |
+
+In 6/8, the operator confirmed chart counts and pedal taps of 1, 2, 3, 4, 5, 6 as eighth-note pulses. At PE's 960 ticks per quarter note, each numbered beat is 480 ticks and a full measure is 2880 ticks. Quarter-, half-, and three-quarter-beat offsets are 120, 240, and 360 ticks. Use PE's resolved frames. Chart-local BPM and detected start-time rows are metadata, not a source of animation time.
+
+Pedal tapping may begin on any beat. Video follows PE's existing position without inferring or resetting a downbeat, bar phase, beat number, epoch, or loop iteration from tap onset. Tempo estimation and pedal handling remain PE's responsibility. They are not asset-library configuration questions.
+
+R1, R2, L1, and L2 are input button IDs, not logical voices. Bind supplied controls through their semantic target. A visual knob binding can target any declared scene or character parameter. Do not assume rotation means gain, delay, or a fixed character response. Video does not need to implement physical knob IO to consume those controls.
+
+The DYC `chorus/video-y` and `d` spans remain song-specific integration work with PE and Filters. Do not invent their routing, range, or span behavior. A missing binding blocks that scene-control assignment only. It does not block cleaning Gator and Tapir, developing the four treatments, composing the 4:3 stage, or previewing a declared animation with fixture time and controls. Validation of a complete song belongs to PE.
+
+Browser-pad and physical LED blink/pulse envelopes belong to PE and peripherals. They impose no waveform, output-cadence, retrigger, or readiness requirement on the video library. Character motion and scene behavior do not have to reproduce those envelopes. If an optional performance-indicator overlay is requested later, that narrow integration can consume its approved semantics.
+
+For local WASM, use the bridge's engine-frame to AudioContext mapping and calibrate output presentation where the browser supports it. A draw callback samples performance time; callback count does not advance a song. On a resumed tab, obtain fresh state and evaluate the current pose. For a native host, publish copied observations outside the audio callback. Video rendering, logging, asset loading, and export must never stall audio.
+
+### Evaluate motion without inventing song policies
+
+- Store rhythmic keyframes in explicitly defined musical units and evaluate them from PE tempo anchors. Keep second-relative motions explicit where an artistic accent needs fixed duration.
+- Use PE's actual measure and loop positions. Preserve fractional cue times until source-frame resolution. An immediate control is observed at its effective frame and drawn at the next available display frame; the screen is not sample-exact.
+- Give motion clips explicit boundaries and source ordering for ties. A pose evaluated at a given source time must be independent of the number of prior draw calls.
+- For gaps, stale runs, and discontinuities, recover from supplied snapshots. Reconstruct visual state without issuing audio controls or changing the loaded song.
+- Visual seeking is useful for asset preview and debugging. It does not require live audio seeking or a full offline editor.
+- Stop, Panic, song-end, retrigger, and reconnect appearance belong to the scene bindings. Define a behavior when authoring a scene that needs it. Missing choices block those bindings, not the library or unrelated motions. No freeze, blackout, or release pattern is silently selected.
+
+## Keep each artifact in its owner
+
+The following are proposed locations, not directories created by this milestone.
+
+| Location | Responsibility |
+| --- | --- |
+| `assets/video/sources/` | Intact source references and checksums, with originals stored according to the chosen repository policy |
+| `assets/video/manifest.json` | Character, treatment, source PDF/page/crop, publication clearance, tools and prompts, Figma revision, export hashes, dimensions, alpha, pivots, and baseline |
+| `assets/video/characters/<id>/<treatment>/` | Selected pose images or atlas, actual vector parts, frame bounds, anchors, and small review stills |
+| `assets/video/motions/` | Versioned declarative pose holds and keyframes, explicit time units, interpolation, and resource references |
+| `ui/video/` | PixiJS renderer, asset browser, eight-combination comparison view, stage preview, audience output, and later demo-sharing adapter |
+| `lib/video/` | Reusable synchronous C++ pose evaluation intended for native and browser WASM use. Rendering remains in the browser adapter |
+| Song/scene configuration at the agreed PE boundary | Explicit assignments from supplied time and semantic controls to visual parameters. No hardware semantics inferred from button names |
+
+The portable evaluator takes prepared motion data, resolved controls, and a requested source position. It returns pose data such as transform, visibility, and selected frame. Keep it outside the audio callback. TypeScript owns browser adaptation and authoring/export tools. Effect may help asynchronous loading, cancellation, and external-input validation; read `node_modules/effect/AGENTS.md` before writing Effect code.
+
+Preserve originals. Keep temporary PDF renders, contact sheets, bulk frame sequences, and generated demo videos out of ordinary commits. The proposed Git policy stores manifests, selected production assets, and approved small exports. Choose Git LFS or external storage before adding the approximately 36 MB PDFs or bulk generated output. That storage decision affects bulk import, not source-page analysis or plan review.
+
+### Keep runtime diagnostics appropriate to the mode
+
+Apply the [operator's logging policy](https://github.com/anulman/show-tools/pull/1#discussion_r4384901380) at the video integration boundary. Rich DEBUG pose traces, calibration samples, and sampled-frame diagnostics are for debug runs. Practice filters below INFO; live performance filters below WARN. Disabled diagnostics must not construct rich payloads or write artifacts.
+
+Required time, control, and snapshot delivery remains available at every logging level. Keep diagnostic overlays off the audience output. A requested demo capture stores the minimal required source timeline and scene/resource identities without enabling DEBUG traces.
+
+## Share demos after the live instrument works
+
+Reuse the live scene, assets, and motion evaluation to share a demo. A recorded source timeline can reproduce a take; fixture time can produce an explicitly authored preview. Avoid a separate edit suite, primary offline workflow, or mandatory export dependency for live readiness.
+
+Keep transparent PNG poses and atlases as the reusable foreground assets. Share the composed 4:3 stage as an opaque MP4 when the demo-sharing adapter is implemented. A PNG sequence can provide reference frames for verification. Transparent WebM or ProRes masters are optional follow-up formats only if a concrete demo-sharing need requires them.
+
+For offline frame n at rational FPS P/Q, evaluate source time at `startFrame + n * sampleRate * Q / P` without repeatedly adding rounded frame intervals. Use the same pose evaluation as the live scene. Store an explicit audio-to-performance origin if the demo includes audio. Current practice recording starts on a delivered playing-state message and exports MP3, so exact audiovisual master alignment is not established.
+
+[Remotion documents transparent export](https://www.remotion.dev/docs/transparent-videos) and a [frame-based composition API](https://www.remotion.dev/docs/use-current-frame). Those are comparison capabilities, not new requirements. Decide whether a Remotion adapter earns its extra toolchain only when implementing the limited demo-sharing workflow. No export output has been produced or validated in this milestone.
 
 ## Deliver in verifiable phases
 
-| Phase | Deliverable | Evidence required before its commit |
+| Phase | Deliverable | Evidence before its commit |
 | --- | --- | --- |
-| 0. Planning | This plan and coordinated timing requirements | Actual PDF review, source pointers, license sources, diff check, and isolated commit |
-| 1. Asset proof | Mister Metronome and Reel-to-Reel Cyclops, neutral and accent poses, one short loop each | Normal-size Figma instance review, part and pivot inventory, transparent-edge checks, no unintended background, rights record |
-| 2. Portable motion | C++ cue reducer and keyframe evaluator with native and WASM builds | Use the confirmed eighth-note beat unit in 6/8 and confirm shared envelope timing before dependent rendering. Equal pose outputs for identical inputs, direct seek matching sequential evaluation, deterministic loop, pedal-tempo, fractional-cue, 4/4, 6/8, and short-measure fixtures |
-| 3. First useful live demo | Two characters perform a short chart section. Metronome follows beats. Tape character changes at actual capture, commit, and playback boundaries | Local WASM practice works without relay or Sheets. Pedal tempo change, fractional and immediate cues, late message, tab stall, Stop, Panic, restart, and two loop passes work. Audio continues through slow drawing. INFO practice and WARN live produce no rich debug artifacts |
-| 4. Replay and export | Scrub the recorded timeline and export one short opaque video plus an alpha PNG sequence | Live and offline poses match at the same source frames, fractional-FPS arithmetic, final-frame duration, decode and alpha checks, explicit audio origin |
-| 5. Collection and remote display | Knob Goblin, additional chosen assets, and native-host observer adapter | License and storage review, simulated gaps and reconnects, then separate real EliteDesk and display-latency checks |
+| 0. Plan review | This revised plan and eight inline replies | Exact Gator/Tapir source pages, complete comment coverage, relative links, whitespace, and plan-only diff |
+| 1. Original poses and treatment board | Gator and Tapir original poses plus 8-bit, 16-bit, and Tex Avery versions alongside them | Eight character-treatment combinations; source fidelity, crisp edges, stable scale, anchors, and pose registration |
+| 2. Portable motion and PixiJS stage | Crisp pose holds and restrained part motion on a 4:3 stage before a background | Native/WASM pose agreement, direct-seek equivalence, fixture-driven PixiJS scene, alpha edges, and no autonomous musical clock |
+| 3. First live demo | Gator and Tapir perform from PE time/control data; artist can compare treatments in the library | Tempo changes, fractional and immediate controls, short measures, loop boundaries, gaps, tab stalls, and audio continuity; no dependency on LED decisions |
+| 4. CRT output verification | The same stage on the operator's actual television path | Confirm signal chain first; verify aspect ratio, safe area, legibility, edge treatment, and measured sync on real output |
+| 5. Demo sharing | One short 4:3 export of the stage | Decoded first/last frames, matching poses at source times, correct duration, explicit audio origin, and no requirement for an offline editing suite |
 
-The phase order reduces asset risk before expanding the cast. It also leaves one reusable evaluator for maintainers. No feature code is authorized by this planning milestone alone.
+Fixture checks cover sample rates, rational display/export FPS, out-of-order seeking, tempo anchors, same-frame controls, duplicates, stale runs, snapshot gaps, and loop transitions. In 6/8, assert 480 ticks per numbered beat and 2880 per full measure. Pedal taps beginning on any beat must not cause an invented visual downbeat. Changing chart-local BPM metadata must not change animation time.
 
-Fixture tests must cover beat crossings at several sample rates, 30 and 60 FPS, rational FPS such as 30000/1001, mid-beat pedal-tempo changes, multiple same-frame cues, loop endpoints, seeking backward, snapshot watermarks, gaps, duplicates, stale epochs, and bounded queues. Include 4/4 and 6/8 songs with short measures, quarter-, half-, and three-quarter-beat cues, and immediate peripheral effects. In 6/8, assert 480 ticks per numbered beat and 2880 per full measure. Begin pedal taps on each of beats 1 through 6 and verify that neither engine position nor pendulum/downbeat phase resets to beat 1. Changing chart-local BPM metadata must leave evaluated timing unchanged. Replaying each frame sequentially and requesting frames out of order must produce the same pose, including after a pedal-tempo change or a short measure.
+Compare pose data exactly and rendered images with a documented tolerance for platform antialiasing. Inspect all treatments at intended display scale, on the 4:3 background, and over light/dark alpha-check backgrounds. Confirm part motion does not break outlines or foot registration. Pixel grids, background artwork, and real CRT output require their own targeted review.
 
-Verify DEBUG diagnostics only in debug runs, INFO filtering in practice, and WARN filtering in live performance. A disabled diagnostic must not construct its rich payload or write an artifact. Protocol delivery and explicitly requested replay capture must still work at WARN without enabling DEBUG traces.
+Run applicable typecheck, tests, layout checks, browser build, native CMake, and WASM checks when implementation changes those layers. Integrate `ui/video/` with the build and update architecture/development guides when the boundaries actually land. This document-only milestone needs document and scope checks, not application builds. Fixture output cannot establish physical television behavior or measured audiovisual latency.
 
-Verify that a staged chart refresh cannot change an active run's tempo, cue program, or visual-program selection. Reconnect must reject queued input from the old session. The undefined DYC `d` bindings must remain visible with source locations and owners in inspection output and must prevent a required executable load.
+## Ask only for facts needed by the next video step
 
-Verify that reassigning a physical button does not retarget an ongoing voice's animation. Two logical voices triggered through one button must retain distinct resource and animation identities. Effect feedback must distinguish live processing from playback of a cached result without requiring video to inspect or process audio.
+Confirmed decisions are Gator and Tapir, live-stage priority, PixiJS, original plus 8-bit/16-bit/Tex Avery treatments, crisp poses with restrained part motion, characters before a background, primarily 4:3 CRT output, and publication clearance. Do not reopen these as questions.
 
-After envelope timing and song-specific knob bindings are confirmed, compare browser-pad and LED envelope values at identical source frames. Check that SpinTrak direction and distance affect only the declared target and preserve capture-revision identity. A missing binding must remain a diagnostic, never a fallback to gain or a guessed visual parameter.
+The following missing facts affect only the named work.
 
-Inspect rendered images at chosen checkpoints. Pixel-perfect GPU output across platforms is not assumed. Compare deterministic pose data exactly and use a documented image tolerance where antialiasing differs. Verify transparent borders and foot registration through every selected pose.
+- Figma destination and plan. Needed before creating or importing into a file. PDF analysis and asset specifications can proceed.
+- Pixel grids and palette limits for the two pixel treatments, plus the stage/background art direction. Resolve in the treatment and composition review before the corresponding production pass. Do not invent a console resolution or background design.
+- CRT signal chain, target input resolution/cadence, overscan, and output count. Needed for the real-device adapter and final display verification, not for the generic 4:3 library.
+- Bulk asset storage policy. Needed before importing originals or generated bulk output into Git.
+- A scene's specific control-to-visual mappings and lifecycle appearance, when that scene is authored. Accept PE data; do not require unrelated song, pedal-estimator, LED, or peripheral-policy decisions to build the library.
 
-Future implementation runs the applicable `npm run typecheck`, `npm test`, `npm run check:layout`, browser build, native CMake, and WASM checks. A new `ui/video/` entry needs build and layout integration. Update architecture and development guides with the implementation that establishes these boundaries. The current plan changes no runtime boundary.
+Block dependent work when a required fact is missing and ask a concise scoped question. Continue independent work within confirmed scope. No implementation is authorized by completing this review.
 
-Real microphone capture, display latency, projector behavior, phone performance, and hardware controls need separate checks. Fixture success cannot establish those properties. Do not report an audiovisual latency number before measuring the audio output and visible output together.
+## Review coverage and verification limits
 
-## Decisions for the operator
+| Operator comment | Changed section |
+| --- | --- |
+| [4386073580](https://github.com/anulman/show-tools/pull/4#discussion_r4386073580), start with Gator and Tapir | Build a live stage; selected source pages; phases |
+| [4386136571](https://github.com/anulman/show-tools/pull/4#discussion_r4386136571), PixiJS | Render a 4:3 stage with PixiJS; ownership; phases |
+| [4386228864](https://github.com/anulman/show-tools/pull/4#discussion_r4386228864), live stage first | Build a live stage; share demos; phases |
+| [4386230386](https://github.com/anulman/show-tools/pull/4#discussion_r4386230386), A-section cast | Selected source pages and full-page verification |
+| [4386236854](https://github.com/anulman/show-tools/pull/4#discussion_r4386236854), four treatments | Produce four treatments; Figma; comparison board; verification |
+| [4386242270](https://github.com/anulman/show-tools/pull/4#discussion_r4386242270), stage before background and CRTs | Render a 4:3 stage; CRT phase; targeted device questions |
+| [4386243860](https://github.com/anulman/show-tools/pull/4#discussion_r4386243860), publication clearance | License/provenance paragraph; manifest; confirmed decisions |
+| [4386247382](https://github.com/anulman/show-tools/pull/4#discussion_r4386247382), irrelevant envelope question | Consume PE data; motion boundaries; scoped missing facts; removed LED gates |
 
-1. Is this first a stage visual instrument, an offline music-video assistant, or both with stage visuals first? This plan recommends stage visuals first and offline export from the same scene.
-2. Does the initial cast fit? Recommend Mister Metronome and Reel-to-Reel Cyclops, then Knob Goblin. An operator may prefer a theatrical performer such as Disco Moth over the mechanical theme.
-3. Should production preserve crisp sprite edges or develop layered illustrated cutouts? Recommend crisp pose frames with restrained part motion, while keeping the original concept sheets untouched.
-4. Where will the visuals appear, and must output be transparent? Recommend an opaque 16:9 stage composition plus reusable transparent asset exports until display and editor requirements are known.
-5. Are the concept art and any generation inputs owned or cleared for derived assets and publication? Which Figma destination and asset-storage policy should hold the collection? These facts determine provenance and export setup.
-6. What period, shape, phase, retrigger, and release behavior should the shared blink/pulse/trigger envelopes use? Which song-specific parameters should knob direction and distance control? Confirm Stop, Panic, song-end, and restart appearance before implementation. The 6/8 eighth-note beat unit is confirmed and no longer blocks timing conversion.
+Fetched the full paginated inline-comment list and submitted reviews on October 27. Rechecked the original PDF hashes and the exact Gator/Tapir pages visually and through PDFKit text. Read the updated repository conventions and coordinated the generic time/control boundary with PE. Existing timing observations describe the base code; proposed adapters, Figma exports, PixiJS output, and CRT behavior remain unimplemented.
 
-Product choices and missing authoring facts remain open. Block dependent decisions and ask the operator when required facts are missing. Do not replace them with invented answers or defaults. Continue independent work within confirmed scope. Use prototypes for observable technical questions after their inputs are established.
-
-## Planning verification and limits
-
-Verified the managed worktree base, clean initial state, PDF headers, sizes, SHA-256 hashes, page counts, all-page contact sheets, and full-page candidate renders. Read current architecture and development guidance and inspected engine event creation, snapshot decoding, and tracker frame mapping. A separate read-only clock review corroborated the gaps. Performance Engine confirmed the proposed identity, ordering, time, and recovery contract and retained ownership of its implementation.
-
-Read Figma skill guidance and relevant tool descriptions. Reviewed primary PixiJS, Remotion, and FFmpeg license and export documentation on October 26, 2026. No package version was installed or selected. Figma motion entitlement, export fidelity, rendering throughput, and target-device synchronization remain untested.
-
-The October 27 revision follows the coordinator's report of the completed Performance Engine review and directly retrieved operator comments on pedal tempo and logging. Shared contract implementation remains with Performance Engine. No runtime capability is established by these plan changes.
-
-The planning diff contains only this document. No application tests or builds are needed for the document-only milestone. Verify relative source links and `git diff --check` before committing. Do not merge this worktree into the operator's checkout automatically.
+The earlier license/tool review used primary PixiJS, Remotion, and FFmpeg sources and the applicable Figma skills. No dependency version, account motion entitlement, physical output path, throughput, or export fidelity has been established. Keep those limits distinct from the operator's confirmed artistic direction and publication clearance.
