@@ -9,7 +9,7 @@ Use GitHub PR comments as the durable review record:
 | EliteDesk peripherals | [PR #3](https://github.com/anulman/show-tools/pull/3) | `review/elitedesk-peripherals` |
 | Video Assistant | [PR #4](https://github.com/anulman/show-tools/pull/4) | `review/video-assistant` |
 
-Each PR contains one plan file. All four target `review/workstream-base`, a published snapshot of the operator's local main checkout. Remote `main` was behind that checkout when the PRs were created. The shared base keeps earlier implementation commits out of the plan diffs without updating remote `main`. Integrate or retarget the base deliberately when ready; do not automatically merge plan PRs into remote main.
+Each PR contains one plan file and targets `main`. They were initially published against `review/workstream-base` because remote `main` was behind the operator's checkout. After the operator authorized publishing local `main`, the PRs were retargeted to `main`. The review-base branch remains as a historical snapshot. No plans are merged automatically.
 
 Write comments in the PR's Files changed view and submit the review so the owning session can retrieve it. The session revises its plan in its worktree and pushes the same branch. Keep feature implementation separate from plan review.
 
