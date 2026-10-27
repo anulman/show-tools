@@ -17,7 +17,7 @@ Throughput checkpoint. The planning milestone delivers this document only. The f
 
 ## Current behavior and missing hardware facts
 
-[pf_control()](../../lib/performance/src/performance_engine.cpp) accepts the four pads, mushroom, and knob. Pad presses select a channel and resolve its current chart cue in C++. The knob sets the selected channel's gain between zero and one while preserving mute. Mushroom invokes Panic. Release has no engine action. The [browser model](../../lib/performance/model.ts) names the channels L1, L2, R1, and R2. The keyboard layout is Q/W over A/S.
+[pf_control()](../../lib/performance/src/performance_engine.cpp) accepts the four pads, mushroom, and knob. Pad presses select a channel and resolve its current chart cue in C++. The knob sets the selected channel's gain between zero and one while preserving mute. Mushroom invokes Panic. Release has no engine action. The current [browser model](../../lib/performance/model.ts) uses `ChannelId` for L1, L2, R1, and R2. That legacy representation conflates button and channel identity. The operator clarified below that those names identify buttons, not voices. The keyboard layout is Q/W over A/S.
 
 [pf_channel_info()](../../lib/performance/src/performance_engine.cpp) produces four light kinds. A pending stop on an active loop produces `releasing`. Active loops, pending actions, and capture otherwise produce `steady`. An unused supported cue produces `cue`. Other states produce `off`. These decisions remain in the performance engine. Mute currently does not change the native light kind.
 
@@ -46,6 +46,10 @@ The [lighting clarification](https://github.com/anulman/show-tools/pull/1#discus
 
 The [logging decision](https://github.com/anulman/show-tools/pull/1#discussion_r4384901380) applies to everything related to the performance engine. Debug runs use DEBUG, practice uses INFO, and performance uses WARN. The diagnostic trace described below is a debug artifact, not routine performance logging.
 
+The [button-identity clarification](https://github.com/anulman/show-tools/pull/2#discussion_r4385154502) defines L1, L2, R1, and R2 as button IDs. Keep device/input identity, semantic button identity, and bound voice/resource/cue identity distinct. Performance Engine owns the program binding and its revision. The peripheral adapter reports a button activation, not a voice inferred from the button's name.
+
+The [venue-tuning decision](https://github.com/anulman/show-tools/pull/2#discussion_r4385122810) places per-effect venue parameter adjustment in the web UI. No dedicated hardware tuning peripherals are introduced for those parameters. Existing performance knob mappings and the BPM pedal remain in scope. The [live-voice routing decision](https://github.com/anulman/show-tools/pull/2#discussion_r4385119436) requests processed voice in monitors, the room, and downloads when input and output devices differ, or when the same device is a USB audio interface. Filters and Performance Engine own that routing and device-policy implementation. This plan does not add a monitoring branch or infer audio topology from peripheral wiring.
+
 These are target requirements. The current ABI and browser behavior described above do not already implement them. Performance Engine coordinates their shared representation before peripheral implementation.
 
 ## Portable control and light data
@@ -57,8 +61,8 @@ The proposed data separates three things:
 | Record | Meaning | Owner |
 | --- | --- | --- |
 | Physical input | Device session, input ID, sample sequence, device timestamp if available, host monotonic receipt time, and switch/absolute/delta value | Device adapter |
-| Semantic command | Producer and command identity, sequence, current run/program identity, target, action, and timing policy | Performance Engine contract |
-| Light snapshot | Engine session, epoch, run, program digest, source sequence, source frame/rate, current semantic baseline, optional timed override, and projection revision | Performance Engine contract plus peripheral presentation |
+| Semantic command | Producer and command identity, sequence, current run/program identity, button or explicit semantic target, action, and timing policy | Performance Engine contract |
+| Light snapshot | Engine session, epoch, run, program digest and binding revision, source sequence, source frame/rate, button ID, current semantic baseline, optional timed override, and projection revision | Performance Engine contract plus peripheral presentation |
 
 Use separate variants for switch edges, absolute axes, and relative encoders. Validate packet framing, bounded lengths, finite values, and device identities at ingress. Derive semantic types from the coordinated schema rather than copying another command vocabulary. Device timestamps aid diagnostics and ordering within a device session. They are not audio-frame timestamps.
 
@@ -74,11 +78,11 @@ Encoder transitions need their own valid-transition decoder and configured count
 
 The BPM pedal is a separate semantic input from the gain knob. Its exact hardware and gesture remain unconfirmed. Do not infer tap-tempo, an analog axis, a key mapping, or a pinout. Forward ordered pedal observations through the coordinated tempo command. Report the engine's actual effective frame and tempo revision. Loading a chart, moving into a bar with BPM metadata, or reconnecting a controller must not change clock BPM. Performance Engine defines initial tempo and the pedal gesture policy.
 
-The first knob assignment remains selected-channel gain. A pad selects its channel as today. Absolute knobs use soft takeover after channel selection or reconnect, so a stale physical position does not jump gain. Relative encoders accumulate from the acknowledged gain. Knob push has no assignment until a push switch is confirmed. Patch assignment waits for the coordinated patch contract.
+The first knob assignment remains the performance gain control. In the compatibility fixture this is selected-channel gain. In the target contract, Performance Engine resolves the selected button's binding to the intended voice or gain target, rather than treating the button ID as a voice ID. Absolute knobs use soft takeover after channel selection or reconnect, so a stale physical position does not jump gain. Relative encoders accumulate from the acknowledged gain. Knob push has no assignment until a push switch is confirmed. Cue-driven patch actions use the coordinated program binding. Per-effect venue tuning remains in the web UI and adds no dedicated hardware controls.
 
 Preserve per-device input sequence. The host assigns a total command order when it accepts inputs from multiple producers. Coalesce high-rate absolute knob updates only between discrete commands. A knob update before a channel-selecting press must not move after it. Use a bounded queue with explicit overflow diagnostics. On overflow, discard pending ordinary input and require snapshot recovery and release rearming. Preserve an independent Panic request path so knob traffic cannot prevent a stop.
 
-Device IO and network publication never touch the engine concurrently. One thread owns engine calls and copied state. `pf_process()` alone advances musical time. A command applies at its acknowledged engine boundary, and C++ chooses any quantized chart boundary. Do not backdate delayed physical presses to a guessed beat. Immediate commands must not wait for a beat, bar, or lamp refresh. Apply them at the earliest eligible engine boundary under the coordinated command policy. A mechanical debounce and device delivery still introduce latency. Trace those separately from musical quantization. For a recorded voice with no sufficiently nearby cue, C++ toggles playback immediately. The normalizer must neither convert that press into a quantized launch nor duplicate the engine's cue-proximity resolver.
+Device IO and network publication never touch the engine concurrently. One thread owns engine calls and copied state. `pf_process()` alone advances musical time. A command applies at its acknowledged engine boundary, and C++ chooses any quantized chart boundary. Do not backdate delayed physical presses to a guessed beat. Immediate commands must not wait for a beat, bar, or lamp refresh. Apply them at the earliest eligible engine boundary under the coordinated command policy. A mechanical debounce and device delivery still introduce latency. Trace those separately from musical quantization. For a button bound to a recorded voice with no sufficiently nearby cue, C++ resolves that binding and toggles playback immediately. The normalizer must neither convert that press into a quantized launch nor duplicate the engine's cue-proximity resolver.
 
 Represent musical cue and capture positions using the shared exact fractional timing contract. Preserve quarter-, half-, and three-quarter-beat offsets without rounding to whole beats. Feedback supplies explicit meter, measure boundaries, and beat units. Do not assume four beats per measure in input mapping, release deadlines, pulse anchoring, or fixtures. Any current four-beat engine restriction needs a coordinated engine change before the new timing cases can pass.
 
@@ -86,7 +90,7 @@ There is a preparation constraint before live audio. `pf_control()` can reach `s
 
 ## Drive lamps from clock and state
 
-The portable light projector takes a snapshot and an explicit presentation frame and returns bounded brightness for each channel. The same C++ function compiles natively and to WASM. It does not resolve cues, launch samples, or advance engine time.
+The portable light projector takes a snapshot and an explicit presentation frame and returns bounded brightness for each button lamp. Performance Engine supplies the resolved button feedback from current bindings and semantic state. The projector must not assume that a button and voice share an ID or invent aggregation rules for multiple bound resources. The same C++ function compiles natively and to WASM. It does not resolve cues, launch samples, or advance engine time.
 
 Separate the current semantic baseline from a temporary display override. The operator confirmed playing solid, inactive off, and recording with a standard pulse as baseline examples. Performance Engine must settle the canonical recording waveform, armed and stopping states, cue indication, override priority, and interaction with simultaneous capture and playback. Do not infer those rules from the old `steady` flag or implement independent hardware precedence.
 
@@ -130,13 +134,13 @@ Prefer existing OS APIs and permissive libraries. Check the exact selected nativ
 
 ## First useful wiring demo
 
-The first circuit uses one confirmed button switch, its separately controlled lamp, and one confirmed knob. Assign the button to R1. Other channels remain simulated. Add the remaining three buttons and mushroom only after the first circuit passes.
+The first circuit uses one confirmed button switch, its separately controlled lamp, and one confirmed knob. Assign the physical switch to button R1 and bind that button explicitly to fixture voice `demo-voice`. Other buttons remain simulated. A compatibility adapter may translate that binding to the existing native channel slot, without making the slot number or R1 the voice identity. Add the remaining three buttons and mushroom only after the first circuit passes.
 
 The topology is fixed at the role level. Switch contacts connect to a documented digital input and reference through the input circuit specified for that controller. The knob connects to documented encoder inputs or an ADC circuit, depending on its actual type. The lamp connects to a rated lamp supply through the confirmed output driver. Signal reference, isolation, current limiting, and protection follow those parts' datasheets. Bare GPIO is not presumed capable of driving the lamp.
 
 After receiving part identifiers, the next wiring artifact is a terminal-to-terminal sheet with each connector, voltage, polarity, resistor or driver, and power source. Until then, there is no valid numbered pin diagram. Begin with the switch-only input circuit. Confirm its trace before powering a lamp circuit. Confirm lamp off/on and watchdog behavior before connecting engine-driven animation.
 
-For the software demo, load a small synthetic native program with R1 cues for `rb`, `cb`, and `xb`. Use generated PCM rather than a microphone. Run the existing engine with an explicit offline block pump and discarded audio output. Device reports feed the same normalized control path used by the simulator. This demonstrates real engine decisions without choosing an audio-device backend or running a service.
+For the software demo, load a small synthetic native program with `rb`, `cb`, and `xb` cues bound from button R1 to `demo-voice`. Use generated PCM rather than a microphone. Run the existing engine with an explicit offline block pump and discarded audio output. Device reports feed the same normalized control path used by the simulator. This demonstrates real engine decisions without choosing an audio-device backend or running a service.
 
 The expected operator sequence is concrete:
 
@@ -144,10 +148,10 @@ The expected operator sequence is concrete:
 2. Press and hold the button. Exactly one R1 command arms capture. Display the coordinated armed state, then the standard recording pulse when capture begins.
 3. Release the button. The held indicator clears while the lamp continues the current armed or recording pattern.
 4. In the commit cue, press again. Commit occurs at the native bar boundary and playback starts. The lamp stays steady.
-5. Turn the knob after takeover. Acknowledged R1 gain changes while timing and mute remain intact.
+5. Turn the knob after takeover. Acknowledged gain for the resolved `demo-voice` target changes while timing and mute remain intact.
 6. At the queued-stop cue, press again. The lamp releases to zero at the native stop boundary.
 7. Inject a scheduled lamp override while recording, then let it expire. The recording pulse resumes. Repeat while playing and while inactive to verify solid on and off respectively.
-8. At a location outside the agreed cue-proximity window, press a recorded voice to toggle playback immediately. This step depends on Performance Engine resolving that window.
+8. At a location outside the agreed cue-proximity window, press the button bound to a recorded voice to toggle playback immediately. This step depends on Performance Engine resolving that window.
 9. Exercise Panic through the simulated control, then disconnect the device. No stale press replays when reconnected. Verify the lamp watchdog separately from scheduled-override expiry.
 
 The current-engine fixture first covers existing `rb`, `cb`, and `xb` behavior. Target recording pulse, timed overrides, immediate toggle fallback, variable measures, and fractional timing enter the fixture with the coordinated engine contract changes. Do not mark these target cases passed using the current four-beat implementation. Inject BPM-pedal input in simulation until the physical pedal and its gesture are identified.
@@ -163,9 +167,10 @@ Verify observable behavior with these cases:
 - Contact bounce, held reports, and release produce exactly one activation per stable press. A held reconnect produces no activation.
 - Clock crossings inside different block sizes produce the same capture, commit, playback, and stop frames. Include a 6/4 dominant meter and an explicitly short measure using the shared meter representation.
 - Quarter-, half-, and three-quarter-beat cue and capture offsets preserve their resolved frames. Immediate pad actions do not wait for a beat crossing or lamp output tick.
-- A recorded voice toggles immediately outside the agreed cue-proximity window. Exercise the exact window boundary, overlapping cues, and precedence once Performance Engine specifies that policy.
+- A button bound to a recorded voice toggles that voice immediately outside the agreed cue-proximity window. Exercise the exact window boundary, overlapping cues, and precedence once Performance Engine specifies that policy.
 - Chart-local BPM changes, chart load, and reconnect leave clock BPM unchanged. An accepted BPM-pedal command changes tempo at its acknowledged frame and refreshes pulse anchors.
-- A channel-selecting press between knob values preserves target order. Absolute reconnect takeover prevents gain jumps. Invalid knob values are rejected at ingress.
+- Rebind the same button to a different fixture voice. The command retains button identity, the engine resolves the new voice target, and lamp feedback follows the current binding revision. Reject or refresh stale binding feedback through the coordinated contract.
+- A target-selecting button press between knob values preserves resolved target order. Absolute reconnect takeover prevents gain jumps. Invalid knob values are rejected at ingress.
 - Adopted pulse patterns match engine beat anchors and beat units. Playing solid, inactive off, and the agreed recording pulse are verified baselines. Override expiry reveals the latest baseline after transitions during the override. Duplicate snapshots do not restart it. Test the separate connectivity timeout and queued-stop release deadline.
 - Tempo revisions, loop wraps, new runs, epoch changes, and stale snapshots invalidate old projection. Include feedback gaps and dropped-event recovery.
 - Knob floods cannot block Panic. Queue overflow causes explicit recovery. Replayed IDs do not duplicate controls within the supported dedup window.
@@ -176,7 +181,7 @@ Apply one engine-wide logging profile across the peripheral core, adapters, host
 
 Phase 2 adds one device adapter after hardware identification. Verify parsing with recorded packets before real IO. Then execute the first circuit's input, lamp, knob, and reconnect checks. Record actual switch debounce, output rate, watchdog behavior, and latency. Label each result as physical or simulated. Commit the adapter, terminal sheet, and verification evidence together without bulk temporary traces.
 
-Phase 3 expands to four pads and the confirmed Panic control. Preserve semantic light state independently of button hold. Add only confirmed extra inputs. Coordinate patch parameter mappings with Filters and Performance Engine. Verify mixed-producer ordering and repeated reconnects.
+Phase 3 expands to four pads and the confirmed Panic control. Preserve semantic light state independently of button hold. Add only confirmed extra inputs. Coordinate cue-driven patch actions and button-to-resource bindings with Filters and Performance Engine. Keep per-effect venue parameter tuning in the web UI without dedicated hardware peripherals. Verify mixed-producer ordering and repeated reconnects.
 
 Phase 4 adds production native audio hosting and the compiled-song loader. Resolve allocating control paths first. Audit command queues, callback ownership, device buffers, deadlines, and underruns on the real EliteDesk. Hardware IO, serialization, file loading, and publishing stay outside the callback. Update architecture.md and development.md when these ownership boundaries become implemented behavior.
 
