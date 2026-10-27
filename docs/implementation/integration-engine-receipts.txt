@@ -1,0 +1,17 @@
+Independent native and WASM probes at 92e5b3692edb301d5b5827d047d53de4b3c44d07
+
+pr9-independent-fixed-tail-probe.log
+pending stop: light=3 release_ms=125.00 status=4
+audible tail: pcm=0.125000 light=3 release_ms=99.88 status=4
+
+pr9-independent-fixed-boundary-probe.log
+PASS native boundary rejection, 40 BPM next-bar capacity, every-frame 800-frame PCM/light tail.
+
+pr9-independent-fixed-bank-probe.log
+second in-transport recapture after venue edit: result=-1 error=20 phase=2 latest_revision=2
+after one frame: phase=2 error=20
+
+pr9-independent-fixed-bridge-probe.log
+PASS meter 4 duration 16000 user BPM preserved and old PCM audible after rejected replacements
+PASS meter 6 duration 24000 user BPM preserved and old PCM audible after rejected replacements
+PASS immediate lead-in rejected at compiler before engine creation
