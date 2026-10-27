@@ -80,6 +80,8 @@ Use this starting brief for a new session.
 
 ## Start the EliteDesk workstream
 
+Read the [confirmed hardware inventory](hardware-inventory.md) and the operator's PR #3 review before revising this plan. Unknown installation facts block their dependent design decisions; ask the operator rather than selecting a controller, role, cadence, or API by assumption. The inventory and current workstream brief supersede speculative examples below.
+
 Begin with [the native performance guide](../lib/performance/README.md), `lib/performance/include/performance_engine.h`, and `lib/relay/README.md`. Build and test the complete native engine before adding device code. Its manual-tempo CMake target already links the clock, sequencer, and sampler without aubio or libsndfile.
 
 Choose an audio-device backend and give one thread ownership of the performance engine. Clear each output block, pass microphone PCM to `pf_process()`, and route the rendered channels to the device. Do not also call `bt_process()` or dispatch `sq_on_beat()` on the borrowed component handles. The performance engine owns those calls.
