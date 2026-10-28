@@ -22,11 +22,30 @@ The operator's subsequent MacBook bench-guide request confirms these additional 
 | 6 | Solder-free inline wire joints, two three-packs | [Adafruit #3786](https://www.adafruit.com/product/3786) |
 | 4 | CAPFEET PCB mounting feet with screws | [Mounting feet](https://www.ultimarc.com/output/led-and-output-controller-accessories/pcb-mounting-feet/) |
 
-The first bench host is the MacBook through the operator's USB-A to USB-C adapter. Data compatibility, actual board mode, and observed key mappings remain untested. The supply's nominal specifications match the documented I-PAC LED supply, but actual LED insert current, polarity, and driver compatibility still require confirmation.
+The first bench host is the MacBook through the operator's USB-A to USB-C adapter. Keyboard input, signed relative spinner input, and visible control of LED output 1 work on this host. The board is mounted on feet. The Adafruit #1466 supply connects directly to the I-PAC's black barrel socket. The supplied PC drive-power adapter cable is not used on the Mac. LED current has not been measured. The other three LEDs still need individual checks.
 
 Custom fabrication remains unselected: four movable 100 mm button pods, with two paired pods as a fallback; a disco-ball knob coupling and separate weight-supporting mount; a mushroom mount; a controller enclosure with USB and power access, insulation, and strain relief; and a nonslip pedal base. Select wiring lengths, glands, and fasteners after measuring the layout. Confirm the ball's dimensions and mass and the shaft/coupling fit before designing its support. Do not assume the encoder shaft is load-bearing.
 
 The I-PAC is the controller board in this parts plan. Do not introduce an additional Arduino or choose a different controller without asking the operator.
+
+## Installed bench state
+
+This record reflects the operator's MacBook bench session and confirmation on 2026-10-28. It supersedes earlier statements that all physical testing remains pending. Use [Resume the Mac bench test](guides/ipac-mac/resume-bench.md) to repeat the checks. The [bench verification record](guides/ipac-mac/bench-verification.md) distinguishes observed behavior from automated tests.
+
+| Item | Confirmed observation | Remaining work |
+| --- | --- | --- |
+| I-PAC Ultimate I/O | USB vendor `d209`, product `0410`; keyboard, relative mouse, and LED interfaces enumerate | Firmware release name and full input map are not established |
+| SpinTrak | Signed relative Y input, HID usage page `1`, usage `0x31`; clockwise moves the Mac cursor down, counterclockwise moves it up | Calibrate physical rotation against raw counts if needed. Cursor direction was operator-observed, not annotated onto the raw capture |
+| Arcade switch on the plug identified by the operator as `2a` | Emits `j` on the Mac | Record press and release edges alongside a confirmed connector label when completing the map |
+| Four arcade switch connections | Operator selected `1a`, `2a`, `1b`, and `2b` | Complete wiring and inventory each key separately. This is a planned set, not four verified mappings |
+| Arcade LED output `1` | SDK channel `0` lights in its current orientation; manual brightness changes and four smooth 2.4-second pulses were visible | Record the physical button identity and permanent polarity marks when labelling the assembly |
+| Other three arcade LEDs | Leads were attached during the session | Verify polarity, physical button identity, and output number individually |
+| Foot pedal | Arrived; intended for BPM taps | Wire and capture press/release behavior in the next bench session |
+| Mushroom button | Arrived; normally open contact selected | Wire and capture press/release behavior in the next bench session. No fixed musical action is assigned |
+
+The observed `2a` label and `j` result are installation facts reported by the operator. Do not replace them with a factory key table. A connector label, a host key, and a song action are separate identities.
+
+The spinner initially occupied the wrong header row. Correcting that physical connection restored relative Y reports without changing firmware or input configuration. No persistent configuration or stored LED script was written during this session.
 
 ## Confirmed intended behavior
 

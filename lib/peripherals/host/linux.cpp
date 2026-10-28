@@ -1,4 +1,5 @@
 #include "probe.h"
+#include "led_output.h"
 #include "peripheral_controls.h"
 #include <linux/hidraw.h>
 #include <linux/input.h>
@@ -78,7 +79,7 @@ int run(const Request& request) {
       if (entry.path().filename().string().rfind("hidraw", 0) == 0) describe(entry.path(), true);
     return 0;
   }
-  bool raw = request.mode == Mode::led;
+  bool raw = led_mode(request.mode);
   if ((raw && request.device.rfind("/dev/hidraw", 0) != 0) || (!raw && request.device.rfind("/dev/input/event", 0) != 0)) {
     std::cerr << "Select an exact listed " << (raw ? "hidraw" : "event") << " path.\n"; return 2;
   }
@@ -91,12 +92,11 @@ int run(const Request& request) {
         !descriptor(file.value, report) || pp_ipac_led_descriptor(report.value, report.size) != 1) {
       std::cerr << "Selected device does not expose the supported I-PAC LED report. Nothing written.\n"; return 1;
     }
-    uint8_t bytes[PP_LED_REPORT_BYTES];
-    pp_ipac_led_report(request.channel, request.level, bytes);
-    auto size = write(file.value, bytes, sizeof(bytes));
-    if (size != ssize_t(sizeof(bytes))) { std::cerr << "LED write failed: " << std::strerror(errno) << '\n'; return 1; }
-    std::cout << "{\"type\":\"led-write\",\"channel\":" << request.channel << ",\"level\":" << request.level << ",\"bytes\":" << size << "}\n";
-    return 0;
+    return write_led_output(request, [&](const uint8_t* bytes, size_t size) {
+      auto sent = write(file.value, bytes, size);
+      if (sent != ssize_t(size)) std::cerr << "LED write failed or was short: " << std::strerror(errno) << '\n';
+      return sent == ssize_t(size);
+    });
   }
   input_id info{};
   if (!input_info(file.value, info)) { std::cerr << "Selected event device is not Ultimarc.\n"; return 1; }

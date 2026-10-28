@@ -29,8 +29,13 @@ void usage() {
   std::cout << "peripheral-probe list\n"
     "peripheral-probe listen <device-id|all-on-macOS>\n"
     "peripheral-probe led <device-id> <SDK-channel-0..95> <level-0..255> --confirm-wiring\n"
+    "peripheral-probe led-on <device-id> <SDK-channel-0..95> --confirm-wiring\n"
+    "peripheral-probe led-pulse <device-id> <SDK-channel-0..95> --confirm-wiring\n"
     "\nHelp and invalid commands never open hardware. list/listen are read-only.\n"
-    "LED writes affect one brightness value only; they do not change firmware/maps.\n"
+    "led changes brightness only. led-on/led-pulse enable the selected output,\n"
+    "disabling the other seven outputs in its group. Pulse: four 2.4-second cosine\n"
+    "cycles ending fully on. Interruption may leave the last brightness.\n"
+    "No command changes firmware, input maps, or stored LED scripts.\n"
     "On macOS, device IDs come from list. On Linux, select the listed event/hidraw path.\n";
 }
 }
@@ -43,6 +48,13 @@ int main(int argc, char** argv) {
     Request request{Mode::led, argv[2]};
     if (number(argv[3], request.channel) && number(argv[4], request.level) && request.channel < 96 && request.level <= 255)
       return run(request);
+  }
+  if (argc == 5 && std::string_view(argv[4]) == "--confirm-wiring") {
+    const std::string_view command = argv[1];
+    if (command == "led-on" || command == "led-pulse") {
+      Request request{command == "led-on" ? Mode::led_on : Mode::led_pulse, argv[2]};
+      if (number(argv[3], request.channel) && request.channel < 96) return run(request);
+    }
   }
   std::cerr << "Invalid command. No device opened. Use --help.\n";
   return 2;

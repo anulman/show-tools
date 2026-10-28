@@ -1,4 +1,5 @@
 #include "probe.h"
+#include "led_output.h"
 #include "peripheral_controls.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDManager.h>
@@ -90,7 +91,7 @@ int run(const Request& request) {
       std::cerr << "Select a registry device ID reported by list.\n"; return 2;
     }
   }
-  if (request.mode == Mode::led && selected == 0) { std::cerr << "LED output requires one device ID.\n"; return 2; }
+  if (led_mode(request.mode) && selected == 0) { std::cerr << "LED output requires one device ID.\n"; return 2; }
   auto manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
   if (!manager) { std::cerr << "Cannot create IOKit manager.\n"; return 1; }
   auto matching = CFDictionaryCreateMutable(kCFAllocatorDefault, 0, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
@@ -111,18 +112,18 @@ int run(const Request& request) {
   }
   int exit = 0;
   if (request.mode == Mode::list && found.empty()) { std::cerr << "No Ultimarc interfaces found. Check USB connection.\n"; exit = 1; }
-  if (request.mode == Mode::led) {
+  if (led_mode(request.mode)) {
     if (!target || !report_supported(target)) {
       std::cerr << "No supported I-PAC output descriptor selected. Nothing written. Save list output for inspection.\n"; exit = 1;
     } else if (IOHIDDeviceOpen(target, kIOHIDOptionsTypeNone) != kIOReturnSuccess) {
       std::cerr << "Cannot open selected output interface. Nothing written.\n"; exit = 1;
     } else {
-      uint8_t bytes[PP_LED_REPORT_BYTES];
-      pp_ipac_led_report(request.channel, request.level, bytes);
-      auto status = IOHIDDeviceSetReport(target, kIOHIDReportTypeOutput, bytes[0], bytes, sizeof(bytes));
+      exit = write_led_output(request, [&](const uint8_t* bytes, size_t size) {
+        auto status = IOHIDDeviceSetReport(target, kIOHIDReportTypeOutput, bytes[0], bytes, CFIndex(size));
+        if (status != kIOReturnSuccess) std::cerr << "LED write failed (" << status << ").\n";
+        return status == kIOReturnSuccess;
+      });
       IOHIDDeviceClose(target, kIOHIDOptionsTypeNone);
-      std::cout << "{\"type\":\"led-write\",\"channel\":" << request.channel << ",\"level\":" << request.level << ",\"status\":" << status << "}\n";
-      exit = status == kIOReturnSuccess ? 0 : 1;
     }
   }
   if (request.mode == Mode::listen) {
