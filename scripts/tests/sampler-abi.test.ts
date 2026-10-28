@@ -12,10 +12,10 @@ test('browser query constants match the sampler, sequencer, and performance C he
   const directory = mkdtempSync(join(tmpdir(), 'show-tools-abi-'));
   try {
     const output = join(directory, 'abi.ts');
-    for (const [module, filename, prefix] of [['sampler', 'sample_engine.h', 'ST'], ['sequencer', 'audio_sequence_engine.h', 'SQ'], ['performance', 'performance_engine.h', 'PF']]) {
+    for (const [module, filename, prefix, artifact] of [['sampler', 'sample_engine.h', 'ST', 'wasm-abi.ts'], ['sequencer', 'audio_sequence_engine.h', 'SQ', 'wasm-abi.ts'], ['performance', 'performance_engine.h', 'PF', 'wasm-abi.ts'], ['performance', 'performance_light_output.h', 'PF', 'light-abi.ts']]) {
       const header = fileURLToPath(new URL(`../../lib/${module}/include/${filename}`, import.meta.url));
       execFileSync(process.execPath, ['--import', 'tsx', generator, header, output, prefix]);
-      assert.equal(readFileSync(output, 'utf8'), readFileSync(new URL(`../../lib/${module}/wasm-abi.ts`, import.meta.url), 'utf8'));
+      assert.equal(readFileSync(output, 'utf8'), readFileSync(new URL(`../../lib/${module}/${artifact}`, import.meta.url), 'utf8'));
     }
   } finally { rmSync(directory, { recursive: true }); }
 });
