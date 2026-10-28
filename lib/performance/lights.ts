@@ -133,6 +133,9 @@ export function decodeLightPublication(values: ArrayLike<number>): LightPublicat
       ids.add(id); samples.push({ id, level });
     }
   }
+  if (sequence === Number.MAX_SAFE_INTEGER && (pending !== 0 || samples.some(sample => sample.level !== 0))) {
+    throw new Error('Terminal native light publication must be off with no pending activation');
+  }
   return { version: 1, generation, run, epoch, timeline, sequence, frame, sampleRate, countBeat,
     running: running === 1, pending: pending === 1 ? { countBeat: pendingBeat } : null, originBeat, samples };
 }

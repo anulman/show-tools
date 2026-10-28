@@ -54,4 +54,13 @@ test('complete evaluated publication validates identities and zero padding witho
   assert.throws(() => decodeLightPublication(duplicate), /sample/);
   assert.throws(() => decodeLightPublication(values.subarray(1)), /format/);
   assert.deepEqual(decodeLightPublication(publication()).samples, []);
+  const terminal = publication();
+  terminal[PFL.LIGHT_SEQUENCE] = Number.MAX_SAFE_INTEGER;
+  assert.deepEqual(decodeLightPublication(terminal).samples, []);
+  terminal[PFL.LIGHT_PENDING] = 1;
+  assert.throws(() => decodeLightPublication(terminal), /Terminal/);
+  terminal[PFL.LIGHT_PENDING] = 0;
+  terminal[PFL.LIGHT_COUNT] = 1;
+  terminal[PFL.LIGHT_SAMPLES + 1] = .1;
+  assert.throws(() => decodeLightPublication(terminal), /Terminal/);
 });
