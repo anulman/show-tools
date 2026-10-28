@@ -26,6 +26,8 @@ The first bench host is the MacBook through the operator's USB-A to USB-C adapte
 
 Custom fabrication remains unselected: four movable 100 mm button pods, with two paired pods as a fallback; a disco-ball knob coupling and separate weight-supporting mount; a mushroom mount; a controller enclosure with USB and power access, insulation, and strain relief; and a nonslip pedal base. Select wiring lengths, glands, and fasteners after measuring the layout. Confirm the ball's dimensions and mass and the shaft/coupling fit before designing its support. Do not assume the encoder shaft is load-bearing.
 
+The [CAD review workspace](../hardware/cad/README.md) provides a local build123d/OCP viewer and Scrawl feedback loop. Its synthetic demonstration checks the toolchain, not actual mounting dimensions or fit.
+
 The I-PAC is the controller board in this parts plan. Do not introduce an additional Arduino or choose a different controller without asking the operator.
 
 ## Installed bench state
