@@ -30,4 +30,8 @@ The dependency review inspected the installed SciPy 1.18.1 wheel's `METADATA`, l
 
 `hardware/cad/cad button --show --four --reset-camera` published four coloured copies to the existing viewer. Safari initially retained the old demo after sleeping. Reloading its page and publishing again displayed the RGBY reference models and their explicit reference-only, invalid-CAD labels. The viewer process was preserved. No Scrawl recording, hardware IO, or printer job was started.
 
-The upstream MIT license is included beside the STEP. `source.json` records its repository revision and asset hash. The published manufacturer drawing was downloaded separately and inspected visually for the 98.5 mm body and M24 × 2 thread labels; it is linked rather than redistributed. Bash syntax and `git diff --check` passed.
+The upstream MIT license is included beside the STEP. `source.json` records its repository revision and asset hash. The published manufacturer drawing was downloaded separately and inspected visually for the 98.5 mm body and M24 × 2 thread labels; it is linked rather than redistributed. Bash syntax passed. The committed upstream STEP preserves trailing whitespace on lines 4 and 12. `git diff --check` reports those two upstream lines. The authored source and documentation pass when only this vendored asset is excluded:
+
+```sh
+git diff --check 6178145 HEAD -- . ":(exclude)hardware/cad/components/adafruit-1185/button.step"
+```
