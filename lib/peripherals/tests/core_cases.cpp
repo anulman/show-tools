@@ -1,4 +1,5 @@
 #include "peripheral_controls.h"
+#include "peripheral_lights.h"
 #include <array>
 #include <cmath>
 #include <cstdio>
@@ -79,6 +80,91 @@ extern "C" int pp_run_cases() {
     double first = pp_trigger_value(time, 2, 2, 4, 1, .5);
     check(first == pp_trigger_value(time, 2, 2, 4, 1, .5), "duplicate snapshot and consumer cadence cannot restart time");
   }
+  const pp_light_levels fixture_levels{.125, .45, .9};
+  pp_light_recipe recipe{};
+  pp_light_sample sample{99, .3};
+  auto evaluate = [&](double position) {
+    check(pp_light_evaluate(&recipe, position, &sample) == 0, "light recipe samples successfully");
+    check(sample.led_id == recipe.led_id && std::isfinite(sample.level) && sample.level >= 0 && sample.level <= 1,
+      "opaque identity and normalized output preserved");
+    return sample.level;
+  };
+  for (int strength : {PP_LIGHT_LOW, PP_LIGHT_MID, PP_LIGHT_MAX}) {
+    check(pp_light_on(UINT32_MAX, strength, &fixture_levels, &recipe) == 0, "named level constructor");
+    const double expected = strength == PP_LIGHT_LOW ? .125 : strength == PP_LIGHT_MID ? .45 : .9;
+    check(evaluate(-200) == expected && evaluate(200) == expected, "steady output ignores elapsed time");
+    observe(sample.level);
+  }
+  check(pp_light_off(17, &recipe) == 0 && evaluate(100) == 0, "off keeps its logical ID and extinguishes output");
+  check(pp_light_pulse(17, PP_LIGHT_MAX, &fixture_levels, -4.25, 2, &recipe) == 0, "explicit fractional origin retained");
+  check(recipe.origin_beat == -4.25 && recipe.period_beats == 2, "constructor neither quantizes nor rephases");
+  for (int cycle : {-2, -1, 0, 1, 2}) {
+    double start = recipe.origin_beat + cycle * recipe.period_beats;
+    check(evaluate(start) == .9, "pulse period boundary is peak, including pre-origin periods");
+    check(std::abs(evaluate(start + .5) - .45) < 1e-12, "cosine quarter-period midpoint");
+    check(evaluate(start + 1) == 0, "smooth pulse trough at half period");
+    observe(evaluate(start + 1.5));
+    check(std::abs(sample.level - .45) < 1e-12, "cosine three-quarter-period midpoint");
+  }
+  const double repeated = evaluate(-3.87);
+  check(evaluate(-3.87) == repeated, "duplicate observations cannot restart phase");
+  evaluate(900);
+  check(evaluate(-3.87) == repeated, "skipped, reordered, and differently paced samples retain absolute phase");
+  const double epsilon = 1e-5;
+  check(std::abs(evaluate(recipe.origin_beat + epsilon) - evaluate(recipe.origin_beat)) / epsilon < 1e-4,
+    "pulse has a smooth peak rather than a triangular corner");
+  check(std::abs(evaluate(recipe.origin_beat + 1 + epsilon) - evaluate(recipe.origin_beat + 1)) / epsilon < 1e-4,
+    "pulse has a smooth trough");
+  check(pp_light_blink(8, PP_LIGHT_MID, &fixture_levels, 12, .5, .25, &recipe) == 0, "fractional-beat blink period");
+  check(evaluate(12) == .45 && evaluate(12.124) == .45, "blink begins on");
+  check(evaluate(12.125) == 0 && evaluate(12.499) == 0, "duty boundary is off");
+  check(evaluate(12.5) == .45 && evaluate(11.5) == .45, "blink period endpoint and pre-origin wrap");
+  observe(evaluate(12.25));
+  const pp_light_recipe saved = recipe;
+  auto unchanged = [&] {
+    check(recipe.led_id == saved.led_id && recipe.kind == saved.kind && recipe.level == saved.level &&
+      recipe.origin_beat == saved.origin_beat && recipe.period_beats == saved.period_beats && recipe.duty == saved.duty,
+      "invalid constructor leaves recipe unchanged");
+  };
+  for (double period : {0., -1., std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+    check(pp_light_pulse(9, PP_LIGHT_MAX, &fixture_levels, 0, period, &recipe) == PP_INVALID, "invalid pulse period rejected");
+    unchanged();
+  }
+  for (double duty : {0., 1., -1., std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+    check(pp_light_blink(9, PP_LIGHT_MAX, &fixture_levels, 0, 1, duty, &recipe) == PP_INVALID, "duty endpoints require off or steady instead");
+    unchanged();
+  }
+  for (const auto levels : {pp_light_levels{.6, .3, 1}, pp_light_levels{0, .3, 1.1},
+      pp_light_levels{-1, .3, 1}, pp_light_levels{0, std::numeric_limits<double>::quiet_NaN(), 1}}) {
+    check(pp_light_on(9, PP_LIGHT_LOW, &levels, &recipe) == PP_INVALID, "invalid level table rejected");
+    unchanged();
+  }
+  check(pp_light_on(9, 3, &fixture_levels, &recipe) == PP_INVALID, "unknown named level rejected"); unchanged();
+  check(pp_light_on(9, PP_LIGHT_LOW, nullptr, &recipe) == PP_INVALID, "missing level table rejected"); unchanged();
+  check(pp_light_pulse(9, PP_LIGHT_LOW, &fixture_levels, std::numeric_limits<double>::infinity(), 1, &recipe) == PP_INVALID,
+    "nonfinite origin rejected"); unchanged();
+  check(pp_light_off(9, nullptr) == PP_INVALID && pp_light_on(9, PP_LIGHT_LOW, &fixture_levels, nullptr) == PP_INVALID,
+    "missing constructor output rejected");
+  auto rejected_sample = [&](const pp_light_recipe* input, double position) {
+    sample = {42, .25};
+    check(pp_light_evaluate(input, position, &sample) == PP_INVALID, "invalid recipe or sample time rejected");
+    check(sample.led_id == 42 && sample.level == .25, "invalid sampling leaves output unchanged");
+  };
+  rejected_sample(nullptr, 0);
+  rejected_sample(&recipe, std::numeric_limits<double>::quiet_NaN());
+  rejected_sample(&recipe, std::numeric_limits<double>::infinity());
+  recipe.kind = 99; rejected_sample(&recipe, 12); recipe = saved;
+  recipe.level = -1; rejected_sample(&recipe, 12); recipe = saved;
+  recipe.period_beats = 0; rejected_sample(&recipe, 12); recipe = saved;
+  recipe.duty = 1; rejected_sample(&recipe, 12); recipe = saved;
+  recipe.origin_beat = -std::numeric_limits<double>::max();
+  rejected_sample(&recipe, std::numeric_limits<double>::max());
+  check(pp_light_evaluate(&saved, 12, nullptr) == PP_INVALID, "missing sample output rejected");
+  check(pp_light_pulse(17, PP_LIGHT_MAX, &fixture_levels, 100, 2, &recipe) == 0 && evaluate(100) == .9,
+    "caller can create a new origin explicitly on restart");
+  const double restarted = evaluate(100.5);
+  check(std::abs(restarted - .45) < 1e-12, "new recipe samples from caller-supplied restart origin");
+  observe(restarted);
   std::array<uint8_t, 5> report{};
   result(pp_ipac_led_report(0, 128, report.data()), 5, "SDK report encoding");
   for (auto byte : report) observe(byte);

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(show_tools_peripherals LANGUAGES CXX)
-add_library(peripheral_controls src/peripheral_controls.cpp)
+add_library(peripheral_controls src/peripheral_controls.cpp src/peripheral_lights.cpp)
 target_include_directories(peripheral_controls PUBLIC include)
 target_compile_features(peripheral_controls PUBLIC cxx_std_17)
 target_compile_options(peripheral_controls PRIVATE -Wall -Wextra -Wpedantic)
