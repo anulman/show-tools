@@ -124,6 +124,8 @@ The probe sends no report if confirmation is missing, the channel or level is in
 
 Use [Logical LED recipes](LIGHTS.md) for PE-callable off, steady low/mid/max, smooth pulse, and blink routines by logical LED ID. PE callers supply the brightness table and engine-authored count-beat position, origin, period, and blink duty. PE exclusively owns musical activation, keyframes, quantization, phase, and tempo changes. The host samples or delivers engine-authored output. The evaluator performs no IO, scheduling, or implicit quantization. This API does not establish a production PE light snapshot or device service.
 
+For complete PE output images, use the [hardware-free delivery gate](DELIVERY.md). It validates connection fences and prepares brightness reports without choosing musical phase or performing device IO.
+
 ## Portable control and light contract
 
 [peripheral_controls.h](include/peripheral_controls.h) is an isolated C ABI. `pp_begin` supplies a new device session plus explicit known-released and initially-held masks for up to 32 switch slots. Unspecified slots are unknown, not assumed up. Unknown or initially held controls must be released before a fresh activation. A valid ignored observation consumes its sequence. Invalid observations leave state unchanged. Old sessions and nonincreasing sequences are rejected. Recreate before exhausting the JavaScript-safe session counter.

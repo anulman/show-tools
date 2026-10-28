@@ -23,10 +23,11 @@ function run(command: string, args: string[], capture = false): string {
 run('cmake', ['-S', source, '-B', build, '-DCMAKE_BUILD_TYPE=Release']);
 run('cmake', ['--build', build, '--parallel']);
 run('ctest', ['--test-dir', build, '--output-on-failure']);
-run('em++', ['-O2', '-std=c++17', '-DPP_WASM_CASES', `-I${source}/include`,
-  `${source}/src/peripheral_controls.cpp`, `${source}/src/peripheral_lights.cpp`, `${source}/tests/core_cases.cpp`, '--no-entry',
+run('em++', ['-O2', '-std=c++17', '-DPP_WASM_CASES', `-I${source}/include`, `-I${source}/../performance/include`,
+  `${source}/src/peripheral_controls.cpp`, `${source}/src/peripheral_lights.cpp`, `${source}/src/peripheral_light_delivery.cpp`,
+  `${source}/tests/core_cases.cpp`, `${source}/tests/delivery_cases.cpp`, '--no-entry',
   '-sSTANDALONE_WASM=1', '-sALLOW_MEMORY_GROWTH=0', '-sINITIAL_MEMORY=16777216',
-  '-sEXPORTED_FUNCTIONS=["_pp_run_cases","_pp_case_value","_pp_create","_pp_destroy","_pp_begin","_pp_key","_pp_rotate","_pp_pattern_value","_pp_trigger_value","_pp_abi_version","_pp_ipac_led_report","_pp_ipac_led_descriptor","_pp_light_off","_pp_light_on","_pp_light_pulse","_pp_light_blink","_pp_light_evaluate"]',
+  '-sEXPORTED_FUNCTIONS=["_pp_run_cases","_pp_case_value","_pp_create","_pp_destroy","_pp_begin","_pp_key","_pp_rotate","_pp_pattern_value","_pp_trigger_value","_pp_abi_version","_pp_ipac_led_report","_pp_ipac_led_descriptor","_pp_light_off","_pp_light_on","_pp_light_pulse","_pp_light_blink","_pp_light_evaluate","_pp_light_delivery_create","_pp_light_delivery_destroy","_pp_light_delivery_bind","_pp_light_delivery_prepare","_pp_light_delivery_commit"]',
   '-o', `${build}/peripheral-controls.wasm`]);
 
 const parsed: unknown = JSON.parse(run(`${build}/peripheral_controls_tests`, [], true));
@@ -48,8 +49,9 @@ function call(name: string, ...args: number[]): number {
   if (typeof result !== 'number') throw new Error(`${name} did not return a number`);
   return result;
 }
-for (const name of ['pp_light_off', 'pp_light_on', 'pp_light_pulse', 'pp_light_blink', 'pp_light_evaluate']) {
-  assert.equal(typeof instance.exports[name], 'function', `Missing light recipe export ${name}`);
+for (const name of ['pp_light_off', 'pp_light_on', 'pp_light_pulse', 'pp_light_blink', 'pp_light_evaluate',
+  'pp_light_delivery_create', 'pp_light_delivery_destroy', 'pp_light_delivery_bind', 'pp_light_delivery_prepare', 'pp_light_delivery_commit']) {
+  assert.equal(typeof instance.exports[name], 'function', `Missing peripheral light export ${name}`);
 }
 assert.equal(call('pp_abi_version'), 1);
 assert.equal(call('pp_run_cases'), native.length);
