@@ -23,6 +23,7 @@ export EM_CACHE="${EM_CACHE:-$build_dir/emscripten-cache}"
 node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts"
 node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$sequencer_dir/include/audio_sequence_engine.h" "$sequencer_dir/wasm-abi.ts" SQ
 node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$performance_dir/include/performance_engine.h" "$performance_dir/wasm-abi.ts" PF
+node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$performance_dir/include/performance_light_output.h" "$performance_dir/light-abi.ts" PF
 exports="$(node --import tsx "$repo_dir/scripts/wasm-exports.ts" "$module_dir/include/beat_tracker.h" "$sampler_dir/include/sample_engine.h" "$sequencer_dir/include/audio_sequence_engine.h" "$performance_dir/include/performance_engine.h")"
 if [[ ! -f "$archive" ]]; then
     curl --fail --location --retry 2 "https://aubio.org/pub/aubio-$aubio_version.tar.bz2" -o "$archive.part"
