@@ -20,9 +20,11 @@ typedef struct pp_light_sample { uint32_t led_id; double level; } pp_light_sampl
    Constructors return 0 or PP_INVALID, leaving output unchanged on failure. */
 int pp_light_off(uint32_t led_id, pp_light_recipe* out);
 int pp_light_on(uint32_t led_id, int strength, const pp_light_levels* levels, pp_light_recipe* out);
-/* Origin and position use the caller's authoritative count-beat coordinate.
+/* Origin and position use PE's authoritative count-beat coordinate.
    Period is finite and positive; fractional beats are supported. Constructors
-   never quantize or rephase. Pulse is cosine-smoothed from peak at origin to
+   never quantize or rephase. PE exclusively owns musical activation, keyframes,
+   phase and tempo changes. Hosts sample/deliver PE-authored output.
+   Pulse is cosine-smoothed from peak at origin to
    zero at half-period and back to peak. Blink starts on at origin and turns off
    at duty * period; duty must be strictly between 0 and 1. */
 int pp_light_pulse(uint32_t led_id, int strength, const pp_light_levels* levels,

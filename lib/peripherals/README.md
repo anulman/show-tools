@@ -122,7 +122,7 @@ The probe sends no report if confirmation is missing, the channel or level is in
 
 ## Reusable LED routines
 
-Use [Logical LED recipes](LIGHTS.md) for PE-callable off, steady low/mid/max, smooth pulse, and blink routines by logical LED ID. The caller supplies the brightness table, authoritative count-beat position, origin, period, and blink duty. The evaluator performs no IO, scheduling, or implicit quantization. This API does not establish a production PE light snapshot or device service.
+Use [Logical LED recipes](LIGHTS.md) for PE-callable off, steady low/mid/max, smooth pulse, and blink routines by logical LED ID. PE callers supply the brightness table and engine-authored count-beat position, origin, period, and blink duty. PE exclusively owns musical activation, keyframes, quantization, phase, and tempo changes. The host samples or delivers engine-authored output. The evaluator performs no IO, scheduling, or implicit quantization. This API does not establish a production PE light snapshot or device service.
 
 ## Portable control and light contract
 
