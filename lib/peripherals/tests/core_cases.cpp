@@ -7,7 +7,7 @@
 #include <limits>
 
 namespace {
-std::array<double, 256> trace{};
+std::array<double, 2048> trace{};
 uint32_t count = 0;
 void check(bool value, const char* message) {
   if (!value) { std::fprintf(stderr, "%s\n", message); std::abort(); }
@@ -15,6 +15,8 @@ void check(bool value, const char* message) {
 void observe(double value) { check(count < trace.size(), "trace capacity"); trace[count++] = value; }
 void result(int actual, int expected, const char* message) { check(actual == expected, message); observe(actual); }
 }
+
+void pp_run_delivery_cases(void (*observe)(double));
 
 extern "C" int pp_run_cases() {
   count = 0;
@@ -188,6 +190,7 @@ extern "C" int pp_run_cases() {
   result(pp_ipac_led_descriptor(empty_output.data(), empty_output.size()), PP_INVALID, "empty Main Output rejected");
   std::array<uint8_t, 14> empty_collection{0x05, 1, 0x09, 0, 0xa0, 0x85, 3, 0x75, 8, 0x95, 4, 0x91, 2, 0xc0};
   result(pp_ipac_led_descriptor(empty_collection.data(), empty_collection.size()), PP_INVALID, "empty Main Collection rejected");
+  pp_run_delivery_cases(observe);
   return int(count);
 }
 extern "C" double pp_case_value(uint32_t index) { return index < count ? trace[index] : -999; }
