@@ -2,6 +2,8 @@
 
 The six-page [PDF](../../../output/pdf/ipac-mac-keyboard.pdf) starts with one unlit switch and the Mac's keyboard facilities. [guide.md](guide.md) is the editable content. [render.py](render.py) draws the original diagrams and produces the PDF without a browser or device access.
 
+For the installed hardware and next wiring session, use [Resume the Mac bench test](resume-bench.md). The [bench verification record](bench-verification.md) updates the physical-test status without changing the original PDF review receipt.
+
 ## Reproduce the PDF
 
 On this Mac, use the tested `/usr/bin/python3` interpreter, Python 3.9.6, with the pinned [requirements](requirements.txt). The default `python3` resolved to Python 3.15 and failed to bootstrap pip, so that invocation is not the reproduced setup. On another host, select an interpreter with working `venv` and pip support.

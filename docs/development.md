@@ -136,6 +136,8 @@ Use `npm run build:video` to build its native C++ pose module to WASM and bundle
 
 ## Prepare the arrived I-PAC harness
 
+Start a returning bench session with [Resume the Mac bench test](guides/ipac-mac/resume-bench.md). Read the [installed state](hardware-inventory.md#installed-bench-state) before assigning inputs or changing wiring. The [bench verification record](guides/ipac-mac/bench-verification.md) separates physical observations, packaged diagnostics, and remaining work.
+
 Use the [confirmed inventory](hardware-inventory.md) and [peripheral wiring guide](../lib/peripherals/README.md) for the complete harness. `npm run test:peripherals` builds native diagnostics, processes synthetic PCM through the current C++ engine, and compares portable native/WASM results without opening devices. `npm run peripherals:summary -- /path/to/probe.ndjson` summarizes an operator recording without assigning musical meanings.
 
 The native `peripheral-probe` provides explicit `list`, `listen`, and guarded `led` commands for Mac and Linux. Build/help/tests perform no hardware IO. Actual key maps, spinner axis/sign, LED connections and power, permissions, and firmware compatibility remain observed installation facts. Windows probe support and physical tests remain separate from Mac compilation and Linux CI. Do not run device commands unattended or change firmware/maps during automated verification.

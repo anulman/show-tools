@@ -1,8 +1,8 @@
 # Test the I-PAC control harness
 
-For a first MacBook bench setup, use the [illustrated keyboard guide](../../docs/guides/ipac-mac/README.md). It starts with one unlit switch and includes an observed key-map worksheet.
+For a first MacBook bench setup, use the [illustrated keyboard guide](../../docs/guides/ipac-mac/README.md). It starts with one unlit switch and includes an observed key-map worksheet. For the installed setup, use [Resume the Mac bench test](../../docs/guides/ipac-mac/resume-bench.md) and the [current bench record](../../docs/hardware-inventory.md#installed-bench-state).
 
-This package provides an operator-run input probe and a guarded single-LED brightness command for the arrived I-PAC Ultimate I/O. It also provides a portable C++ input latch, explicit light math, capture summaries, and native/WASM fixtures. Building and testing never opens hardware.
+This package provides an operator-run input probe and guarded LED brightness, enable, and pulse commands for the arrived I-PAC Ultimate I/O. It also provides a portable C++ input latch, explicit light math, capture summaries, and native/WASM fixtures. Building and testing never opens hardware.
 
 The [inventory](../../docs/hardware-inventory.md) covers all four illuminated arcade buttons, the foot pedal, mushroom normally open contact, and direct SpinTrak. Test the entire harness. Musical purposes belong to the song and Performance Engine. This tool does not change WinIPAC mappings, firmware, or stored LED scripts.
 
@@ -107,7 +107,18 @@ lib/peripherals/build/peripheral-probe led OUTPUT_DEVICE_ID SDK_CHANNEL LEVEL --
 
 `SDK_CHANNEL` is the SDK's zero-based index from 0 through 95, not a PCB label. `LEVEL` is an explicitly chosen integer from 0 through 255. Test each of the four confirmed LED connections individually. Inspect the light physically, then send level 0 to that same index to turn it off. The command sends one brightness report and exits. It does not select an update cadence or reset the board on exit. No successful return value can establish electrical suitability or visible brightness.
 
-Without `--confirm-wiring`, invalid channel/level arguments, or a supported observed descriptor, no report is sent. The command does not update firmware, input maps, board IDs, fade speed, or stored scripts. Disconnect behavior and any preconfigured onboard fading remain actual-device checks. No automatic timeout or fail-dark guarantee is provided.
+To enable a selected output before setting full brightness, use `led-on`. To reproduce the accepted smooth bench demonstration, use `led-pulse`.
+
+```sh
+lib/peripherals/build/peripheral-probe led-on OUTPUT_DEVICE_ID SDK_CHANNEL --confirm-wiring
+lib/peripherals/build/peripheral-probe led-pulse OUTPUT_DEVICE_ID SDK_CHANNEL --confirm-wiring
+```
+
+Both commands write the SDK's eight-output group mask, enabling the selected channel and disabling the other seven outputs in that group. For SDK channel `0`, peers `1` through `7` are disabled. These commands do not preserve an unknown existing group mask. Use them for isolated bench testing.
+
+`led-pulse` requests four cosine brightness cycles, 2.4 seconds each, with 100 steps per cycle. It starts and ends at level 255. Native host code uses a steady clock to schedule these diagnostic writes. OS scheduling and USB delivery do not establish exact physical timing. This command does not set a production cadence, song binding, or musical feedback pattern. A failed write stops the sequence. Interruption or disconnect may leave the last brightness; no automatic fail-dark behavior is provided. Use the existing `led` command with level `0` for an explicit off command.
+
+The probe sends no report if confirmation is missing, the channel or level is invalid, or the observed descriptor is unsupported. The command does not update firmware, input maps, board IDs, fade speed, or stored scripts. Disconnect behavior and any preconfigured onboard fading remain actual-device checks. No automatic timeout or fail-dark guarantee is provided.
 
 ## Portable control and light contract
 
@@ -125,4 +136,4 @@ For 6/8, chart and pedal count six eighth-note beats. The first pedal tap can oc
 
 The native tests cover reconnect latches, ordering, raw rotation, explicit light math, envelope endpoints, baseline changes at expiry, malformed descriptors, and exact SDK report encoding. The WASM build runs the same assertions and compares emitted values against native execution. The separate PF fixture applies four deliberately reordered button-to-channel bindings to the real C++ engine, captures generated PCM sequentially, commits and auto-plays four loops, renders their mix, and stops them. The fixture forwards identical signed rotation to two explicit host-side test bindings, one selecting a target and one enabling click. This proves the normalization seam can feed different operations; it does not test song-based resolution.
 
-Mac and Linux CI compile the probe and exercise its help and refusal paths without hardware. Stop/disconnect/error summary counters have synthetic coverage. OS callback, signal, and unplug behavior remain source-reviewed until physical testing. Physical keyboard reports, spinner sign/scale, LED channels and power, macOS permissions, firmware compatibility, visible patterns, and latency remain operator checks. No physical I-PAC was enumerated, opened, or written during implementation verification.
+Mac and Linux CI compile the probe and exercise its help and refusal paths without hardware. Stop/disconnect/error summary counters have synthetic coverage. The original implementation checks opened no physical I-PAC. Subsequent MacBook bench testing verified keyboard input, signed relative Y motion, and visible control of LED output 1. See the [bench verification record](../../docs/guides/ipac-mac/bench-verification.md) for the limits of those observations. The checked-in enable/pulse commands have automated protocol and failure-path tests; their packaged hardware execution still needs a repeat. Linux physical operation, the remaining input and LED map, latency, and exact physical pulse timing remain unverified.
