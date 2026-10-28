@@ -65,3 +65,7 @@ These requirements come from the operator's [PR #3 review](https://github.com/an
 Consult manufacturer documentation for product capabilities. Ask the operator about the actual installation, controller configuration, operating system, chosen key mappings, firmware/settings, and available electrical connections wherever these affect the proposed integration. Obtain the facts before specifying the dependent protocol, wiring or driver design. Do not fill gaps with plausible defaults.
 
 A simulator may model explicitly declared inputs and outputs, but its success does not verify physical reports, LED control or wiring. Identify unsupported assumptions and blocked steps in the plan rather than presenting them as implemented capabilities.
+
+## Arcade-button CAD reference
+
+The operator confirmed the four 100 mm buttons are the same model in red, green, blue, and yellow on October 28, 2026. The [CAD workspace](../hardware/cad/README.md#inspect-the-100-mm-buttons) provides a pinned Adafruit 1185 manufacturer model for provisional family reference. It has invalid upstream geometry and does not establish measured fit. The [measurement worksheet](../hardware/cad/components/adafruit-1185/README.md#mechanical-facts-still-needed) records the remaining mechanical facts and housing choices.
