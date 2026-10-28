@@ -21,3 +21,5 @@ These observations used the real local server and browser, not a mocked viewer o
 The installed `/Applications/Scrawl.app` CLI responded to `--help`. No screen or microphone capture was started. The first operator-recorded Scrawl is still needed to verify feedback capture and delivery to the intended conversation. The guide explicitly directs the operator to send or paste it into the CAD session rather than assume automatic routing.
 
 `bash -n hardware/cad/cad`, local Markdown target checks, and `git diff --check` passed. No audio engine, Sheets helper, Chrome CDP, or USB processes were started or changed.
+
+The dependency review inspected the installed SciPy 1.18.1 wheel's `METADATA`, licence notice, and `.dylibs/libgfortran.5.dylib`, `libgcc_s.1.1.dylib`, and `libquadmath.0.dylib`. `otool -L` confirmed the bundled runtime linkage. The README flags GPL-3.0-or-later with the GCC Runtime Library Exception 3.1 and LGPL-2.1-or-later alongside the OpenCascade runtime notice. No dependency or viewer process changed during this documentation correction.
