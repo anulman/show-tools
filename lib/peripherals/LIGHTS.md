@@ -36,6 +36,8 @@ The caller must discard stale recipes across the appropriate run, clock epoch, d
 
 PE advances the authoritative phase using the current tempo. A tempo change during a pulse or blink changes the remaining duration in frames while preserving the musical phase required by PE. Beat-based keyframes remain engine-owned. This evaluator supplies the curve math; it does not implement that engine publication contract. The host must not extrapolate position from snapshot arrival time. The output adapter owns sampling cadence, normalized-to-device quantization, USB delivery, and reconnect behavior. No audio-thread device IO is introduced. Production adapters must preserve their owned enable masks rather than calling the isolated bench commands that disable seven peer outputs.
 
+The [complete-image delivery gate](DELIVERY.md) validates the engine publication schema and connection identity, then prepares brightness reports. It adds no host musical scheduling or actual device delivery.
+
 ## Calling shape
 
 The following calls use configured levels and PE-selected timing values. They illustrate separate recipe choices, not a sequence to send to hardware.
