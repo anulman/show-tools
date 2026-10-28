@@ -44,6 +44,10 @@ diversity.
 Future output images contain evaluated brightness plus native sequence, run,
 generation, clock epoch, coherent frame, sample rate, and diagnostic count.
 Every image is complete, so a lost intermediate image does not require replay.
+Publication sequence is a positive exact integer across runs in one engine
+incarnation. Its maximum JavaScript-safe value, 2^53-1, is reserved for terminal
+all-off output with no pending activation. Further activation requires a new
+engine incarnation; a sequence must never wrap or be reused.
 An adapter must fence engine incarnation, device session, binding revision, and
 the request that obtained a fresh image. A new binding cannot retag an old image
 as fresh. USB delivery and its cadence remain outside PE.

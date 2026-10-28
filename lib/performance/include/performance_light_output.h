@@ -1,6 +1,11 @@
 #ifndef SHOW_TOOLS_PERFORMANCE_LIGHT_OUTPUT_H
 #define SHOW_TOOLS_PERFORMANCE_LIGHT_OUTPUT_H
 
+/* Complete binary64 image: fourteen header fields and up to 32 (ID, level)
+   pairs. Unused pairs are zero; absent IDs are off in the consumer's owned map.
+   Sequence is an exact positive integer across runs in one engine incarnation.
+   2^53-1 is reserved for terminal all-off output with no pending activation;
+   it cannot be followed by further activation in that incarnation. */
 enum pf_light_pattern { PF_LIGHT_OFF = 0, PF_LIGHT_ON = 1, PF_LIGHT_PULSE = 2, PF_LIGHT_BLINK = 3 };
 enum pf_light_launch { PF_LIGHT_IMMEDIATE = 0, PF_LIGHT_GRID = 1 };
 enum pf_light_limits { PF_LIGHT_VERSION = 1, PF_LIGHT_CAPACITY = 32 };
