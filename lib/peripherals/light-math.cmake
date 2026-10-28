@@ -1,0 +1,6 @@
+if(NOT TARGET peripheral_light_math)
+  add_library(peripheral_light_math "${CMAKE_CURRENT_LIST_DIR}/src/peripheral_lights.cpp")
+  target_include_directories(peripheral_light_math PUBLIC "${CMAKE_CURRENT_LIST_DIR}/include")
+  target_compile_features(peripheral_light_math PUBLIC cxx_std_17)
+  target_compile_options(peripheral_light_math PRIVATE -Wall -Wextra -Wpedantic)
+endif()
