@@ -1,0 +1,13 @@
+{
+  "manufacturer": "Adafruit",
+  "product_id": 1185,
+  "product_url": "https://www.adafruit.com/product/1185",
+  "repository": "https://github.com/adafruit/Adafruit_CAD_Parts",
+  "commit": "c128bceb1f96b6ea8b68f250bda986ba85da24ea",
+  "path": "1185 Massive Arcade Button 100mm/1185 Massive Arcade Button 100mm.step",
+  "sha256": "85d61649551b187a005b07ad21950e92f5aec3fa457825805bab1994058c46d6",
+  "license": "MIT; see LICENSE",
+  "drawing_url": "https://cdn-shop.adafruit.com/datasheets/massivebutton.jpg",
+  "operator_confirmation": "Four same-model 100 mm buttons, red, green, blue, yellow; 2026-10-28",
+  "fit_verified": false
+}

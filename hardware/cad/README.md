@@ -26,6 +26,18 @@ hardware/cad/cad demo --angle 15 --reset-camera
 
 The viewer serves only on `127.0.0.1:3939`. Stop it with Ctrl-C in its terminal. Closing a browser tab does not stop the server. If the server is already running, use its page rather than starting a second copy. These commands do not start Sheets, CDP, audio, USB listeners, or printer jobs.
 
+## Inspect the 100 mm buttons
+
+The manufacturer reference is ready for the four RGBY buttons in the [hardware inventory](../../docs/hardware-inventory.md). Publish it to the existing viewer:
+
+```sh
+hardware/cad/cad button --show --four --reset-camera
+```
+
+Omit `--four` to inspect one button. Omit `--reset-camera` on subsequent publishes to retain your current view. Run `hardware/cad/cad button` for an offline import, asset-hash check, and geometry report. The report goes to `build/button-reference/receipt.json`. If a sleeping browser misses a publish, reload its page and publish again.
+
+Every tree label identifies this as an unverified reference with invalid upstream CAD. The imported assembly contains five solids, including one invalid body. This command deliberately produces no STEP or STL manufacturing export. Its four-copy spacing is illustrative. See the [reference provenance and measurement worksheet](components/adafruit-1185/README.md) before designing a recess or mount.
+
 ## Inspect and give feedback
 
 1. Drag the model to orbit. Scroll to zoom. Use the toolbar's named view buttons for front, top, and isometric views.
