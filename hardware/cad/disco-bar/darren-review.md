@@ -22,3 +22,5 @@ Darren's review can settle these decisions:
 C is the simpler mechanism baseline for discussion. B′ is the latch direction to critique. Neither is ready for a functional print. Physical trials must establish insertion, pad grip, slip/lift resistance, release, wear, and the ball's support path.
 
 C's four print pieces can be exported locally through `cad disco-check` with the private STEP. B′ is excluded from manufacturing exports. The review renders show CAD geometry, not tested hardware. Original assets and derived geometry remain private.
+
+An additional SpinTrak mounting nut above the box is being considered. The [manufacturer drawing](https://www.ultimarc.com/trackballs-and-spinners/spinners/spintrak/images/1/spintrakdiag.gif) shows a 28 mm body but does not specify the thread pitch. Obtain an identical nut and thread designation from [Ultimarc](https://www.ultimarc.com/contactus/), or gauge the actual thread before sourcing a generic nut. Confirm nut thickness, usable threaded length, and the resulting bar seating height before changing the stack.

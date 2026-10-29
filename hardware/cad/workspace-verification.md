@@ -80,4 +80,10 @@ The coordinator checked all 39 actual displayed pieces through the publication g
 
 The twelve negative scene cases passed, as did the separate C/D STEP/STL export check. Kernel testing found that the equivalent protected-region-first comparison was required for B′ but failed for historical D. The merged C/D comparison is retained unchanged, while the latch studies use the protected-region comparison. A null kernel result is an error, never treated as preservation evidence. Neither latch's force, complete release sequence, security, or installed access is validated. See [the latch review record](disco-bar/latch-review.md).
 
+## Shortlist the original, C, and B′ for Darren
+
+The operator requested A′ and D be removed, leaving three complete bars side by side. The default factory constructs only C, and the display adds B′'s frozen locked review pose. A, B, A′, and D are not constructed for the page. The scene contains 19 pieces. The original remains unchanged; C is blue, B′ is teal, pads are orange, and hardware envelopes are grey. This milestone changes selection, presentation, and review notes rather than either mechanism's geometry.
+
+The coordinator independently passed the actual 19-piece scene, twelve negative scene cases, and an additional direct circular-envelope probe. The latter preserves the original bounding box while adding material beyond the round opening and exercises the circular guard independently of the edit mask. C's four STEP/STL print pieces passed their separate geometry checks. B′ remains excluded from checked exports and nonzero operating motion. The full-height and detail review renders were visually inspected, and the handoff notes record print-on-print support, unresolved installed access/holding, and the unconfirmed extra upper nut. No box geometry was changed.
+
 These are integrated geometry studies. Tool access through the bar can be checked locally; access after installation in the actual ball is still operator-specific. No physical grip, pad deformation, material strength, adhesive attachment, encoder loading, or print readiness is established by these checks.

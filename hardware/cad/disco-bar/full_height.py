@@ -186,7 +186,7 @@ def drawplate(reference):
     return Variant("C | inboard axial drawplate", [Piece("complete integrated bar", body, "body"), Piece("moving drawframe", frame, "print")] + pieces, mask, tools)
 
 
-DEFAULT_VARIANTS = ("C", "D")
+DEFAULT_VARIANTS = ("C",)
 
 
 def full_variants(reference, selected=DEFAULT_VARIANTS):
