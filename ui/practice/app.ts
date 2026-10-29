@@ -716,6 +716,7 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
   }
 }
 const chartPanel = installChartPanel(chartSource, {
+  resolveMapping: (source, mapping) => voiceCatalog.cueMapping(source, mapping),
   isBusy: () => voiceCatalog.busy || isRunning() || starting || switching || effectsApplying || preparing !== null || outputCapture !== 'idle',
   onLoad: async (input, source) => {
     const compiled = decodeCompiledSong(input);

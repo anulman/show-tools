@@ -14,15 +14,17 @@ export const VoiceSchema = Schema.Struct({
   avatarToken: Schema.Literals(['neutral', 'olive', 'amber', 'blue', 'plum']),
   effects: Schema.Array(LiveEffectDefinitionSchema).check(Schema.isMaxLength(64)),
 });
-export const SheetBindingSchema = Schema.Struct({
+const bindingFields = {
   spreadsheetId: Schema.NonEmptyString,
   sheetId: nonnegativeInteger,
   labelCell: Schema.String.check(Schema.isPattern(/^[A-Z]+[1-9][0-9]*$/)),
   sourceLabel: Schema.NonEmptyString,
   voiceId: Schema.NonEmptyString,
-});
+};
+export const CueRowSchema = Schema.Struct({ labelCell: bindingFields.labelCell, sourceLabel: Schema.NonEmptyString });
+export const SheetBindingSchema = Schema.Struct({ ...bindingFields, cueRow: Schema.NullOr(CueRowSchema) });
 export const CatalogDocumentSchema = Schema.Struct({
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
   revision: nonnegativeInteger,
   voices: Schema.Array(VoiceSchema).check(Schema.isMaxLength(256)),
   bindings: Schema.Array(SheetBindingSchema).check(Schema.isMaxLength(512)),
@@ -41,7 +43,16 @@ export const CatalogDocumentSchema = Schema.Struct({
 export type CatalogDocument = typeof CatalogDocumentSchema.Type;
 export type Voice = typeof VoiceSchema.Type;
 export type SheetBinding = typeof SheetBindingSchema.Type;
-export const parseCatalogDocument = Schema.decodeUnknownSync(CatalogDocumentSchema);
+const legacySchema = Schema.Struct({ version: Schema.Literal(1), revision: nonnegativeInteger,
+  voices: Schema.Array(VoiceSchema), bindings: Schema.Array(Schema.Struct(bindingFields)),
+});
+const decodeCatalog = Schema.decodeUnknownSync(Schema.Union([CatalogDocumentSchema, legacySchema]));
+export function parseCatalogDocument(input: unknown): CatalogDocument {
+  const document = decodeCatalog(input);
+  return document.version === 2 ? document : Schema.decodeUnknownSync(CatalogDocumentSchema)({ ...document, version: 2,
+    bindings: document.bindings.map(binding => ({ ...binding, cueRow: null })),
+  });
+}
 export const parseVoice = Schema.decodeUnknownSync(VoiceSchema);
 export const parseSheetBinding = Schema.decodeUnknownSync(SheetBindingSchema);
 
@@ -53,3 +64,5 @@ export function canonicalCatalog(document: CatalogDocument): CatalogDocument {
     bindings: [...document.bindings].sort((a, b) => compare(a.spreadsheetId, b.spreadsheetId) || a.sheetId - b.sheetId || compare(a.labelCell, b.labelCell)),
   };
 }
+
+export type CueRow = typeof CueRowSchema.Type;

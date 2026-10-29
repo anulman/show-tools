@@ -1,7 +1,10 @@
+import { applyCatalogCueRows } from '../../lib/voice-catalog/cue-mapping.js';
+import type { SongMapping } from '../../lib/performance/compiled-song.js';
+import type { SongSource } from '../../lib/performance/song-source.js';
 import registry from '../../assets/video/characters.json';
 import type { SongScript, PracticeState, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import { parseCatalogDocument, type CatalogDocument, type Voice, type SheetBinding } from '../../lib/voice-catalog/model.js';
-import { discoverSheetVoices, type SheetVoiceRow } from '../../lib/voice-catalog/sheet-voices.js';
+import { discoverSheetVoices, discoverCueRows, loadedCommandRows, type SheetCueRow, type SheetVoiceRow } from '../../lib/voice-catalog/sheet-voices.js';
 import { reconcileCatalog, resolveVoice, withVoice } from '../../lib/voice-catalog/session.js';
 import { createCatalogClient, CatalogClientConflictError, type CatalogClient } from './catalog-client.js';
 import { installVoiceLibrary } from './voice-library.js';
@@ -16,8 +19,10 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   onBusyChange: () => void;
 }) {
   let client: CatalogClient | undefined;
-  let document: CatalogDocument = { version: 1, revision: 0, voices: [], bindings: [] };
+  let document: CatalogDocument = { version: 2, revision: 0, voices: [], bindings: [] };
   let rows: SheetVoiceRow[] = [];
+  let cueRows: SheetCueRow[] = [];
+  let commandRows = new Map<string, readonly number[]>();
   let availability: string | undefined = 'Opening local voice library…';
   let current: Pick<PracticeState, 'bar' | 'voiceEffects'> = { bar: null };
   let pendingSave = false;
@@ -50,7 +55,7 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   }).catch(error => { client?.close(); client = undefined; availability = `Voice library unavailable: ${error instanceof Error ? error.message : String(error)}`; }).finally(() => update(current));
   function update(state: Pick<PracticeState, 'bar' | 'voiceEffects'>) {
     current = state;
-    ui.update({ document, rows, state, locked: options.isBusy() || pendingSave, availability });
+    ui.update({ document, rows, cueRows, commandRows, state, locked: options.isBusy() || pendingSave, availability });
   }
   async function persist(next: CatalogDocument) {
     if (!client) throw new Error(availability || 'Voice library unavailable.');
@@ -81,7 +86,7 @@ export function installVoiceCatalog(root: HTMLElement, options: {
           const row = rows.find(row => row.profile === configuration.profile);
           return { ...configuration, effects: row ? resolveVoice(document, row)?.effects ?? [] : [] };
         });
-        await options.apply(configurations); return { message: 'Saved locally · applied to audio.' }; }
+        await options.apply(configurations); return { message: 'Saved locally · effects applied to audio.' }; }
       catch (error) { return { message: `Saved locally · audio preparation failed: ${error instanceof Error ? error.message : String(error)}` }; }
     } finally { pendingSave = false; options.onBusyChange(); update(current); }
   }
@@ -105,6 +110,8 @@ export function installVoiceCatalog(root: HTMLElement, options: {
     async load(song: SongScript) {
       await ready;
       rows = song.compiled ? discoverSheetVoices(song.compiled, song.source) : [];
+      cueRows = song.compiled ? discoverCueRows(song.compiled, song.source) : [];
+      commandRows = new Map(rows.map(row => [row.key, song.compiled && row.partId ? loadedCommandRows(song.compiled, row.partId) : []]));
       if (client) {
         document = await client.snapshot();
         const defaults = new Map(initialVoiceEffects(song.compiled ? 'compiled' : 'dry').map(item => [item.profile, item.effects]));
@@ -114,6 +121,7 @@ export function installVoiceCatalog(root: HTMLElement, options: {
       }
       update(current);
     },
+    cueMapping(source: SongSource, mapping: SongMapping) { return applyCatalogCueRows(document, source, mapping); },
     voiceForProfile(profile: number) {
       const row = rows.find(row => row.profile === profile);
       return row ? resolveVoice(document, row) : undefined;

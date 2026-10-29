@@ -5,7 +5,7 @@ import { webcrypto } from 'node:crypto';
 import { sourceForVM } from '../../../scripts/source-for-vm.js';
 import { loadSong } from '../../../songs/index.js';
 import { parseCatalogDocument, type CatalogDocument, type Voice } from '../../../lib/voice-catalog/model.js';
-import { discoverSheetVoices } from '../../../lib/voice-catalog/sheet-voices.js';
+import { discoverSheetVoices, discoverCueRows, loadedCommandRows } from '../../../lib/voice-catalog/sheet-voices.js';
 import { reconcileCatalog, resolveVoice, withVoice } from '../../../lib/voice-catalog/session.js';
 import { CatalogClientConflictError, type CatalogClient } from '../catalog-client.js';
 import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.js';
@@ -26,7 +26,7 @@ function deferred() {
 }
 
 async function harness() {
-  let stored: CatalogDocument = { version: 1, revision: 0, voices: [], bindings: [] };
+  let stored: CatalogDocument = { version: 2, revision: 0, voices: [], bindings: [] };
   let libraryOptions: VoiceLibraryOptions | undefined;
   let latest: VoiceLibraryUpdate | undefined;
   let gate: Promise<void> | undefined;
@@ -50,7 +50,7 @@ async function harness() {
     close() {},
   };
   const context = vm.createContext({
-    registry: { characters: [] }, parseCatalogDocument, discoverSheetVoices, reconcileCatalog, resolveVoice, withVoice,
+    registry: { characters: [] }, parseCatalogDocument, discoverSheetVoices, discoverCueRows, loadedCommandRows, reconcileCatalog, resolveVoice, withVoice,
     CatalogClientConflictError, initialVoiceEffects, crypto: webcrypto, Blob, Error, URL: {
       createObjectURL(blob: Blob) { downloads.push(blob); return 'blob:test'; }, revokeObjectURL() {},
     }, setTimeout: () => 0,
@@ -165,4 +165,17 @@ test('performance avatars resolve only saved voices at their exact native profil
   assert.equal(h.controller.voiceForProfile(0)?.avatarToken, 'blue');
   assert.equal(h.controller.voiceForProfile(4)?.characterId, null, 'a pad avatar never leaks to live vocals');
   assert.equal(h.controller.voiceForProfile(999), undefined);
+});
+
+test('a cue-row connection persists separately from loaded command rows and native effect preparation', async () => {
+  const h = await harness();
+  const selected = h.voice('A10');
+  const binding = h.data().document.bindings.find(binding => binding.voiceId === selected.id); assert(binding);
+  const row = h.data().rows.find(row => row.labelCell === 'A10'); assert(row);
+  assert.deepEqual(h.data().commandRows?.get(row.key), [18]);
+  assert(h.data().cueRows?.some(cue => cue.labelCell === 'A19' && cue.sourceLabel === 'R2'));
+  await h.ui.onSave(selected, { ...binding, cueRow: { labelCell: 'A19', sourceLabel: 'R2' } }, h.data().document.revision);
+  assert.deepEqual(h.stored().bindings.find(binding => binding.voiceId === selected.id)?.cueRow, { labelCell: 'A19', sourceLabel: 'R2' });
+  assert.deepEqual(h.data().commandRows?.get(row.key), [18], 'saving an authoring connection never pretends the loaded native instructions changed');
+  assert.deepEqual(h.applied[0]?.find(configuration => configuration.profile === 2)?.effects, []);
 });

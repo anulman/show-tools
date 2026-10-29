@@ -1,11 +1,11 @@
 import defaultMapping from '../../songs/dance-yrself-clean.mapping.json';
 import defaultSource from '../../songs/dance-yrself-clean.source.json';
 import { compileSong, decodeCompiledSong, decodeSongMapping, inspectCompiledSong, canonicalSongJson } from '../../lib/performance/compiled-song.js';
-import type { CompiledSong } from '../../lib/performance/compiled-song.js';
+import type { CompiledSong, SongMapping } from '../../lib/performance/compiled-song.js';
 import { fetchSongSource, parseSongSource, canonicalSourceJson } from '../../lib/performance/song-source.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 
-type PanelOptions = { isBusy: () => boolean; onLoad: (song: CompiledSong, source?: SongSource) => Promise<void> };
+type PanelOptions = { resolveMapping?: (source: SongSource, mapping: SongMapping) => SongMapping; isBusy: () => boolean; onLoad: (song: CompiledSong, source?: SongSource) => Promise<void> };
 type Work = 'idle' | 'fetching' | 'reading' | 'compiling' | 'loading';
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
@@ -138,9 +138,12 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
   }
 
   async function compileSource(nextSource: SongSource, mappingText: string, value: number) {
-    const song = await compileSong(nextSource, JSON.parse(mappingText));
+    const input = decodeSongMapping(JSON.parse(mappingText));
+    const resolved = options.resolveMapping?.(nextSource, input) ?? input;
+    const song = await compileSong(nextSource, resolved);
     if (!current(value)) return;
     source = nextSource;
+    mapping.value = JSON.stringify(resolved, null, 2);
     setStaged(song);
   }
 

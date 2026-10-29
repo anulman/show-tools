@@ -5,7 +5,7 @@ import type { SheetVoiceRow } from '../sheet-voices.js';
 import { sheetVoiceKey } from '../sheet-voices.js';
 import { reconcileCatalog, resolveVoice, withVoice } from '../session.js';
 
-const empty: CatalogDocument = { version: 1, revision: 7, voices: [], bindings: [] };
+const empty: CatalogDocument = { version: 2, revision: 7, voices: [], bindings: [] };
 function row(labelCell: string, sourceLabel: string, other: Partial<SheetVoiceRow> = {}): SheetVoiceRow {
   const value = { spreadsheetId: 'spreadsheet-one', sheetId: 101, sheetName: 'Song one', labelCell, sourceLabel,
     name: sourceLabel.replace(/^AF\s*-\s*/, ''), managed: true, profile: null, partId: null, cues: [], ...other };
@@ -25,7 +25,7 @@ test('reconciliation seeds separate stable voices, applies only explicitly mappe
   assert.deepEqual(resolveVoice(saved, rows[1])?.effects, []); assert.deepEqual(resolveVoice(saved, rows[2])?.effects, []);
   assert.notEqual(resolveVoice(saved, rows[0])?.effects, defaults.get(4));
   assert.equal(reconcileCatalog(saved, rows, defaults, () => { throw new Error('Existing bindings must not allocate new IDs'); }), saved);
-  assert.deepEqual(empty, { version: 1, revision: 7, voices: [], bindings: [] });
+  assert.deepEqual(empty, { version: 2, revision: 7, voices: [], bindings: [] });
 });
 
 test('changed source labels stay unresolved until an explicit binding replacement', () => {
