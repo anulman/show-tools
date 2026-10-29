@@ -1,0 +1,41 @@
+{
+  "status": "manufacturer_dimensions_and_unmeasured_installation_inputs",
+  "units": "mm",
+  "button": {
+    "model": "Adafruit 1185 family",
+    "drawing": "https://cdn-shop.adafruit.com/datasheets/massivebutton.jpg",
+    "body_diameter_nominal": 98.5,
+    "mounting_thread": "M24 x 2",
+    "switch_terminal_width_nominal_inches": 0.187,
+    "led_terminal_width_nominal_inches": 0.25,
+    "terminal_source": "https://www.adafruit.com/product/1185",
+    "operator_confirmed_wiring_reserve": 63.5,
+    "reserve_datum": "counterbore floor, along tilted button centre axis",
+    "installed_connector_bend_envelope_verified": false
+  },
+  "spinner": {
+    "model": "Ultimarc SpinTrak",
+    "drawing": "https://www.ultimarc.com/trackballs-and-spinners/spinners/spintrak/images/1/spintrakdiag.gif",
+    "body_diameter_nominal": 28,
+    "shaft_diameter_nominal": 6,
+    "large_knob_diameter_nominal": 44,
+    "small_knob_diameter_nominal": 34,
+    "panel_thickness_range_nominal": [1, 25],
+    "drawing_34_dimension_is_hex_across_flats": false,
+    "actual_stock_hex_across_flats": null,
+    "actual_stock_hex_thickness": null,
+    "actual_knob_top_height_above_hex_top_face": null,
+    "measurement_request_pending": true,
+    "mounting_hex_hardware": "reuse existing stock hex; no extra device retaining nut"
+  },
+  "fabrication": {
+    "operator_process_expectation": "resin, not yet exact printer/resin confirmation",
+    "operator_authorizes_conservative_design_choices": true,
+    "operator_prefers_minimum_custom_tooling": true,
+    "bar_exterior_access_after_gluing": false,
+    "collar_below_ball_access_allowed": true,
+    "lifting_box_for_underside_service_allowed": true,
+    "original_bar_policy": "unchanged reference, optional printing after fabricator review",
+    "preproduction_fit_trial": "printer checks actual standard hardware and fully processed mating latch before full run"
+  }
+}
