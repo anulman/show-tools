@@ -1,4 +1,4 @@
-"""Compare the complete original disco bar with four integrated clamp variants."""
+"""Compare the complete original disco bar with selected integrated variants."""
 from __future__ import annotations
 
 import argparse
@@ -78,7 +78,7 @@ def verify_preview_scene(path, scene):
     model.assert_empty(objects[0] - reference, "Original preview gained or displaced material")
     variants = full_variants(reference)
     if len(objects) != 1 + sum(len(variant.pieces) for variant in variants):
-        raise ValueError("Preview must contain only the original and four complete assemblies")
+        raise ValueError("Preview must contain only the original and selected complete assemblies")
     for index, variant in enumerate(variants, start=1):
         prefix = variant.name + " / "
         matches = [(shape.translate((-index * model.SPACING, 0, 0)), name)
@@ -96,7 +96,7 @@ def verify_preview_scene(path, scene):
         model.preserved_geometry(reference, variant)
         model.check_assembly(variant, 0.)
     return {"complete_original_unchanged": True, "original_pose_preserved": True,
-            "four_complete_variants": True, "source_pocket_entry_depth_preserved": True}
+            "complete_variants": list(model.DEFAULT_VARIANTS), "source_pocket_entry_depth_preserved": True}
 
 
 def box(x, y, z, center):
@@ -104,7 +104,7 @@ def box(x, y, z, center):
 
 
 def preview(step_path: Path | None = None):
-    """Show the immutable original and four complete locally integrated variants."""
+    """Show the unchanged original and only the selected complete variants."""
     path, reference = load_reference(step_path)
     verify_full_reference(path, reference)
     model = integrated_module()

@@ -104,7 +104,7 @@ def bridge(reference, guided=False):
         # Only the path outside the screw head; the head itself is the target.
         tools.append(cyl(2.8, 18, (x, 42, -13), "y"))
         hardware += [Piece(f"{x:+g} draw screw", bolt, "hardware"), Piece(f"{x:+g} captive hex nut", nut, "hardware")]
-    name = "D | guided captured bridge" if guided else "A | removable bridge"
+    name = "D | guided bridge; historical side access" if guided else "A | removable bridge"
     return Variant(name, [Piece("complete integrated bar", body, "body"), Piece("moving bridge plate", plate, "print"),
                           Piece("fixed pad", rear_pad, "pad"), Piece("moving pad", moving_pad, "pad")] + hardware, mask, tools)
 
@@ -184,8 +184,15 @@ def drawplate(reference):
     return Variant("C | inboard axial drawplate", [Piece("complete integrated bar", body, "body"), Piece("moving drawframe", frame, "print")] + pieces, mask, tools)
 
 
-def full_variants(reference):
-    variants = [bridge(reference), jaws(reference), drawplate(reference), bridge(reference, guided=True)]
+DEFAULT_VARIANTS = ("C", "D")
+
+
+def full_variants(reference, selected=DEFAULT_VARIANTS):
+    builders = {"A": lambda: bridge(reference), "B": lambda: jaws(reference),
+                "C": lambda: drawplate(reference), "D": lambda: bridge(reference, guided=True)}
+    if len(set(selected)) != len(selected) or any(key not in builders for key in selected):
+        raise ValueError("Select unique known disco variants")
+    variants = [builders[key]() for key in selected]
     for variant in variants:
         variant.pieces[0].shape -= pocket()
     return variants
