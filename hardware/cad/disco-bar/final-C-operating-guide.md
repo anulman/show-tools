@@ -43,3 +43,5 @@ Run it with the isolated CAD Python environment:
 ```
 
 The output contains an MP4, a GIF, a poster, a contact sheet, the staged PNG frames, and an input/output hash manifest. The renderer uses Pillow, NumPy, trimesh, and the installed `ffmpeg` command. The geometry, custom control and tools still require fabrication, fit, strength, and ergonomic review.
+
+The installed FFmpeg build reports GPL-3.0-or-later, and this renderer uses its `libx264` encoder. FFmpeg runs as an external local tool. No FFmpeg binary is committed or added to the browser application.
