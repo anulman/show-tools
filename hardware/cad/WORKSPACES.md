@@ -17,13 +17,13 @@ Publish the box-mount concept:
 hardware/cad/cad view box-mount
 ```
 
-Publish Darren's local STEP reference:
+Publish the disco-bar clamp comparison with Darren's local STEP as context:
 
 ```sh
 hardware/cad/cad view disco-bar --step '/absolute/path/to/Disco Ball.step'
 ```
 
-To inspect the box interiors, add `--explode 25` to lower their bottoms by 25 mm. Use `cad box-check` for headless box exports and `cad disco-check --step PATH` for private-reference inspection.
+To inspect the box interiors, add `--explode 25` to lower their bottoms by 25 mm. Use `cad box-check` for headless box exports and `cad disco-check --step PATH` for private-reference inspection. Use `cad disco-check --concepts hardware/cad/build/disco-clamps` to export and check the proposed clamp parts without publishing.
 
 `SHOW_TOOLS_DISCO_STEP` can supply the local STEP path instead. The original attachment remains outside the repository. The publisher does not start the viewer or any hardware service. Switching workstreams or box variants selects an isometric view. Subsequent publishes of the same workstream retain the camera unless `--reset-camera` is supplied. Only the selected workstream changes the viewer; headless checks leave it alone.
 
@@ -44,6 +44,8 @@ All three retain proposed removable screw-fastened bottoms, wiring passages, and
 ## Continue the disco bar
 
 Inspect the [disco-bar notes](disco-bar/README.md) before designing a coupling. The supplied STEP describes cylindrical attachment geometry, not an identified spherical shell. Its purpose requires confirmation. The STL and OBJ use coordinate magnitudes that differ from the STEP, so raw mesh coordinates must not be treated as millimetres. Use the STEP for the initial preview and preserve source units.
+
+The active comparison replaces the magnet proposal with screw clamps and replaceable pad envelopes. All concepts appear side by side on the **Disco bar** tab. The knob envelope and new fastener dimensions are illustrative. The original alcohol channels are open edge scallops, so the new designs need reinforced bosses to carry screws. The source scallops do not establish bolt or thread fit.
 
 Knob dimensions, ball mass, shell material, assembly access, and load support are required before a fitted coupling. Separate the job of transmitting torque from carrying the ball's weight and side loads. The operator's hot-glued bar is a design candidate, not a verified load-bearing assembly.
 
