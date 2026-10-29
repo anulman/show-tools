@@ -13,6 +13,12 @@ if [[ ! -x "$CAD_ENV/bin/python" ]]; then
   exit 1
 fi
 case "${1:-help}" in
+  desk)
+    shift
+    "$CAD_DIR/../../node_modules/.bin/tsc" --project "$CAD_DIR/../../ui/cad"
+    "$CAD_DIR/../../node_modules/.bin/esbuild" "$CAD_DIR/../../ui/cad/app.ts" --bundle --format=esm --outfile="$CAD_DIR/build/desk/app.js"
+    exec "$CAD_ENV/bin/python" -u "$CAD_DIR/desk_server.py" "$@"
+    ;;
   viewer)
     shift
     exec "$CAD_ENV/bin/python" -u -m ocp_viewer --host 127.0.0.1 --port 3939 --control orbit --tree_width 320 --theme light --reset_camera keep "$@"
@@ -46,7 +52,7 @@ case "${1:-help}" in
     exec "$CAD_ENV/bin/python" "$CAD_DIR/demo_mount.py" "$@"
     ;;
   *)
-    echo "Usage: $0 {setup|viewer|view|box-check|disco-check|button|bases|demo|check|export} [options]"
+    echo "Usage: $0 {setup|desk|viewer|view|box-check|disco-check|button|bases|demo|check|export} [options]"
     echo "Start viewer in one terminal; demo publishes an assembly; check/export need no viewer."
     ;;
 esac

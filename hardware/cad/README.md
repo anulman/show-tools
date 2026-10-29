@@ -1,6 +1,6 @@
 # Review enclosure models with Scrawl
 
-Open <http://127.0.0.1:3939/> to inspect the current model. The OCP Viewer runs locally. The agent edits build123d Python source; you orbit, inspect sections, and record visual feedback with Scrawl. You do not need a CAD editor.
+Open the [tabbed CAD desk](../../ui/cad/README.md) at <http://127.0.0.1:3940/> to switch between Box mount and Disco bar. The direct viewer at <http://127.0.0.1:3939/> also shows the current model. The OCP Viewer runs locally. The agent edits build123d Python source; you orbit, inspect sections, and record visual feedback with Scrawl. You do not need a CAD editor.
 
 The supplied blue mounting wedge, transparent wood, and gold placeholder are a synthetic workflow demonstration. None of their dimensions describe the installed arcade hardware. Only the blue mount is exported for printing. Real mounts require measured component interfaces, wood thickness, fasteners, cable clearances, and a fit test.
 
