@@ -38,6 +38,10 @@ Omit `--four` to inspect one button. Omit `--reset-camera` on subsequent publish
 
 Every tree label identifies this as an unverified reference with invalid upstream CAD. The imported assembly contains five solids, including one invalid body. This command deliberately produces no STEP or STL manufacturing export. Its four-copy spacing is illustrative. See the [reference provenance and measurement worksheet](components/adafruit-1185/README.md) before designing a recess or mount.
 
+## Compare base concepts
+
+The [four-base comparison](BASE-CONCEPTS.md) adds separate rounded-square, flared-cylinder, tilted, and capsule geometries beneath the buttons. Start with `hardware/cad/cad bases --depth 35.25 --tilt 5 --show --reset-camera`. These are adjustable form studies with unmeasured mounting interfaces.
+
 ## Inspect and give feedback
 
 1. Drag the model to orbit. Scroll to zoom. Use the toolbar's named view buttons for front, top, and isometric views.
