@@ -8,6 +8,7 @@ import tempfile
 import box_mount
 import box_review
 import disco_bar
+import disco_review
 import final_review
 
 
@@ -42,12 +43,17 @@ def main():
     moved[0][button] = moved[0][button].translate((1, 0, 0))
     rejected('displaced upstream button reference', lambda: box_review.verify_preview_scene(moved, selection=selection))
 
-    disco = disco_bar.preview(args.step, selection=selection)
-    disco_bar.verify_preview_scene(args.step, disco, selection=selection)
+    disco = disco_review.preview(args.step, selection=selection)
+    disco_review.verify_preview_scene(args.step, disco, selection=selection)
+    assert len(disco[0]) == 25
+    assert disco[1][0] == disco_bar.ORIGINAL_LABEL
+    assert all(name.startswith(disco_bar.FINAL_C_LABEL + ' / ') for name in disco[1][1:])
+    extra = tuple(list(v) + [v[0]] for v in disco)
+    rejected('extra historical option in focused page', lambda: disco_review.verify_preview_scene(args.step, extra, selection=selection))
     body = next(i for i, name in enumerate(disco[1]) if name.startswith(disco_bar.FINAL_C_LABEL) and name.endswith(' / full-height bar'))
     cropped = tuple(list(v) for v in disco)
-    cropped[0][body] &= disco_bar.box(110, 110, 28, (390, 0, -14))
-    rejected('cropped final C beside intact original', lambda: disco_bar.verify_preview_scene(args.step, cropped, selection=selection))
+    cropped[0][body] &= disco_bar.box(110, 110, 28, (disco_review.SPACING, 0, -14))
+    rejected('cropped final C beside intact original', lambda: disco_review.verify_preview_scene(args.step, cropped, selection=selection))
 
     with tempfile.TemporaryDirectory(prefix='final-review-check-') as folder:
         root = Path(folder)

@@ -1,6 +1,6 @@
 # Prepare and publish the final review proposals
 
-The Disco bar page shows the unchanged original, legacy references A and B, and the complete C proposal. C replaces the historical standalone T-pad cup study. The Box mount page replaces the old rotor shell and bottom with C's matching fixed base. The arcade and mushroom models keep their existing positions and roof/ground alignment.
+The Disco bar page shows only the unchanged original and the complete C proposal. A and B remain historical source studies and are absent from this focused review. The Box mount page replaces the old rotor shell and bottom with C's matching fixed base. The arcade and mushroom models keep their existing positions and roof/ground alignment.
 
 The pages load checked STEP exports. Source-owned inventories require every named component and role, and independent source factories verify each loaded component's material geometry. The registry binds the C and base receipts, the exact required source files, the original reference and each displayed STEP/STL pair. Changed sources, changed files, missing parts, substituted geometry, failed checks and mismatched receipts prevent publication. Imported components are normalized to sole solids before placement.
 

@@ -113,7 +113,7 @@ class Selection:
         for kind, report in self.reports.items():
             for name, expected in recorded_sources(kind, report).items():
                 require(self.registry['source_sha256'].get(name) == expected, f'Unchecked proposal source: {name}')
-        for name in ('final_review.py', 'workspace.py', 'disco_bar.py', 'box_review.py'):
+        for name in ('final_review.py', 'workspace.py', 'disco_bar.py', 'disco_review.py', 'box_review.py'):
             require(name in self.registry['source_sha256'], f'Unchecked publication source: {name}')
         require(self.reports['box'].get('producer_receipt_sha256') == self.registry['disco']['sha256'],
                 'The box was not checked against the selected disco proposal')
@@ -197,7 +197,7 @@ def stage(disco, box, target=CURRENT, *, reference=None):
         sources.update(recorded_sources(kind, report))
     require(reference is not None, 'Supply --step to verify C against the original source geometry')
     reference = Path(reference).resolve()
-    for name in ('final_review.py', 'workspace.py', 'disco_bar.py', 'box_review.py'):
+    for name in ('final_review.py', 'workspace.py', 'disco_bar.py', 'disco_review.py', 'box_review.py'):
         path = source_path(name)
         sources[str(path.relative_to(HERE))] = digest(path)
     registry = dict(schema=2, source_sha256=sources,
