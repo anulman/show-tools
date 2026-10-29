@@ -1,4 +1,4 @@
-"""Check the restored preview and reject the actual cropped-reference regression."""
+"""Protect the immutable original and four complete source-derived variant bodies."""
 from pathlib import Path
 import argparse
 import sys
@@ -14,17 +14,36 @@ def main():
     args = parser.parse_args()
     scene = model.preview(args.step)
     model.verify_preview_scene(args.step, scene)
-    full = scene[0][0]
-    crop = full & model.box(110, 110, 28, (0, 0, -14))
+    original = scene[0][0]
+    print(f"PASS original plus four complete assemblies, {len(scene[0])} labelled pieces")
+
+    def replace(index, shape):
+        changed = tuple(list(items) for items in scene)
+        changed[0][index] = shape
+        return changed
+
+    crop = original & model.box(110, 110, 28, (0, 0, -14))
+    extra = tuple(list(items) + [items[0]] for items in scene)
+    extra[1][-1] = "Unapproved extra display geometry"
+    integrated = model.integrated_module()
+    protrusion = integrated.cyl(3.6, 12, (integrated.SPACING + 28, 40, -13), "y")
     cases = {
-        "historical 28 mm crop": [crop],
-        "historical display offset": [full.translate((0, 0, -35))],
-        "replacement assembly scene": [full, full],
+        "same-bounds body protrusion through driver-port mask": replace(1, scene[0][1] + protrusion),
+        "unapproved extra display geometry": extra,
+        "historical 28 mm original crop": replace(0, crop),
+        "historical original displacement": replace(0, original.translate((0, 0, -35))),
+        # Rotation preserves the cylindrical bounds and material volume. Its
+        # asymmetric channels still differ from the actual original geometry.
+        "same-bounds same-volume rotated original": replace(0, original.rotate(model.Axis.Z, 180)),
+        "oversized actual preview screw": replace(5, scene[0][5].translate((80, 0, 0))),
+        "missing original": tuple(list(items[1:]) for items in scene),
+        "duplicate original": tuple(list(items) + [items[0]] for items in scene),
+        "cropped variant beside intact original": replace(1, scene[0][1] & model.box(110, 110, 28, (130, 0, -14))),
+        "displaced variant beside intact original": replace(1, scene[0][1].translate((0, 0, -35))),
     }
-    for name, shapes in cases.items():
-        bad_scene = (shapes, [name] * len(shapes), ["#ffffff"] * len(shapes), [1.] * len(shapes))
+    for name, candidate in cases.items():
         try:
-            model.verify_preview_scene(args.step, bad_scene)
+            model.verify_preview_scene(args.step, candidate)
         except ValueError:
             print(f"PASS rejected {name}")
         else:
@@ -38,7 +57,7 @@ def main():
             print("PASS rejected changed source asset")
         else:
             raise AssertionError("Changed source asset accepted")
-    print("PASS full original bar, source hash, top-attachment reach, opening-fit width, and volume")
+    print("PASS geometry identity, full height/profile/end preservation, and original pocket clearance")
 
 
 if __name__ == "__main__":

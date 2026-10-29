@@ -17,13 +17,13 @@ Publish the box-mount concept:
 hardware/cad/cad view box-mount
 ```
 
-Publish the complete original disco bar from Darren's local STEP:
+Publish the complete original disco bar beside four full-height clamp variants:
 
 ```sh
 hardware/cad/cad view disco-bar --step '/absolute/path/to/Disco Ball.step'
 ```
 
-To inspect the box interiors, add `--explode 25` to lower their bottoms by 25 mm. Use `cad box-check` for headless box exports and `cad disco-check --step PATH` for private-reference inspection. Use `cad disco-check --concepts hardware/cad/build/disco-clamps` to export and check the proposed clamp parts without publishing.
+To inspect the box interiors, add `--explode 25` to lower their bottoms by 25 mm. Use `cad box-check` for headless box exports and `cad disco-check --step PATH` for private-reference inspection. Use `cad disco-check --step PATH --concepts hardware/cad/build/disco-clamps` to export and check the proposed full-height clamp parts without publishing.
 
 `SHOW_TOOLS_DISCO_STEP` can supply the local STEP path instead. The original attachment remains outside the repository. The publisher does not start the viewer or any hardware service. Switching workstreams or box variants selects an isometric view. Subsequent publishes of the same workstream retain the camera unless `--reset-camera` is supplied. Only the selected workstream changes the viewer; headless checks leave it alone.
 
@@ -45,7 +45,11 @@ All three retain proposed removable screw-fastened bottoms, wiring passages, and
 
 Inspect the [disco-bar notes](disco-bar/README.md) before designing a coupling. The supplied STEP describes the full bar inside the disco ball, rather than the spherical shell. Its full height reaches the top attachment. The STL and OBJ use coordinate magnitudes that differ from the STEP, so raw mesh coordinates must not be treated as millimetres. Use the STEP for the preview and preserve source units.
 
-The operator confirmed that the full bar height reaches its top attachment and the width was precisely measured to fit the disco-ball opening. The **Disco bar** tab shows that complete original bar in its original pose. Preserve its full insertion profile and attachment geometry. The previous three short clamp studies omitted this functional height, and B and C exceeded the source outer profile. They are historical headless studies only, not replacement bars. Future screw-clamp variants must fit within the confirmed constraints and preserve a continuous connection to the top attachment.
+The operator confirmed that the full bar height reaches its top attachment and the width was precisely measured to fit the disco-ball opening. The **Disco bar** tab keeps that complete original bar in its original pose, beside four complete, hollow variants. A uses a padded bridge, B uses independent jaws, C uses an axial drawplate, and D combines the bridge with guided, captured movement. Variant offsets are for side-by-side display only. Full bodies remain visible; no crop replaces their functional length.
+
+The released knob opening uses the original snug pocket dimensions, floor, and entry bevel. Pads are recessed outward to preserve insertion clearance. The full end region and material outside explicitly bounded clamp edits remain protected. All printed parts and hardware envelopes must remain inside the original insertion profile. Actual screw and driver access after installation remains an operator-specific fit question.
+
+The previous three short clamp studies omitted the functional height, and B and C exceeded the source outer profile. They are historical mechanism studies, not replacement bars. The full-height variants must be evaluated as complete assemblies, including their connection to the retained bar and top attachment.
 
 Knob dimensions, ball mass, shell material, assembly access, and load support are required before a fitted coupling. Separate the job of transmitting torque from carrying the ball's weight and side loads. The operator's hot-glued bar is a design candidate, not a verified load-bearing assembly. Run `disco-bar/check_full_bar.py --step PATH` with the CAD Python environment to verify the restored preview and reject the historical crop and display offset.
 
