@@ -17,7 +17,7 @@ Publish the box-mount concept:
 hardware/cad/cad view box-mount
 ```
 
-Publish the complete original disco bar beside four full-height clamp variants:
+Publish the complete original disco bar beside A, B, and the component-only knob-baseplate study:
 
 ```sh
 hardware/cad/cad view disco-bar --step '/absolute/path/to/Disco Ball.step'
@@ -43,7 +43,7 @@ All three retain proposed removable screw-fastened bottoms, wiring passages, and
 
 ## Continue the disco bar
 
-Current display names are **A** for the former C axial screw clamp and **B** for the former B′ grip-latch study. They remain reference geometries. The new target is a separate knob-gripping baseplate with padded set screws, plus a latch joint that attaches and releases the full bar. Prototype C1/C2/C3 validation must precede the final C synthesis. Do not reuse a pad-preload latch as the bar-to-plate joint. Installed release access is a required operator-specific fact before choosing that joint's placement.
+Current display names are **A** for the former C axial screw clamp and **B** for the former B′ grip-latch study. They remain reference geometries. The new target is a separate knob-gripping baseplate with padded set screws, plus a latch joint that attaches and releases the full bar. The private [C1/C2/C3 comparison](disco-bar/C123-findings.md) records valid exports and functional failures; a separate C1 flange-relief proposal is the recommended starting correction. Added collar spacing and lifting for underside service access are authorized. Final C remains unpublished. Do not reuse a pad-preload latch as the bar-to-plate joint.
 
 Inspect the [disco-bar notes](disco-bar/README.md) before designing a coupling. The supplied STEP describes the full bar inside the disco ball, rather than the spherical shell. Its full height reaches the top attachment. The STL and OBJ use coordinate magnitudes that differ from the STEP, so raw mesh coordinates must not be treated as millimetres. Use the STEP for the preview and preserve source units.
 
