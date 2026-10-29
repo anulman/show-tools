@@ -23,7 +23,7 @@ EPS = 1e-6
 @dataclass(frozen=True)
 class Proposal:
     # Every value except the requested datums is a provisional geometry input.
-    depth: float = 35.25
+    depth: float = 35.25  # Interior floor below the seating-shoulder centre.
     recess: float = 17.5
     tilt: float = 5.0
     width: float = 116.0
@@ -56,6 +56,14 @@ class Proposal:
     tray_bridge_width: float = 5.0
     envelope_gap: float = 0.5
 
+    @property
+    def floor_z(self):
+        return -self.depth
+
+    @property
+    def underside_z(self):
+        return self.floor_z - self.bottom_thickness
+
     def validate(self):
         for field in fields(self):
             value = getattr(self, field.name)
@@ -66,7 +74,7 @@ class Proposal:
         if not 0 <= self.tilt <= 5 or not 0 <= self.recess <= 17.5:
             raise ValueError("tilt must be 0..5 degrees and recess 0..17.5 mm")
         if not 35 <= self.depth <= 180:
-            raise ValueError("depth must be 35..180 mm below the seating centre")
+            raise ValueError("interior depth must be 35..180 mm below the seating centre")
         if not 0 < self.channel_depth < self.bottom_thickness or not 0 < self.head_depth < self.bottom_thickness:
             raise ValueError("channel and head pockets must leave a positive bottom skin")
         if not self.screw_clearance_diameter < self.nut_across_flats < self.head_diameter < 2 * self.boss_radius:
@@ -111,7 +119,7 @@ def build(p: Proposal, tilted: bool):
     angle = p.tilt if tilted else 0
     slope = math.tan(math.radians(angle))
     top = p.recess / math.cos(math.radians(angle))
-    bottom_top = -p.depth + p.bottom_thickness
+    bottom_top = p.floor_z
     half_span = max(p.width, length) + 10
     high = top + half_span * slope + 10
     shell = rounded(p.width, length, p.corner_radius, high - bottom_top).translate((0, 0, bottom_top))
@@ -130,7 +138,7 @@ def build(p: Proposal, tilted: bool):
     shell -= cylinder(p.stem_hole_diameter/2, 2*(p.depth + high), z=-p.depth-high).rotate(Axis.X, angle)
     if p.recess:
         shell -= cylinder(p.pocket_diameter/2, p.recess + high + 10).rotate(Axis.X, angle)
-    plate = rounded(p.width, length, p.corner_radius, p.bottom_thickness).translate((0, 0, -p.depth))
+    plate = rounded(p.width, length, p.corner_radius, p.bottom_thickness).translate((0, 0, p.underside_z))
     screws = [(x, y) for x in (-p.width/2 + p.boss_edge_offset, p.width/2 - p.boss_edge_offset)
               for y in (-length/2 + p.boss_edge_offset, length/2 - p.boss_edge_offset)]
     for x, y in screws:
@@ -138,8 +146,8 @@ def build(p: Proposal, tilted: bool):
         shell -= cylinder(p.screw_clearance_diameter/2, p.boss_height + .2, x, y, bottom_top - .1)
         nut = extrude(RegularPolygon(p.nut_across_flats/math.sqrt(3), 6), amount=p.nut_depth+.1)
         shell -= nut.translate((x, y, bottom_top-.1))
-        plate -= cylinder(p.screw_clearance_diameter/2, p.bottom_thickness + .2, x, y, -p.depth - .1)
-        plate -= cylinder(p.head_diameter/2, p.head_depth + .1, x, y, -p.depth - .1)
+        plate -= cylinder(p.screw_clearance_diameter/2, p.bottom_thickness + .2, x, y, p.underside_z - .1)
+        plate -= cylinder(p.head_diameter/2, p.head_depth + .1, x, y, p.underside_z - .1)
 
     tray = box(p.tray_width, p.tray_length, p.tray_height+p.tray_roof, y=p.tray_y, z=bottom_top)
     tray -= box(p.tray_width-2*p.tray_wall, p.tray_length-2*p.tray_wall,
@@ -174,33 +182,35 @@ def verify_assembly(p, tilted, parts):
                 f"{label} must be one valid positive-volume solid")
     overlap = volume(shell & plate)
     require(overlap < EPS, "shell and bottom interfere")
-    require(math.isclose(plate.bounding_box().min.Z, -p.depth, abs_tol=EPS), "underside datum changed")
-    require(math.isclose(shell.bounding_box().min.Z, -p.depth+p.bottom_thickness, abs_tol=EPS), "shell split datum changed")
+    require(math.isclose(plate.bounding_box().min.Z, p.underside_z, abs_tol=EPS), "exterior underside datum changed")
+    require(math.isclose(plate.bounding_box().max.Z, p.floor_z, abs_tol=EPS), "interior floor datum changed")
+    require(math.isclose(shell.bounding_box().min.Z, p.floor_z, abs_tol=EPS), "shell split consumed interior reserve")
     for name, envelope in (("cable", cable), ("ballast", ballast)):
         require(volume(shell & envelope) < EPS and volume(plate & envelope) < EPS,
                 f"{name} proposal envelope is obstructed")
     # The entire downward swept volume, not just an endpoint sample.
     # All cover additions are vertical extrusions; the union spans one cover height.
-    removal_sweep = plate + plate.translate((0, 0, -p.depth))
+    withdrawal = p.depth + p.bottom_thickness
+    removal_sweep = plate + plate.translate((0, 0, -withdrawal))
     for face in plate.faces().filter_by(Axis.Z):
         if face.normal_at().Z > .9:
-            removal_sweep += extrude(face, amount=-p.depth)
+            removal_sweep += extrude(face, amount=-withdrawal)
     removal_overlap = volume(shell & removal_sweep)
     require(removal_overlap < EPS, "bottom cannot withdraw vertically")
     angle = p.tilt if tilted else 0
     radians = math.radians(angle)
     # Check the complete axial pocket and central stem opening, not upstream geometry.
-    stem = cylinder(p.stem_hole_diameter/2-.2, p.depth+10, z=-p.depth-5).rotate(Axis.X, angle)
+    stem = cylinder(p.stem_hole_diameter/2-.2, p.depth+p.bottom_thickness+10, z=p.underside_z-5).rotate(Axis.X, angle)
     require(volume(shell & stem) < EPS, "stem bore obstructed")
     if p.recess:
         pocket = cylinder(p.pocket_diameter/2-.2, p.recess, z=0).rotate(Axis.X, angle)
         require(volume(shell & pocket) < EPS, "counterbore obstructed")
     shoulder = (p.stem_hole_diameter/2 + 10, 2*math.sin(radians), -2*math.cos(radians))
     require(shell.is_inside(shoulder), "support shoulder absent")
-    bottom_top = -p.depth+p.bottom_thickness
+    bottom_top = p.floor_z
     for x, y in screws:
         screw = cylinder(p.screw_clearance_diameter/2-.1, p.boss_height+p.bottom_thickness,
-                         x, y, -p.depth)
+                         x, y, p.underside_z)
         require(volume(shell & screw) < EPS and volume(plate & screw) < EPS,
                 "screw axes are obstructed or misaligned")
         # Nuts enter from below with the bottom removed. The complete insertion
@@ -211,7 +221,7 @@ def verify_assembly(p, tilted, parts):
         require(volume(shell & nut) < EPS, "hex nut insertion from below is obstructed")
         require(shell.is_inside((x+p.screw_clearance_diameter/2+.2, y, bottom_top+(p.boss_height+p.nut_depth)/2)),
                 "nut pocket has no surrounding roof")
-        require(plate.is_inside((x+p.screw_clearance_diameter/2+.2, y, -p.depth+(p.bottom_thickness+p.head_depth)/2)),
+        require(plate.is_inside((x+p.screw_clearance_diameter/2+.2, y, p.underside_z+(p.bottom_thickness+p.head_depth)/2)),
                 "screw head has no seating ledge")
     # Ballast side walls form a complete ring in the proposed CAD assembly.
     wall_ring = box(p.tray_width, p.tray_length, p.tray_height-2*p.envelope_gap,
@@ -235,8 +245,8 @@ def verify_assembly(p, tilted, parts):
                 screw_axes_clear=True, hex_nut_insertion_clear=True,
                 ballast_floor_and_roof_closed=True, ballast_side_walls_closed=True,
                 shoulder_sample_present=True, counterbore_clear=True,
-                usable_floor_z_mm=bottom_top, external_underside_z_mm=-p.depth,
-                withdrawal_checked_mm=p.depth,
+                usable_floor_z_mm=bottom_top, external_underside_z_mm=p.underside_z,
+                internal_reserve_mm=p.depth, withdrawal_checked_mm=withdrawal,
                 physical_harness_clearance_verified=False)
 
 
@@ -316,7 +326,7 @@ def main():
     # Remove stale success evidence before a build that can fail.
     receipt_path = args.output / "receipt.json"
     receipt_path.unlink(missing_ok=True)
-    receipt = dict(print_readiness="NOT_READY",
+    receipt = dict(print_readiness="NOT_READY", depth_datum="seating-shoulder centre to interior floor; cover extends below",
                    release_gates=["measured button/nut/switch/harness and moving-part clearance",
                                   "cable size, exit direction and strain relief",
                                   "actual screw/nut/head dimensions, length and engagement",

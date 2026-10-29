@@ -1,14 +1,16 @@
 # Box-mount geometry checks
 
-Checked on October 29, 2026 with the existing isolated CAD environment. The final generator records its own SHA-256 in every receipt. Generated geometry stays outside Git.
+Checked on October 29, 2026 with the existing isolated CAD environment. The corrected generator records its own SHA-256 in every receipt. `depth` now measures to the interior floor; the bottom extends below that reserve. Generated geometry stays outside Git.
 
 | Run | Parameters | Result |
 | --- | --- | --- |
-| Default | Depth 35.25 mm, recess 17.5 mm, C tilt 5 degrees | Both shell-cover assemblies pass all generator checks |
-| Deeper variant | Depth 40 mm, other defaults unchanged | Both assemblies pass all generator checks |
-| Unrecessed variant | Depth 35 mm, recess 0, tilt 0 | Both assemblies pass all generator checks |
+| Default | Interior depth 35.25 mm, recess 17.5 mm, C tilt 5 degrees | Both assemblies pass; interior floor -35.25 mm, exterior underside -38.25 mm |
+| Deeper variant | Interior depth 40 mm, other defaults unchanged | Both assemblies pass; interior floor -40 mm, exterior underside -43 mm |
+| Unrecessed variant | Interior depth 35 mm, recess 0, tilt 0 | Both assemblies pass; interior floor -35 mm, exterior underside -38 mm |
 | Exploded preview | Default parameters, bottoms lowered 30 mm | Six separate entries; enclosure parts valid; invalid manufacturer references isolated |
 | Clash rejection | Default parameters with `tray_y=30` | C rejected because its tilted stem passage intersects the ballast compartment |
+
+The floor regression in `check_reserve.py` fails against the previous source with `A 3.0mm cover interior floor: -32.25 != -35.25`. It passes against the corrected source for both A/C and both 3 mm and 5 mm covers. It checks actual CAD bounds against the requested reserve, independently of the derived datum properties.
 
 The default compartment moved to `tray_y=32` to remove that CAD clash. This does not establish the actual switch or harness envelope.
 

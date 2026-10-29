@@ -2,7 +2,7 @@
 
 `box_mount.py` develops A/red flat and C/blue tilted concepts as a shell and removable bottom. `print_readiness` is `NOT_READY`. All construction dimensions are proposals. No screw, nut, washer, cable, printer, material, or fit allowance has been selected from measured hardware.
 
-The seating-shoulder centre remains at Z=0. The external underside is Z=-35.25 mm. The 17.5 mm counterbore rises along the button axis. C tilts 5 degrees toward -Y. The bottom is 3 mm thick, so its internal floor is Z=-32.25 mm. Closing the base reduces the original open underside space by that thickness. These datums follow the existing [base concepts](../BASE-CONCEPTS.md).
+The seating-shoulder centre remains at Z=0. The full interior reserve extends to Z=-35.25 mm. The 17.5 mm counterbore rises along the button axis. C tilts 5 degrees toward -Y. The bottom is 3 mm thick and extends below that floor to an external underside at Z=-38.25 mm. Closing the base preserves the full 35.25 mm interior reserve. `depth` always measures from the seating-shoulder centre to the interior floor. Changing `bottom_thickness` changes only the exterior underside. The interior floor preserves the open-underside depth of the existing [base concepts](../BASE-CONCEPTS.md).
 
 The shell has four bosses with proposed M3 screw passages and hex nut pockets. Nuts enter from below before the cover closes the pockets. Recessed cylindrical screw-head seats open on the external underside. These are geometric provisions for a proposed fastening method. Screw length, actual head shape, nut dimensions, engagement, and tightening loads need review.
 
@@ -22,7 +22,7 @@ From the worktree root, use the existing CAD environment without starting a view
 
 Set the Python path yourself if the environment lives elsewhere. The command writes ignored outputs under `hardware/cad/build/box-mount-proposal/`. Each concept has shell and bottom STEP and STL files, plus a two-solid assembly STEP and SVG views into the shell and bottom. File names mark them `PROPOSAL-NOT-FIT-VERIFIED`. `receipt.json` records source and output hashes, package versions, all parameters, and checks. A failed run removes the previous success receipt before attempting geometry.
 
-Override `Proposal` fields with a JSON object. Unknown fields and nonfinite values fail. This example varies only the underside depth and writes a separate output:
+Override `Proposal` fields with a JSON object. Unknown fields and nonfinite values fail. This example varies only the interior depth and writes a separate output:
 
 ```sh
 printf '{"depth":40}' > /tmp/box-depth.json
@@ -36,6 +36,14 @@ The importable `preview(parameters=None, *, explode=0, include_reference=True)` 
 ## Evidence and remaining decisions
 
 Every exported part must be one valid positive-volume solid. It must survive a STEP round trip and produce a watertight, consistently wound STL within 0.5% of CAD volume. Each assembly must round-trip with two valid solids and matching volume.
+
+Run the floor regression independently with the same CAD Python:
+
+```sh
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/box-mount/check_reserve.py
+```
+
+It reads the actual shell and cover bounds for both concepts with 3 mm and 5 mm covers. Both must retain the full 35.25 mm interior reserve.
 
 Assembly checks cover zero solid overlap, planar shell-cover contact, the external underside datum, the internal floor datum, a full downward cover sweep, unobstructed wiring and ballast envelopes, aligned screw passages, nut insertion sweeps from below, screw-head seating material, nut-pocket roofs, ballast floor and roof, the stem bore, the axial counterbore, and a supporting-shoulder sample. Their tolerances describe CAD computation. They do not describe manufacturing tolerance.
 
