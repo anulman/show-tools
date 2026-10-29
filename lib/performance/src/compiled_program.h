@@ -54,6 +54,7 @@ class Program {
   int preflight_commit(const Cue& cue, CommitPlan& plan) const noexcept;
   int preflight_start(const Cue& cue, const Cue* staged_commit, uint32_t staged_period, int& bank) const noexcept;
   void discard_invalid_draft(const Cue& cue) noexcept;
+  int finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept;
   int execute(int cue, double frame) noexcept;
   bool selection_ready(int selection, int voice) const noexcept;
   bool select(int voice, int selection, bool automatic) noexcept;

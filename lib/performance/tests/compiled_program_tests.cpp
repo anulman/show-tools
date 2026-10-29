@@ -132,12 +132,63 @@ void authored_capture_end_finishes_without_finish_press() {
     until(engine, 1); until(engine, 2);
     require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == rate * 2,
       "missing finish press commits at the authored endpoint");
-    require(!take(engine, 1)[PF_TAKE_READY] && channel(engine, 0)[PF_CHANNEL_STATUS] != PF_RECORDING,
-      "automatic finish never starts the unpressed commit-arm capture");
+    require(!take(engine, 1)[PF_TAKE_READY] && channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING,
+      "missed commit-arm performs its written next capture at the exact boundary");
     until(engine, 3);
+    require(take(engine, 1)[PF_TAKE_READY] && take(engine, 1)[PF_TAKE_LENGTH] == rate * 2,
+      "automatically chained capture also finishes at its own written endpoint");
     require(state(engine)[PF_PHASE] == PF_PLAYING && !state(engine)[PF_ERROR],
       "a missed finish does not overflow or stop the transport");
   }
+}
+void missing_play_and_stop_remain_manual() {
+  for (bool pressed_stop : {false, true}) {
+    Engine engine; prepare(engine, table());
+    ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0)); until(engine, 3, 4);
+    require(take(engine, 0)[PF_TAKE_READY] && take(engine, 1)[PF_TAKE_READY],
+      "automatic commit-arm and commit produce the written two-layer phrase");
+    if (pressed_stop) ok(engine, press(engine, 0));
+    until(engine, 4); render(engine, 1000);
+    require(bool(channel(engine, 0)[PF_CHANNEL_LOOPING]) == !pressed_stop,
+      "missing stop keeps playback running and missing play never restarts explicitly stopped playback");
+  }
+}
+void early_capture_admission_has_bounded_source_capacity() {
+  for (double initial_bpm : {40., 240.}) {
+    const double song[]{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 3, 40, 3, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
+      0, 1, 1, 2, 1, 1, 2, 1, 0,
+      0, 0, 1, 1, PF_ARM, 0, 0, 0, -1, -1, 0,
+      0, 0, 2, 1, PF_COMMIT, 0, 0, -1, 0, 0, 0,
+      0, 0, 1};
+    auto rack = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
+    auto program = compiled::Program::create(song, std::size(song), 8000, *rack, 1);
+    require(bool(program), "early capture program prepares its bounded source window");
+    program->start(1, 0, 0, initial_bpm); program->beat(PF_PLAYING, 1, 1, 0, 0, initial_bpm);
+    int first = int(8000 * 60 / initial_bpm) - 160;
+    require(program->press(0, first, initial_bpm, true) == PF_OK, "supported early timing-now capture remains admitted");
+    program->tempo_changed(first, initial_bpm, 40);
+    int endpoint = first + int(std::ceil((5 - first * initial_bpm / (8000 * 60)) * 8000 * 60 / 40));
+    float source = .25f, left = 0, right = 0;
+    heap_allocations = heap_frees = 0; watch_heap = true;
+    for (int frame = first; frame <= endpoint; ++frame) {
+      program->render(&source, &left, &right, nullptr, nullptr, 1, frame, 40, true, *rack, *backup);
+      require(program->error() == PF_OK, "admitted early source cannot exhaust its buffer before the authored endpoint");
+    }
+    watch_heap = false;
+    require(heap_allocations == 0 && heap_frees == 0 && !program->has_capture(),
+      "misaligned early capture is discarded recoverably at its written end without callback allocation");
+  }
+  const double long_song[]{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 7, 40, 7, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
+    0, 1, 1, 6, 1, 1, 6, 1, 0,
+    0, 0, 1, 1, PF_ARM, 0, 0, 0, -1, -1, 0,
+    0, 0, 6, 1, PF_COMMIT, 0, 0, -1, 0, 0, 0,
+    0, 0, 1};
+  auto rack = patches::Rack::create(nullptr, 0);
+  auto program = compiled::Program::create(long_song, std::size(long_song), 8000, *rack, 1);
+  require(bool(program), "maximum thirty-second authored source remains loadable");
+  program->start(1, 0, 0, 40); program->beat(PF_PLAYING, 1, 1, 0, 0, 40);
+  require(program->press(0, 11840, 40, true) == PF_LOOP_MISMATCH && !program->has_capture(),
+    "an early start exceeding the fixed thirty-second source bound rejects before capture mutation");
 }
 void load_atomicity_and_six_counts() {
   Engine engine; auto data = table(); prepare(engine, data);
@@ -303,6 +354,51 @@ void joined_capture_suffix_and_phase() {
   auto invalid = joined_table(); invalid[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS + 6] = 6;
   require(pf_configure_compiled(engine, invalid.data(), uint32_t(invalid.size())) < 0, "unequal explicit loop periods reject before replacement");
   require(take(engine, 0)[PF_TAKE_READY] && take(engine, 1)[PF_TAKE_READY], "period graph failure preserves prior audio");
+}
+void automatic_finish_matches_manual_pcm() {
+  for (double rate : {8000., 44100., 48000.}) {
+    Engine manual(rate), automatic(rate); prepare(manual, joined_table()); prepare(automatic, joined_table());
+    ok(manual, pf_start(manual, 98, 1, 1, 6, 0, 0)); ok(automatic, pf_start(automatic, 98, 1, 1, 6, 0, 0));
+    ok(manual, press(manual, 0)); ok(automatic, press(automatic, 0));
+    bool armed_second = false, manual_finish = false;
+    heap_allocations = heap_frees = 0; watch_heap = true;
+    for (uint64_t frame = 0; frame < uint64_t(rate * 17); ++frame) {
+      auto now = state(manual);
+      if (!armed_second && now[PF_PHASE] == PF_PLAYING && now[PF_BAR_NUMBER] == 2) {
+        ok(manual, press(manual, 0)); ok(automatic, press(automatic, 0)); armed_second = true;
+      }
+      if (!manual_finish && now[PF_PHASE] == PF_PLAYING && now[PF_BAR_NUMBER] == 4 && now[PF_BEAT_NUMBER] == 2) {
+        ok(manual, press(manual, 0)); manual_finish = true;
+      }
+      float input = float(std::sin(double(frame) * .017) * .2);
+      float a[4]{}, b[4]{};
+      ok(manual, pf_process_stems(manual, &input, &a[0], &a[1], &a[2], &a[3], 1));
+      ok(automatic, pf_process_stems(automatic, &input, &b[0], &b[1], &b[2], &b[3], 1));
+      require(std::equal(std::begin(a), std::end(a), std::begin(b)),
+        "automatic finish preserves sample-exact manual source, END tail, zero suffix and live routing");
+    }
+    watch_heap = false;
+    require(heap_allocations == 0 && heap_frees == 0, "automatic endpoint completion allocates and releases no heap memory");
+    auto result = take(automatic, 1);
+    require(result[PF_TAKE_READY] && result[PF_TAKE_PERIOD] == std::ceil(8 * rate * 60 / 98)
+      && std::abs(result[PF_TAKE_LENGTH] - 6 * rate * 60 / 98) <= 1,
+      "automatic shortened prefix retains the full eight-count loop at real device rates");
+  }
+}
+void loop_wrap_discards_unfinished_capture_and_preserves_latest() {
+  for (int end_bar : {1, 2}) {
+    Engine engine; prepare(engine, joined_table());
+    ok(engine, pf_start(engine, 120, 1, 1, 6, 0, 0)); ok(engine, press(engine, 0));
+    until(engine, 3); require(take(engine, 0)[PF_TAKE_READY], "wrap fixture retains an earlier complete take");
+    pf_stop(engine); const auto retained = take(engine, 0);
+    ok(engine, pf_start(engine, 120, 1, 1, end_bar, 1, 0)); ok(engine, press(engine, 0)); until(engine, 1);
+    render(engine, uint32_t(end_bar * 16000 + 16000));
+    require(state(engine)[PF_PHASE] == PF_PLAYING && !state(engine)[PF_ERROR]
+      && channel(engine, 0)[PF_CHANNEL_STATUS] != PF_RECORDING,
+      "one-bar and multi-bar practice wraps cannot leave an orphan recording");
+    require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == retained[PF_TAKE_LENGTH],
+      "practice wrap preserves the previously committed take while discarding an incomplete replacement");
+  }
 }
 void actual_rate_quantization_join() {
   for (double rate : {44100.0, 48000.0}) {
@@ -481,29 +577,33 @@ void disjoint_reservation_handoff_both_orders() {
     require(take(engine, 1)[PF_TAKE_READY] && take(engine, 1)[PF_TAKE_LENGTH] == 32000, "future reservation becomes an exact independent completed recording");
   }
 }
-void missed_commit_rejects_start_nonfatally() {
+void missed_commit_finishes_before_reserved_start() {
   Engine engine; prepare(engine, disjoint_handoff_table());
   ok(engine, pf_start(engine, 120, 1, 1, 7, 0, 0)); until(engine, 2); ok(engine, press(engine, 2)); until(engine, 3); until(engine, 4);
   ok(engine, press(engine, 1));
   std::array<double, PF_EVENT_CAPACITY * PF_EVENT_FIELDS> events{}; pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
   until(engine, 5);
-  uint32_t count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY); int rejected = 0;
+  uint32_t count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
   for (uint32_t index = 0; index < count; ++index) {
     const double* row = events.data() + index * PF_EVENT_FIELDS;
-    require(row[PF_EVENT_TYPE] != PF_FAULT, "missed commit causes no fatal event or silent global stop");
-    if (row[PF_EVENT_TYPE] == PF_CONTROL && row[PF_EVENT_APPLIED] == 0) {
-      ++rejected;
-      require(row[PF_EVENT_ERROR] == PF_CAPTURE_BUSY && row[PF_EVENT_CONTROL] == 1 && row[PF_EVENT_CUE] == 2 && row[PF_EVENT_FRAME] == std::ceil(state(engine)[PF_CLOCK_BEAT_FRAME]), "queued rejection carries actual boundary, source cue index, button and capture-busy reason");
-    }
+    require(row[PF_EVENT_TYPE] != PF_FAULT, "automatic endpoint handoff causes no fatal event");
+    require(row[PF_EVENT_TYPE] != PF_CONTROL || row[PF_EVENT_APPLIED] != 0,
+      "already-pressed incoming arm sees the automatically completed release");
   }
-  require(rejected == 1 && !take(engine, 0)[PF_TAKE_READY] && !take(engine, 1)[PF_TAKE_READY], "missed performer commit is never supplied automatically");
-  auto length = take(engine, 0)[PF_TAKE_LENGTH]; auto audio = render(engine, 128);
-  require(take(engine, 0)[PF_TAKE_LENGTH] == length + 128 && state(engine)[PF_PHASE] == PF_PLAYING && channel(engine, 2)[PF_CHANNEL_STATUS] == PF_RECORDING, "busy queued start preserves old capture and advancing transport");
-  require(channel(engine, 1)[PF_CHANNEL_PENDING_KIND] == PF_NONE && std::all_of(audio.live_left.begin(), audio.live_left.end(), [](float value) { return std::abs(value - .3125f) < 1e-6; }), "failed reservation clears only pending start and preserves authorized monitor output");
+  require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 32000,
+    "missed outgoing commit still saves its exact declared capture span");
+  auto length = take(engine, 1)[PF_TAKE_LENGTH]; auto audio = render(engine, 128);
+  require(take(engine, 1)[PF_TAKE_LENGTH] == length + 128 && state(engine)[PF_PHASE] == PF_PLAYING
+    && channel(engine, 1)[PF_CHANNEL_STATUS] == PF_RECORDING,
+    "automatic release precedes the independent authorized incoming capture");
+  require(std::all_of(audio.left.begin(), audio.left.end(), [](float value) { return std::abs(value - .3125f) < 1e-6; }),
+    "automatically committed old capture remains audible after handoff");
   Engine immediate; prepare(immediate, disjoint_handoff_table(true));
   ok(immediate, pf_start(immediate, 120, 1, 1, 7, 0, 0)); until(immediate, 2); ok(immediate, press(immediate, 2)); until(immediate, 5);
   auto before = take(immediate, 0);
-  require(press(immediate, 1) < 0 && state(immediate)[PF_ERROR] == PF_CAPTURE_BUSY && take(immediate, 0) == before && take(immediate, 1)[PF_TAKE_LENGTH] == 0, "immediate overlapping actual recording rejects atomically even when declared spans are disjoint");
+  ok(immediate, press(immediate, 1));
+  require(take(immediate, 0) == before && take(immediate, 1)[PF_TAKE_LENGTH] == 0,
+    "immediate incoming arm is admitted after native endpoint completion");
   auto invalid = disjoint_handoff_table();
   invalid[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS + 1] = 4;
   invalid[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS + 3] = 6;
@@ -635,8 +735,9 @@ void commit_preflights_entire_selection_before_publication() {
     }
   }
   require(old_failures == 1 && starts_cancelled == 1, "failed commit and cancelled dependent start each report their own source cue outcome");
-  auto first = take(engine, 0); auto draft_length = take(engine, 2)[PF_TAKE_LENGTH]; auto audio = render(engine, 128);
-  require(first[PF_TAKE_READY] && first[PF_TAKE_LENGTH] == 16000 && take(engine, 2)[PF_TAKE_LENGTH] == draft_length + 128 && state(engine)[PF_PHASE] == PF_PLAYING, "selection preflight preserves committed PCM and active old recording without resetting its live Rack");
+  auto first = take(engine, 0); auto audio = render(engine, 128);
+  require(first[PF_TAKE_READY] && first[PF_TAKE_LENGTH] == 16000 && take(engine, 2)[PF_TAKE_LENGTH] == 0 && state(engine)[PF_PHASE] == PF_PLAYING,
+    "failed endpoint selection discards the invalid draft and preserves prior committed PCM and transport");
   require(std::all_of(audio.left.begin(), audio.left.end(), [](float value) { return std::abs(value - .3125f) < 1e-6; }), "only prior committed loop remains audible after rejected group publication");
 }
 void failed_period_blocks_same_boundary_start() {
@@ -683,7 +784,11 @@ void crb_unavailable_start_preserves_old_capture() {
   const auto old = take(engine, 0), next = take(engine, 1);
   require(press(engine, 0) < 0 && state(engine)[PF_ERROR] == PF_TAKE_UNAVAILABLE && take(engine, 0) == old && take(engine, 1) == next && channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING, "unavailable CRB target rejects whole cue before publishing or stopping old capture");
   render(engine, 128); require(take(engine, 0)[PF_TAKE_LENGTH] == old[PF_TAKE_LENGTH] + 128, "rejected atomic CRB keeps recording old source epoch");
-  pf_stop(engine); require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 16000 && take(engine, 1)[PF_TAKE_READY], "atomic CRB failure preserves both prior committed takes");
+  until(engine, 2);
+  require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 16000
+    && take(engine, 1)[PF_TAKE_READY] && channel(engine, 0)[PF_CHANNEL_STATUS] != PF_RECORDING,
+    "rejected incoming CRB still finishes its authorized outgoing capture at the written endpoint");
+  pf_stop(engine);
 }
 void independent_unavailable_arm_does_not_rollback_commit() {
   const std::vector<double> song{
@@ -891,6 +996,27 @@ void rotation_uses_musical_time_and_preserves_capture() {
   require(take(engine, 0)[PF_TAKE_LENGTH] == 16000 && captured.left[0] == .25f, "rotation monitor switches do not add monitor tails or backup effects to independent capture");
 }
 
+void automatic_finish_preserves_same_voice_armed_route() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
+    0, 1, 0, 2, 2, 1, 2, 2, 0,
+    0, 3, 0, 4, 0, 1, 4, 0, 1,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
+    0, 0, 2, 1, PF_COMMIT, 2, 2, -1, 0, 0, 0,
+    0, 0, 2, 0, PF_ARM, 1, 0, 1, -1, -1, 0,
+    0, 0, 3, -1, PF_COMMIT, 1, 0, -1, 1, 1, 0,
+    0, 0, 1, 1, 1, 1
+  };
+  Engine engine; prepare(engine, song);
+  Venue venue; venue.counts[0] = 1; venue.effects.push_back({PF_EFFECT_SLAPBACK, 1, {{100, 0, .25}}}); venue.revisions.fill(2); venue.apply(engine);
+  ok(engine, pf_start(engine, 120, 1, 1, 5, 0, 0)); ok(engine, press(engine, 0));
+  until(engine, 2); ok(engine, press(engine, 0)); until(engine, 2, 3);
+  require(take(engine, 0)[PF_TAKE_READY] && channel(engine, 0)[PF_CHANNEL_PENDING_KIND] == PF_ARM,
+    "automatic finish preserves a different pending arm on the same voice");
+  until(engine, 3); auto output = render(engine, 1000);
+  require(channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING && std::abs(output.live_left.back() - .3125f) < 1e-6,
+    "pending same-voice capture retains its authorized effected live route across automatic finish");
+}
 void prepared_capture_reuses_banks_without_heap_work() {
   Engine engine; prepare(engine, table());
   std::array<float, 128> input{}, left{}, right{}, live_left{}, live_right{}; input.fill(.25f);
@@ -931,4 +1057,4 @@ void prepared_capture_reuses_banks_without_heap_work() {
   require(heap_allocations == 0 && heap_frees == 0, "idempotent stopped preparation avoids allocations when all reusable banks are current");
 }
 }
-int main() { authored_capture_end_finishes_without_finish_press(); rotation_releases_on_strict_quarter_grid(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
+int main() { authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_on_strict_quarter_grid(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); }

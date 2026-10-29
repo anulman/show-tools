@@ -1,13 +1,14 @@
 import { SampleEngine, SampleRecorder } from '../sampler/wasm-sampler.js';
 import { AudioSequenceEngine } from '../sequencer/wasm-sequencer.js';
 import { CONTROL_IDS } from './model.js';
-import type { ChannelId, ChartControls, Control, CueAction, LiveEffectDefinition, LiveEffectsState, VoiceEffectConfiguration, VoiceEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
+import type { ChannelId, ChartControls, CompiledTakeState, Control, CueAction, LiveEffectDefinition, LiveEffectsState, VoiceEffectConfiguration, VoiceEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
 import { PF } from './wasm-abi.js';
 import { ST } from '../sampler/wasm-abi.js';
 
 const BLOCK = 8192;
 const PHASES: readonly Phase[] = ['idle', 'count-in', 'playing', 'ended'];
 const STATUSES: readonly PracticeState['channels'][number]['status'][] = ['empty', 'ready', 'armed', 'recording', 'stopping', 'looping'];
+const PLAYBACK_STATES: readonly CompiledTakeState['playback'][] = ['idle', 'playing', 'releasing'];
 type Options = { api: WebAssembly.Exports; sampleRate: number; mode?: number; maxVoices?: number; maxSeconds?: number; clickGain?: number;
   bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program; compiledProgram?: readonly number[] };
 
@@ -36,6 +37,7 @@ export class NativePerformance {
   readonly commandIds = new Map<number, string>();
   runId: string;
   disposed = false;
+  private compiledTakeCount = 0;
 
   constructor({ api, sampleRate, mode = PF.PRACTICE, maxVoices = 32, maxSeconds = 30, clickGain = 1, ...song }: Options) {
     if (!(api.memory instanceof WebAssembly.Memory)) throw new Error('Performance WASM memory is unavailable');
@@ -165,6 +167,7 @@ export class NativePerformance {
     try {
       const eventPointer = upload(events), cuePointer = upload(rows), playbackPointer = upload(playback);
       this.call('pf_configure', this.handle, bpm, beatsPerBar, barCount, endBar, program.lengthBeats, eventPointer, events.length / 3, cuePointer, rows.length / PF.CUE_FIELDS, playbackPointer, playback.length / 3);
+      this.compiledTakeCount = 0;
       this.sampler.variantKeys.clear();
       for (const [id, names] of keys) this.sampler.variantKeys.set(id, names);
     } finally { for (const pointer of pointers) this.invoke('free', pointer); }
@@ -186,6 +189,7 @@ export class NativePerformance {
     try {
       new Float64Array(this.memory.buffer, pointer, program.length).set(program);
       this.call('pf_configure_compiled', this.handle, pointer, program.length);
+      this.compiledTakeCount = program[8];
     } finally { this.invoke('free', pointer); }
   }
   compiledTake(index: number) {
@@ -319,7 +323,17 @@ export class NativePerformance {
       startBar: data[PF.START_BAR], endBar: data[PF.END_BAR], loop: data[PF.LOOP] === 1, automatic: data[PF.AUTOMATIC] === 1, click: data[PF.CLICK] === 1, selectedChannel: CONTROL_IDS[data[PF.SELECTED_CHANNEL]],
       runId: this.runId, seq: data[PF.SEQUENCE], channels, looping: channels.filter(channel => channel.looping).map(channel => channel.id), recording, microphone: data[PF.MICROPHONE] === 1, error: data[PF.ERROR] ? this.message(data[PF.ERROR]) : null };
   }
-  state() { return { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), voiceEffects: this.voiceEffects(), tempoHits: this.tempoHitInfo() }; }
+  state(): PracticeState {
+    const state = { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), voiceEffects: this.voiceEffects(), tempoHits: this.tempoHitInfo() };
+    if (!this.compiledTakeCount) return state;
+    const compiledTakes = Array.from({ length: this.compiledTakeCount }, (_, index): CompiledTakeState => {
+      const take = this.compiledTake(index);
+      const playback = PLAYBACK_STATES[take.playbackState];
+      if (!playback) throw new Error('Invalid native take playback state');
+      return { index, ready: take.ready, frames: take.frames, period: take.period, playback };
+    });
+    return { ...state, compiledTakes };
+  }
   snapshot() { return this.state(); }
   get processedFrames() { return this.query('pf_snapshot')[PF.FRAME]; }
   get clickEnabled() { return this.query('pf_snapshot')[PF.CLICK_ENABLED] === 1; }

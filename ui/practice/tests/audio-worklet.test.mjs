@@ -173,7 +173,7 @@ for (const order of [['L2', 'R1'], ['R1', 'L2']]) test(`DYC future-arm handoff k
   } finally { t.dispose(); }
 });
 
-test('DYC missed old commit rejects only the future recording with a source-indexed outcome', async () => {
+test('DYC missed old commit finishes before the authorized future recording', async () => {
   const song = (await loadSong('dance-yrself-clean')).compiled;
   const t = new Harness({ bpm: 98, compiledProgram: Array.from(encodeCompiledProgram(song)), barCount: 76,
     liveEffects: [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }], microphone: true });
@@ -184,14 +184,15 @@ test('DYC missed old commit rejects only the future recording with a source-inde
     atBar(4); t.command('practice.control', { control: { id: 'L2' } });
     atBar(5);
     assert.equal(t.state().phase, 'playing');
-    assert.equal(t.state().recording.id, 'R1');
+    assert.equal(t.state().recording.id, 'L2');
     assert(!t.performance.some(message => message.event?.type === 'fault'));
     const rejected = t.performance.filter(message => message.event?.type === 'control' && message.event.applied === false).map(message => message.event);
-    assert.equal(rejected.length, 1);
-    assert.equal(rejected[0].cueIndex, song.cues.findIndex(cue => cue.source.a1 === 'F21'));
-    assert.match(rejected[0].error, /recording|capture/i);
+    assert.equal(rejected.length, 0);
+    const layers = song.takes.flatMap((take, index) => take.voiceId === 'drums-claps' ? [t.processor.native.compiledTake(index)] : []);
+    assert.equal(layers.length, 2);
+    assert(layers.every(take => take.ready && take.playbackState === 1));
     const output = t.renderStems(128, { input: new Float32Array(128).fill(.25) });
-    assert(output.mixed.every(channel => channel.every(value => Math.abs(value - .3125) < 1e-6)));
+    assert(output.mixed.every(channel => channel.every(value => Math.abs(value - .625) < 1e-6)));
     assert(output.live.every(channel => channel.every(value => Math.abs(value - .3125) < 1e-6)));
   } finally { t.dispose(); }
 });
