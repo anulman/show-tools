@@ -720,8 +720,8 @@ if (new URLSearchParams(location.search).has('test')) {
 
 function applyPendingPracticeUpdate() {
   if (offlineUpdate.kind === 'current' || offlineUpdate.kind === 'reloading') return;
-  elements['offline-status'].textContent = 'Update ready. It will apply when practice and recording finish.';
-  if (isRunning() || starting || switching || preparing || effectsApplying || outputCapture !== 'idle') return;
+  elements['offline-status'].textContent = 'Update ready. It will apply when practice, recording, and voice editing finish.';
+  if (voiceCatalog.busy || document.querySelector('dialog[open]') || isRunning() || starting || switching || preparing || effectsApplying || outputCapture !== 'idle') return;
   if (offlineUpdate.kind === 'waiting') {
     offlineUpdate.worker.postMessage({ type: 'activate-when-idle' });
     return;
@@ -729,6 +729,8 @@ function applyPendingPracticeUpdate() {
   offlineUpdate = { kind: 'reloading' };
   location.reload();
 }
+
+document.addEventListener('close', () => applyPendingPracticeUpdate(), true);
 
 if ('serviceWorker' in navigator && window.isSecureContext && !new URLSearchParams(location.search).has('test')) {
   let hadController = Boolean(navigator.serviceWorker.controller);

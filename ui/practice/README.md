@@ -108,7 +108,7 @@ npm run check:layout
 
 Build this checkout with `npm run build` and serve its `dist/` directory on localhost or HTTPS. Use the existing practice desk. Sheets, a relay, and the CDP helper are not required for audio. Choose the actual microphone/output setup in your browser or operating system before testing.
 
-1. While stopped, open a voice’s **FX** footer. Adjust its ordered stages, then use **Apply settings**. Applied values come from native readback. New settings do not change a previously captured take’s effects. Initial Slapback values are delay 100 ms, feedback 0, and wet amount 0.25.
+1. While stopped, open a voice’s **FX** footer. Adjust its ordered stages, then use **Save voice**. Applied values come from native readback. New settings do not change a previously captured take’s effects. Initial Slapback values are delay 100 ms, feedback 0, and wet amount 0.25.
 2. Choose the practice range and count-in, then press **Start practice**. Grant microphone access. Wait for the native-confirmed live voice status and applied revision.
 3. Live monitoring starts closed. After Start, open **Audio & Sheets** and use **Live monitoring** to confirm the actual physical relationship of your input/output devices. Different physical devices or the same USB audio interface permit monitoring. Same non-USB hardware or an unconfirmed setup leaves it off. Do not claim a different-device or USB setup unless you know it is true.
 4. Speak or clap. On an eligible output, expect centered live voice and one repeat about 100 ms later. The song click stays separate from the effect. Changing effect values during a run is unavailable in this capability.

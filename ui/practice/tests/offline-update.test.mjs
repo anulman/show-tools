@@ -135,6 +135,8 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   let reloads = 0;
   const messages = [];
   const events = new Map();
+  const documentEvents = new Map();
+  let editorOpen = false;
   const registrationEvents = new Map();
   const windowEvents = new Map();
   const worker = { postMessage(message) { messages.push(message.type); } };
@@ -142,6 +144,8 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   const serviceWorker = { controller: controlled ? {} : null, ready: Promise.resolve(), async register() { return registration; }, addEventListener(type, callback) { events.set(type, callback); } };
   const context = {
     URLSearchParams, navigator: { serviceWorker },
+    voiceCatalog: { busy: false },
+    document: { querySelector() { return editorOpen ? {} : null; }, addEventListener(type, callback) { documentEvents.set(type, callback); } },
     window: { isSecureContext: true, addEventListener(type, callback) { windowEvents.set(type, callback); } },
     location: { search: '', reload() { reloads++; } },
     elements: { 'offline-status': { textContent: '' } },
@@ -155,6 +159,8 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   await new Promise(resolve => setImmediate(resolve));
   return { context, messages, registration, registrationEvents, windowEvents, worker,
     get reloads() { return reloads; },
+    openEditor() { editorOpen = true; },
+    closeEditor() { editorOpen = false; documentEvents.get('close')(); },
     render(next = {}) { context.render(next); },
     controllerChange() { serviceWorker.controller = {}; events.get('controllerchange')(); },
   };
@@ -214,4 +220,44 @@ test('a newly installed waiting worker and a focus retry use the same idle gate'
   h.context.state.phase = 'idle';
   h.windowEvents.get('focus')();
   assert.deepEqual(h.messages, ['activate-when-idle']);
+});
+
+for (const operation of ['save', 'import']) {
+  test(`a controller change during library ${operation} waits for durable completion`, async () => {
+    const h = await updateHarness({ waiting: false });
+    h.context.state.phase = 'idle';
+    h.context.voiceCatalog.busy = true;
+    h.controllerChange();
+    h.render();
+    assert.equal(h.reloads, 0, 'an in-flight library transaction prevents reload');
+    h.context.voiceCatalog.busy = false;
+    h.render(); // onBusyChange renders when save/import settles.
+    assert.equal(h.reloads, 1);
+    h.render();
+    assert.equal(h.reloads, 1, 'settling triggers only one reload');
+  });
+}
+
+test('a waiting worker cannot activate while a voice editor is open, then resumes on close', async () => {
+  const h = await updateHarness();
+  h.openEditor();
+  h.render({ phase: 'idle' });
+  assert.deepEqual(h.messages, [], 'unsaved metadata stays on the page');
+  h.closeEditor();
+  assert.deepEqual(h.messages, ['activate-when-idle']);
+  h.controllerChange();
+  assert.equal(h.reloads, 1);
+});
+
+test('a new controller waits for editor dismissal even after its save completes', async () => {
+  const h = await updateHarness({ waiting: false });
+  h.context.state.phase = 'idle';
+  h.openEditor();
+  h.context.voiceCatalog.busy = true;
+  h.controllerChange();
+  h.context.voiceCatalog.busy = false;
+  h.render();
+  assert.equal(h.reloads, 0, 'successful save does not interrupt the still-open editor');
+  h.closeEditor();
+  assert.equal(h.reloads, 1, 'closing retries the pending update without another audio frame');
 });
