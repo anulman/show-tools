@@ -4,9 +4,9 @@ The operator renamed the former C screw clamp to **A**, and the former B′ grip
 
 The new C task separates two joints: a baseplate grips the knob with padded set screws, adjusted while the bar is removed; the complete bar then latches onto and off that baseplate without changing the grip setting. Three C1/C2/C3 attachment prototypes must be checked before a final C is synthesized. The operator permits added collar spacing and underside release access through the fixed mounting box. Installed dimensions and physical fit remain unresolved. See the [two-joint plan](two-joint-plan.md) and [prototype review criteria](latch-review-contract.md). The old latch-to-pad-actuation models do not satisfy this new topology.
 
-The private [C1–C3 comparison](C123-findings.md) now records actual STEP/STL results and functional failures. A separately checked C1 flange-relief proposal is the recommended starting correction. The operator permits lifting the box for underside access. No new latch geometry or final C is published in the viewer.
+The historical [C1–C3 comparison](C123-findings.md) records the original functional failures. The complete [C proposal](final-C-proposal.md) uses the collar architecture, a corrected flange, a captive pin and actual service-tool engagement. Its matching base permits lifted underside service. Use the [review preparation guide](../FINAL_REVIEW.md) to stage the checked exports for publication.
 
-The current page shows three complete bars side by side: the unchanged original, A's axial screw clamp, and B's prior knob-grip latch concept. A fourth group shows the independent knob-baseplate component study, explicitly labelled as having no bar latch. The earlier discarded bridge/jaw designs, A′, and D are omitted and are not constructed by the page. A is blue, B is teal, pads are orange, and hardware envelopes are grey. B remains a static locked-state review model with unverified holding and installed access. See [the latch review status](latch-review.md). This comparison is for review, not manufacturing approval.
+The page shows four complete bars: the unchanged original, reference A, reference B, and C's checked review proposal. C replaces the obsolete standalone cup study. The earlier discarded bridge/jaw designs, A′, and D are omitted. The source pose and full bar reach remain intact. B remains a static locked-state reference with unverified holding and access. C's service sequence is checked in geometry; physical fit and manufacturing remain unverified.
 
 All four source-derived screw studies remain in the generator for explicit headless selection. Every variant retains the original long hollow body, top-attachment end, measured insertion width, and known-snug released socket. Only display copies move sideways. The original remains opaque and in its source pose. Variant bodies are translucent so their internal clamps remain visible.
 
@@ -17,7 +17,7 @@ All four source-derived screw studies remain in the generator for explicit headl
 
 All units are millimetres. The original socket is the operator-confirmed snug baseline. Actual knob dimensions are not independently measured. The new clamps are CAD prototypes awaiting physical tests.
 
-Run the full geometry/export checks with the private STEP path:
+The following command checks and exports legacy reference A, not the new C:
 
 ```sh
 hardware/cad/cad disco-check --step "$SHOW_TOOLS_DISCO_STEP" \
@@ -28,7 +28,7 @@ The command exports reference A's four proposed print pieces as STEP and STL int
 
 B is excluded from this export set. Its source is in `latches.py`, and the publisher records its hash separately. Only its current locked pose is displayed; no operating animation or release is verified. The earlier Darren review pack uses the former names and topology; a new handoff follows the detachable-baseplate validation.
 
-The active generators and checks are in [full_height.py](full_height.py). The entrypoint remains `../disco_bar.py`. The old short carriers and Ø40 mm illustrative knob are retired; their source remains in Git history.
+Legacy generators remain in [full_height.py](full_height.py). New C uses [final_c.py](final_c.py) and [check_final_c.py](check_final_c.py). The entrypoint remains `../disco_bar.py`. The old short carriers and Ø40 mm illustrative knob are retired; their source remains in Git history.
 
 The checks cover the original and actual preview pieces, full body preservation outside explicit edit masks, source pocket clearance, screw/tool envelopes, sampled clamp travel, connected fixed bodies, STEP Boolean round trips, and watertight STL meshes. They do not prove physical assembly access, elastic deformation, print strength, screw torque, or support loads. See [design.md](design.md) for the mechanisms and limits.
 

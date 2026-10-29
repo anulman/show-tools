@@ -14,14 +14,7 @@ from build123d import Axis, Box, Vertex, import_step
 
 REFERENCE_SHA256 = "f0a21384179b69eff79205032dad536bfa1350e358c25ed0fe01de4189f2e003"
 ORIGINAL_LABEL = "ORIGINAL | complete unchanged bar | original pose, mm"
-BASEPLATE_LABEL = "KNOB BASEPLATE STUDY | component only, no bar latch | preset 0.2 mm"
-
-
-def baseplate_review(reference):
-    module = importlib.import_module("disco-bar.baseplates")
-    assembly = module.knob_baseplate(reference, .2)
-    module.verify_baseplate(reference, assembly)
-    return module, assembly
+FINAL_C_LABEL = "C REVIEW | detachable collar"
 
 
 def load_reference(step_path: Path | None = None):
@@ -88,7 +81,9 @@ def verify_integrated(reference, output):
     return report
 
 
-def verify_preview_scene(path, scene):
+def verify_preview_scene(path, scene, *, selection=None):
+    if selection is None:
+        selection = importlib.import_module('final_review').load()
     objects, names, colors, alphas = scene
     if not objects or not len(objects) == len(names) == len(colors) == len(alphas):
         raise ValueError("Preview objects and attributes must have matching nonzero lengths")
@@ -103,9 +98,11 @@ def verify_preview_scene(path, scene):
     model.assert_empty(reference - objects[0], "Original preview lost source material")
     model.assert_empty(objects[0] - reference, "Original preview gained or displaced material")
     variants = preview_variants(reference)
-    baseplate_module, baseplate = baseplate_review(reference)
-    if len(objects) != 1 + sum(len(variant.pieces) for variant in variants) + len(baseplate.pieces):
-        raise ValueError("Preview must contain only the original, selected assemblies and labelled component study")
+    final_parts = selection.parts('disco')
+    if len(objects) != 1 + sum(len(variant.pieces) for variant in variants) + len(final_parts):
+        raise ValueError("Preview must contain the original, A/B references and complete final C proposal")
+    if any(not 0 < alpha <= 1 for alpha in alphas):
+        raise ValueError('Keep displayed review components visible')
     for index, variant in enumerate(variants, start=1):
         prefix = preview_label(variant) + " / "
         matches = [(shape.translate((-index * model.SPACING, 0, 0)), name)
@@ -125,33 +122,49 @@ def verify_preview_scene(path, scene):
             piece.shape = actual[0]
         model.preserved_geometry(reference, variant)
         model.check_assembly(variant, 0.)
-    actual_pieces = []
-    for piece in baseplate.pieces:
-        label = BASEPLATE_LABEL + " / " + piece.name
+    bodies = []
+    envelope = model.cyl(model.OUTER, 200, (0, 0, -50))
+    for piece in final_parts:
+        label = FINAL_C_LABEL + " / " + piece.name
         matches = [shape.translate((-3 * model.SPACING, 0, 0))
                    for shape, name in zip(objects, names) if name == label]
         if len(matches) != 1:
-            raise ValueError(f"Missing or duplicate component study piece: {label}")
-        model.assert_empty(piece.shape - matches[0], "Baseplate study lost material")
-        model.assert_empty(matches[0] - piece.shape, "Baseplate study gained or displaced material")
-        actual_pieces.append(model.Piece(piece.name, matches[0], piece.role))
-    baseplate_module.verify_baseplate(reference, baseplate_module.KnobBaseplate(
-        baseplate.setting_mm, tuple(actual_pieces), baseplate.driver_paths))
+            raise ValueError(f"Missing or duplicate final C piece: {label}")
+        actual = matches[0]
+        if not actual.is_valid or len(actual.solids()) != 1:
+            raise ValueError(f'Invalid final C display piece: {label}')
+        model.assert_empty(piece.shape - actual, 'Final C lost checked material')
+        model.assert_empty(actual - piece.shape, 'Final C gained or displaced material')
+        model.assert_empty(actual - envelope, 'Final C exceeds the measured insertion profile')
+        if piece.role == 'bar':
+            bodies.append(actual)
+    if len(bodies) != 1:
+        raise ValueError('Keep one complete full-height bar in final C')
+    protected = model.box(120, 120, 80, (0, 0, -70))
+    model.assert_empty((reference & protected) - bodies[0], 'Final C lost the far attachment end')
+    model.assert_empty((bodies[0] & protected) - reference, 'Final C changed the far attachment end')
+    bounds = bodies[0].bounding_box()
+    if not np.isclose(bounds.min.Z, -109.22, atol=1e-5) or not np.isclose(bounds.max.Z, 0, atol=1e-5):
+        raise ValueError('Final C full bar reach changed')
+    selection.assert_current()
     return {"complete_original_unchanged": True, "original_pose_preserved": True,
             "complete_variants": ["A (legacy axial drawplate)"],
             "review_only_locked_latches": ["B: prior knob-grip latch; holding/access unverified"],
             "source_pocket_entry_depth_preserved": True,
-            "installed_latch_access_verified": False}
+            "final_C_checked_export_identity": True,
+            "physical_fit_verified": False}
 
 
 def box(x, y, z, center):
     return Box(x, y, z).translate(center)
 
 
-def preview(step_path: Path | None = None):
+def preview(step_path: Path | None = None, *, selection=None):
     """Show the unchanged original and only the selected complete variants."""
     path, reference = load_reference(step_path)
     verify_full_reference(path, reference)
+    if selection is None:
+        selection = importlib.import_module('final_review').load()
     model = integrated_module()
     objects, names, colors, alphas = [reference], [ORIGINAL_LABEL], ["#9ea8b4"], [1.]
     palette = {"body": "#2880b8", "print": "#187ac9", "pad": "#efa028", "hardware": "#a0abb8"}
@@ -163,12 +176,12 @@ def preview(step_path: Path | None = None):
             colors.append(("#148c7c" if variant.mechanism != "screw" else palette[piece.role])
                           if piece.role in ("body", "print") else palette[piece.role])
             alphas.append(.18 if piece.role == "body" else 1.)
-    _, baseplate = baseplate_review(reference)
-    for piece in baseplate.pieces:
+    for piece in selection.parts('disco'):
         objects.append(piece.shape.translate((3 * model.SPACING, 0, 0)))
-        names.append(BASEPLATE_LABEL + " / " + piece.name)
-        colors.append(palette[piece.role])
-        alphas.append(.25 if piece.role == "body" else 1.)
+        names.append(FINAL_C_LABEL + " / " + piece.name)
+        colors.append('#9472bc' if piece.role == 'bar' else '#26a69a' if 'retainer' in piece.name.lower()
+                      else '#efa028' if piece.role == 'pad' else '#a0abb8' if piece.role == 'hardware' else '#648cbe')
+        alphas.append(.18 if piece.role == 'bar' else .3 if piece.role == 'body' else 1.)
     return objects, names, colors, alphas
 
 
@@ -215,7 +228,7 @@ def inspect(step_path: Path | None, stl_path: Path | None, obj_path: Path | None
                       [bounds.max.X, bounds.max.Y, bounds.max.Z]],
         "surface_types": sorted({str(face.geom_type) for face in shape.faces()}),
         "meshes": {},
-        "preserved_functional_envelope": verify_preview_scene(path, preview(path)),
+        "preserved_reference_envelope": verify_full_reference(path, shape),
     }
     for kind, source, scale in (("stl", stl_path, 25.4), ("obj", obj_path, 1000.0)):
         if source:
