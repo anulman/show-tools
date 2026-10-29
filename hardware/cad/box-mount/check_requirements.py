@@ -11,23 +11,31 @@ sys.path.insert(0, str(Path(__file__).parents[1]))
 from build123d import Align, Axis, Cylinder
 from box_mount import ARCADE_CLEARANCE_MM, Proposal, build, required_centreline_depth, variant_requirements, volume
 
-assert ARCADE_CLEARANCE_MM == 82.55
+assert ARCADE_CLEARANCE_MM == 63.5
 requirements = variant_requirements()
 assert set(requirements['variants']) == {'arcade-inclined', 'rotor-level', 'mushroom-level'}
 assert requirements['variants']['arcade-inclined']['clearance_datum'] == 'floor-axis'
 assert not requirements['variants']['rotor-level']['drawing_hex_across_flats_verified']
 for angle in (0, 5):
     projection = required_centreline_depth(tilt_degrees=angle)
-    assert math.isclose(projection/math.cos(math.radians(angle)), 82.55)
+    assert math.isclose(projection/math.cos(math.radians(angle)), 63.5)
 p = Proposal()
 p.validate()
 shell, cover, *_ = build(p)
-# Independent finite cylinder reaches 82.55 along the tilted axis and occupies
+# Independent finite cylinder reaches 63.5 along the tilted axis and occupies
 # its full proposed 27 mm diameter, including its lowest off-axis end point.
-corridor = Cylinder(13.5, 82.55, align=(Align.CENTER,Align.CENTER,Align.MIN)).translate((0,0,-82.55)).rotate(Axis.X,5)
+corridor = Cylinder(13.5, 63.5, align=(Align.CENTER,Align.CENTER,Align.MIN)).translate((0,0,-63.5)).rotate(Axis.X,5)
 assert volume(corridor & shell) < 1e-6 and volume(corridor & cover) < 1e-6
 assert corridor.bounding_box().min.Z - cover.bounding_box().max.Z >= .5-1e-6
-for bad in (replace(p,depth=35.25), replace(p,depth=82.3), replace(p,clearance_mm=82.5)):
+# Match real roof edges across variants, rather than the box's bottom bound.
+low_edge = max(v.Z for v in shell.vertices() if abs(v.Y+63) < 1e-6 and v.Z > -64)
+for variant in ('rotor-level','mushroom-level'):
+    level, bottom, *_ = build(p,variant)
+    assert math.isclose(level.bounding_box().max.Z,low_edge,abs_tol=1e-6)
+    assert math.isclose(bottom.bounding_box().min.Z,-68,abs_tol=1e-6)
+assert shell.bounding_box().max.Z > low_edge
+
+for bad in (replace(p,depth=35.25), replace(p,depth=63.3), replace(p,clearance_mm=63.4)):
     try:
         bad.validate()
     except ValueError:
@@ -41,4 +49,4 @@ with tempfile.TemporaryDirectory(prefix='box-requirements-') as directory:
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == requirements
     assert not list(Path(directory).iterdir())
-print('PASS: three distinct variants, 82.55 mm axial reserve, full proposed corridor, shallow reserves rejected')
+print('PASS: three distinct variants, 63.5 mm axial reserve, full proposed corridor, shallow reserves rejected')

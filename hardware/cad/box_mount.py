@@ -18,13 +18,14 @@ import trimesh
 HERE = Path(__file__).resolve().parent
 MIN_Z = (Align.CENTER, Align.CENTER, Align.MIN)
 EPS = 1e-6
+ARCADE_CLEARANCE_MM = 2.5 * 25.4
 
 
 @dataclass(frozen=True)
 class Proposal:
     # Every value except the requested datums is a provisional geometry input.
-    depth: float = 84.0  # Proposed interior depth preserving the confirmed axial reserve.
-    clearance_mm: float = 82.55
+    depth: float = 65.0  # Proposed interior depth preserving the confirmed axial reserve.
+    clearance_mm: float = ARCADE_CLEARANCE_MM
     corridor_radius: float = 13.5
     corridor_floor_gap: float = 0.5
     recess: float = 17.5
@@ -64,9 +65,14 @@ class Proposal:
     rotor_hex_depth: float = 5.0
 
     @property
-    def level_top_z(self):
+    def arcade_high_roof_z(self):
         angle = math.radians(self.tilt)
         return self.recess/math.cos(angle) + self.tilted_length/2*math.tan(angle)
+
+    @property
+    def level_top_z(self):
+        angle = math.radians(self.tilt)
+        return self.recess/math.cos(angle) - self.tilted_length/2*math.tan(angle)
 
     @property
     def rotor_passage_diameter(self):
@@ -93,8 +99,8 @@ class Proposal:
             raise ValueError("interior depth must be 35..180 mm below the seating centre")
         angle = math.radians(self.tilt)
         required = required_centreline_depth(minimum_mm=self.clearance_mm, tilt_degrees=self.tilt) + self.corridor_radius*math.sin(angle) + self.corridor_floor_gap
-        if self.clearance_mm < 82.55 or self.depth < required:
-            raise ValueError("interior depth must preserve 82.55 mm axial clearance plus the proposed finite corridor and floor gap")
+        if self.clearance_mm < ARCADE_CLEARANCE_MM or self.depth < required:
+            raise ValueError(f"interior depth must preserve {ARCADE_CLEARANCE_MM:g} mm axial clearance plus the proposed finite corridor and floor gap")
         if self.corridor_radius >= self.stem_hole_diameter/2:
             raise ValueError("proposed wiring corridor must fit inside the stem opening")
         if not 0 < self.channel_depth < self.bottom_thickness or not 0 < self.head_depth < self.bottom_thickness:
@@ -116,8 +122,6 @@ class Proposal:
         if self.width <= 2 * self.corner_radius or min(self.level_length, self.tilted_length) <= 2 * self.corner_radius:
             raise ValueError("outer dimensions must exceed twice the corner radius")
 
-
-ARCADE_CLEARANCE_MM = 3.25 * 25.4
 
 
 def variant_requirements():
@@ -148,7 +152,8 @@ def variant_requirements():
                 required_facts=["wiring test", "mounting and attached harness dimensions",
                                 "final installed height"]),
         },
-        level_height_intent="roughly the same exterior height as the inclined arcade boxes; level dimensions pending",
+        level_height_intent="PROPOSED interpretation: level roofs align with arcade low roof edge; all bottoms share the ground plane",
+        level_roof_alignment_confirmed=False,
         historical_comparison=dict(active=False, depth_mm=35.25, recess_mm=17.5,
                                    note="flat Adafruit A is not the rotor or mushroom variant"))
 
@@ -159,7 +164,7 @@ def required_centreline_depth(*, minimum_mm=ARCADE_CLEARANCE_MM, tilt_degrees=5.
                for v in (minimum_mm, tilt_degrees)):
         raise ValueError("clearance dimensions must be finite numbers")
     if minimum_mm < ARCADE_CLEARANCE_MM or not 0 <= tilt_degrees <= 5:
-        raise ValueError("clearance must retain at least 82.55 mm along the button axis")
+        raise ValueError(f"clearance must retain at least {ARCADE_CLEARANCE_MM:g} mm along the button axis")
     return minimum_mm*math.cos(math.radians(tilt_degrees))
 
 
@@ -265,7 +270,8 @@ def verify_assembly(p, variant, parts):
     require(math.isclose(plate.bounding_box().min.Z, p.underside_z, abs_tol=EPS), "exterior underside datum changed")
     require(math.isclose(plate.bounding_box().max.Z, p.floor_z, abs_tol=EPS), "interior floor datum changed")
     require(math.isclose(shell.bounding_box().min.Z, p.floor_z, abs_tol=EPS), "shell split consumed interior reserve")
-    require(math.isclose(shell.bounding_box().max.Z, p.level_top_z, abs_tol=EPS), "variant exterior heights differ")
+    expected_roof = p.arcade_high_roof_z if variant == "arcade-inclined" else p.level_top_z
+    require(math.isclose(shell.bounding_box().max.Z, expected_roof, abs_tol=EPS), "variant roof alignment changed")
     for name, envelope in (("cable", cable), ("ballast", ballast)):
         require(volume(shell & envelope) < EPS and volume(plate & envelope) < EPS,
                 f"{name} proposal envelope is obstructed")
@@ -297,7 +303,16 @@ def verify_assembly(p, variant, parts):
             require(volume(shell & pocket) < EPS, "counterbore obstructed")
         shoulder = (p.stem_hole_diameter/2 + 10, 2*math.sin(radians), -2*math.cos(radians))
         require(shell.is_inside(shoulder), "support shoulder absent")
-        mount_checks = dict(shoulder_sample_present=True, counterbore_clear=True,
+        # Read the actual outer roof edge at the -Y side, excluding bottom vertices.
+        low_edge_vertices = [v.Z for v in shell.vertices()
+                             if abs(v.Y+p.tilted_length/2) < EPS and v.Z > p.floor_z+EPS]
+        require(bool(low_edge_vertices), "arcade low roof edge not found")
+        # The seam cable notch contributes lower vertices at the same Y edge.
+        # The uppermost edge vertices are the exterior roof, not that opening.
+        actual_low_roof = max(low_edge_vertices)
+        require(math.isclose(actual_low_roof, p.level_top_z, abs_tol=EPS), "actual arcade low edge disagrees with level roof")
+        mount_checks = dict(actual_low_roof_edge_z_mm=actual_low_roof,
+            shoulder_sample_present=True, counterbore_clear=True,
             axial_clearance_start="counterbore floor centre / seating-shoulder centre",
             axial_clearance_direction="negative tilted button axis",
             required_axis_clearance_mm=p.clearance_mm, available_axis_to_floor_mm=axis_available,

@@ -4,7 +4,7 @@
 
 | Variant | Current geometry | Remaining fit gates |
 | --- | --- | --- |
-| `arcade-inclined` | 5-degree roof, 100 mm counterbore, 17.5 mm axial recess, confirmed minimum 82.55 mm reserve along the tilted button axis | Actual button, nut, switch, harness, travel, and bend clearance |
+| `arcade-inclined` | 5-degree roof, 100 mm counterbore, 17.5 mm axial recess, confirmed minimum 63.5 mm reserve along the tilted button axis | Actual button, nut, switch, harness, travel, and bend clearance |
 | `rotor-level` | Level roof, proposed 34 mm across-flats by 5 mm deep hex recess, proposed 29 mm body passage | Rotor identity, actual hex dimensions, retention and wiring envelope |
 | `mushroom-level` | Level housing with an uncut roof | Wiring test, mounting dimensions, and harness envelope |
 
@@ -12,13 +12,13 @@ The former flat Adafruit A is retired from the active variants. It is not a roto
 
 ## Arcade clearance starts at the counterbore floor
 
-The operator confirmed 3.25 inches, or 82.55 mm, from the counterbore floor along the tilted button's centre axis. The counterbore-floor centre and seating-shoulder centre remain at `(0,0,0)`. Positive button-axis Z tilts toward -Y; the inward wiring direction therefore travels toward +Y and -Z. The low edge of the inclined roof need not provide the full centre clearance.
+The operator confirmed 2.5 inches, or 63.5 mm, from the counterbore floor along the tilted button's centre axis. The counterbore-floor centre and seating-shoulder centre remain at `(0,0,0)`. Positive button-axis Z tilts toward -Y; the inward wiring direction therefore travels toward +Y and -Z. The low edge of the inclined roof need not provide the full centre clearance.
 
-The centreline requirement projects to `82.55 × cos(5°) = 82.2359 mm` below the seating shoulder. The proposed interior floor is Z=-84 mm. This gives 84.3209 mm along the axis to the floor. The proposed 3 mm bottom extends below it to Z=-87 mm, preserving the full interior reserve.
+The centreline requirement projects to `63.5 × cos(5°) = 63.2584 mm` below the seating shoulder. The proposed interior floor is Z=-65 mm. This gives 65.2483 mm along the axis to the floor. The proposed 3 mm bottom extends below it to Z=-68 mm, preserving the full interior reserve.
 
-The generator separately checks an 82.55 mm long cylinder with a proposed 13.5 mm radius. This corridor passes through the complete shell and cover without interference. Its lowest off-axis point is `-82.55 × cos(5°) - 13.5 × sin(5°) = -83.4125 mm`, leaving about 0.5875 mm above the floor. The radius is a proposal, not a measured wire-bundle or connector size. No actual component occupancy or bend radius is verified by this empty-housing check.
+The generator separately checks a 63.5 mm long cylinder with a proposed 13.5 mm radius. This corridor passes through the complete shell and cover without interference. Its lowest off-axis point is `-63.5 × cos(5°) - 13.5 × sin(5°) = -64.4350 mm`, leaving about 0.5650 mm above the floor. The radius is a proposal, not a measured wire-bundle or connector size. No actual component occupancy or bend radius is verified by this empty-housing check.
 
-The ballast compartment moved to Y=36 mm to clear the extended tilted corridor. Both level concepts match the inclined box's highest exterior roof as a visual proposal. Their roof is approximately Z=23.0786 mm, giving an exterior height of approximately 110.0786 mm with the default bottom. Installed component heights remain unverified.
+The ballast compartment moved to Y=36 mm to clear the extended tilted corridor. Both level roofs align with the inclined box's low edge as a proposed interpretation of the operator's lowest-edge instruction. Confirmation of that roof interpretation is pending. All bottoms share Z=-68 mm. The level roofs are approximately Z=12.0551 mm, giving a level-box exterior height of approximately 80.0551 mm. The arcade's high edge remains Z=23.0786 mm, or 91.0786 mm above the ground plane. Its centre roof rises about 5.5118 mm above the level roofs. The button's seating-shoulder centre remains at Z=0. Installed component heights remain unverified.
 
 `depth` measures vertically from the seating shoulder to the interior floor. Changing `bottom_thickness` moves the exterior underside without consuming that interior space. The original 35.25 mm depth is retained in project history and has been superseded for the active arcade box.
 
@@ -28,7 +28,7 @@ The [Ultimarc SpinTrak drawing](https://www.ultimarc.com/trackballs-and-spinners
 
 The rotor concept uses a 29 mm body passage, comprising the published nominal 28 mm body size and a proposed 1 mm diameter allowance. The 34 mm across-flats and 5 mm deep hex recess are illustrative parameters. They are not dimensions verified from that drawing. The passage is for the body, not the knob shaft. A geometric check confirms that the proposed passage and hex pocket remain open and that the recess has a supporting shelf. Actual component fit and retention remain blocked.
 
-The rotor recess floor is 5 mm below its level roof. Its centre has approximately 102.0786 mm to the interior floor. This empty-housing space is not a verified attached-harness envelope.
+The rotor recess floor is 5 mm below its level roof. Its centre has approximately 72.0551 mm to the interior floor. This empty-housing space is not a verified attached-harness envelope.
 
 ## Construction and ballast remain proposals
 
