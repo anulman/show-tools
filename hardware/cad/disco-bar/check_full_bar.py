@@ -26,9 +26,9 @@ def main():
     extra = tuple(list(items) + [items[0]] for items in scene)
     extra[1][-1] = "Unapproved extra display geometry"
     integrated = model.integrated_module()
-    c_body = next(i for i, name in enumerate(scene[1]) if name.startswith("C |") and name.endswith(" / complete integrated bar"))
-    c_screw = next(i for i, name in enumerate(scene[1]) if name.startswith("C |") and name.endswith(" / -38 axial screw"))
-    review_pad = next(i for i, name in enumerate(scene[1]) if name.startswith("B′ REVIEW ONLY") and name.endswith(" / +1 captured pad"))
+    c_body = next(i for i, name in enumerate(scene[1]) if name.startswith("A |") and name.endswith(" / complete integrated bar"))
+    c_screw = next(i for i, name in enumerate(scene[1]) if name.startswith("A |") and name.endswith(" / -38 axial screw"))
+    review_pad = next(i for i, name in enumerate(scene[1]) if name.startswith("B REVIEW ONLY") and name.endswith(" / +1 captured pad"))
     protrusion = integrated.cyl(3.6, 12, (integrated.SPACING + 28, 40, -13), "y")
     _, reference = model.load_reference(args.step)
     circular_probe = model.full_variants(reference)[0]
