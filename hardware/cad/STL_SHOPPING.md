@@ -2,6 +2,8 @@
 
 This list accompanies the fabrication-only STL ZIP. The ZIP contains 15 print-part proposals, including Darren's original bar as an alternative, plus the captive pin, pull fork and long-reach spanner as three custom fabrication proposals. It excludes this guide, the validation manifest, foam/rubber reference shapes and the ordinary screwdriver clearance model. Sizes below describe the present CAD proposal; supplier listings do not prove installed fit.
 
+The operator now expects resin printing and plans heat-shrink cable protection. See the [fabrication review and exact material candidates](FABRICATION_REVIEW.md) for the resin-specific gaps, recommended buffer/grip/ballast products, and first-article checks. Heat shrink still needs a box-side mechanical anchor.
+
 ## Use an ordinary screwdriver where it fits
 
 The driver STL was a clearance model, not a requirement to manufacture a screwdriver. A long precision flat-blade screwdriver is the ordinary-tool candidate. [Wera 2035 Micro 05118007001](https://www.wera.de/en/05118007001) has a [manufacturer drawing](https://hybris-media.wera.de/download/pdfgenerator-datasheets/en/05118007001.pdf) specifying a 0.4 x 2.0 mm blade, 100 mm shaft, 2.5 mm shaft diameter, and 197 mm overall length. Its tip and shaft nominally fit the present 0.8 x 2.6 mm slot and 2.8 mm reference shaft envelope. That is a dimensional comparison, not complete tool/access validation.
