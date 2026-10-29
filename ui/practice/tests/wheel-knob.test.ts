@@ -9,8 +9,10 @@ async function fixture() {
   let wheel: ((event: object) => void) | undefined;
   class Element { constructor(readonly editing = false) {} closest() { return this.editing; } }
   const context = vm.createContext({ Element, Number, rotationSession: 'wheel-test', rotationSequence: 0,
-    running: true, song: { compiled: { rotation: {} } },
-    document: { activeElement: null },
+    running: true, modalOpen: false, song: { compiled: { rotation: {} } },
+    document: { activeElement: null, querySelector(selector: string) {
+      assert.equal(selector, 'dialog[open]'); return context.modalOpen ? {} : null;
+    } },
     audio: { control(control: { id: string; value: number }, options: { commandId: string }) {
       assert.equal(control.id, 'knob'); commands.push({ value: control.value, commandId: options.commandId });
     } },
@@ -52,4 +54,20 @@ test('wheel proxy preserves editing, zoom gestures, horizontal scroll and stoppe
   context.running = false; wheel(event);
   context.running = true; context.song = undefined; wheel(event);
   assert.deepEqual(commands, []);
+});
+
+
+test('an open voice dialog keeps vertical scrolling native and never manipulates the knob', async () => {
+  const { wheel, commands, Element, context } = await fixture();
+  let prevented = 0;
+  const event = { deltaY: 24, target: new Element(), preventDefault() { prevented++; } };
+  context.modalOpen = true;
+  wheel(event); wheel({ ...event, deltaY: -24 });
+  assert.equal(commands.length, 0, 'scrolling the modal or its background cannot reach audio controls');
+  assert.equal(prevented, 0, 'the modal retains native scroll behavior');
+  context.modalOpen = false;
+  wheel(event);
+  assert.equal(commands.length, 1, 'the knob proxy resumes after closing the dialog');
+  assert.equal(commands[0].value, 24);
+  assert.equal(prevented, 1);
 });

@@ -150,6 +150,12 @@ Use each voice footer to edit an ordered stack while stopped. Native applied rea
 
 Check Space on a focused effect disclosure or button before checking the body-level transport shortcut. Escape must still Panic while editing. Capture desktop and 390px screenshots from the integrated app, including expanded two-stage backup settings. Keep pad targets stable during count-in and recording. The layout comparison and verification contract are in [the desk rehab guide](implementation/practice-desk-rehab.md).
 
+### Voice catalog/editor work
+
+`lib/voice-catalog/` owns the SQLite domain and source bindings; `ui/practice/catalog-worker.ts` owns durable IndexedDB snapshots; `catalog-client.ts` owns asynchronous worker requests. `voice-catalog.ts` connects saved authoring data to the existing stopped native preparation boundary. `voice-library.ts` owns the shared inspector and compact ensemble presentation. Coordinate changes to `app.ts`, `voice-effects.ts`, and build packaging with PE. Video owns the shared character registry; don't seed voice assignments or rename canonical IDs to artwork variants.
+
+`npm test` includes real SQL.js WASM transactions, source discovery, and reconciliation checks. `npm run build:ui` copies the matching SQL WASM, preview avatars, library CSS, and catalog worker into the offline cache; its audio dependency check still rejects package runtimes in the worklet. Browser verification must also exercise durable reopen, concurrent tabs, failed IndexedDB writes, JSON/SQLite backups, character save/reload, unmapped voices, and stopped native readback without microphone startup. The three [design studies](../ui/practice/studies/voice-editor/README.md) document the final combination. Keep their synthetic state out of runtime defaults.
+
 ## Review physical CAD in the tabbed desk
 
 The independent [CAD desk](../ui/cad/README.md) lives under `ui/cad/`; its local publisher service lives under `hardware/cad/`. Keep OCP Viewer on port 3939 running, then use `hardware/cad/cad desk --disco-step '/absolute/path/to/Disco Ball.step'` and open <http://127.0.0.1:3940/>. This tool uses the isolated CAD environment and does not start audio, Sheets, Chrome CDP, USB listeners, or printer jobs.

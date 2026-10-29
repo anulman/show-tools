@@ -5,7 +5,7 @@ import type { CompiledSong } from '../../lib/performance/compiled-song.js';
 import { fetchSongSource, parseSongSource, canonicalSourceJson } from '../../lib/performance/song-source.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 
-type PanelOptions = { isBusy: () => boolean; onLoad: (song: CompiledSong) => Promise<void> };
+type PanelOptions = { isBusy: () => boolean; onLoad: (song: CompiledSong, source?: SongSource) => Promise<void> };
 type Work = 'idle' | 'fetching' | 'reading' | 'compiling' | 'loading';
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
@@ -54,11 +54,13 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
   mapping.style.boxSizing = 'border-box';
   const compile = button('Compile & inspect');
   const load = button('Load staged song');
-  const downloadSong = button('Download song JSON');
+  const downloadSong = button('Download timing JSON');
   const downloadSource = button('Download source JSON');
   const actions = element('div');
   actions.className = 'effects-controls';
   actions.append(compile, load, downloadSong, downloadSource);
+  const libraryNote = element('p'); libraryNote.className = 'effects-note';
+  libraryNote.textContent = 'Song exports contain timing instructions. Export the voice library separately to keep effects and characters.';
   const status = element('p');
   status.className = 'effects-note';
   status.setAttribute('role', 'status');
@@ -71,7 +73,7 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
   report.style.whiteSpace = 'pre-wrap';
   report.style.overflowWrap = 'anywhere';
   details.append(introduction, label('PUBLIC WORKSHEET URL', url), refresh, files,
-    label('EXPLICIT CHART MAPPING JSON', mapping), actions, status, sourceStatus, report);
+    label('EXPLICIT CHART MAPPING JSON', mapping), actions, libraryNote, status, sourceStatus, report);
   root.replaceChildren(details);
 
   let source: SongSource | null = parseSongSource(defaultSource);
@@ -213,7 +215,7 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     void (async () => {
       try {
         if (options.isBusy()) throw new Error('Practice became busy. The staged song was not loaded.');
-        await options.onLoad(song);
+        await options.onLoad(song, source ?? undefined);
         if (current(value)) status.textContent = `Loaded ${song.title}. Start practice when ready.`;
       } catch (error) { failed(error, value); }
       finally { finish(value); }

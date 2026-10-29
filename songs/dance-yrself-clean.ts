@@ -1,5 +1,6 @@
 import source from './dance-yrself-clean.source.json';
 import mapping from './dance-yrself-clean.mapping.json';
+import { parseSongSource } from '../lib/performance/song-source.js';
 import { compileSong } from '../lib/performance/compiled-song.js';
 import type { SongScript } from '../lib/performance/model.js';
 
@@ -10,6 +11,7 @@ export default {
   chart: compiled.chart,
   program: { lengthBeats: compiled.chart.beatsPerBar, events: [] },
   compiled,
+  source: parseSongSource(source),
   practice: { startBar: mapping.startBar, endBar: mapping.endBar },
   description: compiled.executable
     ? 'Chart-compiled A section. Native capture, layers, variants, and effects.'
