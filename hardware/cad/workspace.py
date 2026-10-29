@@ -60,6 +60,7 @@ def main():
     from ocp_viewer import Camera, show
     show(*objects, names=names, colors=colors, alphas=alphas,
          port=args.port, reset_camera=Camera.ISO if reset else Camera.KEEP,
+         zoom=1 if reset else None,
          axes=True, grid=(True, False, False))
     sources = [Path(module.__file__), Path(__file__)]
     if args.workspace == "disco-bar":
