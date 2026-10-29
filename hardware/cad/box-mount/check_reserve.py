@@ -17,10 +17,10 @@ for thickness in (3.0, 5.0):
     for label in ("arcade-inclined", "rotor-level", "mushroom-level"):
         shell, cover, *_ = module.build(parameters, label)
         checks = (
-            ("interior floor", cover.bounding_box().max.Z, -84.0),
-            ("shell split", shell.bounding_box().min.Z, -84.0),
-            ("external underside", cover.bounding_box().min.Z, -84.0-thickness),
+            ("interior floor", cover.bounding_box().max.Z, -65.0),
+            ("shell split", shell.bounding_box().min.Z, -65.0),
+            ("external underside", cover.bounding_box().min.Z, -65.0-thickness),
         )
         for datum, actual, expected in checks:
             assert math.isclose(actual, expected, abs_tol=1e-6), f"{label} {thickness}mm cover {datum}: {actual} != {expected}"
-print("All three variants preserve 84 mm interior depth with both 3 mm and 5 mm covers")
+print("All three variants preserve 65 mm interior depth with both 3 mm and 5 mm covers")
