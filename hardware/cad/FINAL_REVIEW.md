@@ -74,3 +74,5 @@ The command requires a new output directory. The output directory includes 14 pr
 Darren's original is one CAD solid with a sealed internal cavity and two boundary shells. The export preserves both shells. Its internal roof needs slicer review; the packager does not fill the cavity or change the design. Geometry validation does not establish physical fit or manufacturing approval.
 
 See the separate [prototype shopping and bench-tool guide](STL_SHOPPING.md) for supplier links, fastener quantities, ordinary screwdriver candidates, and the remaining custom fork/spanner access requirements.
+
+Before ordering a full set, use the [fabrication review](FABRICATION_REVIEW.md). It records the unresolved standard hardware, real component fits, resin cavity/tolerance issues, cable anchorage, and physical load tests, together with exact prototype material products.
