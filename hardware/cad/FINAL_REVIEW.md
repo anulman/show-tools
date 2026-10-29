@@ -8,11 +8,13 @@ After staging the existing pair below, select the independently reviewed compari
 ~/.local/share/show-tools/cad/venv/bin/python hardware/cad/comparison_review.py \
   --collar /absolute/path/to/review-candidates/4903640/C2/receipt.json \
   --rotor /absolute/path/to/resin-c2-integration-v2/receipt.json \
-  --arcade /absolute/path/to/resin-v4-thicker-ear-v1/arcade/receipt.json
+  --arcade /absolute/path/to/arcade-dual-exit-v4/receipt.json
 ~/.local/share/show-tools/cad/venv/bin/python hardware/cad/check_comparison_review.py
 ```
 
 The selection pins exact reviewed receipt hashes, verifies displayed STEP/STL pairs, rechecks the base inputs and generating sources, and verifies the collar's immutable source revision. The flat PTFE cutting pattern is excluded from the assembled scene. Existing page switches load both generations without restarting services. Removing the ignored `build/comparison-review/current.json` restores the older-only scene. This selection permits visual review, not fabrication release or verified spinner fit.
+
+The current teal arcade proposal includes both low/front and raised high/back cable exits. Its rear outlet passes above the intact ballast, with an integral cable-tie bridge. The beige older arcade remains a single-exit comparison. See [the dual-exit checks and limits](box-mount/access/ARCADE_DUAL_EXIT.md).
 
 The Disco bar page shows only the unchanged original and the complete C proposal. A and B remain historical source studies and are absent from this focused review. The Box mount page replaces the old rotor shell and bottom with C's matching fixed base. The arcade and mushroom models keep their existing positions and roof/ground alignment.
 

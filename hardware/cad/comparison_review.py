@@ -12,12 +12,12 @@ import final_review
 
 HERE = Path(__file__).resolve().parent
 CURRENT = HERE / 'build' / 'comparison-review' / 'current.json'
-# These exact frozen receipts passed the independent review recorded in PR 50.
+# These exact frozen receipts are selected by the independent prototype reviews.
 # Their pending physical-fit flags remain false; this permits human review only.
 PINS = {
     'collar': '83886c072ce113015196fd621a74c663830b305d3989904e0873e9158d08251d',
     'rotor': '0b482042d1f6fc1c64524180bd2d0d7e157311ac33ce2cb72bec7d6ed86ee865',
-    'arcade': '2b71c7527e3abe6327e5f860b8197026712bdc041cc1054004a7e418594c9fe7',
+    'arcade': 'fa2a4758e78568e396055f652add4088708fa2a2cea6d8da5aa298ae878745bb',
 }
 
 
@@ -112,7 +112,8 @@ class Comparison:
                 if variant not in ('all', label): continue
                 for name, role, shape in self.parts[kind]:
                     bottom = name == 'bottom'
-                    self.append(result, shape, f'NEW {label}, FIT PENDING / {name}',
+                    note = ', DUAL EXITS' if kind == 'arcade' else ''
+                    self.append(result, shape, f'NEW {label}{note}, FIT PENDING / {name}',
                                 '#48acaa' if name == 'shell' else '#e6a238' if name == 'buffer' else '#80c8bd',
                                 .65 if name == 'shell' else 1., (x, 0, z-(explode if bottom else 0)))
                 if kind == 'arcade':
