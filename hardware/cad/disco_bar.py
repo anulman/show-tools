@@ -55,6 +55,20 @@ def full_variants(reference):
     return integrated_module().full_variants(reference)
 
 
+def latch_review_module():
+    return importlib.import_module("disco-bar.latches")
+
+
+def preview_variants(reference):
+    variants = full_variants(reference)
+    latches = latch_review_module()
+    toggle = latches.toggle(reference)
+    toggle.name = "A′ REVIEW ONLY - release collision; flush access unresolved"
+    bayonet = latches.bayonet(reference)
+    bayonet.name = "B′ REVIEW ONLY - holding and flush access unverified"
+    return variants + [toggle, bayonet]
+
+
 def verify_integrated(reference, output):
     report = integrated_module().verify_integrated(reference, output)
     report["entrypoint_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
@@ -76,7 +90,7 @@ def verify_preview_scene(path, scene):
     model = integrated_module()
     model.assert_empty(reference - objects[0], "Original preview lost source material")
     model.assert_empty(objects[0] - reference, "Original preview gained or displaced material")
-    variants = full_variants(reference)
+    variants = preview_variants(reference)
     if len(objects) != 1 + sum(len(variant.pieces) for variant in variants):
         raise ValueError("Preview must contain only the original and selected complete assemblies")
     for index, variant in enumerate(variants, start=1):
@@ -92,11 +106,17 @@ def verify_preview_scene(path, scene):
             actual = [shape for shape, name in matches if name == prefix + piece.name]
             if len(actual) != 1:
                 raise ValueError(f"Missing or duplicate preview piece: {prefix}{piece.name}")
+            if variant.mechanism != "screw" and piece.role == "pad":
+                model.assert_empty(piece.shape - actual[0], "Locked review pad changed")
+                model.assert_empty(actual[0] - piece.shape, "Locked review pad changed")
             piece.shape = actual[0]
         model.preserved_geometry(reference, variant)
         model.check_assembly(variant, 0.)
     return {"complete_original_unchanged": True, "original_pose_preserved": True,
-            "complete_variants": list(model.DEFAULT_VARIANTS), "source_pocket_entry_depth_preserved": True}
+            "complete_variants": list(model.DEFAULT_VARIANTS),
+            "review_only_locked_latches": ["A′: release collision", "B′: holding unverified"],
+            "source_pocket_entry_depth_preserved": True,
+            "installed_latch_access_verified": False}
 
 
 def box(x, y, z, center):
@@ -110,7 +130,7 @@ def preview(step_path: Path | None = None):
     model = integrated_module()
     objects, names, colors, alphas = [reference], [ORIGINAL_LABEL], ["#9ea8b4"], [1.]
     palette = {"body": "#2880b8", "print": "#187ac9", "pad": "#efa028", "hardware": "#a0abb8"}
-    for index, variant in enumerate(full_variants(reference), start=1):
+    for index, variant in enumerate(preview_variants(reference), start=1):
         model.preserved_geometry(reference, variant)
         for piece in variant.pieces:
             objects.append(piece.shape.translate((index * model.SPACING, 0, 0)))
@@ -156,6 +176,7 @@ def inspect(step_path: Path | None, stl_path: Path | None, obj_path: Path | None
         "step_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         "integrated_source_sha256": hashlib.sha256(Path(integrated_module().__file__).read_bytes()).hexdigest(),
+        "latch_review_source_sha256": hashlib.sha256(Path(latch_review_module().__file__).read_bytes()).hexdigest(),
         "cad_valid": shape.is_valid, "solids": len(shape.solids()),
         "faces": len(shape.faces()), "volume_mm3": shape.volume,
         "bounds_mm": [[bounds.min.X, bounds.min.Y, bounds.min.Z],

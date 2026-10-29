@@ -28,6 +28,8 @@ class Variant:
     pieces: list[Piece]
     edit_mask: object
     tools: list
+    mechanism: str = "screw"
+    reference: object | None = None
 
 
 def box(x, y, z, center):
@@ -210,6 +212,10 @@ def assert_empty(shape, label, tolerance=1e-5):
 
 
 def moved_pieces(variant, travel):
+    if variant.mechanism != "screw":
+        if travel != 0 or getattr(variant, "state", None) != "locked":
+            raise ValueError("Latch studies support static locked-state review only")
+        return list(variant.pieces)
     moved = []
     for piece in variant.pieces:
         shift = (0, 0, 0)
@@ -231,8 +237,16 @@ def moved_pieces(variant, travel):
 
 def preserved_geometry(reference, variant):
     body = variant.pieces[0].shape
-    assert_empty((reference - body) - variant.edit_mask, "Protected source material removed")
-    assert_empty((body - reference) - variant.edit_mask, "Addition outside bounded edit region")
+    if variant.mechanism == "screw":
+        assert_empty((reference - body) - variant.edit_mask, "Protected source material removed")
+        assert_empty((body - reference) - variant.edit_mask, "Addition outside bounded edit region")
+    else:
+        # Equivalent protected-region comparison avoids an OCCT null-result
+        # failure when subtracting the complete complex bayonet body.
+        protected_source = reference - variant.edit_mask
+        protected_body = body - variant.edit_mask
+        assert_empty(protected_source - protected_body, "Protected source material removed")
+        assert_empty(protected_body - protected_source, "Addition outside bounded edit region")
     # Protect the exact blind floor and the complete far-end attachment region.
     far = box(120, 120, 80, (0, 0, -70))  # z<-30.
     stop = cyl(R + .5, 1, (0, 0, -25.9))
@@ -268,7 +282,7 @@ def check_assembly(variant, travel):
         else:
             assert_empty(piece.shape - envelope, f"Insertion envelope exceeded: {piece.name} at {travel}")
         overlap = volume(piece.shape & void)
-        if piece.role == "pad" and travel != 0:
+        if piece.role == "pad" and (travel != 0 or variant.mechanism != "screw"):
             compression += overlap
         elif overlap > 1e-5:
             raise ValueError(f"Original released insertion path blocked: {piece.name}: {overlap}")

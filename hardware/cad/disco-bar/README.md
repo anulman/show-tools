@@ -1,6 +1,6 @@
 # Full-height disco bar clamp comparison
 
-The Disco bar page currently shows only the complete unchanged original, C, and D. A and B are omitted and are not constructed by the page. The operator confirmed that only axial access is available, so D is retained as a historical comparison rather than a suitable access solution. New axial latch studies are in progress.
+The Disco bar page shows the complete unchanged original, C, D, and static locked-state A′ and B′ latch studies. A and B are omitted and are not constructed by the page. Only axial access is available, so D is a historical comparison. A′ is visibly labelled with its release collision; both latch studies have unresolved access at the roughly flush box interface. See [the latch review status](latch-review.md). Their display is not operating or manufacturing approval.
 
 All four source-derived screw studies remain in the generator for explicit headless selection. Every variant retains the original long hollow body, top-attachment end, measured insertion width, and known-snug released socket. Only display copies move sideways. The original remains opaque and in its source pose. Variant bodies are translucent so their internal clamps remain visible.
 
@@ -21,6 +21,8 @@ hardware/cad/cad disco-check --step "$SHOW_TOOLS_DISCO_STEP" \
 ```
 
 The command exports six selected proposed print pieces as STEP and STL into `c` and `d` directories. It writes `receipt.json` with both model-source hashes and the reference asset hash. Pads, hardware, and the unchanged original are not exported. Full-bar derivatives remain local in the ignored build directory. STL coordinates must be interpreted as millimetres.
+
+The A′ and B′ review studies are excluded from this export set. Their source is in `latches.py`, and the publisher records its hash separately. Only their current locked poses are displayed; no operating animation or release is verified.
 
 The active generators and checks are in [full_height.py](full_height.py). The entrypoint remains `../disco_bar.py`. The old short carriers and Ø40 mm illustrative knob are retired; their source remains in Git history.
 
