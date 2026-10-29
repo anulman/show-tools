@@ -4,7 +4,7 @@ Print this small joint before the full buffer spacer. The six button-head coupon
 
 The full joint now drops the outer ear 1.8 mm over a 3 mm projected run, retaining the previous bend angle. Its developed ramp is 3.498571137 mm long. The counterseat leaves 0.69 mm material at the pilot edge, and all minimum/maximum head/angle seating cases require at least 0.5 mm. The earlier 0.09 mm-web exports remain historical and must not be treated as the final joint.
 
-The generator reads the full candidate's hashed STEP/STL exports and checks the producing source hashes. It clips the actual roof, spacer and PTFE with a 20 × 20 mm radial/tangential block around the 45-degree R53 joint. The block includes the complete 10 mm roof and the full spacer/material stack, excluding unrelated lower enclosure geometry. Every clipped and exported piece is compared in both Boolean directions with the exact source material.
+The generator reads the full candidate's hashed STEP/STL exports and requires exactly all seven producing source files. It snapshots and hashes receipt bytes before parsing, then rechecks that receipt, every producer, the trial generator and loaded artifacts throughout preparation, verification and export. A change invalidates the output receipt; the checker exercises omitted sources, receipt rewrites during build/export and a changed final assembly. It clips the actual roof, spacer and PTFE with a 20 × 20 mm radial/tangential block around the 45-degree R53 joint. The block includes the complete 10 mm roof and the full spacer/material stack, excluding unrelated lower enclosure geometry. Every clipped and exported piece is compared in both Boolean directions with the exact source material.
 
 There are exactly two resin print files under `print/`:
 

@@ -1,6 +1,8 @@
 """Export one actual buffer-ear joint as two small prints and PTFE references."""
 from __future__ import annotations
 import argparse
+from dataclasses import dataclass
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -23,26 +25,71 @@ def equal(first,second,message):
     return dict(removed_material_mm3=removed,added_material_mm3=added)
 
 
+SOURCE_PATHS = {
+    'resin_base.py': Path(base.__file__).resolve(),
+    'resin_retention.py': Path(r.__file__).resolve(),
+    'below_plane_buffer.py': Path(b.__file__).resolve(),
+    'final_base.py': Path(base.legacy.__file__).resolve(),
+    'integrate_receipt.py': Path(audit.__file__).resolve(),
+    'access_study.py': Path(cad.__file__).resolve(),
+    'box_mount.py': Path(cad.box_cad.__file__).resolve(),
+}
+
+
+@dataclass(frozen=True)
+class ReceiptSnapshot:
+    path: Path
+    raw: bytes
+    sha256: str
+
+    @classmethod
+    def capture(cls,path):
+        path=Path(path).resolve()
+        raw=path.read_bytes()
+        return cls(path,raw,hashlib.sha256(raw).hexdigest())
+
+    def parse(self):
+        return json.loads(self.raw)
+
+    def unchanged(self):
+        audit.require(audit.digest(self.path)==self.sha256,'Base source receipt changed')
+
+
 def source_files_match(producer):
-    root=Path(__file__).resolve().parents[2]
-    result={}
-    for name,sha in producer['source_code_sha256'].items():
-        matches=list(root.rglob(name))
-        audit.require(len(matches)==1,'Ambiguous producer source '+name)
-        audit.require(audit.digest(matches[0])==sha,'Changed producer source '+name)
-        result[name]=sha
-    return result
+    sources=producer.get('source_code_sha256')
+    audit.require(isinstance(sources,dict) and set(sources)==set(SOURCE_PATHS),
+                  'Producer source inventory differs: require exactly the seven loaded source files')
+    for name,path in SOURCE_PATHS.items():
+        audit.require(audit.digest(path)==sources[name],'Changed producer source '+name)
+    return dict(sources)
+
+
+def inputs_unchanged(trial):
+    snapshot=trial['receipt_snapshot']
+    snapshot.unchanged()
+    producer=snapshot.parse()
+    audit.require(trial['producer']==producer,'Parsed producer differs from captured receipt bytes')
+    audit.require(source_files_match(producer)==trial['sources'],'Producer source hashes changed')
+    audit.require(audit.digest(Path(__file__))==trial['generator_sha256'],'Ear trial generator source changed')
+    trial['artifacts'].unchanged()
+    snapshot.unchanged()
 
 
 def make_trial(receipt):
-    producer=json.loads(receipt.read_text())
+    generator_sha256=audit.digest(Path(__file__))
+    snapshot=ReceiptSnapshot.capture(receipt)
+    producer=snapshot.parse()
     audit.require(producer['independent_base_geometry_checks_pass'] is True,'Failed independent base source')
     audit.require(producer['concept'].endswith('-knob'),'Expected knob base source')
     audit.require(producer['checks']['buffer']['material_id_mm']==88,'Expected below-plane ID88 buffer')
     sources=source_files_match(producer)
+    artifacts=audit.Artifacts()
+    trial=dict(producer=producer,receipt_snapshot=snapshot,sources=sources,
+               generator_sha256=generator_sha256,artifacts=artifacts)
+    inputs_unchanged(trial)
     gap=producer['proposed_stack_parameters']['spacer_height']+producer['proposed_stack_parameters']['buffer_thickness']
     candidate=base.build('knob',gap)
-    artifacts=audit.Artifacts()
+    inputs_unchanged(trial)
     records={record['name']:record for record in producer['review_components']}
     actual={name:artifacts.load(records[name]) for name in ('shell','spacer','buffer')}
     for name,part in actual.items():
@@ -55,12 +102,13 @@ def make_trial(receipt):
     parts=dict(roof=actual['shell']&clip,spacer=actual['spacer']&clip,
                formed_PTFE=actual['buffer']&clip,flat_PTFE=flat&clip)
     joint=candidate['kit']['pairs'][0]
-    return dict(producer=producer,producer_path=receipt,producer_sha256=audit.digest(receipt),
-                sources=sources,actual=actual,actual_flat=flat,artifacts=artifacts,
-                gap=gap,clip=clip,parts=parts,joint=joint)
+    trial.update(actual=actual,actual_flat=flat,gap=gap,clip=clip,parts=parts,joint=joint)
+    inputs_unchanged(trial)
+    return trial
 
 
 def verify(trial):
+    inputs_unchanged(trial)
     parts=trial['parts'];joint=trial['joint']
     identities={}
     for name,part in parts.items():
@@ -98,6 +146,7 @@ def verify(trial):
                   'Actual source does not preserve the reported lower PTFE web')
     audit.require(not parts['formed_PTFE'].is_inside((px,py,ear_bottom+min(.95,web+.2))),
                   'Actual source counterseat differs from reported cone')
+    inputs_unchanged(trial)
     return dict(source_material_identity=identities,full_source_joint_stack_preserved=True,
                 PTFE_pilot_diameter_mm=r.H.clearance,
                 PTFE_cone_entry_diameter_at_flat_ear_mm=2*entry_radius,
@@ -123,6 +172,7 @@ def restore_source(part,minimum):
 def export(trial,output):
     output.mkdir(parents=True,exist_ok=True)
     target=output/'receipt.json';target.unlink(missing_ok=True)
+    inputs_unchanged(trial)
     checks=verify(trial)
     records=[];exported=audit.Artifacts()
     for name,part in trial['parts'].items():
@@ -145,20 +195,22 @@ def export(trial,output):
     assembly=Compound(children=common)
     assembly_path=output/'actual-ear-joint-assembly.step'
     audit.require(export_step(assembly,assembly_path),'Ear assembly export failed')
+    assembly_sha256=audit.digest(assembly_path)
+    exported.files[str(assembly_path)]=assembly_sha256
     restored=import_step(assembly_path)
     audit.require(restored.is_valid and len(restored.solids())==5,'Ear assembly solids changed')
     equal(assembly,restored,'Ear assembly STEP changed material')
-    trial['artifacts'].unchanged();exported.unchanged()
-    audit.require(audit.digest(trial['producer_path'])==trial['producer_sha256'],'Base source receipt changed')
+    exported.unchanged();inputs_unchanged(trial)
+    snapshot=trial['receipt_snapshot']
     report=dict(scope='ACTUAL_ONE_EAR_PRINTER_TRIAL_NOT_FULL_BASE_APPROVAL',units='mm',
                 trial_geometry_checks_pass=True,print_readiness='PRINTER_FIT_TRIAL',
-                producer_receipt=str(trial['producer_path'].resolve()),producer_receipt_sha256=trial['producer_sha256'],
+                producer_receipt=str(snapshot.path),producer_receipt_sha256=snapshot.sha256,
                 producer_source_code_sha256=trial['sources'],
-                source_code_sha256={Path(__file__).name:audit.digest(Path(__file__))},
+                source_code_sha256={Path(__file__).name:trial['generator_sha256']},
                 source_joint_name=trial['joint'].name,source_clip=dict(radial_centre_mm=RADIAL_CENTRE,
                     radial_tangential_width_mm=[20,20],angle_degrees=ANGLE,z_mm=[-10.1,trial['gap']+.1]),
                 review_components=records,print_part_names=['roof','spacer'],material_reference_names=['formed_PTFE','flat_PTFE'],
-                checks=checks,assembly_step=str(assembly_path.resolve()),assembly_step_sha256=audit.digest(assembly_path),
+                checks=checks,assembly_step=str(assembly_path.resolve()),assembly_step_sha256=assembly_sha256,
                 instructions=['Print only the two files in print/. Each is centered and rests at Z0.',
                               'Use the same resin, orientation, wash and cure as the intended base.',
                               'Cut/form purchased 1 mm PTFE to the material reference; these are not print parts.',
@@ -168,6 +220,11 @@ def export(trial,output):
                               'The supplier head diameter/angle tolerance seats at different depths; do not force a flush appearance.',
                               'This trial does not prove load capacity, creep life or full-ball fit.'])
     target.write_text(json.dumps(report,indent=2)+'\n')
+    try:
+        inputs_unchanged(trial);exported.unchanged()
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
     print(target)
 
 
