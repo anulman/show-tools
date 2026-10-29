@@ -11,7 +11,7 @@ import trimesh
 from build123d import Axis, Box, Cone, Cylinder, Plane, Polygon, RegularPolygon, export_step, export_stl, extrude, import_step
 
 R = 22.177375  # Original cylindrical pocket, not a measured knob OD.
-OUTER = 47.230665
+OUTER = 47.2306651
 SPACING = 130.0
 
 
@@ -250,12 +250,15 @@ def check_assembly(variant, travel):
     # All modifications and hardware live above z=-30 where the source outer
     # wall is cylindrical. The original lower toroidal/end geometry is unchanged.
     envelope = cyl(OUTER, 30, (0, 0, -15))
+    full_envelope = cyl(OUTER, 109.22, (0, 0, -54.61))
     void = pocket()
     max_overlap, compression = 0., 0.
     for index, piece in enumerate(pieces):
         if not piece.shape.is_valid or len(piece.shape.solids()) != 1 or piece.shape.volume <= 0:
             raise ValueError(f"Invalid actual assembly piece: {piece.name}")
-        if piece.role != "body":
+        if piece.role == "body":
+            assert_empty(piece.shape - full_envelope, f"Full body exceeds circular insertion envelope at {travel}")
+        else:
             assert_empty(piece.shape - envelope, f"Insertion envelope exceeded: {piece.name} at {travel}")
         overlap = volume(piece.shape & void)
         if piece.role == "pad" and travel != 0:

@@ -25,7 +25,10 @@ def main():
     crop = original & model.box(110, 110, 28, (0, 0, -14))
     extra = tuple(list(items) + [items[0]] for items in scene)
     extra[1][-1] = "Unapproved extra display geometry"
+    integrated = model.integrated_module()
+    protrusion = integrated.cyl(3.6, 12, (integrated.SPACING + 28, 40, -13), "y")
     cases = {
+        "same-bounds body protrusion through driver-port mask": replace(1, scene[0][1] + protrusion),
         "unapproved extra display geometry": extra,
         "historical 28 mm original crop": replace(0, crop),
         "historical original displacement": replace(0, original.translate((0, 0, -35))),
