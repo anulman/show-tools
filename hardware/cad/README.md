@@ -4,6 +4,10 @@ Open <http://127.0.0.1:3939/> to inspect the current model. The OCP Viewer runs 
 
 The supplied blue mounting wedge, transparent wood, and gold placeholder are a synthetic workflow demonstration. None of their dimensions describe the installed arcade hardware. Only the blue mount is exported for printing. Real mounts require measured component interfaces, wood thickness, fasteners, cable clearances, and a fit test.
 
+## Continue a CAD workstream
+
+Use the [box mount and disco bar workspaces](WORKSPACES.md) for the active enclosure work. Each has a long-lived session, separate source files, and headless checks. The coordinator selects their preview in this same viewer.
+
 ## Start or resume
 
 Run these commands from the repository root. Start the viewer in one terminal and leave that terminal running.
@@ -51,7 +55,7 @@ The [four-base comparison](BASE-CONCEPTS.md) adds separate rounded-square, flare
 5. For an ambiguous feature, orbit to a second view. State whether the mark concerns the printed mount, wood, or reference component.
 6. Send or paste the Scrawl into the CAD collaboration session. Do not rely on automatic routing to an unspecified active session.
 
-Scrawl's contact sheet, frames, and transcript identify the requested changes. The agent must inspect those images before editing. Scrawl is installed on this Mac; its CLI was checked without recording the screen or microphone. The first real feedback capture still needs to come from you.
+Scrawl's contact sheet, frames, and transcript identify the requested changes. The agent must inspect those images before editing. Scrawl is installed on this Mac; its CLI was checked without recording the screen or microphone. Operator Scrawls on October 28 confirmed capture and delivery during the base-concept iterations.
 
 ## Export and verify without a viewer
 
