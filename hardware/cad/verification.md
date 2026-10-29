@@ -35,3 +35,10 @@ The upstream MIT license is included beside the STEP. `source.json` records its 
 ```sh
 git diff --check 6178145 HEAD -- . ":(exclude)hardware/cad/components/adafruit-1185/button.step"
 ```
+
+
+## Four base concepts
+
+The operator Scrawl contact sheet and full frames 1, 3, 4, and 6 were inspected before modelling. The operator clarified that the depth proportion means the stem below the body times 1.5. `cad bases --depth 35.25 --tilt 5` produced four valid single-solid bases. All four STEP round trips and STL watertightness, winding, and volume checks passed. A preliminary 60 mm depth also passed. Model dimensions remain conceptual.
+
+The final 35.25 mm comparison was published to the existing viewer with `--show --reset-camera`, and the publish command returned successfully. Native browser inspection failed with `Sky Computer Use native pipe startup failed`, including after a tool-session reset. On-screen delivery of this revision therefore awaits operator confirmation. The viewer process was not restarted. No hardware IO or printing occurred.
