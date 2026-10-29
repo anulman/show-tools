@@ -60,3 +60,7 @@ The retention command exports R1/R2/R3 and `simplest-final-private/`. Tape shape
 The receipt records source and file hashes, solid validity, two-way STEP material equality, STL integrity, component separation, bearing material, stock-hex and keeper blocking, bottom withdrawal, and table-access limits. R3's conservative full-circle swing envelope contains each clip and remains clear; sampled release poses are also checked. A failed rebuild removes stale success receipts before construction. Independent single-solid export handles avoid the CAD exporter's assembly-child failure.
 
 Actual C1/C2/C3 mesh clearance, source contact support, installed reachability and reaction, hardware fit, tape adhesion, buffer capture, loads, wear, stability, encoder support, and printer preparation remain unverified. Print readiness remains `NOT_READY`.
+
+## Final-C review candidate
+
+[The final fixed-base candidate](FINAL_BASE.md) supersedes the original C1 tool-access proposal for final-C review. It checks complete whole-tool entry, not just working probes. Its proposed 140 mm service lift and cable outlet 25 degrees from the front require physical workflow review. The generator consumes immutable final-C exports and writes six private review components without requiring the private source STEP for a base-only preview.
