@@ -17,7 +17,7 @@ Publish the box-mount concept:
 hardware/cad/cad view box-mount
 ```
 
-Publish the disco-bar clamp comparison with Darren's local STEP as context:
+Publish the complete original disco bar from Darren's local STEP:
 
 ```sh
 hardware/cad/cad view disco-bar --step '/absolute/path/to/Disco Ball.step'
@@ -43,11 +43,11 @@ All three retain proposed removable screw-fastened bottoms, wiring passages, and
 
 ## Continue the disco bar
 
-Inspect the [disco-bar notes](disco-bar/README.md) before designing a coupling. The supplied STEP describes cylindrical attachment geometry, not an identified spherical shell. Its purpose requires confirmation. The STL and OBJ use coordinate magnitudes that differ from the STEP, so raw mesh coordinates must not be treated as millimetres. Use the STEP for the initial preview and preserve source units.
+Inspect the [disco-bar notes](disco-bar/README.md) before designing a coupling. The supplied STEP describes the full bar inside the disco ball, rather than the spherical shell. Its full height reaches the top attachment. The STL and OBJ use coordinate magnitudes that differ from the STEP, so raw mesh coordinates must not be treated as millimetres. Use the STEP for the preview and preserve source units.
 
-The active comparison replaces the magnet proposal with screw clamps and replaceable pad envelopes. All concepts appear side by side on the **Disco bar** tab. The knob envelope and new fastener dimensions are illustrative. The original alcohol channels are open edge scallops, so the new designs need reinforced bosses to carry screws. The source scallops do not establish bolt or thread fit.
+The operator confirmed that the full bar height reaches its top attachment and the width was precisely measured to fit the disco-ball opening. The **Disco bar** tab shows that complete original bar in its original pose. Preserve its full insertion profile and attachment geometry. The previous three short clamp studies omitted this functional height, and B and C exceeded the source outer profile. They are historical headless studies only, not replacement bars. Future screw-clamp variants must fit within the confirmed constraints and preserve a continuous connection to the top attachment.
 
-Knob dimensions, ball mass, shell material, assembly access, and load support are required before a fitted coupling. Separate the job of transmitting torque from carrying the ball's weight and side loads. The operator's hot-glued bar is a design candidate, not a verified load-bearing assembly.
+Knob dimensions, ball mass, shell material, assembly access, and load support are required before a fitted coupling. Separate the job of transmitting torque from carrying the ball's weight and side loads. The operator's hot-glued bar is a design candidate, not a verified load-bearing assembly. Run `disco-bar/check_full_bar.py --step PATH` with the CAD Python environment to verify the restored preview and reject the historical crop and display offset.
 
 ## Validate before manufacturing
 

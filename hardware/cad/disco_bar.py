@@ -1,4 +1,4 @@
-"""Compare screw-clamp concepts and inspect private disco reference assets locally."""
+"""Preserve the complete disco bar; retain historical clamp studies for inspection."""
 from __future__ import annotations
 
 import argparse
@@ -26,8 +26,8 @@ def load_reference(step_path: Path | None = None):
     return path, shape
 
 
-# Concept dimensions are deliberately illustrative. Only the reference crop and
-# channel positions come from Darren's STEP. None of these parts is fit-ready.
+# Historical clamp dimensions are illustrative. These isolated studies do not
+# preserve the full bar and must not replace its opening-fit or attachment geometry.
 @dataclass
 class Piece:
     name: str
@@ -44,6 +44,32 @@ class Concept:
 
 KNOB_RADIUS = 20.0
 CHANNEL_X = (-45.643165, 45.996683776)
+REFERENCE_SHA256 = "f0a21384179b69eff79205032dad536bfa1350e358c25ed0fe01de4189f2e003"
+
+
+def verify_full_reference(path, shape):
+    """Preserve the measured insertion width and full top-attachment reach."""
+    bounds = shape.bounding_box()
+    actual = [[bounds.min.X, bounds.min.Y, bounds.min.Z],
+              [bounds.max.X, bounds.max.Y, bounds.max.Z]]
+    expected = [[-47.2306651, -47.2306651, -109.22],
+                [47.2306651, 47.2306651, 0.0]]
+    if hashlib.sha256(path.read_bytes()).hexdigest() != REFERENCE_SHA256:
+        raise ValueError("Use Darren's original full-height STEP; a replacement requires fit review")
+    if not np.allclose(actual, expected, atol=1e-5, rtol=0):
+        raise ValueError("Preserve the full 109.22 mm top-attachment reach and measured opening-fit width")
+    if not np.isclose(shape.volume, 75384.7502, atol=.001, rtol=0):
+        raise ValueError("Full-bar geometry changed; cropped or replacement carriers are not approved")
+    return {"complete_reference": True, "source_hash_matches": True,
+            "bounds_mm": actual, "volume_mm3": shape.volume,
+            "height_role": "full reach to top attachment",
+            "width_role": "operator-confirmed measured fit through disco-ball opening"}
+
+
+def verify_preview_scene(path, scene):
+    if any(len(items) != 1 for items in scene):
+        raise ValueError("Default preview must contain the complete original bar only")
+    return verify_full_reference(path, scene[0][0])
 
 
 def box(x, y, z, center):
@@ -198,25 +224,12 @@ def concepts():
 
 
 def preview(step_path: Path | None = None):
-    """Return three concept assemblies to the sole coordinated publisher."""
-    _, reference = load_reference(step_path)
-    # Upper 28 mm only. Preserve original axes and z=0 reference plane.
-    context = reference & box(110, 110, 28, (0, 0, -14))
-    colors = {"print": "#247bc1", "pad": "#eea541", "hardware": "#bfc9d1", "knob": "#57616b", "context": "#aeb5bc"}
-    objects, names, shades, alphas = [], [], [], []
-    for i, concept in enumerate(concepts()):
-        items = concept.pieces + [Piece("ILLUSTRATIVE knob Ø40 mm; not measured", cylinder(20, 34, (0, 0, 5)), "knob"),
-                                  Piece("Darren upper28mm reference crop; display z=-35 offset, NOT assembled", context.translate((0, 0, -35)), "context")]
-        for piece in items:
-            display_shape = piece.shape
-            if i == 2 and piece.name == "fixed upper carrier with planar taper seats":
-                display_shape -= box(70, 60, 40, (0, -33, 14))
-                piece = Piece(piece.name + " DISPLAY CUTAWAY; export is complete", display_shape, piece.role)
-            objects.append(display_shape.translate(((i - 1) * 140, 0, 0)))
-            names.append(f"{concept.name} / {piece.name} / CONCEPT ONLY, mm")
-            shades.append(colors[piece.role])
-            alphas.append(.18 if piece.role == "context" else .5 if piece.role == "knob" else 1.)
-    return objects, names, shades, alphas
+    """Publish the complete original bar; clamp studies remain headless only."""
+    path, reference = load_reference(step_path)
+    verify_full_reference(path, reference)
+    return ([reference],
+            ["FULL original bar | 109.22 mm reach to top attachment | measured opening-fit width | original pose, mm"],
+            ["#9ea8b4"], [1.0])
 
 
 def check_motion(concept, index):
@@ -327,7 +340,7 @@ def verify_concepts(output: Path):
                         "print_and_pad_collisions": collisions, "intentional_pad_seats": contacts,
                         "knob_radius_mm_ILLUSTRATIVE": KNOB_RADIUS,
                         "hardware_limit": "Screw/nut envelopes only; threads, torque, fastener selection and retention not verified"})
-    receipt = {"concept_only": True, "fit_verified": False, "units": "mm", "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "concepts": reports}
+    receipt = {"concept_only": True, "status": "SUPERSEDED_STANDALONE_STUDIES", "fit_verified": False, "units": "mm", "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "concepts": reports}
     (output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return receipt
 
@@ -373,6 +386,7 @@ def inspect(step_path: Path | None, stl_path: Path | None, obj_path: Path | None
                       [bounds.max.X, bounds.max.Y, bounds.max.Z]],
         "surface_types": sorted({str(face.geom_type) for face in shape.faces()}),
         "meshes": {},
+        "preserved_functional_envelope": verify_preview_scene(path, preview(path)),
     }
     for kind, source, scale in (("stl", stl_path, 25.4), ("obj", obj_path, 1000.0)):
         if source:
@@ -386,7 +400,7 @@ def main():
     parser.add_argument("--stl", type=Path)
     parser.add_argument("--obj", type=Path)
     parser.add_argument("--output", type=Path, help="Optional local JSON receipt; no source assets copied")
-    parser.add_argument("--concepts", type=Path, help="Export and verify proposed print parts to a local directory")
+    parser.add_argument("--concepts", type=Path, help="Export historical isolated clamp studies, not full-bar replacements")
     args = parser.parse_args()
     report = verify_concepts(args.concepts) if args.concepts else inspect(args.step, args.stl, args.obj)
     result = json.dumps(report, indent=2) + "\n"

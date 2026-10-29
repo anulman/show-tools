@@ -1,5 +1,9 @@
 # Screw-clamping the disco knob
 
+The operator rejected the isolated clamp studies as replacements for the full bar. Its complete height is needed to affix to the top of the disco ball, and its width was precisely measured to pass through the ball opening. The default preview is restored to the complete original STEP. The studies below explain mechanisms only. The earlier recommendation to proceed with A as a replacement was premature.
+
+Future clamp variants must preserve the full bar, insertion profile, and top attachment while integrating the clamp locally at the knob interface. B's hardware reaches beyond the source radius, as do C's bosses. No additional opening clearance is established. Assembly access, insertion of the complete assembly, and the continuous connection from the knob to the top attachment must be checked before presenting revised variants.
+
 The operator replaced magnetic retention with screw clamps and two rubber or foam pads. The proposed screws through the alcohol-release channels led to concept C. A and B compare more direct transverse tightening arrangements. None has been printed or physically tested.
 
 The STEP channels are open scallops at the outer shell edge, not closed screw bores. Their axes are parallel to Z at x=-45.643165 mm and x=45.996684 mm, y=0. Their cylindrical radius is 7.9375 mm. The central Ø44.35475 mm recess has a blind floor at z=-25.4 mm. Its wall and the main shell wall are approximately 1.5875 mm thick.
