@@ -152,7 +152,19 @@ def load_receipt(path):
     return report, meshes, inputs
 
 
-def scene(meshes, state, point):
+def main_camera(meshes):
+    # One static camera fits every displayed pose, including detached fasteners.
+    eye = np.array([-.6, .6, .65]); eye /= np.linalg.norm(eye)
+    right = np.cross([0., 0., -1.], eye); right /= np.linalg.norm(right)
+    up = np.cross(eye, right)
+    points = np.concatenate([mesh.vertices for items in meshes.values() for name, mesh in items.items() if name!='full-height bar'])
+    r, u = points@right, points@up
+    scale = min(716/(r.max()-r.min()), 372/(u.max()-u.min()))
+    centre = right*((r.min()+r.max())/2)+up*((u.min()+u.max())/2+10/scale)
+    return centre, scale
+
+
+def scene(meshes, state, point, camera):
     items = meshes[state]
     direction = np.array([-.6, .6, .65]); direction /= np.linalg.norm(direction)
     normal = -direction.copy(); normal[2] = 0
@@ -170,7 +182,7 @@ def scene(meshes, state, point):
         elif name == 'fastened captive roof':
             color = COLORS['roof']; mesh = cut(mesh, [*point, 0], normal)
         objects.append((mesh, color))
-    return render_scene(objects, (766, 452), [0, 0, -13], direction, 5.25)
+    return render_scene(objects, (766, 452), camera[0], direction, camera[1])
 
 
 def closeup(meshes, state, point):
@@ -205,9 +217,10 @@ def run(receipt, output):
     output.mkdir(parents=True, exist_ok=True)
     frames = []
     rendered = {}
+    camera = main_camera(meshes)
     for i, (state, duration, title, subtitle, status) in enumerate(POSES):
         if state not in rendered:
-            rendered[state] = (scene(meshes, state, point), closeup(meshes, state, point))
+            rendered[state] = (scene(meshes, state, point, camera), closeup(meshes, state, point))
         image = Image.new('RGB', (W, H), '#ffffff')
         draw = ImageDraw.Draw(image)
         draw.text((28, 17), 'FINAL C  /  LOCKING & RELEASE', font=font(18, True), fill='#526478')
