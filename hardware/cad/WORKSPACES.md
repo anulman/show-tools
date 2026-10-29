@@ -1,6 +1,6 @@
 # Work on box mounts and the disco bar
 
-The two long-lived CAD sessions own separate source files and output directories. The CAD coordination session selects which workstream appears in the existing OCP Viewer at <http://127.0.0.1:3939/viewer>. Workers perform headless work and do not publish or restart the viewer.
+The two long-lived CAD sessions own separate source files and output directories. Use the [CAD desk](../../ui/cad/README.md) at <http://127.0.0.1:3940/> to select a workstream yourself. The coordinator maintains this publisher and the embedded OCP Viewer on port 3939. Workers perform headless work and do not publish or restart the viewer.
 
 | Session | Codex thread | Source ownership |
 | --- | --- | --- |
@@ -25,7 +25,7 @@ hardware/cad/cad view disco-bar --step '/absolute/path/to/Disco Ball.step'
 
 To inspect the box interiors, add `--explode 25` to lower their bottoms by 25 mm. Use `cad box-check` for headless box exports and `cad disco-check --step PATH` for private-reference inspection.
 
-`SHOW_TOOLS_DISCO_STEP` can supply the local STEP path instead. The original attachment remains outside the repository. The publisher does not start the viewer or any hardware service. Switching workstreams selects an isometric view. Subsequent publishes of the same workstream retain the camera unless `--reset-camera` is supplied. Only the selected workstream changes the viewer; headless checks leave it alone.
+`SHOW_TOOLS_DISCO_STEP` can supply the local STEP path instead. The original attachment remains outside the repository. The publisher does not start the viewer or any hardware service. Switching workstreams or box variants selects an isometric view. Subsequent publishes of the same workstream retain the camera unless `--reset-camera` is supplied. Only the selected workstream changes the viewer; headless checks leave it alone.
 
 See [integration verification](workspace-verification.md) for the actual export and browser observations.
 
@@ -33,9 +33,13 @@ The ignored `build/workspace/current-view.json` records the last successful publ
 
 ## Continue the box mount
 
-The active forms are the flat red A and 5-degree blue C from the [counterbored concepts](BASE-CONCEPTS.md). Preserve the button's seating datum, the initial 35.25 mm interior depth below it, and the 17.5 mm recess unless the operator changes them. Those dimensions come from reference geometry and the operator's requested proportions. They do not establish installed harness clearance. The interior floor stays at Z=-35.25 mm. The proposed 3 mm bottom extends outward to Z=-38.25 mm so it does not consume that interior reserve.
+The active variants are now `arcade-inclined`, `rotor-level`, and `mushroom-level`. The old flat Adafruit-button study is historical. Use `cad view box-mount --variant arcade-inclined` to inspect one variant, or omit `--variant` to compare all three.
 
-The next design includes wiring passages, removable screw-fastened bottoms, and retained ballast. Fastener geometry, wire exit, and ballast dimensions are proposals until confirmed against the actual parts. Keep ballast separate from the electrical volume and accessible through the removable bottom. See [box-mount notes](box-mount/README.md) for parameters and outstanding measurements.
+The inclined arcade mount must provide at least 2.5 inches, exactly 63.5 mm, from the counterbore floor along the tilted button's centre axis. The operator confirmed both the starting datum and direction. The low edge need not provide that full length. The current concept keeps a flat bottom and provides an unobstructed proposed corridor around the centre axis; it does not claim measured clearance for the actual harness. Its 17.5 mm recess and 5-degree inclination remain in place. The removable bottom extends outward below the interior floor.
+
+The level rotor concept uses the SpinTrak manufacturer's drawing as a nominal reference. Its 34 mm across-flats hex pocket and 5 mm depth are illustrative design inputs, not verified dimensions read from that drawing. The 29 mm body passage includes a proposed 1 mm diametral allowance over the published 28 mm nominal. Its mounting fit remains unverified. The mushroom variant is an uncut housing blank while wiring and mounting details are tested. The proposed level roofs align with the low edge of the inclined arcade roof, and all exterior bottoms share the same ground plane. The incline lifts the arcade roof above that shared level. The operator confirmed this roof alignment.
+
+All three retain proposed removable screw-fastened bottoms, wiring passages, and a separate ballast compartment. Fasteners, wire dimensions, and ballast remain subject to physical fit checks. See [box-mount notes](box-mount/README.md) for exact parameters and validation commands.
 
 ## Continue the disco bar
 

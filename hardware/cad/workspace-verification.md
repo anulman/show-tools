@@ -15,3 +15,23 @@ No USB IO, printer jobs, Sheets, Chrome CDP, or audio processes were started or 
 `bash -n hardware/cad/cad`, local guide-link checks, and `git diff --check` passed.
 
 Independent main-session review rejected the initial bottom placement because it consumed 3 mm of the operator's minimum interior reserve. The correction keeps the interior floor at Z=-35.25 mm and extends the 3 mm bottom outward to Z=-38.25 mm. The coordinator reran corrected exports and the actual-CAD reserve regression check; both passed. The check measures A/C cover and shell bounds with 3 mm and 5 mm bottoms. The corrected boxes were republished with bottoms lowered 25 mm, retaining the current camera.
+
+## Inclined arcade clearance and level component variants
+
+The operator superseded the original 35.25 mm arcade reserve with at least 3.25 inches, exactly 82.55 mm, from the counterbore floor along the tilted button's centre axis. The low edge need not supply that full length. The active preview now separates `arcade-inclined`, `rotor-level`, and `mushroom-level`. The former flat Adafruit study is historical.
+
+The coordinator independently exported all six parts and three assemblies and ran `check_requirements.py` and `check_reserve.py`. All passed. Default arcade interior depth is 84 mm, with its removable bottom extending outward to 87 mm. The 82.55 mm corridor with proposed 13.5 mm radius is empty of housing and ballast geometry, including its off-axis end. The floor gap is approximately 0.5875 mm. This is a proposed empty corridor, not proof that the installed switch and harness fit.
+
+The level rotor has a proposed 34 mm across-flats, 5 mm deep hex recess, and a proposed 29 mm body passage based on the manufacturer's nominal 28 mm body. The hex dimensions are explicitly unverified by the drawing. The mushroom housing remains uncut. Both level exterior heights approximately match the inclined housing's highest edge. Actual components, tolerances, print settings, and physical fit remain unverified.
+
+The publisher adds `--variant` selection, rejects box-only variants on the disco workspace without publishing, and resets framing when changing variants. `cad view box-mount --variant all --explode 25 --reset-camera` published the new comparison to the existing server. The disco notes now distinguish a mechanically retained replaceable liner, glue attaching a liner to the socket, direct knob bonding, and a formed glue sleeve. No liner material or thickness is selected.
+
+The new three-variant publish returned successfully. Native inspection found Vivaldi focused on an unfinished address entry in another tab, so that input was left untouched. The latest three-variant browser delivery awaits opening the existing OCP tab; exported inspection views were visually checked offline.
+
+## Corrected 2.5-inch reserve and proposed low-roof alignment
+
+The operator corrected the minimum from 3.25 inches to 2.5 inches, or 63.5 mm. The confirmed datum and direction remain the counterbore floor along the tilted button centre axis. The coordinator independently reran all six part exports, all three assembly checks, the finite-corridor requirements check, and cover-thickness reserve checks. All passed. Default interior depth is now 65 mm, with the 3 mm cover extending outward to 68 mm below the seat. The proposed 27 mm diameter corridor has approximately 0.5650 mm floor clearance at its lowest off-axis endpoint.
+
+The operator then said the boxes should "share the lowest edge" so the incline lifts the arcade buttons. The current concrete proposal aligns level roofs with the arcade roof's low edge and shares all bottom planes. An asynchronous clarification is pending, and the requirements flag records this roof interpretation as unconfirmed. The generator separately checks the actual uppermost roof vertices at the low boundary and the common bottom datum. Level exterior height is approximately 80.0551 mm; the arcade high edge reaches approximately 91.0786 mm.
+
+The corrected comparison was published to the existing viewer with its camera retained. Exported top and interior views were inspected offline. The rotor hex remains illustrative, the mushroom roof remains uncut, and physical fit, ballast performance, and print readiness remain unverified.
