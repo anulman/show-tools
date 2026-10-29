@@ -28,7 +28,8 @@ function createEngine(rate: number) {
   memory = instance.exports.memory;
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
   return new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE,
-    compiledProgram: Array.from(encodeCompiledProgram(compiled)), clickGain: 0 });
+    compiledProgram: Array.from(encodeCompiledProgram(compiled)), clickGain: 0,
+    initialVoiceEffects: Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })) });
 }
 
 function marker(bar: number, beat: number) { return (bar * 8 + Math.floor(beat)) / 1024; }
@@ -50,8 +51,18 @@ const auditions: readonly Audition[] = [
   { bar: 20, beat: 2.5, channel: 'R1', expected: marker(2, 2) + marker(4, 2), label: 'drums retains both layers later in the arrangement' },
   { bar: 21, beat: .5, channel: 'L2', expected: marker(5, 0) + marker(7, 0), label: 'Bing Bong retains both layers later in the arrangement' },
   { bar: 28, beat: .5, channel: 'R2', expected: marker(12, 0), label: 'the later 4 phrase selects the separate bar 12 version' },
-  { bar: 36, beat: .5, channel: 'R2', expected: 0, label: 'the authored Cowbell stop remains in force despite later automatic selections' },
-  { bar: 44, beat: .5, channel: 'R2', expected: 0, label: 'later arrangement cells do not implicitly undo the authored Cowbell stop' },
+  { bar: 36, beat: .5, channel: 'R2', expected: marker(11, 0), label: 'the new written Cowbell play resumes its matching bar 11 version' },
+  { bar: 44, beat: .5, channel: 'R2', expected: marker(12, 0), label: 'the written Cowbell phrase selects bar 12 before the later stop cue' },
+  { bar: 93, beat: .5, channel: 'R2', expected: marker(82, 0), label: 'the later Cowbell play selects the new bar 82 version' },
+  { bar: 94, beat: .5, channel: 'R2', expected: marker(82, 0), label: 'the new Cowbell identity repeats on the next matching bar' },
+  { bar: 95, beat: .5, channel: 'R2', expected: marker(83, 0), label: 'the new Cowbell identity selects the separate bar 83 version' },
+  { bar: 96, beat: 3.25, channel: 'R2', expected: marker(82, 3), label: 'the shortened phrase reuses the retained bar 82 prefix' },
+  { bar: 96, beat: 3.75, channel: 'R2', expected: 0, label: 'the shortened phrase excludes the final 4& source' },
+  { bar: 97, beat: 3.75, channel: 'R2', expected: marker(82, 3), label: 'the following full phrase restores the final source without changing the take' },
+  { bar: 100, beat: .5, channel: 'R2', expected: marker(84, 0), label: 'the new Cowbell identity selects the separate bar 84 version' },
+  { bar: 164, beat: 3.25, channel: 'R2', expected: marker(82, 3), label: 'the second shortened phrase reuses the same retained prefix' },
+  { bar: 164, beat: 3.75, channel: 'R2', expected: 0, label: 'the second shortened phrase excludes the final source' },
+  { bar: 165, beat: 3.75, channel: 'R2', expected: marker(82, 3), label: 'the second following full phrase retains the original recording' },
 ];
 
 for (const rate of [44100, 48000]) for (const autoFinish of [false, true]) test(`actual DYC source bars and Cowbell identities at ${rate} Hz with ${autoFinish ? 'automatic' : 'manual'} commit cues`, () => {
@@ -84,7 +95,7 @@ for (const rate of [44100, 48000]) for (const autoFinish of [false, true]) test(
     native.start({ runId: `dyc-source-bars-${rate}`, bpm: song.chart.bpm, countInBars: 1, startBar: 1,
       endBar: song.chart.bars.length, loop: false, automatic: false });
     while (native.state().phase !== 'ended') {
-      assert(frame < rate * 500, 'DYC reaches the authored end');
+      assert(frame < Math.ceil((compiled.chart.bars.length * 4 + 5) * rate * 60 / 40), 'DYC reaches the authored end');
       while (nextPress < presses.length && presses[nextPress].frame === frame) native.control({ id: presses[nextPress++].cue.buttonId });
       if (nextCheck < checks.length && checks[nextCheck].frame === frame) {
         const check = checks[nextCheck++];
@@ -98,7 +109,7 @@ for (const rate of [44100, 48000]) for (const autoFinish of [false, true]) test(
         render(count);
       }
     }
-    assert.equal(nextPress, presses.length, 'the entire A-section cue sequence ran');
+    assert.equal(nextPress, presses.length, 'the entire song cue sequence ran');
     assert.equal(nextCheck, checks.length, 'every source-content audition ran');
   } finally { native.dispose(); }
 });

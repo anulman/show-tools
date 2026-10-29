@@ -37,6 +37,11 @@ struct Program::Pending { int cue = -1, reserved_take = -1; double position = 0;
 
 Program::~Program() = default;
 std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, double rate, const patches::Rack& definition, uint32_t revision) noexcept {
+  const patches::Rack* definitions[PF_CHANNELS]; uint32_t revisions[PF_CHANNELS];
+  for (int voice = 0; voice < PF_CHANNELS; ++voice) { definitions[voice] = &definition; revisions[voice] = revision; }
+  return create(data, fields, rate, definitions, revisions);
+}
+std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, double rate, const patches::Rack* const* definitions, const uint32_t* revisions) noexcept {
   if (!data || fields < PF_COMPILED_HEADER_FIELDS || data[0] != PF_COMPILED_MAGIC || data[1] != PF_COMPILED_VERSION
     || !whole(data[2], 6) || (data[2] != 4 && data[2] != 6) || !whole(data[3], PF_MAX_BARS) || data[3] < 1
     || !std::isfinite(data[4]) || data[4] < minimum_bpm || data[4] > maximum_bpm || !whole(data[5], data[3]) || data[5] < 1
@@ -45,12 +50,20 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   uint64_t needed = PF_COMPILED_HEADER_FIELDS + uint64_t(data[8]) * PF_COMPILED_TAKE_FIELDS + uint64_t(data[9]) * PF_COMPILED_CUE_FIELDS
     + uint64_t(data[10]) * PF_COMPILED_MEMBER_FIELDS + uint64_t(data[11]) * PF_COMPILED_PLAYBACK_FIELDS;
   if (needed > fields) return nullptr;
-  int rotation_count = 0; double rotation_grid = .25;
-  if (needed < fields) {
-    if (fields - needed < PF_COMPILED_ROTATION_HEADER_FIELDS || data[needed] != PF_COMPILED_ROTATION_MAGIC
-      || !whole(data[needed + 1], PF_MAX_EVENTS) || !whole(data[needed + 2] * 960, 960) || data[needed + 2] <= 0) return nullptr;
-    rotation_count = int(data[needed + 1]); rotation_grid = data[needed + 2];
-    if (needed + PF_COMPILED_ROTATION_HEADER_FIELDS + uint64_t(rotation_count) * PF_COMPILED_ROTATION_FIELDS != fields) return nullptr;
+  int rotation_count = 0, window_count = 0; double rotation_grid = .25;
+  uint64_t rotation_offset = 0, window_offset = 0, cursor = needed;
+  while (cursor < fields) {
+    if (data[cursor] == PF_COMPILED_ROTATION_MAGIC) {
+      if (rotation_offset || window_offset || fields - cursor < PF_COMPILED_ROTATION_HEADER_FIELDS
+        || !whole(data[cursor + 1], PF_MAX_EVENTS) || !whole(data[cursor + 2] * 960, 960) || data[cursor + 2] <= 0) return nullptr;
+      rotation_offset = cursor; rotation_count = int(data[cursor + 1]); rotation_grid = data[cursor + 2];
+      cursor += PF_COMPILED_ROTATION_HEADER_FIELDS + uint64_t(rotation_count) * PF_COMPILED_ROTATION_FIELDS;
+    } else if (data[cursor] == PF_COMPILED_WINDOW_MAGIC) {
+      if (window_offset || fields - cursor < PF_COMPILED_WINDOW_HEADER_FIELDS || !whole(data[cursor + 1], PF_MAX_EVENTS)) return nullptr;
+      window_offset = cursor; window_count = int(data[cursor + 1]);
+      cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + uint64_t(window_count) * PF_COMPILED_WINDOW_FIELDS;
+    } else return nullptr;
+    if (cursor > fields) return nullptr;
   }
   for (int button = 0; button < PF_CHANNELS; ++button) {
     if (!index(data[12 + button], PF_CHANNELS)) return nullptr;
@@ -66,7 +79,7 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   program->rotation_windows_.reset(new (std::nothrow) RotationWindow[rotation_count]);
   if (!program->rotation_windows_) return nullptr;
   for (int id = 0; id < rotation_count; ++id) {
-    const double* row = data + needed + PF_COMPILED_ROTATION_HEADER_FIELDS + id * PF_COMPILED_ROTATION_FIELDS;
+    const double* row = data + rotation_offset + PF_COMPILED_ROTATION_HEADER_FIELDS + id * PF_COMPILED_ROTATION_FIELDS;
     if (!whole(row[0], program->bars_) || row[0] < 1 || !point(row[1], program->beats_)
       || !whole(row[2], program->bars_ + 1) || row[2] < 1 || !point(row[3], program->beats_) || (row[2] == program->bars_ + 1 && row[3] != 0)) return nullptr;
     auto& window = program->rotation_windows_[id]; window.begin = (row[0] - 1) * program->beats_ + row[1]; window.end = (row[2] - 1) * program->beats_ + row[3];
@@ -150,6 +163,22 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       if (program->members_[previous].take == member.take || program->takes_[program->members_[previous].take].voice != program->takes_[member.take].voice || program->takes_[program->members_[previous].take].anchor != program->takes_[member.take].anchor) return nullptr;
     }
   }
+  program->window_count_ = window_count;
+  program->selection_windows_.reset(new (std::nothrow) SelectionWindow[window_count]);
+  if (!program->selection_windows_) return nullptr;
+  for (int id = 0; id < window_count; ++id) {
+    const double* row = data + window_offset + PF_COMPILED_WINDOW_HEADER_FIELDS + id * PF_COMPILED_WINDOW_FIELDS;
+    if (!whole(row[0], PF_MAX_EVENTS - 1) || !std::isfinite(row[1]) || row[1] <= 0 || std::floor(row[1] * 960) != row[1] * 960) return nullptr;
+    auto& window = program->selection_windows_[id]; window.selection = int(row[0]); window.end = row[1];
+    for (int previous = 0; previous < id; ++previous) if (program->selection_windows_[previous].selection == window.selection) return nullptr;
+    for (int member = 0; member < program->member_count_; ++member) if (program->members_[member].selection == window.selection) {
+      if (window.take >= 0) return nullptr;
+      window.take = program->members_[member].take;
+    }
+    if (window.take < 0 || window.end >= program->takes_[window.take].end - program->takes_[window.take].begin) return nullptr;
+    for (int cue = 0; cue < program->cue_count_; ++cue) if (program->cues_[cue].selection == window.selection
+      && (program->cues_[cue].kind == PF_COMMIT || program->cues_[cue].kind == PF_COMMIT_ARM)) return nullptr;
+  }
   for (int id = 0; id < program->playback_count_; ++id, offset += PF_COMPILED_PLAYBACK_FIELDS) {
     const double* row = data + offset;
     if (!whole(row[0], program->bars_) || row[0] < 1 || !index(row[1], PF_CHANNELS) || !whole(row[2], PF_MAX_EVENTS - 1)) return nullptr;
@@ -179,7 +208,7 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     }
     if (!found) return nullptr;
   }
-  if (!program->prepare_effects(definition, revision)) return nullptr;
+  if (!definitions || !revisions || !program->prepare_effects(definitions, revisions)) return nullptr;
   return program;
 }
 
@@ -411,6 +440,10 @@ int Program::press(int button, double frame, double bpm, bool microphone) noexce
   cue.used = true; return PF_OK;
 }
 bool Program::selection_ready(int selection, int voice) const noexcept {
+  for (int id = 0; id < window_count_; ++id) if (selection_windows_[id].selection == selection) {
+    const auto& window = selection_windows_[id]; int bank = takes_[window.take].latest;
+    if (bank < 0 || window.cut[bank] < 0) return false;
+  }
   bool found = false;
   for (int id = 0; id < member_count_; ++id) if (members_[id].selection == selection) {
     const Take& take = takes_[members_[id].take];
@@ -445,6 +478,10 @@ bool Program::select(int voice, int selection, bool automatic) noexcept {
     if (take.playback[take.latest]->state() != patches::PlaybackState::playing) {
       if (!play_take(members_[member].take, members_[member].gain)) return false;
     } else take.playback_gain[take.latest] = take.gain * members_[member].gain;
+    auto& player = take.playback[take.latest];
+    player->clear_source_end();
+    for (int window = 0; window < window_count_; ++window) if (selection_windows_[window].selection == selection)
+      if (!player->set_source_end(uint32_t(selection_windows_[window].cut[take.latest]))) return false;
   }
   selection_[voice] = selection; return true;
 }
@@ -505,7 +542,8 @@ int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_
   if (!starts_next && live_route_ == cue.voice && pending_[cue.button].reserved_take < 0) switch_route(-1, true);
   return PF_OK;
 }
-int Program::execute(int id, double) noexcept {
+int Program::execute(int id, double frame) noexcept {
+  observe_windows(frame);
   const Cue& cue = cues_[id];
   bool commits = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
   bool starts = cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM;
@@ -532,6 +570,8 @@ int Program::execute(int id, double) noexcept {
       detached_tail_[cue.voice] = true; tail_generation_[cue.voice] = generation;
     }
     active_capture_ = {cue.take, bank, generation};
+    for (int window = 0; window < window_count_; ++window) if (selection_windows_[window].take == cue.take) selection_windows_[window].cut[bank] = -1;
+    observe_windows(frame);
   }
   if (cue.kind == PF_STOP) { stop_voice(cue.voice, false); suppressed_[cue.voice] = true; }
   if (cue.kind == PF_PLAY) {
@@ -545,7 +585,17 @@ int Program::execute(int id, double) noexcept {
   }
   return error_ = PF_OK;
 }
+void Program::observe_windows(double frame) noexcept {
+  if (active_capture_.take < 0) return;
+  for (int id = 0; id < window_count_; ++id) {
+    auto& window = selection_windows_[id];
+    if (window.take == active_capture_.take && window.cut[active_capture_.bank] < 0
+      && frame >= std::ceil(frame_at(takes_[window.take].begin + window.end)))
+      window.cut[active_capture_.bank] = takes_[window.take].cache[active_capture_.bank]->length();
+  }
+}
 void Program::apply_pending(double frame, double bpm) noexcept {
+  observe_windows(frame);
   remember_cues(frame, bpm);
   double now = position(frame, bpm);
   query_position_ = now; query_frame_ = frame;
@@ -731,12 +781,14 @@ VoiceInfo Program::channel_info(int button, double bpm) const noexcept {
 void Program::take_info(uint32_t id, double* out) const noexcept {
   if (!out) return;
   std::fill(out, out + PF_TAKE_FIELDS, 0);
+  out[PF_TAKE_SOURCE_END] = -1;
   if (id >= uint32_t(take_count_)) return;
   const Take& take = takes_[id]; int bank = active_capture_.take == int(id) ? active_capture_.bank : take.latest >= 0 ? take.latest : 0;
   out[PF_TAKE_VOICE] = take.voice; out[PF_TAKE_READY] = take.latest >= 0;
   out[PF_TAKE_PERIOD] = take.cache[bank]->period();
   out[PF_TAKE_LENGTH] = take.cache[bank]->length(); out[PF_TAKE_CAPACITY] = take.capacity;
   out[PF_TAKE_REVISION] = double(take.cache[bank]->revision());
+  out[PF_TAKE_SOURCE_END] = take.playback[bank]->source_end();
   out[PF_TAKE_PHASE] = take.playback[bank]->phase(); out[PF_TAKE_PLAYBACK_STATE] = int(take.playback[bank]->state());
 }
 }

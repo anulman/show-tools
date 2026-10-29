@@ -69,7 +69,6 @@ int main(int argc, char** argv) {
   if (argc != 4) return fail("Usage: compiled_song_host program.pfp presses.tsv sampleRate");
   uint64_t sample_rate = 0;
   if (!number(argv[3], sample_rate) || sample_rate < 8000 || sample_rate > 192000) return fail("sampleRate must be an integer from 8000 through 192000");
-  const uint64_t max_frames = sample_rate * 500;
   std::ifstream artifact(argv[1], std::ios::binary | std::ios::ate);
   if (!artifact) return fail("Could not open portable program");
   const auto size = artifact.tellg();
@@ -78,6 +77,9 @@ int main(int argc, char** argv) {
   if (!artifact.read(reinterpret_cast<char*>(bytes.data()), size)) return fail("Could not read portable program");
   double take_count = field(bytes, 8);
   if (!std::isfinite(take_count) || take_count < 0 || take_count > PF_COMPILED_MAX_TAKES || std::floor(take_count) != take_count) return fail("Invalid portable take count");
+  const double bars = field(bytes, 3), beats = field(bytes, 2);
+  if (!std::isfinite(bars) || bars < 1 || bars > 4096 || std::floor(bars) != bars || (beats != 4 && beats != 6)) return fail("Invalid portable song duration");
+  const uint64_t max_frames = uint64_t(std::ceil((bars * beats + beats + 1) * sample_rate * 60 / 40)) + block_frames;
   std::ifstream script(argv[2]);
   if (!script) return fail("Could not open press script");
   std::vector<Press> presses;
@@ -149,7 +151,7 @@ int main(int argc, char** argv) {
     pf_snapshot(engine.get(), snapshot.data());
     if (snapshot[PF_PHASE] == PF_ENDED) break;
     if (snapshot[PF_PHASE] != PF_COUNT_IN && snapshot[PF_PHASE] != PF_PLAYING) return fail("Transport stopped before ENDED");
-    if (frame >= max_frames) return fail("Performance exceeded the 500 second fixture guard");
+    if (frame >= max_frames) return fail("Performance exceeded the declared song-duration fixture guard");
     if (expected_release_count >= 0) {
       const uint64_t cutoff = uint64_t(std::ceil(release_frame()));
       std::array<double, PF_VOICE_FIELDS> backup{}; pf_voice_info(engine.get(), PF_BACKUP_PROFILE, backup.data());

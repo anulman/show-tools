@@ -77,5 +77,6 @@ export function takePresentation(song: CompiledSong | undefined, channelId: Chan
   } else if (releasing.length) {
     summary = `Releasing · ${savedLabel}`;
   }
+  if (playing.some(reading => reading.state && reading.state.sourceEndFrames !== null)) summary += ' · Trimmed';
   return { plan: annotation, summary };
 }

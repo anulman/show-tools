@@ -487,17 +487,14 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   auto identity = engine->profiles[PF_DEFAULT_PROFILE].rack ? nullptr : patches::Rack::create(nullptr, 0);
   const patches::Rack* definition = engine->profiles[PF_DEFAULT_PROFILE].rack ? engine->profiles[PF_DEFAULT_PROFILE].rack.get() : identity.get();
   if (!definition) return fail(engine, PF_ALLOCATION_FAILED);
-  auto prepared = compiled::Program::create(data, fields, engine->rate, *definition, engine->profiles[PF_DEFAULT_PROFILE].revision);
+  const patches::Rack* definitions[PF_CHANNELS]; uint32_t revisions[PF_CHANNELS];
+  for (int voice = 0; voice < PF_CHANNELS; ++voice) {
+    definitions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].rack.get() : definition;
+    revisions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].revision : engine->profiles[PF_DEFAULT_PROFILE].revision;
+  }
+  auto prepared = compiled::Program::create(data, fields, engine->rate, definitions, revisions);
   auto backup = engine->profiles[PF_BACKUP_PROFILE].rack ? nullptr : patches::Rack::create(nullptr, 0);
   if (!engine->profiles[PF_BACKUP_PROFILE].rack && !backup) return fail(engine, PF_ALLOCATION_FAILED);
-  if (prepared) {
-    const patches::Rack* definitions[PF_CHANNELS]; uint32_t revisions[PF_CHANNELS];
-    for (int voice = 0; voice < PF_CHANNELS; ++voice) {
-      definitions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].rack.get() : definition;
-      revisions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].revision : engine->profiles[PF_DEFAULT_PROFILE].revision;
-    }
-    if (!prepared->prepare_effects(definitions, revisions)) return fail(engine, PF_ALLOCATION_FAILED);
-  }
   if (!prepared) return fail(engine, PF_INVALID_PROGRAM, "Invalid compiled song or insufficient prepared resources");
   auto song = std::unique_ptr<Song>(new (std::nothrow) Song);
   if (!song) return fail(engine, PF_ALLOCATION_FAILED);
@@ -537,7 +534,7 @@ int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t byte
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out) {
   if (!out) return;
   if (engine && engine->compiled) engine->compiled->take_info(take, out);
-  else std::fill(out, out + PF_TAKE_FIELDS, 0);
+  else { std::fill(out, out + PF_TAKE_FIELDS, 0); out[PF_TAKE_SOURCE_END] = -1; }
 }
 int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int loop, int automatic) {
   if (!engine) return -1;

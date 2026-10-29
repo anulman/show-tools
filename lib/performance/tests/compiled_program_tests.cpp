@@ -1056,5 +1056,130 @@ void prepared_capture_reuses_banks_without_heap_work() {
   watch_heap = false;
   require(heap_allocations == 0 && heap_frees == 0, "idempotent stopped preparation avoids allocations when all reusable banks are current");
 }
+std::vector<double> prefix_table() {
+  return {PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 88, 98, 88, 25, 25, 1, 4, 2, 3, 0, 1, 2, 3,
+    0, 82, 0, 83, 0, 1, 83, 0, 0,
+    0, 0, 82, -1, PF_ARM, 0, 0, 0, -1, -1, 0,
+    0, 0, 82, 3, PF_COMMIT, 1, 0, -1, 0, 0, 0,
+    0, 0, 84, 0, PF_STOP, 0, 0, -1, -1, -1, 0,
+    0, 0, 86, 0, PF_PLAY, 0, 0, -1, -1, 1, 0,
+    0, 0, 1, 1, 0, 1,
+    84, 0, 1, 85, 0, 0, 87, 0, 0,
+    PF_COMPILED_WINDOW_MAGIC, 1, 1, 3.5};
 }
-int main() { authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_on_strict_quarter_grid(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); }
+void prefix_effected_source_oracle() {
+  for (double rate : {44100., 48000.}) for (bool effects : {false, true}) {
+    std::unique_ptr<patches::Effect> stages[]{patches::make_slapback(rate, {100, 0, .5}), patches::make_chorus(rate, {.8, 5, 20, .35})};
+    auto definition = patches::Rack::create(stages, effects ? 2 : 0), backup = patches::Rack::create(nullptr, 0);
+    auto oracle = definition->snapshot();
+    auto data = prefix_table();
+    auto program = compiled::Program::create(data.data(), data.size(), rate, *definition, 1);
+    require(bool(program), "effected prefix table loads");
+    double count = rate * 60 / 98, origin = 329 * count;
+    uint32_t first = uint32_t(std::ceil(origin)), end = uint32_t(std::ceil(333 * count));
+    uint32_t cut = uint32_t(std::ceil(332.5 * count)) - first, period = uint32_t(std::ceil(4 * count));
+    uint32_t prefix = uint32_t(std::ceil(337 * count)), full = uint32_t(std::ceil(341 * count));
+    uint32_t final = uint32_t(std::ceil(345 * count)), playback_phase = end - first;
+    auto source_at = [&](uint32_t offset) { return offset == cut - 10 ? .25f : offset == cut ? .75f : 0.f; };
+    bool saw_prefix_tail = false, saw_full_hit = false;
+    heap_allocations = heap_frees = 0; watch_heap = true;
+    program->start(82, 0, origin - count, 98); program->beat(PF_PLAYING, 82, 1, 0, origin, 98);
+    require(program->press(0, first, 98, true) == PF_OK, "effected source arms");
+    for (uint32_t frame = first; frame < final; ++frame) {
+      if (frame == prefix) program->beat(PF_PLAYING, 84, 1, 0, 337 * count, 98);
+      if (frame == full) program->beat(PF_PLAYING, 85, 1, 0, 341 * count, 98);
+      float input = frame < end ? source_at(frame - first) : 0, left = 0, right = 0;
+      patches::Stereo expected{};
+      if (frame < end) oracle->process({input, input});
+      else {
+        if (playback_phase == period) playback_phase = 0;
+        bool trimmed = frame >= prefix && frame < full;
+        float admitted = (!trimmed || playback_phase < cut) ? source_at(playback_phase) : 0;
+        expected = oracle->process({admitted, admitted});
+        if (trimmed && playback_phase >= cut && std::abs(expected.left) > 1e-5) saw_prefix_tail = true;
+        if (frame >= full && playback_phase == cut && expected.left > .7) saw_full_hit = true;
+        ++playback_phase;
+      }
+      program->render(&input, &left, &right, nullptr, nullptr, 1, frame, 98, true, *definition, *backup);
+      require(program->error() == PF_OK && std::abs(left - expected.left) < 1e-6 && std::abs(right - expected.right) < 1e-6,
+        "Program prefix excludes absolute-grid omitted impulse from dry, Slapback and Chorus while preserving admitted tails");
+    }
+    program->stop(); watch_heap = false;
+    require(!heap_allocations && !heap_frees, "effected source prefix processing performs no heap operations");
+    require(saw_full_hit && (!effects || saw_prefix_tail), "next full bar restores omitted hit and prefix keeps earlier effect tail");
+  }
+}
+void prefix_late_arm_zero_cut() {
+  auto definition = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
+  auto data = prefix_table(); data.back() = 1. / 960;
+  auto program = compiled::Program::create(data.data(), data.size(), 1000, *definition, 1);
+  require(bool(program), "sub-frame source prefix loads");
+  program->start(82, 0, 82000, 240); program->beat(PF_PLAYING, 82, 1, 0, 82250, 240);
+  require(program->press(0, 82251, 240, true) == PF_OK, "one-frame late arm is admitted");
+  std::array<float, 1000> input{}, output{};
+  input.fill(.25f); program->render(input.data(), output.data(), nullptr, nullptr, nullptr, 1000, 82251, 240, true, *definition, *backup);
+  program->beat(PF_PLAYING, 84, 1, 0, 84250, 240);
+  std::array<double, PF_TAKE_FIELDS> info{}; program->take_info(0, info.data());
+  require(info[PF_TAKE_READY] && info[PF_TAKE_SOURCE_END] == 0, "late ARM observes zero cut immediately before first source admission");
+}
+
+void prefix_capture_maps_and_selection() {
+  for (double rate : {44100., 48000.}) {
+    auto definition = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
+    auto data = prefix_table();
+    auto program = compiled::Program::create(data.data(), data.size(), rate, *definition, 1);
+    require(bool(program), "prefix table loads");
+    double count = rate * 60 / 98, origin = 329 * count;
+    uint32_t length = uint32_t(std::ceil(333 * count) - std::ceil(origin));
+    uint32_t cut = uint32_t(std::ceil(332.5 * count) - std::ceil(origin));
+    std::vector<float> input(length + 2, .25f), left(length + 2), right(length + 2);
+    auto render_frames = [&](uint32_t frames, double frame) {
+      program->render(input.data(), left.data(), right.data(), nullptr, nullptr, frames, frame, 98, true, *definition, *backup);
+      require(program->error() == PF_OK, "prefix rendering succeeds");
+    };
+    for (int run = 0; run < 3; ++run) {
+      heap_allocations = heap_frees = 0; watch_heap = true;
+      program->start(82, 0, origin - count, 98);
+      program->beat(PF_PLAYING, 82, 1, 0, origin, 98);
+      require(program->press(0, std::ceil(origin), 98, true) == PF_OK, "prefix source arms");
+      render_frames(length + 1, std::ceil(origin));
+      std::array<double, PF_TAKE_FIELDS> info{}; program->take_info(0, info.data());
+      require(info[PF_TAKE_READY] && info[PF_TAKE_LENGTH] == length && info[PF_TAKE_SOURCE_END] == -1, "commit keeps original complete recording");
+      double prior_phase = info[PF_TAKE_PHASE];
+      program->beat(PF_PLAYING, 84, 1, 0, 337 * count, 98); program->take_info(0, info.data());
+      require(info[PF_TAKE_SOURCE_END] == cut && info[PF_TAKE_PHASE] == prior_phase, "prefix uses actual source-frame crossing without phase reset");
+      if (rate == 48000) require(cut == 102857 && info[PF_TAKE_PERIOD] == 117552, "prefix excludes absolute-grid hit that period ratio would leak");
+      require(program->press(0, std::ceil(337 * count), 98, true) == PF_OK, "manual Stop still suppresses playback");
+      program->beat(PF_PLAYING, 85, 1, 0, 341 * count, 98); program->take_info(0, info.data());
+      require(info[PF_TAKE_PLAYBACK_STATE] != int(patches::PlaybackState::playing), "automatic full selection cannot restart stopped voice");
+      program->beat(PF_PLAYING, 86, 1, 0, 345 * count, 98);
+      require(program->press(0, std::ceil(345 * count), 98, true) == PF_OK, "manual Play can authorize prefix");
+      program->take_info(0, info.data()); require(info[PF_TAKE_SOURCE_END] == cut, "manual Play applies retained prefix view");
+      program->beat(PF_PLAYING, 87, 1, 0, 349 * count, 98); program->take_info(0, info.data());
+      require(info[PF_TAKE_SOURCE_END] == -1, "full view restores source after prefix without replacing recording");
+      program->stop(); watch_heap = false;
+      require(!heap_allocations && !heap_frees, "prefix capture, bank reuse and selection perform no heap operations");
+    }
+    Engine retained(rate); prepare(retained, data);
+    ok(retained, pf_start(retained, 98, 1, 82, 88, 0, 0)); until(retained, 82);
+    ok(retained, press(retained, 0)); until(retained, 83); pf_stop(retained);
+    auto saved = take(retained, 0); require(saved[PF_TAKE_READY], "atomic replacement fixture retains committed source");
+    for (int mutation = 0; mutation < 8; ++mutation) {
+      auto invalid = data;
+      if (mutation == 0) invalid.back() = 4;
+      if (mutation == 1) invalid.back() = 0;
+      if (mutation == 2) invalid.back() = std::numeric_limits<double>::quiet_NaN();
+      if (mutation == 3) invalid.back() = .0001;
+      if (mutation == 4) invalid[invalid.size() - 2] = 0;
+      if (mutation == 5) invalid.insert(invalid.end(), {PF_COMPILED_WINDOW_MAGIC, 0});
+      if (mutation == 6) invalid.push_back(42);
+      if (mutation == 7) invalid.pop_back();
+      require(!compiled::Program::create(invalid.data(), invalid.size(), rate, *definition, 1), "malformed prefix table rejects atomically");
+      require(pf_configure_compiled(retained, invalid.data(), invalid.size()) < 0 && take(retained, 0) == saved,
+        "malformed prefix replacement preserves existing immutable take and prepared graph");
+    }
+  }
+}
+
+}
+int main() { prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_on_strict_quarter_grid(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); }

@@ -1,0 +1,14 @@
+{
+  "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg",
+  "sheetId": 101,
+  "sheetName": "01 Dance Yrself Clean",
+  "range": "A1:HL30",
+  "retrievedDate": "2026-10-29",
+  "reader": "Google Drive get_spreadsheet_cells",
+  "cellFields": "formattedValue,note",
+  "valuesAndNotes": "One bounded CellData response for chart rows 1–30 and all 220 columns.",
+  "revisionId": null,
+  "modifiedTimeObservedAfterRead": "2026-10-29T05:49:32.091Z",
+  "limitations": "The connector supplied no revision identifier. The file modification time was observed separately after the cell read.",
+  "publicExportStatus": "CSV and workbook values differed; the importer rejected the mixed export and its guard was preserved."
+}

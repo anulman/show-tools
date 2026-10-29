@@ -73,6 +73,7 @@ export interface CompiledTakeState {
   frames: number;
   period: number;
   playback: 'idle' | 'playing' | 'releasing';
+  sourceEndFrames: number | null;
 }
 export type Phase = 'idle' | 'count-in' | 'playing' | 'ended';
 export interface TransportState {

@@ -10,7 +10,7 @@ const PHASES: readonly Phase[] = ['idle', 'count-in', 'playing', 'ended'];
 const STATUSES: readonly PracticeState['channels'][number]['status'][] = ['empty', 'ready', 'armed', 'recording', 'stopping', 'looping'];
 const PLAYBACK_STATES: readonly CompiledTakeState['playback'][] = ['idle', 'playing', 'releasing'];
 type Options = { api: WebAssembly.Exports; sampleRate: number; mode?: number; maxVoices?: number; maxSeconds?: number; clickGain?: number;
-  bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program; compiledProgram?: readonly number[] };
+  bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program; compiledProgram?: readonly number[]; initialVoiceEffects?: readonly VoiceEffectConfiguration[] };
 
 export class NativePerformance {
   readonly api: WebAssembly.Exports;
@@ -39,7 +39,7 @@ export class NativePerformance {
   disposed = false;
   private compiledTakeCount = 0;
 
-  constructor({ api, sampleRate, mode = PF.PRACTICE, maxVoices = 32, maxSeconds = 30, clickGain = 1, ...song }: Options) {
+  constructor({ api, sampleRate, mode = PF.PRACTICE, maxVoices = 32, maxSeconds = 30, clickGain = 1, initialVoiceEffects, ...song }: Options) {
     if (!(api.memory instanceof WebAssembly.Memory)) throw new Error('Performance WASM memory is unavailable');
     const beatsPerBar = song.beatsPerBar ?? 4;
     if (!Number.isFinite(sampleRate) || !Number.isInteger(maxVoices) || maxVoices < 1 || maxVoices > ST.MAX_VOICES
@@ -71,6 +71,7 @@ export class NativePerformance {
       this.call('pf_set_click_gain', this.handle, clickGain);
       if (mode === PF.PRACTICE) {
         sampler.ids.push(...CONTROL_IDS);
+        if (initialVoiceEffects) this.prepareVoiceEffects(initialVoiceEffects);
         if (song.compiledProgram) this.configureCompiled(song.compiledProgram);
         else this.configure(song);
       }
@@ -196,7 +197,8 @@ export class NativePerformance {
     if (!Number.isSafeInteger(index) || index < 0 || index >= PF.COMPILED_MAX_TAKES) throw new Error('Invalid compiled take index');
     const info = this.query('pf_compiled_take_info', index);
     return { voice: info[PF.TAKE_VOICE], ready: info[PF.TAKE_READY] === 1, frames: info[PF.TAKE_LENGTH],
-      capacity: info[PF.TAKE_CAPACITY], revision: info[PF.TAKE_REVISION], phase: info[PF.TAKE_PHASE], playbackState: info[PF.TAKE_PLAYBACK_STATE], period: info[PF.TAKE_PERIOD] };
+      capacity: info[PF.TAKE_CAPACITY], revision: info[PF.TAKE_REVISION], phase: info[PF.TAKE_PHASE], playbackState: info[PF.TAKE_PLAYBACK_STATE], period: info[PF.TAKE_PERIOD],
+      sourceEndFrames: info[PF.TAKE_SOURCE_END] < 0 ? null : info[PF.TAKE_SOURCE_END] };
   }
   tempoHitInfo(): TempoHitState {
     const info = this.query('pf_tempo_info');
@@ -330,7 +332,7 @@ export class NativePerformance {
       const take = this.compiledTake(index);
       const playback = PLAYBACK_STATES[take.playbackState];
       if (!playback) throw new Error('Invalid native take playback state');
-      return { index, ready: take.ready, frames: take.frames, period: take.period, playback };
+      return { index, ready: take.ready, frames: take.frames, period: take.period, playback, sourceEndFrames: take.sourceEndFrames };
     });
     return { ...state, compiledTakes };
   }

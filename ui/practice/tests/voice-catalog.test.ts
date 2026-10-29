@@ -179,3 +179,14 @@ test('a cue-row connection persists separately from loaded command rows and nati
   assert.deepEqual(h.data().commandRows?.get(row.key), [18], 'saving an authoring connection never pretends the loaded native instructions changed');
   assert.deepEqual(h.applied[0]?.find(configuration => configuration.profile === 2)?.effects, []);
 });
+
+test('passive audio preparation uses saved custom graphs while an editor draft remains unapplied', async () => {
+  const h = await harness();
+  const voice = h.voice('A8');
+  await h.ui.onSave({ ...voice, effects: slapback }, undefined, h.data().document.revision);
+  h.ui.onDraftEffects?.(voice.id, chorus);
+  assert.deepEqual(structuredClone(h.controller.savedConfigurations().find(item => item.profile === 4)?.effects), slapback);
+  assert.deepEqual(h.drafts.configurations().find(item => item.profile === 4)?.effects, chorus);
+  const copy = h.controller.savedConfigurations();
+  assert.notEqual(copy.find(item => item.profile === 4)?.effects, h.voice('A8').effects, 'the startup bundle cannot mutate the saved catalog');
+});

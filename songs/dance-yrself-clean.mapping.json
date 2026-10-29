@@ -1,5 +1,5 @@
 {
-  "mappingVersion": 4,
+  "mappingVersion": 5,
   "notationVersion": "dyc-v1",
   "songId": "dance-yrself-clean",
   "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg",
@@ -11,7 +11,7 @@
   "barRow": 5,
   "leadInColumn": 2,
   "startBar": 1,
-  "endBar": 76,
+  "endBar": 218,
   "meter": { "numerator": 4, "denominator": 4 },
   "controls": [
     { "buttonId": "L1", "voiceId": "whistle", "cueRow": 20, "arrangementRow": 13, "nameNoteCell": "A20" },
@@ -37,6 +37,10 @@
     { "id": "bing-bong-main", "voiceId": "bing-bong", "armCells": ["F21", "H21"] }
   ],
   "variantRules": [{ "voiceId": "cowbell", "row": 11, "fromBar": 1, "sampledOnly": true }],
+  "variantReuses": [
+    { "cell": "CT11", "notation": "&e3a'", "sourceArmCell": "CE19", "endCount": 3.5 },
+    { "cell": "FJ11", "notation": "&e3a'", "sourceArmCell": "CE19", "endCount": 3.5 }
+  ],
   "overrides": [],
   "deferredRows": []
 }

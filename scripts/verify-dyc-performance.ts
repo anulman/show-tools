@@ -37,6 +37,8 @@ async function command(binary: string, args: string[]) {
   }
 }
 const song = await compileSong(source, mapping);
+const expectedTempoHits = song.cues.filter(cue => cue.tempoBeatHint === 1).length;
+const expectedRotations = (song.rotation?.windows.length ?? 0) * 2;
 await writeFile(join(directory, 'dance-yrself-clean.json'), canonicalSongJson(song));
 await writeFile(join(directory, 'inspection.txt'), inspectCompiledSong(song));
 assert(song.executable, `Artifacts: ${directory}\n${inspectCompiledSong(song)}`);
@@ -60,6 +62,7 @@ function presses(rate: number) {
   return [...pads, ...rotations].sort((a, b) => a.frame - b.frame || a.button - b.button);
 }
 function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
+  const maxFrames = Math.ceil((song.chart.bars.length * song.chart.beatsPerBar + song.chart.beatsPerBar + 1) * rate * 60 / 40) + 1024;
   let memory: WebAssembly.Memory;
   const instance = new WebAssembly.Instance(module, { env: { abort() { throw new Error('WASM aborted'); }, emscripten_notify_memory_growth() {} },
     wasi_snapshot_preview1: { fd_write(_fd: number, _iov: number, _count: number, written: number) { new DataView(memory.buffer).setUint32(written, 0, true); return 0; }, fd_close: () => 0, fd_seek: () => 0, proc_exit(code: number) { throw new Error(`WASM exited ${code}`); } } });
@@ -116,7 +119,7 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
     drain();
     while (native.state().phase !== 'ended') {
       assert(['count-in', 'playing'].includes(native.state().phase), 'transport did not fault or stop early');
-      assert(frame < rate * 500);
+      assert(frame < maxFrames, 'performance stays within its declared song-duration guard');
       if (releaseCount !== null) {
         const cutoff = expectedCutoff();
         const backup = native.voiceEffects()[PF.BACKUP_PROFILE];
@@ -147,7 +150,7 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
         catch (error) { throw new Error(`Press rejected at frame ${frame}, ${press.source} ${press.text}: ${error instanceof Error ? error.message : String(error)}`); }
         drain();
       }
-      let count = Math.min(1024, rate * 500 - frame, next < plan.length ? plan[next].frame - frame : Infinity);
+      let count = Math.min(1024, maxFrames - frame, next < plan.length ? plan[next].frame - frame : Infinity);
       if (releaseCount !== null) {
         const cutoff = expectedCutoff();
         count = Math.min(count, (frame < cutoff - 1 ? cutoff - 1 : cutoff) - frame);
@@ -175,10 +178,10 @@ for (const rate of [44100, 48000]) {
   if (native && browser) {
     try {
       assert.deepEqual(native.takes, browser.takes); assert.equal(native.frames, browser.frames); assert.equal(native.events, browser.events);
-      assert.equal(native.tempoHits, 2); assert.equal(browser.tempoHits, 2); assert.equal(native.takes.length, 9);
-      assert.equal(native.rotations, 20); assert.equal(browser.rotations, 20);
-      assert.equal(native.rotationCutoffs.length, 20);
-      assert.deepEqual(native.rotationCutoffs, browser.rotationCutoffs, 'native and WASM observe the same twenty predicted source cutoff frames');
+      assert.equal(native.tempoHits, expectedTempoHits); assert.equal(browser.tempoHits, expectedTempoHits); assert.equal(native.takes.length, song.takes.length);
+      assert.equal(native.rotations, expectedRotations); assert.equal(browser.rotations, expectedRotations);
+      assert.equal(native.rotationCutoffs.length, expectedRotations);
+      assert.deepEqual(native.rotationCutoffs, browser.rotationCutoffs, 'native and WASM observe the same predicted source cutoff frames');
       assert(native.takes.every(take => take.ready && take.frames > 0 && take.period >= take.frames && take.revision === 1));
       for (let index = 0; index < 4; index++) {
         assert(native.stems[index].energy > 0);

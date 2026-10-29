@@ -31,7 +31,8 @@ for (const rate of [44100, 48000]) test(`DYC Cowbell play renders the written ba
   memory = instance.exports.memory;
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
   const engine = new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE,
-    compiledProgram: Array.from(encodeCompiledProgram(song)), clickGain: 0 });
+    compiledProgram: Array.from(encodeCompiledProgram(song)), clickGain: 0,
+    initialVoiceEffects: Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })) });
   const at = (bar: number, beat = 0) => Math.ceil((5 + (bar - 1) * 4 + beat) * rate * 60 / song.chart.bpm);
   const plan = song.cues.filter(cue => cue.bar <= 20)
     .map(cue => ({ cue, frame: cue.bar === 0 ? 1 : at(cue.bar, cue.cueBeat ?? 0) + 1 }))
