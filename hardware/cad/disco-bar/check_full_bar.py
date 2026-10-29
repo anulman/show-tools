@@ -6,14 +6,16 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import disco_bar as model
+import final_review
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--step", type=Path, required=True)
     args = parser.parse_args()
-    scene = model.preview(args.step)
-    model.verify_preview_scene(args.step, scene)
+    selection = final_review.load()
+    scene = model.preview(args.step, selection=selection)
+    model.verify_preview_scene(args.step, scene, selection=selection)
     original = scene[0][0]
     print(f"PASS original plus selected complete assemblies, {len(scene[0])} labelled pieces")
 
@@ -59,7 +61,7 @@ def main():
     }
     for name, candidate in cases.items():
         try:
-            model.verify_preview_scene(args.step, candidate)
+            model.verify_preview_scene(args.step, candidate, selection=selection)
         except ValueError:
             print(f"PASS rejected {name}")
         else:
@@ -68,7 +70,7 @@ def main():
         wrong_asset = Path(folder) / "replacement.step"
         wrong_asset.write_text("Not the original measured bar")
         try:
-            model.verify_preview_scene(wrong_asset, scene)
+            model.verify_preview_scene(wrong_asset, scene, selection=selection)
         except ValueError:
             print("PASS rejected changed source asset")
         else:

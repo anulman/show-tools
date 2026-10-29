@@ -17,13 +17,13 @@ Publish the box-mount concept:
 hardware/cad/cad view box-mount
 ```
 
-Publish the complete original disco bar beside A, B, and the component-only knob-baseplate study:
+Prepare the [checked final-review pair](FINAL_REVIEW.md), then publish the original disco bar beside A, B, and complete C:
 
 ```sh
 hardware/cad/cad view disco-bar --step '/absolute/path/to/Disco Ball.step'
 ```
 
-To inspect the box interiors, add `--explode 25` to lower their bottoms by 25 mm. Use `cad box-check` for headless box exports and `cad disco-check --step PATH` for private-reference inspection. Use `cad disco-check --step PATH --concepts hardware/cad/build/disco-clamps` to export and check the proposed full-height clamp parts without publishing.
+To inspect the box interiors, add `--explode 25` to lower their bottoms by 25 mm. `cad box-check` exports the legacy box generator; the matching C rotor base uses the checked pair described in [FINAL_REVIEW.md](FINAL_REVIEW.md). Use `cad disco-check --step PATH` for private-reference inspection. `cad disco-check --concepts` exports legacy A, not new C. Headless checks never publish.
 
 `SHOW_TOOLS_DISCO_STEP` can supply the local STEP path instead. The original attachment remains outside the repository. The publisher does not start the viewer or any hardware service. Switching workstreams or box variants selects an isometric view. Subsequent publishes of the same workstream retain the camera unless `--reset-camera` is supplied. Only the selected workstream changes the viewer; headless checks leave it alone.
 
@@ -43,11 +43,11 @@ All three retain proposed removable screw-fastened bottoms, wiring passages, and
 
 ## Continue the disco bar
 
-Current display names are **A** for the former C axial screw clamp and **B** for the former B′ grip-latch study. They remain reference geometries. The new target is a separate knob-gripping baseplate with padded set screws, plus a latch joint that attaches and releases the full bar. The private [C1/C2/C3 comparison](disco-bar/C123-findings.md) records valid exports and functional failures; a separate C1 flange-relief proposal is the recommended starting correction. Added collar spacing and lifting for underside service access are authorized. Final C remains unpublished. Do not reuse a pad-preload latch as the bar-to-plate joint.
+Current display names are **A** for the former C axial screw clamp and **B** for the former B′ grip-latch study. They remain reference geometries. The [complete C proposal](disco-bar/final-C-proposal.md) separates the padded-screw knob grip from a captive-pin collar joint. The [C1/C2/C3 comparison](disco-bar/C123-findings.md) remains historical evidence. The operator approved final proposal publication for human review. Added spacing and lifted underside service are authorized; full tool entry now requires the proposed 140 mm lift. Prepare and select checked exports using [FINAL_REVIEW.md](FINAL_REVIEW.md). Do not reuse a pad-preload latch as the bar-to-plate joint.
 
 Inspect the [disco-bar notes](disco-bar/README.md) before designing a coupling. The supplied STEP describes the full bar inside the disco ball, rather than the spherical shell. Its full height reaches the top attachment. The STL and OBJ use coordinate magnitudes that differ from the STEP, so raw mesh coordinates must not be treated as millimetres. Use the STEP for the preview and preserve source units.
 
-The operator confirmed that the full bar height reaches its top attachment and the width was precisely measured to fit the disco-ball opening. Only axial access is available once installed. The **Disco bar** tab shows the complete original, current A's axial screw clamp, and current B's prior knob-grip latch. The earlier discarded bridge and independent-jaw studies, the over-centre grip-latch study, and D are omitted and are not generated. Current B has unverified holding and access against the roughly flush printed box surface. It is labelled for visual review and excluded from checked exports. Current A's geometry-check export has four printed pieces in the legacy `c` directory. Variant offsets are for side-by-side display only. Full bodies remain visible; no crop replaces their functional length.
+The operator confirmed that the full bar height reaches its top attachment and the width was precisely measured to fit the disco-ball opening. Only axial access is available once installed. The **Disco bar** tab shows the complete original, reference A, reference B and the complete C review proposal. Failed intermediate concepts remain headless historical studies. B's holding and access remain unverified. A's export has four printed pieces in the legacy `c` directory; new C uses the selected final-review receipt. Offsets are for comparison only. Full bodies remain visible; no crop replaces their functional length.
 
 The released knob opening uses the original snug pocket dimensions, floor, and entry bevel. Pads are recessed outward to preserve insertion clearance. The full end region and material outside explicitly bounded clamp edits remain protected. All printed parts and hardware envelopes must remain inside the original insertion profile. Future actuators must be reachable axially with the knob in place. Side-access mechanisms are unsuitable for the installed assembly.
 

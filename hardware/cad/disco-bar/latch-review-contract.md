@@ -29,4 +29,4 @@ No bearing material or thickness is selected. Each prototype records its propose
 
 ## Findings before publication
 
-Compare operator steps, proposed print and purchased part counts, assembly access, loose parts, accidental-release paths, support routing and failed checks. Recommend which ideas to combine only after all three receipts are available. Do not publish new latch or box geometries to the shared viewer during this stage.
+Compare operator steps, proposed print and purchased part counts, assembly access, loose parts, accidental-release paths, support routing and failed checks. Recommend which ideas to combine only after all three receipts are available. That comparison is complete. The operator has now approved publishing the corrected C and matching base proposals for human review. Only checked, matching export receipts may supply those previews; manufacturing approval remains separate.
