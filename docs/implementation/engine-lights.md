@@ -10,7 +10,9 @@ time.
 `lib/performance/src/performance_lights.h` supplies a bounded, allocation-free
 bank of explicit light instructions. It consumes an authoritative count
 coordinate supplied by its owner. It does not read the tracker, advance time, or
-publish live engine state. Existing PE ABI 5 and browser behavior are unchanged.
+publish live engine state. The foundation milestone left PE ABI 5 and browser
+behavior unchanged; the [performance guide](../../lib/performance/README.md)
+tracks the current engine and compiled-packet versions.
 
 `performance_light_output.h` defines the proposed complete output image; its
 generated TypeScript constants and validated types share that layout. There is

@@ -235,9 +235,9 @@ test('independent native voice graphs survive equal-revision compiled loads and 
   } finally { native.dispose(); }
 });
 
-test('real WASM backup graph follows relative rotation and native half-count grace with ordered PCM and natural tails', () => {
+test('real WASM backup graph follows relative rotation and native quarter-count grid release with ordered PCM and natural tails', () => {
   const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
-    PF.COMPILED_ROTATION_MAGIC, 2, .5, 1, 0, 1, 1, 2, 0, 3, 2];
+    PF.COMPILED_ROTATION_MAGIC, 2, .25, 1, 0, 1, 1, 2, 0, 3, 2];
   const native = engine(program);
   try {
     const backupEffects = [
@@ -254,13 +254,14 @@ test('real WASM backup graph follows relative rotation and native half-count gra
     native.setMicrophone(true); native.start({ runId: 'rotation-graph', bpm: 120, countInBars: 0, endBar: 4, loop: false }); until(native, 1, 1, 0);
     native.control({ id: 'knob', value: -2 }, 'rotation/1');
     assert.equal(backup().activity, 'live');
-    assert(Math.abs(backup().rotationRemainingBeats - .5) < 1e-9);
+    const boundary = native.query('pf_snapshot')[PF.CLOCK_BEAT_FRAME] + 1000;
+    assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * 4000 - boundary) < 1e-6);
     const first = render(native, 1, 1), response = render(native, 400, 0);
     assert.equal(first.live[0][0], 1);
     const expected = new Float32Array(400); expected[79] = .25; expected[319] = .5; expected[399] = .125;
     assert.deepEqual(response.live[0], expected);
     assert.deepEqual(response.live[0], response.live[1], 'centered mono remains centered through serial Slapback and Chorus');
-    render(native, 1598, 0); assert.equal(backup().activity, 'live');
+    render(native, Math.ceil(boundary) - native.processedFrames - 1, 0); assert.equal(backup().activity, 'live');
     render(native, 1, 1); assert.notEqual(backup().activity, 'live');
     const tail = render(native, 401, 0);
     assert.deepEqual(tail.live[0].slice(0, 400), expected);
@@ -274,12 +275,86 @@ test('real WASM backup graph follows relative rotation and native half-count gra
     assert.deepEqual(observation?.control, { id: 'knob', value: -3 }); assert.equal(observation?.applied, true);
     assert.equal(observation?.commandId, 'rotation/2');
     assert.equal(backup().rotationEligible, false); assert.notEqual(backup().activity, 'live');
-    until(native, 2, 1, 0); native.control({ id: 'knob', value: 2 }, 'rotation/3'); render(native, 1000, 0);
+    until(native, 2, 1, 0); native.control({ id: 'knob', value: 2 }, 'rotation/3'); render(native, 500, 0);
     const before = backup().rotationRemainingBeats;
     native.control({ id: 'knob', value: 2 }, 'rotation/3'); native.control({ id: 'knob', value: 0 }, 'rotation/4');
-    assert.equal(backup().rotationRemainingBeats, before, 'replayed producer command and zero delta do not extend grace');
+    assert.equal(backup().rotationRemainingBeats, before, 'replayed producer command and zero delta do not extend the grid deadline');
     native.stop();
     assert.equal(backup().rotationRemainingBeats, 0);
     assert(render(native, 512, 1).live.every(channel => channel.every(value => value === 0)));
   } finally { native.dispose(); }
 });
+
+test('WASM rejects old duration packets instead of treating their field as a release grid', () => {
+  const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
+  const native = engine(program);
+  try {
+    const before = native.state();
+    assert.throws(() => native.configureCompiled(program.map((field, index) => index === 1 ? 3 : field)), /compiled/i);
+    assert.equal(native.state().phase, before.phase);
+    assert.equal(native.state().startBar, before.startBar);
+    assert.throws(() => new NativePerformance({
+      api: { ...native.api, pf_abi_version: () => 5 }, sampleRate: 8000,
+    }), /ABI mismatch/, 'the browser bridge rejects an old binary before creating another engine');
+  } finally { native.dispose(); }
+});
+
+for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
+  test(`WASM quarter grid uses processed frames and fresh movement at the deadline (${rate} Hz, ${beats} counts)`, () => {
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+      PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
+    const native = engine(program, rate);
+    try {
+      native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })));
+      native.setMicrophone(true); native.start({ runId: `quarter-grid-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      const advanceTo = (frame: number) => render(native, frame - native.processedFrames, 0);
+      advanceTo(Math.ceil(rate / 2) + 8);
+      const anchor = native.query('pf_snapshot')[PF.CLOCK_BEAT_FRAME], framesPerBeat = rate / 2;
+      const backup = () => native.voiceEffects()[PF.BACKUP_PROFILE];
+      advanceTo(Math.ceil(anchor + .1 * framesPerBeat));
+      native.control({ id: 'knob', value: 4 }, 'first');
+      const deadline = native.processedFrames + backup().rotationRemainingBeats * framesPerBeat;
+      assert(Math.abs(deadline - (anchor + .25 * framesPerBeat)) < 1e-6);
+      advanceTo(Math.ceil(anchor + .2 * framesPerBeat));
+      native.control({ id: 'knob', value: -2 }, 'second');
+      assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * framesPerBeat - deadline) < 1e-6,
+        'motion within the same quarter does not add another quarter of inactivity');
+      const boundary = Math.ceil(deadline);
+      advanceTo(boundary - 1); assert.equal(backup().activity, 'live');
+      advanceTo(boundary); assert.notEqual(backup().activity, 'live');
+      native.control({ id: 'knob', value: -2 }, 'second');
+      native.control({ id: 'knob', value: 0 }, 'zero');
+      assert.notEqual(backup().activity, 'live', 'duplicate and zero cannot rearm expired rotation');
+      native.control({ id: 'knob', value: -3 }, 'at-boundary');
+      assert.equal(backup().activity, 'live');
+      assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * framesPerBeat
+        - (anchor + .5 * framesPerBeat)) < 1e-6, 'fresh movement at the processed boundary selects the following quarter');
+      native.stop(); assert.equal(backup().rotationRemainingBeats, 0);
+    } finally { native.dispose(); }
+  });
+
+  test(`WASM quarter-grid deadline follows a native tempo hit (${rate} Hz, ${beats} counts)`, () => {
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+      PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
+    const native = engine(program, rate);
+    try {
+      native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })));
+      native.setMicrophone(true); native.start({ runId: `quarter-grid-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      native.control({ id: 'tempo' }, 'tempo-first');
+      const advanceTo = (frame: number) => render(native, frame - native.processedFrames, 0);
+      advanceTo(Math.round(rate * .525)); native.control({ id: 'knob', value: 1 }, 'motion');
+      advanceTo(Math.round(rate * .55));
+      const backup = () => native.voiceEffects()[PF.BACKUP_PROFILE];
+      const remaining = backup().rotationRemainingBeats;
+      native.control({ id: 'tempo' }, 'tempo-second');
+      assert(Math.abs(backup().rotationRemainingBeats - remaining) < 1e-9);
+      const bpm = native.state().bpm;
+      assert(bpm < 120 && bpm > 100);
+      const deadline = Math.ceil(native.processedFrames + remaining * rate * 60 / bpm);
+      advanceTo(Math.ceil(rate * .625)); assert.equal(backup().activity, 'live', 'old wall-clock deadline cannot stop the new tempo early');
+      advanceTo(deadline - 1); assert.equal(backup().activity, 'live');
+      advanceTo(deadline); assert.notEqual(backup().activity, 'live');
+    } finally { native.dispose(); }
+  });
+}

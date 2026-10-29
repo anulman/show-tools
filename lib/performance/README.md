@@ -62,7 +62,7 @@ Default-live effects apply during count-in and playing. The click and cached sam
 ./show-tools chart inspect /tmp/song.json
 ```
 
-Compilation runs offline after fetch. `--draft` saves source-located diagnostics and cannot emit `.pfp` bytes. Schema/packet 3 and ABI 5 retain explicit capture end, loop end, and group anchor. Import a resolved artifact through the practice desk while stopped. Current DYC authoring answers are encoded. Its disjoint recording intervals permit F21 future arming while R1 still records; native state keeps live routing, capture ownership, and reservations separate.
+Compilation runs offline after fetch. `--draft` saves source-located diagnostics and cannot emit `.pfp` bytes. Schema/packet 4 and ABI 6 retain explicit capture end, loop end, and group anchor. Import a resolved artifact through the practice desk while stopped. Current DYC authoring answers are encoded. Its disjoint recording intervals permit F21 future arming while R1 still records; native state keeps live routing, capture ownership, and reservations separate.
 
 Lead-in capture must execute at the next song bar. Immediate lead-in capture is rejected because its duration depends on the runtime count-in and is not represented by a song-bar take interval. Individual stops report native countdown and release feedback through the final audible tail, then extinguish the pad light.
 
@@ -72,4 +72,6 @@ After a venue edit retains an older take, the first new capture uses the refresh
 
 `control({ id: 'tempo' })` uses the shared native hit path; no key or device is implicitly mapped to it. `1p*` uses that same path with beat hint 1 after playback readiness preflight. Phase, serial, and epoch remain unchanged. The existing bounded six-interval median policy is retained without rephasing; isolated hits may produce no new BPM estimate. `tempo-hit` events and `tempoHitInfo()` expose actual-frame provenance. Cached loops remain unit-rate; arbitrary live tempo stretching is not claimed.
 
-The current artifact also preserves six AF part identities and ten explicit DYC rotation windows. Four capture voice indices remain unchanged. Native six-profile preparation keeps independent revisions and exposes actual ordered graph readback. Backup rotation grace is half a chart-count beat inside its written interval; signed values remain observable while direction does not change audio activation.
+The current artifact also preserves six AF part identities and ten explicit DYC rotation windows. Four capture voice indices remain unchanged. Native six-profile preparation keeps independent revisions and exposes actual ordered graph readback. Backup rotation stops feeding source at the next quarter-count grid boundary strictly after the latest accepted movement, limited by its written interval; signed values remain observable while direction does not change audio activation.
+
+Mappings now use version 4 with explicit `liveParts` (an empty list when unused) and `rotationRule.releaseGridBeats: 0.25`. Compiled JSON and numeric packets are version 4; the engine handshake is ABI 6. Recompile older mappings/artifacts: the old `holdBeats` duration is not interpreted as a release grid. The source snapshot format remains version 1. Grid sizes must be positive, at most one chart count, and representable on the existing 960-tick count lattice.

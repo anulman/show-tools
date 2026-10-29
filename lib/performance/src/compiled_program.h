@@ -61,6 +61,7 @@ class Program {
   void stop_voice(int voice, bool hard) noexcept;
   void switch_route(int voice, bool history_handed_off = false) noexcept;
   double position(double frame, double bpm) const noexcept;
+  double frame_at(double position) const noexcept;
   void apply_pending(double frame, double bpm) noexcept;
   double cue_frame(const Cue& cue, double bpm) const noexcept;
   void remember_cues(double frame, double bpm) noexcept;
@@ -69,7 +70,7 @@ class Program {
   uint32_t fields_ = 0, prepared_revision_[PF_CHANNELS]{};
   std::unique_ptr<RotationWindow[]> rotation_windows_;
   int rotation_count_ = 0, monitor_route_ = PF_DEFAULT_PROFILE;
-  double rotation_hold_ = .5, rotation_deadline_ = -1;
+  double rotation_grid_ = .25, rotation_deadline_ = -1;
   bool handed_off_[PF_CHANNELS]{};
   std::unique_ptr<Take[]> takes_;
   std::unique_ptr<Cue[]> cues_;

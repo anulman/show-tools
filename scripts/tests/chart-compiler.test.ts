@@ -25,7 +25,7 @@ test('chart CLI compiles the actual DYC source into deterministic reviewable JSO
     assert.deepEqual(new Uint8Array(await readFile(native)), compiledProgramBytes(song));
     await run(['compile', ...inputs, '--out', second]);
     assert.equal(await readFile(first, 'utf8'), await readFile(second, 'utf8'));
-    assert.match((await run(['inspect', first])).stdout, /Schema 3.*executable/);
+    assert.match((await run(['inspect', first])).stdout, /Schema 4.*executable/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 

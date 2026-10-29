@@ -44,11 +44,11 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   uint64_t needed = PF_COMPILED_HEADER_FIELDS + uint64_t(data[8]) * PF_COMPILED_TAKE_FIELDS + uint64_t(data[9]) * PF_COMPILED_CUE_FIELDS
     + uint64_t(data[10]) * PF_COMPILED_MEMBER_FIELDS + uint64_t(data[11]) * PF_COMPILED_PLAYBACK_FIELDS;
   if (needed > fields) return nullptr;
-  int rotation_count = 0; double rotation_hold = .5;
+  int rotation_count = 0; double rotation_grid = .25;
   if (needed < fields) {
     if (fields - needed < PF_COMPILED_ROTATION_HEADER_FIELDS || data[needed] != PF_COMPILED_ROTATION_MAGIC
-      || !whole(data[needed + 1], PF_MAX_EVENTS) || !std::isfinite(data[needed + 2]) || data[needed + 2] <= 0 || data[needed + 2] > 1) return nullptr;
-    rotation_count = int(data[needed + 1]); rotation_hold = data[needed + 2];
+      || !whole(data[needed + 1], PF_MAX_EVENTS) || !whole(data[needed + 2] * 960, 960) || data[needed + 2] <= 0) return nullptr;
+    rotation_count = int(data[needed + 1]); rotation_grid = data[needed + 2];
     if (needed + PF_COMPILED_ROTATION_HEADER_FIELDS + uint64_t(rotation_count) * PF_COMPILED_ROTATION_FIELDS != fields) return nullptr;
   }
   for (int button = 0; button < PF_CHANNELS; ++button) {
@@ -61,7 +61,7 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   program->early_ = data[6]; program->late_ = data[7]; program->take_count_ = int(data[8]); program->cue_count_ = int(data[9]);
   program->member_count_ = int(data[10]); program->playback_count_ = int(data[11]);
   for (int button = 0; button < PF_CHANNELS; ++button) program->binding_[button] = int(data[12 + button]);
-  program->rotation_count_ = rotation_count; program->rotation_hold_ = rotation_hold;
+  program->rotation_count_ = rotation_count; program->rotation_grid_ = rotation_grid;
   program->rotation_windows_.reset(new (std::nothrow) RotationWindow[rotation_count]);
   if (!program->rotation_windows_) return nullptr;
   for (int id = 0; id < rotation_count; ++id) {
@@ -283,6 +283,7 @@ bool Program::commit_period(int id, uint32_t& period) const noexcept {
   return cache->length() <= period && std::abs(double(cache->length()) - expected_capture) <= 1;
 }
 double Program::position(double frame, double bpm) const noexcept { return anchor_position_ + (frame - anchor_frame_) * bpm / (rate_ * 60); }
+double Program::frame_at(double position) const noexcept { return anchor_frame_ + (position - anchor_position_) * rate_ * 60 / bpm_; }
 int Program::available_bank(int id) const noexcept {
   if (id < 0 || id >= take_count_) return -1;
   const Take& take = takes_[id];
@@ -307,19 +308,26 @@ void Program::switch_route(int voice, bool history_handed_off) noexcept {
 }
 bool Program::rotation_eligible() const noexcept {
   if (phase_ != PF_PLAYING) return false;
-  for (int id = 0; id < rotation_count_; ++id) if (query_position_ >= rotation_windows_[id].begin && query_position_ < rotation_windows_[id].end) return true;
+  for (int id = 0; id < rotation_count_; ++id) if (query_frame_ >= frame_at(rotation_windows_[id].begin) && query_frame_ < frame_at(rotation_windows_[id].end)) return true;
   return false;
 }
 double Program::rotation_remaining() const noexcept {
-  double remaining = rotation_deadline_ - query_position_;
-  return rotation_eligible() && remaining > epsilon ? remaining : 0;
+  if (!rotation_eligible() || rotation_deadline_ < 0) return 0;
+  double frames = frame_at(rotation_deadline_) - query_frame_;
+  return frames > 0 ? frames * bpm_ / (rate_ * 60) : 0;
 }
 int Program::rotate(double value, double frame, double bpm) noexcept {
   if (!std::isfinite(value)) return PF_INVALID_KNOB;
-  query_position_ = position(frame, bpm); query_frame_ = frame;
+  bpm_ = bpm; query_position_ = position(frame, bpm); query_frame_ = frame;
   if (!value || phase_ != PF_PLAYING) return PF_OK;
-  for (int id = 0; id < rotation_count_; ++id) if (query_position_ >= rotation_windows_[id].begin && query_position_ < rotation_windows_[id].end) {
-    rotation_deadline_ = std::min(query_position_ + rotation_hold_, rotation_windows_[id].end); break;
+  for (int id = 0; id < rotation_count_; ++id) if (frame >= frame_at(rotation_windows_[id].begin) && frame < frame_at(rotation_windows_[id].end)) {
+    double grid = std::floor(query_position_ / rotation_grid_);
+    double next = (grid + 1) * rotation_grid_;
+    // Correct either rounding direction in count conversion without merging
+    // distinct source frames at a strict grid boundary.
+    if (frame_at(grid * rotation_grid_) > frame) next = grid * rotation_grid_;
+    else if (frame_at(next) <= frame) next = (grid + 2) * rotation_grid_;
+    rotation_deadline_ = std::min(next, rotation_windows_[id].end); break;
   }
   return PF_OK;
 }

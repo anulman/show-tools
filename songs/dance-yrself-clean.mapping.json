@@ -1,5 +1,5 @@
 {
-  "mappingVersion": 3,
+  "mappingVersion": 4,
   "notationVersion": "dyc-v1",
   "songId": "dance-yrself-clean",
   "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg",
@@ -23,7 +23,7 @@
     { "id": "vocals", "labelCell": "A8", "role": "default-live" },
     { "id": "backup-vocals", "labelCell": "A9", "role": "rotation-live" }
   ],
-  "rotationRule": { "row": 17, "voiceId": "backup-vocals", "holdBeats": 0.5 },
+  "rotationRule": { "row": 17, "voiceId": "backup-vocals", "releaseGridBeats": 0.25 },
   "cueWindow": { "earlyMs": 25, "lateMs": 25, "ties": "reject" },
   "capturePolicies": [
     { "voiceId": "cowbell", "retention": "variant", "gain": 1 },
