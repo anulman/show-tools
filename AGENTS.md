@@ -8,6 +8,8 @@ The complete musical engine runs in shared C++ under `lib/performance/`, `lib/se
 
 Commit each verified milestone during implementation.
 
+Follow `docs/data-retention.md` for canonical stores and cleanup. Figma owns promoted animation, Git owns canonical effect code and concise lessons, and operator authoring data belongs in a database sidecar with independent backup. Extract useful lessons before expiring prototypes and process evidence. Preserve active inputs until the canonical handoff is verified; recordings and current work do not require archival backup.
+
 The operator manages the Sheets helper and Chrome CDP lifecycle. Start or restart those processes only when explicitly requested. Practice audio does not require either process.
 
 Use `./show-tools sheets [song-slug-or-1-indexed-number] [--no-cdp] [--skip-open]` for combined Sheets following. Keep `npm run start:cdp` available for standalone browser management. Keep `.envrc` ignored; `.envrc.example` documents optional overrides. The Bash launcher supplies missing defaults and discovers an installed browser. The helper reads the same CDP port environment variable. Start processes only on explicit operator request.
