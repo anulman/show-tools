@@ -30,7 +30,7 @@ Duplicate samples return the same result. Delayed, skipped, or reordered samples
 
 ## Caller ownership
 
-Performance Engine exclusively owns the musical meaning, quantized period, keyframes, phase origin, continuous phase, and activation/cancellation boundaries. An output host samples or delivers engine-authored output. It does not choose musical timing or reconstruct phase from BPM or message arrival. The evaluator must receive a coordinate with the continuity selected by PE. `PF_POSITION_BEAT` is chart-relative and wraps on range loops. It is not a monotonic phase source. Current PE ABI 5 does not publish a complete continuous light-phase contract.
+Performance Engine exclusively owns the musical meaning, quantized period, keyframes, phase origin, continuous phase, and activation/cancellation boundaries. An output host samples or delivers engine-authored output. It does not choose musical timing or reconstruct phase from BPM or message arrival. The evaluator must receive a coordinate with the continuity selected by PE. `PF_POSITION_BEAT` is chart-relative and wraps on range loops. It is not a monotonic phase source. Current PE ABI 6 does not publish a complete continuous light-phase contract.
 
 The caller must discard stale recipes across the appropriate run, clock epoch, device session, and binding revision. `PF_EPOCH` alone is not a run or device-session identity. A stateless evaluator cannot enforce those gates. Event loss or reconnect requires the caller's recovery policy before old recipes can be reused. On a restart, PE explicitly retains or replaces the origin according to its musical policy. The host discards stale publications rather than inventing a replacement origin. No input-edge or spinner behavior changes in this module.
 

@@ -1,11 +1,13 @@
 #include "performance_engine.h"
 #include "patch_engine.h"
+#include "../src/compiled_program.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <vector>
 
 namespace {
@@ -28,8 +30,8 @@ std::array<double, PF_FIELDS> state(pf_engine* engine) { std::array<double, PF_F
 std::array<double, PF_TAKE_FIELDS> take(pf_engine* engine, int id) { std::array<double, PF_TAKE_FIELDS> out{}; pf_compiled_take_info(engine, id, out.data()); return out; }
 std::array<double, PF_CHANNEL_FIELDS> channel(pf_engine* engine, int id) { std::array<double, PF_CHANNEL_FIELDS> out{}; pf_channel_info(engine, id, out.data()); return out; }
 struct Engine {
-  pf_engine* value = pf_create(8000, PF_PRACTICE, 32, 30, 4);
-  Engine() { require(value, "engine creation"); }
+  pf_engine* value;
+  explicit Engine(double rate = 8000) : value(pf_create(rate, PF_PRACTICE, 32, 30, 4)) { require(value, "engine creation"); }
   ~Engine() { pf_destroy(value); }
   operator pf_engine*() { return value; }
 };
@@ -699,13 +701,94 @@ struct Venue {
 };
 std::vector<double> rotation_table(int beats = 4) {
   return { PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
-    PF_COMPILED_ROTATION_MAGIC, 2, .5, 1, 0, 1, 1, 2, 0, 3, 2 };
+    PF_COMPILED_ROTATION_MAGIC, 2, .25, 1, 0, 1, 1, 2, 0, 3, 2 };
+}
+void rotation_releases_on_strict_quarter_grid() {
+  for (int beats : {4, 6}) for (double rate : {8000., 44100., 48000.}) {
+    auto identity = patches::Rack::create(nullptr, 0);
+    require(bool(identity), "diagnostic identity rack");
+    auto song = rotation_table(beats);
+    auto program = compiled::Program::create(song.data(), uint32_t(song.size()), rate, *identity, 1);
+    require(bool(program), "diagnostic quarter-grid program");
+    program->start(1, 0, 0, 120);
+    program->beat(PF_PLAYING, 1, 1, 0, 0, 120);
+    const double frames_per_count = rate * .5;
+    require(program->rotate(1, frames_per_count * .1, 120) == PF_OK, "off-grid motion accepted");
+    require(std::abs(program->rotation_remaining() - .15) < 1e-12, "release selects next quarter grid, not quarter-count inactivity");
+    require(program->rotate(-1, frames_per_count * .2, 120) == PF_OK &&
+      std::abs(program->rotation_remaining() - .05) < 1e-12, "continued motion within one quarter retains the same target");
+    const double boundary = frames_per_count * .25;
+    for (double at : {boundary - 1, std::nextafter(boundary, 0.)}) {
+      program->rotate(1, at, 120);
+      const double remaining_frames = program->rotation_remaining() * frames_per_count;
+      require(remaining_frames > 0 && std::abs(remaining_frames - (boundary - at)) < 1e-9,
+        "motion before a grid boundary selects that boundary, including its representable neighbor");
+    }
+    for (double at : {boundary, std::nextafter(boundary, std::numeric_limits<double>::infinity()), boundary + 1}) {
+      program->rotate(1, at, 120);
+      require(std::abs(program->rotation_remaining() * frames_per_count - (2 * boundary - at)) < 1e-9,
+        "motion on or after a grid boundary selects the following quarter");
+    }
+    program->rotate(0, 2 * boundary, 120);
+    require(program->rotation_remaining() == 0, "zero motion cannot extend an exact deadline");
+    program->rotate(-1, 2 * boundary, 120);
+    require(std::abs(program->rotation_remaining() - .25) < 1e-12, "fresh motion at the old deadline activates the next quarter");
+    for (double bpm : {73., 137., 240.}) for (double anchor : {123.125, 9933.987654321, 100000000.375}) {
+      program->start(2, 0, 0, bpm);
+      program->beat(PF_PLAYING, 2, 1, 0, anchor, bpm);
+      const double quarter = anchor + .25 * rate * 60 / bpm;
+      const double following = anchor + .5 * rate * 60 / bpm;
+      const double before = std::nextafter(quarter, 0.);
+      program->rotate(1, before, bpm);
+      require(program->rotation_remaining() > 0 &&
+        std::abs(program->rotation_remaining() * rate * 60 / bpm - (quarter - before)) < 1e-9,
+        "fractional clock anchor preserves the representable instant before a grid boundary");
+      for (double at : {quarter, std::nextafter(quarter, std::numeric_limits<double>::infinity())}) {
+        program->rotate(-1, at, bpm);
+        require(std::abs(program->rotation_remaining() * rate * 60 / bpm - (following - at)) < 1e-9,
+          "fractional clock anchor selects the following grid at and after its exact boundary");
+      }
+    }
+    song.back() = 2.125;
+    auto capped = compiled::Program::create(song.data(), uint32_t(song.size()), rate, *identity, 1);
+    require(bool(capped), "non-grid written rotation end is valid");
+    capped->start(3, 0, 0, 120);
+    capped->beat(PF_PLAYING, 3, 3, 0, 0, 120);
+    capped->rotate(1, .1 * frames_per_count, 120);
+    require(std::abs(capped->rotation_remaining() - .025) < 1e-12, "written window end caps a later quarter-grid target");
+    const double cap = .125 * frames_per_count;
+    capped->rotate(0, std::nextafter(cap, 0.), 120);
+    require(capped->rotation_eligible() && capped->rotation_remaining() > 0, "written end remains open at its preceding representable instant");
+    capped->rotate(1, cap, 120);
+    require(!capped->rotation_eligible() && capped->rotation_remaining() == 0, "written end is half-open and cannot be refreshed");
+  }
 }
 Venue rotation_venue() {
   Venue venue; venue.counts[PF_BACKUP_PROFILE] = 2;
   venue.effects.push_back({PF_EFFECT_SLAPBACK, 1, {{40, 0, .5}}});
   pf_effect_definition chorus{}; chorus.type = PF_EFFECT_CHORUS; chorus.version = 1; chorus.parameters.chorus = {1, 0, 10, .25}; venue.effects.push_back(chorus);
   return venue;
+}
+void rotation_refresh_at_boundary_has_continuous_pcm() {
+  for (int beats : {4, 6}) for (double rate : {44100., 48000.}) {
+    Engine engine(rate); auto venue = rotation_venue(); venue.apply(engine); auto song = rotation_table(beats);
+    ok(engine, pf_configure_compiled(engine, song.data(), uint32_t(song.size())));
+    ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1));
+    ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
+    const double release = std::ceil(state(engine)[PF_CLOCK_BEAT_FRAME] + rate / 8);
+    ok(engine, pf_control(engine, 5, 1, nullptr, 0));
+    auto before = render(engine, uint32_t(release - state(engine)[PF_FRAME]), 1);
+    require(std::abs(before.live_left.back() - 1.875f) < 1e-6 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0,
+      "real native blocks keep the processed backup source through the final frame before its quarter deadline");
+    ok(engine, pf_control(engine, 5, -1, nullptr, 0));
+    auto continued = render(engine, 1, 1);
+    require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE && std::abs(continued.live_left[0] - 1.875f) < 1e-6,
+      "accepted motion at the old deadline keeps the existing rack continuous without a fabricated dry frame");
+    ok(engine, pf_set_microphone(engine, 0));
+    auto silent = render(engine, 1000, 1);
+    require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0 && std::all_of(silent.live_left.begin(), silent.live_left.end(), [](float sample) { return sample == 0; }),
+      "microphone loss clears quarter-grid activation and its tails");
+  }
 }
 void independent_profiles_and_reload_have_real_graphs() {
   Engine engine; Venue venue;
@@ -731,14 +814,15 @@ void independent_profiles_and_reload_have_real_graphs() {
 void rotation_metadata_rejects_invalid_programs_atomically() {
   Engine engine; auto venue = rotation_venue(); venue.apply(engine); auto good = rotation_table();
   ok(engine, pf_configure_compiled(engine, good.data(), uint32_t(good.size())));
-  std::vector<std::vector<double>> invalid(8, good);
+  std::vector<std::vector<double>> invalid(11, good);
   invalid[0][16] = 0; invalid[1][17] = 3; invalid[2][18] = std::nan(""); invalid[3][19] = 0;
   invalid[4][21] = 5; invalid[4][22] = 1; invalid[5][23] = 1; invalid[5][24] = .5;
   invalid[6][20] = .0001; invalid[7][21] = 1; invalid[7][22] = 0;
+  invalid[8][18] = .0001; invalid[9][18] = 0; invalid[10][1] = 3;
   const auto before = profile(engine, 5);
   for (const auto& bad : invalid) require(pf_configure_compiled(engine, bad.data(), uint32_t(bad.size())) < 0 && profile(engine, 5) == before, "malformed rotation metadata preserves applied venue and previous program");
   ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1)); ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
-  ok(engine, pf_control(engine, 5, 1, nullptr, 0)); require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == .5, "prior rotation eligibility remains executable after failed replacements");
+  ok(engine, pf_control(engine, 5, 1, nullptr, 0)); require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "prior quarter-grid program remains executable after malformed grid and version-3 replacements");
 }
 void rotation_graph_order_and_tail_pcm() {
   Engine engine; auto venue = rotation_venue(); venue.apply(engine); auto song = rotation_table();
@@ -746,12 +830,13 @@ void rotation_graph_order_and_tail_pcm() {
   require(stage(engine, 5, 0)[PF_VOICE_EFFECT_TYPE] == PF_EFFECT_SLAPBACK && stage(engine, 5, 1)[PF_VOICE_EFFECT_TYPE] == PF_EFFECT_CHORUS && stage(engine, 5, 1)[PF_VOICE_EFFECT_PARAMETER_2] == 10, "native readback reports actual ordered serial slapback then chorus");
   ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
   ok(engine, pf_control(engine, 5, -2, nullptr, 0));
-  require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == .5, "negative rotation activates backup for half a chart count");
+  require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "negative rotation activates backup until the next quarter-count grid");
+  const double release_frame = std::ceil(state(engine)[PF_CLOCK_BEAT_FRAME] + 1000);
   auto impulse = render(engine, 1, 1); auto response = render(engine, 400, 0);
   require(impulse.live_left[0] == 1 && response.live_left[79] == .25f && response.live_left[319] == .5f && response.live_left[399] == .125f, "serial graph renders dry, chorus, slapback, and chorused slapback once each");
   for (int frame = 0; frame < 400; ++frame) if (frame != 79 && frame != 319 && frame != 399) require(response.live_left[frame] == 0, "graph contains no additional dry path or hidden repeats");
-  render(engine, 1598, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE, "backup stays attached through the last sample before grace expiry");
-  render(engine, 1, 1); require(profile(engine, 5)[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE, "backup stops original source exactly half a count after last rotation");
+  render(engine, uint32_t(release_frame - state(engine)[PF_FRAME] - 1), 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE, "backup stays attached through the last source frame before the quarter boundary");
+  render(engine, 1, 1); require(profile(engine, 5)[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE, "backup stops original source at the first frame on or after the quarter boundary");
   auto tail = render(engine, 401, 0);
   require(tail.live_left[79] == .25f && tail.live_left[319] == .5f && tail.live_left[399] == .125f && tail.live_left[400] == 0, "detached backup drains its natural serial effects without repeating original dry");
   require(profile(engine, 4)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE && profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_STANDBY, "main vocals resume as backup tail ends");
@@ -764,7 +849,7 @@ void rotation_graph_order_and_tail_pcm() {
   until(engine, 2); ok(engine, pf_control(engine, 5, 4, nullptr, 0)); render(engine, 1000, 0);
   const uint16_t identity[] = {'r','o','t'}; ok(engine, pf_control(engine, 5, -4, identity, 3)); render(engine, 500, 0); auto remaining = profile(engine, 5)[PF_VOICE_ROTATION_REMAINING];
   ok(engine, pf_control(engine, 5, -4, identity, 3)); ok(engine, pf_control(engine, 5, 0, nullptr, 0));
-  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == remaining, "duplicate producer command and zero delta never refresh musical grace");
+  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == remaining, "duplicate producer command and zero delta never change the quarter-grid target");
   pf_stop(engine); auto silent = render(engine, 500, 1);
   require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_STANDBY && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0 && std::all_of(silent.live_left.begin(), silent.live_left.end(), [](float sample) { return sample == 0; }), "Stop clears rotation, tails and authorization immediately");
 }
@@ -772,21 +857,22 @@ void rotation_uses_musical_time_and_preserves_capture() {
   for (int beats : {4, 6}) {
     Engine engine; auto venue = rotation_venue(); venue.apply(engine); auto song = rotation_table(beats); ok(engine, pf_configure_compiled(engine, song.data(), uint32_t(song.size()))); ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1));
     ok(engine, pf_start(engine, 120, 0, 2, 4, 0, 0)); until(engine, 2);
-    ok(engine, pf_control(engine, 6, 0, nullptr, 0)); render(engine, 6000, 0); ok(engine, pf_control(engine, 5, 1, nullptr, 0)); render(engine, 1000, 0);
+    ok(engine, pf_control(engine, 6, 0, nullptr, 0)); render(engine, 6500, 0); ok(engine, pf_control(engine, 5, 1, nullptr, 0)); render(engine, 250, 0);
     double remaining = profile(engine, 5)[PF_VOICE_ROTATION_REMAINING]; ok(engine, pf_control(engine, 6, 0, nullptr, 0));
-    require(std::abs(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] - remaining) < 1e-9 && std::abs(state(engine)[PF_BPM] - (8000.0 * 60 / 7000)) < 1e-6, "tempo update preserves remaining musical grace without rephasing in either meter");
+    require(remaining > 0 && std::abs(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] - remaining) < 1e-9 && std::abs(state(engine)[PF_BPM] - (8000.0 * 60 / 6750)) < 1e-6, "tempo update preserves the remaining quarter-grid distance without rephasing in either meter");
     uint32_t remaining_frames = uint32_t(std::ceil(remaining * 8000 * 60 / state(engine)[PF_BPM]));
-    render(engine, remaining_frames, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE, "half-count deadline follows updated tempo rather than old wall-clock interval");
+    render(engine, remaining_frames - 1, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE, "tempo-adjusted quarter deadline stays open through its preceding frame");
+    render(engine, 1, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE, "quarter-grid deadline follows updated tempo rather than the old wall-clock interval");
     until(engine, 3, 2); render(engine, uint32_t(std::floor(8000 * 60 / state(engine)[PF_BPM] * .75)), 0); ok(engine, pf_control(engine, 5, 1, nullptr, 0));
-    require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "chart end clamps an otherwise longer half-count grace");
+    require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "rotation near a written window end never extends past its next quarter");
     until(engine, 3, 3); require(!profile(engine, 5)[PF_VOICE_ROTATION_ELIGIBLE] && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0, "written gate end clears backup source feed in both meters");
   }
-  Engine engine; auto song = table(); song.insert(song.end(), {PF_COMPILED_ROTATION_MAGIC, 1, .5, 1, 0, 3, 0}); prepare(engine, song); auto venue = rotation_venue(); venue.revisions.fill(2); venue.apply(engine);
+  Engine engine; auto song = table(); song.insert(song.end(), {PF_COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 3, 0}); prepare(engine, song); auto venue = rotation_venue(); venue.revisions.fill(2); venue.apply(engine);
   ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0)); until(engine, 1); ok(engine, press(engine, 0)); ok(engine, pf_control(engine, 5, 1, nullptr, 0));
   float source[128], left[128]{}, right[128]{}, live_left[128]{}, live_right[128]{}; std::fill(source, source + 128, .25f);
   heap_allocations = heap_frees = 0; watch_heap = true;
   for (int index = 0; index < 32; ++index) { if (index == 8) pf_control(engine, 5, -1, nullptr, 0); pf_process_stems(engine, source, left, right, live_left, live_right, 128); }
-  watch_heap = false; require(heap_allocations == 0 && heap_frees == 0, "rotation route changes and half-count release perform no heap work");
+  watch_heap = false; require(heap_allocations == 0 && heap_frees == 0, "rotation route changes and quarter-grid release perform no heap work");
   until(engine, 2); auto captured = render(engine, 1);
   require(take(engine, 0)[PF_TAKE_LENGTH] == 16000 && captured.left[0] == .25f, "rotation monitor switches do not add monitor tails or backup effects to independent capture");
 }
@@ -831,4 +917,4 @@ void prepared_capture_reuses_banks_without_heap_work() {
   require(heap_allocations == 0 && heap_frees == 0, "idempotent stopped preparation avoids allocations when all reusable banks are current");
 }
 }
-int main() { rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
+int main() { rotation_releases_on_strict_quarter_grid(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
