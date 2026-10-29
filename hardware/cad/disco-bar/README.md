@@ -10,8 +10,8 @@ All four source-derived screw studies remain in the generator for explicit headl
 
 | Variant | Mechanism | Geometry-check exports |
 | --- | --- | --- |
-| C | Inboard axial screws lift a drawframe against two tapered shoes | Complete bar, drawframe, and two shoes |
-| B′ | Lift-and-turn collar retains an axial draw yoke on fixed shoulders | Static review only; excluded |
+| A, formerly C | Inboard axial screws lift a drawframe against two tapered shoes | Complete bar, drawframe, and two shoes |
+| B, formerly B′ | Lift-and-turn collar retains an axial draw yoke on fixed shoulders | Static review only; excluded |
 
 All units are millimetres. The original socket is the operator-confirmed snug baseline. Actual knob dimensions are not independently measured. The new clamps are CAD prototypes awaiting physical tests.
 
@@ -22,9 +22,9 @@ hardware/cad/cad disco-check --step "$SHOW_TOOLS_DISCO_STEP" \
   --concepts hardware/cad/build/disco-full-height
 ```
 
-The command exports C's four proposed print pieces as STEP and STL into a `c` directory. It writes `receipt.json` with both model-source hashes and the reference asset hash. Pads, hardware, and the unchanged original are not exported. Full-bar derivatives remain local in the ignored build directory. STL coordinates must be interpreted as millimetres. Use a fresh output directory when preparing a handoff so retired variants are not mixed with these exports.
+The command exports reference A's four proposed print pieces as STEP and STL into a legacy `c` directory. The receipt records the new display name, both model-source hashes, and the reference asset hash. Pads, hardware, and the unchanged original are not exported. Full-bar derivatives remain local in the ignored build directory. STL coordinates must be interpreted as millimetres. Use a fresh output directory when preparing a handoff so retired variants are not mixed with these exports.
 
-B′ is excluded from this export set. Its source is in `latches.py`, and the publisher records its hash separately. Only its current locked pose is displayed; no operating animation or release is verified.
+B is excluded from this export set. Its source is in `latches.py`, and the publisher records its hash separately. Only its current locked pose is displayed; no operating animation or release is verified. The earlier Darren review pack uses the former names and topology; a new handoff follows the detachable-baseplate validation.
 
 The active generators and checks are in [full_height.py](full_height.py). The entrypoint remains `../disco_bar.py`. The old short carriers and Ø40 mm illustrative knob are retired; their source remains in Git history.
 
