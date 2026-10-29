@@ -76,7 +76,10 @@ def verify_preview_scene(path, scene):
     model = integrated_module()
     model.assert_empty(reference - objects[0], "Original preview lost source material")
     model.assert_empty(objects[0] - reference, "Original preview gained or displaced material")
-    for index, variant in enumerate(full_variants(reference), start=1):
+    variants = full_variants(reference)
+    if len(objects) != 1 + sum(len(variant.pieces) for variant in variants):
+        raise ValueError("Preview must contain only the original and four complete assemblies")
+    for index, variant in enumerate(variants, start=1):
         prefix = variant.name + " / "
         matches = [(shape.translate((-index * model.SPACING, 0, 0)), name)
                    for shape, name in zip(objects, names) if name.startswith(prefix)]

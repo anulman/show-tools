@@ -23,7 +23,10 @@ def main():
         return changed
 
     crop = original & model.box(110, 110, 28, (0, 0, -14))
+    extra = tuple(list(items) + [items[0]] for items in scene)
+    extra[1][-1] = "Unapproved extra display geometry"
     cases = {
+        "unapproved extra display geometry": extra,
         "historical 28 mm original crop": replace(0, crop),
         "historical original displacement": replace(0, original.translate((0, 0, -35))),
         # Rotation preserves the cylindrical bounds and material volume. Its

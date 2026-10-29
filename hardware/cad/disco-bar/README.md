@@ -9,7 +9,7 @@ The Disco bar page shows the complete unchanged original first, followed by four
 | C | Inboard axial screws lift a drawframe against two tapered shoes | Complete bar, drawframe, and two shoes |
 | D | A's bridge retained in integral side guides | Complete bar and captured bridge |
 
-Blue pieces are proposed prints, orange pieces are pad envelopes, and grey pieces are screw/nut envelopes. All units are millimetres. The original socket is the operator-confirmed snug baseline. Actual knob dimensions are not independently measured, and the new clamps are untested physical prototypes.
+Blue pieces are proposed prints, orange pieces are pad envelopes, and grey pieces are screw/nut envelopes. All units are millimetres. The original socket is the operator-confirmed snug baseline. Actual knob dimensions are not independently measured. The new clamps are CAD prototypes awaiting physical tests.
 
 Run the full geometry/export checks with the private STEP path:
 

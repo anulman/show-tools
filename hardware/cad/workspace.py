@@ -35,6 +35,9 @@ def main():
         parser.error(str(error))
     if not objects or not len(objects) == len(names) == len(colors) == len(alphas):
         raise RuntimeError("Preview objects and labels must have matching nonzero lengths")
+    if args.workspace == "disco-bar":
+        reference_path, _ = module.load_reference(args.step)
+        module.verify_preview_scene(reference_path, (objects, names, colors, alphas))
     output = CAD_DIR / "build" / "workspace"
     output.mkdir(parents=True, exist_ok=True)
     last_path = output / "current-view.json"
@@ -46,6 +49,8 @@ def main():
          port=args.port, reset_camera=Camera.ISO if reset else Camera.KEEP,
          axes=True, grid=(True, False, False))
     sources = [Path(module.__file__), Path(__file__)]
+    if args.workspace == "disco-bar":
+        sources.append(CAD_DIR / "disco-bar" / "full_height.py")
     receipt = dict(workspace=args.workspace, labels=names, units="mm", port=args.port,
                    camera="iso" if reset else "keep", explode_mm=args.explode, physical_fit_verified=False,
                    source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sources})
