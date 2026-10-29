@@ -26,13 +26,24 @@ def main():
     extra = tuple(list(items) + [items[0]] for items in scene)
     extra[1][-1] = "Unapproved extra display geometry"
     integrated = model.integrated_module()
-    d_body = next(i for i, name in enumerate(scene[1]) if name.startswith("D |") and name.endswith(" / complete integrated bar"))
+    c_body = next(i for i, name in enumerate(scene[1]) if name.startswith("C |") and name.endswith(" / complete integrated bar"))
     c_screw = next(i for i, name in enumerate(scene[1]) if name.startswith("C |") and name.endswith(" / -38 axial screw"))
-    review_pad = next(i for i, name in enumerate(scene[1]) if name.startswith("A′ REVIEW ONLY") and name.endswith(" / +1 captured pad"))
-    protrusion = integrated.cyl(3.6, 12, (2 * integrated.SPACING + 28, 40, -13), "y")
+    review_pad = next(i for i, name in enumerate(scene[1]) if name.startswith("B′ REVIEW ONLY") and name.endswith(" / +1 captured pad"))
+    protrusion = integrated.cyl(3.6, 12, (integrated.SPACING + 28, 40, -13), "y")
+    _, reference = model.load_reference(args.step)
+    circular_probe = model.full_variants(reference)[0]
+    circular_probe.pieces[0].shape += integrated.cyl(3.6, 12, (28, 40, -13), "y")
+    try:
+        integrated.check_assembly(circular_probe, 0.)
+    except ValueError as error:
+        if "circular insertion envelope" not in str(error):
+            raise
+        print("PASS circular guard rejects same-bounds body protrusion independently of edit mask")
+    else:
+        raise AssertionError("Circular guard accepted body protrusion")
     cases = {
         "altered locked-review pad": replace(review_pad, scene[0][review_pad].translate((.1, 0, 0))),
-        "same-bounds body protrusion through driver-port mask": replace(d_body, scene[0][d_body] + protrusion),
+        "same-bounds body protrusion beyond circular opening": replace(c_body, scene[0][c_body] + protrusion),
         "unapproved extra display geometry": extra,
         "historical 28 mm original crop": replace(0, crop),
         "historical original displacement": replace(0, original.translate((0, 0, -35))),

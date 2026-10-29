@@ -62,11 +62,9 @@ def latch_review_module():
 def preview_variants(reference):
     variants = full_variants(reference)
     latches = latch_review_module()
-    toggle = latches.toggle(reference)
-    toggle.name = "A′ REVIEW ONLY - release collision; flush access unresolved"
     bayonet = latches.bayonet(reference)
-    bayonet.name = "B′ REVIEW ONLY - holding and flush access unverified"
-    return variants + [toggle, bayonet]
+    bayonet.name = "B′ REVIEW ONLY - bayonet; holding/access unverified"
+    return variants + [bayonet]
 
 
 def verify_integrated(reference, output):
@@ -114,7 +112,7 @@ def verify_preview_scene(path, scene):
         model.check_assembly(variant, 0.)
     return {"complete_original_unchanged": True, "original_pose_preserved": True,
             "complete_variants": list(model.DEFAULT_VARIANTS),
-            "review_only_locked_latches": ["A′: release collision", "B′: holding unverified"],
+            "review_only_locked_latches": ["B′: holding/access unverified"],
             "source_pocket_entry_depth_preserved": True,
             "installed_latch_access_verified": False}
 
@@ -135,7 +133,8 @@ def preview(step_path: Path | None = None):
         for piece in variant.pieces:
             objects.append(piece.shape.translate((index * model.SPACING, 0, 0)))
             names.append(variant.name + " / " + piece.name)
-            colors.append(palette[piece.role])
+            colors.append(("#148c7c" if variant.mechanism != "screw" else palette[piece.role])
+                          if piece.role in ("body", "print") else palette[piece.role])
             alphas.append(.18 if piece.role == "body" else 1.)
     return objects, names, colors, alphas
 
