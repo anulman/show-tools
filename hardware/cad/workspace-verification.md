@@ -28,11 +28,11 @@ The publisher adds `--variant` selection, rejects box-only variants on the disco
 
 The new three-variant publish returned successfully. Native inspection found Vivaldi focused on an unfinished address entry in another tab, so that input was left untouched. The latest three-variant browser delivery awaits opening the existing OCP tab; exported inspection views were visually checked offline.
 
-## Corrected 2.5-inch reserve and proposed low-roof alignment
+## Corrected 2.5-inch reserve and confirmed low-roof alignment
 
 The operator corrected the minimum from 3.25 inches to 2.5 inches, or 63.5 mm. The confirmed datum and direction remain the counterbore floor along the tilted button centre axis. The coordinator independently reran all six part exports, all three assembly checks, the finite-corridor requirements check, and cover-thickness reserve checks. All passed. Default interior depth is now 65 mm, with the 3 mm cover extending outward to 68 mm below the seat. The proposed 27 mm diameter corridor has approximately 0.5650 mm floor clearance at its lowest off-axis endpoint.
 
-The operator then said the boxes should "share the lowest edge" so the incline lifts the arcade buttons. The current concrete proposal aligns level roofs with the arcade roof's low edge and shares all bottom planes. An asynchronous clarification is pending, and the requirements flag records this roof interpretation as unconfirmed. The generator separately checks the actual uppermost roof vertices at the low boundary and the common bottom datum. Level exterior height is approximately 80.0551 mm; the arcade high edge reaches approximately 91.0786 mm.
+The operator then said the boxes should "share the lowest edge" so the incline lifts the arcade buttons. The level roofs align with the arcade roof's low edge and share all bottom planes. The operator confirmed this alignment, and the requirements flag records it as confirmed. The generator separately checks the actual uppermost roof vertices at the low boundary and the common bottom datum. Level exterior height is approximately 80.0551 mm; the arcade high edge reaches approximately 91.0786 mm.
 
 The corrected comparison was published to the existing viewer with its camera retained. Exported top and interior views were inspected offline. The rotor hex remains illustrative, the mushroom roof remains uncut, and physical fit, ballast performance, and print readiness remain unverified.
 
