@@ -566,7 +566,8 @@ window.addEventListener('wheel', event => {
   if (!audio || !isRunning() || !song?.compiled?.rotation || !Number.isFinite(event.deltaY) || event.deltaY === 0
     || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
   const target = event.target instanceof Element ? event.target : null;
-  if (target?.closest('input,select,textarea,[contenteditable=true],details[open]')) return;
+  if (target?.closest('input,select,textarea,[contenteditable=true],details[open]')
+    || document.activeElement?.closest('input,select,textarea,[contenteditable=true]')) return;
   event.preventDefault(); void act(() => rotate(event.deltaY));
 }, { passive: false });
 

@@ -10,6 +10,7 @@ async function fixture() {
   class Element { constructor(readonly editing = false) {} closest() { return this.editing; } }
   const context = vm.createContext({ Element, Number, rotationSession: 'wheel-test', rotationSequence: 0,
     running: true, song: { compiled: { rotation: {} } },
+    document: { activeElement: null },
     audio: { control(control: { id: string; value: number }, options: { commandId: string }) {
       assert.equal(control.id, 'knob'); commands.push({ value: control.value, commandId: options.commandId });
     } },
@@ -31,11 +32,12 @@ async function fixture() {
 test('vertical scrolling forwards signed knob movement without choosing a musical deadline', async () => {
   const { wheel, commands, Element } = await fixture();
   let prevented = 0;
-  const event = { deltaY: 12, deltaX: 0, target: new Element(), preventDefault() { prevented++; } };
+  const event = { deltaY: 12, deltaX: 0, deltaMode: 0, target: new Element(), preventDefault() { prevented++; } };
   wheel(event); wheel({ ...event, deltaY: -3 });
-  assert.deepEqual(commands.map(command => command.value), [12, -3]);
-  assert.notEqual(commands[0].commandId, commands[1].commandId);
-  assert.equal(prevented, 2);
+  wheel({ ...event, deltaMode: 1, deltaY: 2 }); wheel({ ...event, deltaMode: 2, deltaY: -1 });
+  assert.deepEqual(commands.map(command => command.value), [12, -3, 2, -1]);
+  assert.equal(new Set(commands.map(command => command.commandId)).size, 4);
+  assert.equal(prevented, 4);
 });
 
 test('wheel proxy preserves editing, zoom gestures, horizontal scroll and stopped-page scrolling', async () => {
@@ -45,6 +47,8 @@ test('wheel proxy preserves editing, zoom gestures, horizontal scroll and stoppe
     { ctrlKey: true }, { metaKey: true }, { altKey: true }, { shiftKey: true }, { target: new Element(true) }]) {
     wheel({ ...event, ...patch });
   }
+  context.document.activeElement = new Element(true); wheel(event);
+  context.document.activeElement = null;
   context.running = false; wheel(event);
   context.running = true; context.song = undefined; wheel(event);
   assert.deepEqual(commands, []);
