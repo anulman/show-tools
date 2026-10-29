@@ -54,3 +54,23 @@ C's proposed sequence uses a slotted driver, an under-head fork, and a two-pin s
 The fixed base has a top-side well for the device's existing stock hex, two compact keeper tabs, a separate buffer, closed-cover tool ports, and a proposed cable exit 25 degrees from the front. No additional device retaining nut is assumed. The shortened ballast pocket stays separated from the tool ports.
 
 Read the [C operation and fabrication notes](disco-bar/final-C-proposal.md) and [matching base checks](box-mount/access/FINAL_BASE.md). Hardware selection, actual hex dimensions, knob engagement, printer/material choices, grip, adhesion, load capacity and service ergonomics remain unverified. Geometry review is not manufacturing approval.
+
+
+## Package one of each design as STL
+
+Export only the inclined arcade variant into a fresh directory with `box_mount.py --variant arcade-inclined --output PATH`. Then run `package_stl_handoff.py` with the checked C/base registry and original STEP:
+
+```sh
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/package_stl_handoff.py \
+  --arcade-receipt /absolute/path/to/arcade/receipt.json \
+  --arcade-sha ARCADE_RECEIPT_SHA256 \
+  --registry /absolute/path/to/build/final-review/current.json \
+  --step "$SHOW_TOOLS_DISCO_STEP" --revision MODEL_SOURCE_COMMIT \
+  --output /absolute/path/to/new/STL-handoff
+```
+
+The command requires a new output directory. The output directory includes 14 proposed print parts, the unchanged original bar as a separate alternative, three custom fabrication proposals, three material envelopes, and one ordinary-driver clearance reference. The ZIP contains only the 18 fabrication STL files. The README, manifest, material envelopes, and ordinary-driver reference stay outside it. Repeated validation poses and purchased fastener envelopes are excluded. The README and manifest separate the print list, custom fabrication list, and buy/cut/reuse list, including quantities and unselected specifications. Each exported file has a hash, bounds, volume, and boundary-shell count. The command validates both the files and their archived copies. `model_checkout_revision` identifies the model-source checkout; `packager_sha256` identifies the packaging script separately.
+
+Darren's original is one CAD solid with a sealed internal cavity and two boundary shells. The export preserves both shells. Its internal roof needs slicer review; the packager does not fill the cavity or change the design. Geometry validation does not establish physical fit or manufacturing approval.
+
+See the separate [prototype shopping and bench-tool guide](STL_SHOPPING.md) for supplier links, fastener quantities, ordinary screwdriver candidates, and the remaining custom fork/spanner access requirements.
