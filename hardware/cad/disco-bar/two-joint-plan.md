@@ -38,6 +38,8 @@ The box is stationary while the knob and bar rotate. A fixed access opening need
 
 The operator clarified that no additional nut is available above or below the mount. The part's existing hex sits in a well in the roof; the working interpretation seats its top flush with the roof. Earlier underside-retaining-nut proposals are superseded. The seat locates the stationary hex; no additional hardware or upward retention is assumed. Release access does not require a moving box mount or rotating hex recess. Knob and bar rotation, and deliberate latch-control movement, are separate from that stationary mounting joint. Actual hex dimensions and installed stack fit remain unverified.
 
+The operator also authorized comparing tape or latching retention of that stock hex against upward pull. The box-mount session compares two or three approaches, validates them, then synthesizes the simplest candidate from their useful features. These are proposed retainers, not a second mounting nut or a verified load rating. Their geometry must clear the bar latch controls and the rotating assembly. This study remains private until findings are reviewed alongside C1–C3.
+
 The disco-bar and box-mount sessions own separate prototype modules and exchange their access envelopes and datums. Existing viewer geometry remains unchanged during this exploration. The operator requested findings from all three STL-validated prototypes before rendering final designs in the shared viewer. Final C synthesis follows that review.
 
 ## Geometry and verification contract
