@@ -1,5 +1,7 @@
 # Gator and Tapir assets
 
+Figma is the canonical source for promoted artwork and animation. This directory supplies derived runtime assets and identity references. Unpromoted prototypes and raw review records can expire after their useful lessons are extracted and the canonical handoff is verified. See [the project retention policy](../../docs/data-retention.md).
+
 The [editable Figma pose gallery](https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=2-12) belongs to **Aidan's Starter team**. It contains eight model component sets with three `Pose` variants each. The gallery displays all 24 variants as instances. Each variant contains the registered 640 × 800 PNG artwork with a foot baseline at 776. The components, image fills, and layout are editable. The artwork remains raster images.
 
 [figma.json](figma.json) records the file key, team key, gallery and motion node IDs, and each component, pose, and artwork node ID. Model names and pose paths match [manifest.json](manifest.json).

@@ -49,7 +49,7 @@ Pitch how selected characters and objects can develop into a reusable animated a
 
 Recommend a sequencer-clock-driven animation pipeline. Compare live browser rendering and offline video output, including browser libraries such as Remotion where appropriate. Evaluate licensing, output formats, transparency, seeking, replay, frame/beat alignment, tempo changes, loop boundaries and late events. Video should consume performance time rather than become a separate musical clock. Coordinate the event/time contract with Performance Engine.
 
-Track source assets, provenance and selected exports under `assets/`. Browser animation UI belongs under `ui/video/`; reusable C++ utilities intended for EliteDesk belong under `lib/` and should also compile to browser WASM. Recommend whether keyframes plus runtime interpolation, pre-rendered video, or a hybrid best fits the material. Keep originals intact and avoid committing temporary PDF renders or bulk generated video without an explicit asset policy.
+Figma is canonical for promoted artwork and animation. Keep stable identity metadata, Figma references, necessary runtime exports, tools, and concise lessons under version control. Follow [the retention policy](data-retention.md): unpromoted prototypes and raw process records can expire after extracting lessons and verifying the canonical handoff. Browser animation UI belongs under `ui/video/`; reusable C++ utilities intended for EliteDesk belong under `lib/` and should also compile to browser WASM. Recommend whether keyframes plus runtime interpolation, pre-rendered video, or a hybrid best fits the material.
 
 Plan artifact: `docs/plans/video-assistant.md`.
 

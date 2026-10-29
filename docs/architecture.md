@@ -165,6 +165,8 @@ These tools do not configure firmware or song bindings. Performance Engine still
 
 ## A local library owns voice authoring metadata
 
+The [canonical-data policy](data-retention.md) sets the target ownership: operator authoring data belongs in a database sidecar with backup independent of Git. SQLite is preferred. The following paragraphs describe the current browser-only implementation; the filesystem sidecar and independent backup are not implemented. Browser copies must continue to support offline practice without adding a dependency to the audio path.
+
 The practice desk's voice editor uses a browser-local SQLite database through `sql.js` in a dedicated catalog worker. IndexedDB stores its complete SQLite snapshot and revision in one transaction. Concurrent tabs use revision checks; a rejected durable write restores the previous in-memory database. This worker is separate from the audio worklet and never advances musical time. There is no catalog server or Sheets/CDP dependency.
 
 `lib/voice-catalog/` owns validated voices, ordered effect stages, and qualified sheet bindings `(spreadsheetId, sheetId, labelCell)`. A voice has a stable ID, optional canonical Video character ID, independent avatar-frame token, notes, and zero or more effects. `assets/video/characters.json` is Video-owned identity/provenance metadata. All 51 canonical characters have published static preview avatars. The avatar manifest records five pixel-final snapshots and 46 gallery previews. New assignments start unassigned. Figma node IDs and artwork model IDs are not character identities.

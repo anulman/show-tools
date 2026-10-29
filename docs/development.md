@@ -4,6 +4,8 @@ Read [how the instrument fits together](architecture.md) before changing its tim
 
 The [four-workstream planning brief](workstreams.md) records the current priorities: slapback patches, the Performance Engine and deterministic chart compiler, peripheral management, and the Video Assistant. It supersedes the initial UI-only and audio-hosting-first assignments below.
 
+The [canonical-data and retention policy](data-retention.md) governs promotion and cleanup. Preserve completed designs and concise lessons rather than every experiment. Figma owns promoted animation. Git owns canonical effects and tools. Operator authoring data needs a database sidecar and independent backup; current browser SQLite storage does not yet satisfy that target. Review temporary material at milestone handoff and during periodic housekeeping, after verifying the canonical handoff.
+
 ## Give each session its own checkout
 
 Create separate worktrees before running agents concurrently. This separates source edits, the Git index, dependencies, and generated `dist/` files.
