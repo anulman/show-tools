@@ -1,6 +1,6 @@
 # Work on box mounts and the disco bar
 
-The two long-lived CAD sessions own separate source files and output directories. The CAD coordination session selects which workstream appears in the existing OCP Viewer at <http://127.0.0.1:3939/viewer>. Workers perform headless work and do not publish or restart the viewer.
+The two long-lived CAD sessions own separate source files and output directories. Use the [CAD desk](../../ui/cad/README.md) at <http://127.0.0.1:3940/> to select a workstream yourself. The coordinator maintains this publisher and the embedded OCP Viewer on port 3939. Workers perform headless work and do not publish or restart the viewer.
 
 | Session | Codex thread | Source ownership |
 | --- | --- | --- |
@@ -37,7 +37,7 @@ The active variants are now `arcade-inclined`, `rotor-level`, and `mushroom-leve
 
 The inclined arcade mount must provide at least 2.5 inches, exactly 63.5 mm, from the counterbore floor along the tilted button's centre axis. The operator confirmed both the starting datum and direction. The low edge need not provide that full length. The current concept keeps a flat bottom and provides an unobstructed proposed corridor around the centre axis; it does not claim measured clearance for the actual harness. Its 17.5 mm recess and 5-degree inclination remain in place. The removable bottom extends outward below the interior floor.
 
-The level rotor concept uses the SpinTrak manufacturer's drawing as a nominal reference. Its 34 mm across-flats hex pocket and 5 mm depth are illustrative design inputs, not verified dimensions read from that drawing. The 29 mm body passage includes a proposed 1 mm diametral allowance over the published 28 mm nominal. Its mounting fit remains unverified. The mushroom variant is an uncut housing blank while wiring and mounting details are tested. The proposed level roofs align with the low edge of the inclined arcade roof, and all exterior bottoms share the same ground plane. The incline lifts the arcade roof above that shared level. This interpretation of "share the lowest edge" awaits operator confirmation.
+The level rotor concept uses the SpinTrak manufacturer's drawing as a nominal reference. Its 34 mm across-flats hex pocket and 5 mm depth are illustrative design inputs, not verified dimensions read from that drawing. The 29 mm body passage includes a proposed 1 mm diametral allowance over the published 28 mm nominal. Its mounting fit remains unverified. The mushroom variant is an uncut housing blank while wiring and mounting details are tested. The proposed level roofs align with the low edge of the inclined arcade roof, and all exterior bottoms share the same ground plane. The incline lifts the arcade roof above that shared level. The operator confirmed this roof alignment.
 
 All three retain proposed removable screw-fastened bottoms, wiring passages, and a separate ballast compartment. Fasteners, wire dimensions, and ballast remain subject to physical fit checks. See [box-mount notes](box-mount/README.md) for exact parameters and validation commands.
 

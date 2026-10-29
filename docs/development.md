@@ -149,3 +149,9 @@ The native `peripheral-probe` provides explicit `list`, `listen`, and guarded `l
 Use each voice footer to edit an ordered stack while stopped. Native applied readback owns the summary; unsaved drafts must remain visibly unapplied. Verify changing one voice leaves another voice and its compatible capture banks unchanged. Existing retained takes keep their recorded graph. Test the serial backup Slapback and Chorus stack with nonzero rotations inside a marked interval, strict next-quarter-count grid release, tempo changes, window exit, and Stop. Zero and duplicate observations cannot extend the grid deadline. Physical knob mapping remains an installation task.
 
 Check Space on a focused effect disclosure or button before checking the body-level transport shortcut. Escape must still Panic while editing. Capture desktop and 390px screenshots from the integrated app, including expanded two-stage backup settings. Keep pad targets stable during count-in and recording. The layout comparison and verification contract are in [the desk rehab guide](implementation/practice-desk-rehab.md).
+
+## Review physical CAD in the tabbed desk
+
+The independent [CAD desk](../ui/cad/README.md) lives under `ui/cad/`; its local publisher service lives under `hardware/cad/`. Keep OCP Viewer on port 3939 running, then use `hardware/cad/cad desk --disco-step '/absolute/path/to/Disco Ball.step'` and open <http://127.0.0.1:3940/>. This tool uses the isolated CAD environment and does not start audio, Sheets, Chrome CDP, USB listeners, or printer jobs.
+
+The box-mount and disco-bar sessions own separate CAD files and headless checks. The coordinator owns the desk and shared viewer publication. Run `node_modules/.bin/tsc --project ui/cad` for its browser code, and use the [CAD workspace guide](../hardware/cad/WORKSPACES.md) for geometry checks and manufacturing gates. The practice desk remains the supported musical instrument UI.
