@@ -31,7 +31,7 @@ Sources: [Accu M3 × 8 button screw](https://www.accu.co.uk/socket-button-screws
 
 ## Initial assembly
 
-1. Wash and fully cure the separated resin pieces using the selected printer/resin process. The original reference bar contains a sealed cavity; its drainage, washing and curing plan must be resolved before printing the complete bar.
+1. Prepare the separated pieces using the fabricator's selected printer and material process. Treat the original Darren bar as print-ready under the operator's instruction. The fabricator decides any print-time preparation or skipping.
 2. Load the two preset cup nuts through their open channels before fitting the shoes, pads and preset screws.
 3. Put the WDS screw through the separate lock cap. Wind its matched threaded washer over the screw's threaded tip onto the reduced neck, following the supplier's retention method. Seat the washer in the underside cap recess. It never passes through a finished Ø3.6 shaft bore.
 4. Lower this preassembled cap axially onto the collar's open posts. Load the permanent cap-joint nut from its inner radial opening and fit the M3 × 8 button-head screw. This joint is permanent during routine use.
@@ -51,7 +51,7 @@ The source drive arc is 225–315 degrees; the lock moves from source 135 degree
 
 ## Fit and verification limits
 
-At the provisional 19 mm gap, the pad contact band is 28–36 mm above the roof. Full pad engagement requires the real knob to cover that band. The spinner's measured knob top, knob bottom and shaft reference heights have not arrived; installed fit remains unverified.
+At the provisional 19 mm gap, the pad contact band is 28–36 mm above the roof. Full pad engagement requires the real knob to cover that band. The three pending spinner measurements are hex across flats, hex thickness, and hex-top to knob-top height. Do not expand that request. Use the existing snug socket for the lower contact constraint. Report the 28–36 mm pad band against the measured knob-top height; installed fit remains unverified until those checks are complete.
 
 Run the executable checker against the original private STEP:
 
@@ -61,4 +61,4 @@ Run the executable checker against the original private STEP:
 
 The current candidate passed the checker with 25 components across six exported states. Assembly paths, washer float and capture, minimum-nut rotation checks, sampled withdrawal, full L-key staging, drive engagement, end stops, and lock blocking passed. All exported STEP files passed round-trip checks. All exported STL files were watertight with consistent winding.
 
- It removes stale receipts before work, rejects invalid/multiple solids and unintended intersections, checks assembly and sampled motion, then exports STEP/STL with round-trip and mesh validation. Its receipt records the exact source hashes and exported component hashes. A geometry pass covers modeled rigid geometry only. It does not establish resin strength, fatigue, pad adhesion, preload, ball bond strength, screw torque, supplier tolerance compliance, or safe loaded operation. The agreed first-fit coupon and 20 unloaded cycles remain a physical gate, not a durability proof.
+The checker removes stale receipts before work, rejects invalid/multiple solids and unintended intersections, checks assembly and sampled motion, then exports STEP/STL with round-trip and mesh validation. Its receipt records the exact source hashes and exported component hashes. A geometry pass covers modeled rigid geometry only. It does not establish resin strength, fatigue, pad adhesion, preload, ball bond strength, screw torque, supplier tolerance compliance, or safe loaded operation. The agreed first-fit coupon and 20 unloaded cycles remain a physical gate, not a durability proof.
