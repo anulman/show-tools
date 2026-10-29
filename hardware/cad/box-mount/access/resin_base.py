@@ -40,18 +40,26 @@ def build(variant='arcade-inclined',gap=9):
     capsule_shift=(0,box.tray_y,floor+.5)
     parts=dict(shell=shell,bottom=bottom,
                ballast_body=capsule['body'].translate(capsule_shift),ballast_lid=capsule['lid'].translate(capsule_shift))
-    hardware=[*covers['hardware'],*[part.translate(capsule_shift) for part in capsule['hardware']]]
     result=dict(variant=variant,box=box,stack=stack,original=original,covers=covers,ties=ties,
-                capsule=capsule,parts=parts,hardware=hardware,
+                capsule=capsule,capsule_shift=capsule_shift,parts=parts,
                 ballast_cubes=[part.translate(capsule_shift) for part in capsule['cubes']],gap=gap)
     if variant=='knob':
         keepers=r.stock_hex_keepers(shell)
         kit=r.buffer_kit(keepers['roof'],gap)
         parts.update(shell=kit['roof'],spacer=kit['spacer'],buffer=kit['buffer'],buffer_cap=kit['cap'],
                      keeper_tab_0=keepers['tabs'][0],keeper_tab_1=keepers['tabs'][1])
-        hardware.extend([*keepers['hardware'],*kit['hardware']])
         result.update(keepers=keepers,kit=kit)
     return result
+
+
+
+def candidate_hardware(candidate):
+    """There is no second hardware list that can drift from the declared joints."""
+    parts=r.joint_hardware(candidate['covers']['pairs'])
+    parts += [part.translate(candidate['capsule_shift']) for part in r.joint_hardware(candidate['capsule']['pairs'])]
+    if candidate['variant']=='knob':
+        parts += r.joint_hardware(candidate['keepers']['pairs'])+r.joint_hardware(candidate['kit']['pairs'])
+    return parts
 
 
 def verify(candidate):
@@ -74,8 +82,7 @@ def verify(candidate):
             removal+=extrude(face,amount=-100,dir=(0,0,1))
     audit.require(audit.intersection(removal,shell)<1e-6,'New cover cannot withdraw downwards')
     fixed=shell+bottom
-    cover_checks=[r.check_pair(name,screw,nut,fixed,bearing,direction,length)
-                  for name,screw,nut,bearing,direction,length in candidate['covers']['pairs']]
+    cover_checks=r.check_joints(candidate['covers']['pairs'],fixed)
     cover_loading=r.verify_nut_loading(candidate['covers']['pairs'],shell)
     cassette_loading=r.verify_nut_loading(candidate['capsule']['pairs'],candidate['capsule']['body'])
     tie_checks=r.verify_tiedowns(candidate['ties'],original['underside_z'])
@@ -84,7 +91,7 @@ def verify(candidate):
         audit.require(audit.intersection(parts[name],fixed)<1e-6,'Installed cassette blocked '+name)
     for cube in candidate['ballast_cubes']:
         audit.require(audit.intersection(cube,fixed)<1e-6,'Installed ballast cube blocked')
-    for part in candidate['hardware']:
+    for part in candidate_hardware(candidate):
         for name,obstacle in parts.items():
             audit.require(audit.intersection(part,obstacle)<1e-6,'Standard hardware blocked '+name)
     audit.require(audit.intersection(original['cable_envelope'],fixed)<1e-6,'Cable reserve obstructed')
@@ -111,8 +118,7 @@ def verify(candidate):
         study=shell
         for tab in candidate['keepers']['tabs']:
             study+=tab
-        checks['keeper_fasteners']=[r.check_pair(name,screw,nut,study,bearing,direction,length)
-                    for name,screw,nut,bearing,direction,length in candidate['keepers']['pairs']]
+        checks['keeper_fasteners']=r.check_joints(candidate['keepers']['pairs'],study)
     return checks
 
 
@@ -131,7 +137,7 @@ def export_candidate(candidate,output):
         records.append(record)
     validation=audit.Artifacts()
     for record in records:validation.load(record)
-    assembly=Compound(children=[part.solids()[0] for part in [*candidate['parts'].values(),*candidate['hardware'],*candidate['ballast_cubes']]])
+    assembly=Compound(children=[part.solids()[0] for part in [*candidate['parts'].values(),*candidate_hardware(candidate),*candidate['ballast_cubes']]])
     assembly_path=output/'assembly-RESIN-RETENTION-CANDIDATE.step'
     audit.require(export_step(assembly,assembly_path),'Candidate assembly export failed')
     restored=import_step(assembly_path)
@@ -154,12 +160,12 @@ def export_candidate(candidate,output):
                 geometry_review_pass=False,independent_base_geometry_checks_pass=True,print_readiness='NOT_READY',units='mm',
                 review_components=records,checks=checks,proposed_box_parameters=asdict(candidate['box']),
                 proposed_stack_parameters=asdict(candidate['stack']),standard_hardware=asdict(r.H),
-                hardware_sources=r.SOURCES,hardware_envelope_count=len(candidate['hardware']),
+                hardware_sources=r.SOURCES,hardware_envelope_count=len(candidate_hardware(candidate)),
                 assembly_step=str(assembly_path.resolve()),assembly_sha256=audit.digest(assembly_path),
                 fit_coupons=coupon_records,coupon_nut_pocket_af_variants_mm=[5.7,5.8,5.9],
                 source_code_sha256={path.name:audit.digest(path) for path in source_paths},
                 pending=['operator stock-hex AF/thickness and knob top height','simpler collar envelope and service access contract',
-                         'actual resin/process/cure fit coupon and hardware trial','physical tie threading and cable pull test',
+                         'actual resin/process/cure fit coupon and hardware trial','outer ball shell clearance around cap and screw heads','physical tie threading and cable pull test',
                          'PTFE drag and retention trial','contained ballast rattle, retention and stability trials'],
                 no_existing_models_or_exports_modified=True,no_viewer_or_services_started=True)
     target.write_text(json.dumps(report,indent=2)+'\n')

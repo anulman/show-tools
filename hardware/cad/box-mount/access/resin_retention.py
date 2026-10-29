@@ -7,7 +7,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import integrate_receipt as audit
-from build123d import Axis, Box, Compound, Plane, RectangleRounded, extrude
+from build123d import Axis, Box, Compound, Plane, RectangleRounded, Shape, extrude
 cad = audit.cad
 
 SOURCES = {
@@ -63,7 +63,45 @@ def bore(x, y, low, high):
     return cad.cyl(H.clearance/2, high-low, low).translate((x,y,0))
 
 
-def check_pair(name, screw, captive_nut, body, bearing_z, direction, length):
+
+@dataclass(frozen=True)
+class Joint:
+    name: str
+    expected_xy: tuple[float, float]
+    bearing_z: float
+    direction: int
+    length: float
+    screw: Shape
+    nut: Shape
+
+
+def make_joint(name, xy, bearing_z, length, nut_bottom_z, direction=-1):
+    return Joint(name, xy, bearing_z, direction, length,
+                 bolt(*xy,bearing_z,length,direction),nut(*xy,nut_bottom_z))
+
+
+def joint_hardware(joints):
+    return [part for joint in joints for part in (joint.screw,joint.nut)]
+
+
+def check_axes(joint):
+    for role,part in (('screw',joint.screw),('nut',joint.nut)):
+        bounds=part.bounding_box()
+        actual=((bounds.min.X+bounds.max.X)/2,(bounds.min.Y+bounds.max.Y)/2)
+        audit.require(all(math.isclose(a,b,abs_tol=1e-6) for a,b in zip(actual,joint.expected_xy)),
+                      f'Joint {joint.name}: {role} axis {actual} does not match declared joint axis {joint.expected_xy}')
+
+
+def check_joints(joints,body):
+    axes=[tuple(round(value,6) for value in joint.expected_xy) for joint in joints]
+    audit.require(len(set(axes))==len(axes),'Joint axes duplicated: each seat needs its own declared joint axis')
+    return [check_joint(joint,body) for joint in joints]
+
+
+def check_joint(joint, body):
+    check_axes(joint)
+    name,screw,captive_nut=joint.name,joint.screw,joint.nut
+    bearing_z,direction,length=joint.bearing_z,joint.direction,joint.length
     audit.require(screw.is_valid and len(screw.solids())==1, 'Invalid standard screw '+name)
     audit.require(captive_nut.is_valid and len(captive_nut.solids())==1, 'Invalid standard nut '+name)
     audit.require(audit.intersection(screw, body)<1e-6, 'Screw blocked '+name)
@@ -86,7 +124,8 @@ def check_pair(name, screw, captive_nut, body, bearing_z, direction, length):
     else:
         full=tip >= bb.max.Z+H.pitch and bearing_z <= bb.min.Z
     audit.require(full,'Insufficient nominal thread reach '+name)
-    return dict(name=name,nut_up_reaction=True,min_envelope_nut_30deg_rotation_blocked=True,
+    return dict(name=name,declared_joint_axis_xy_mm=list(joint.expected_xy),
+                screw_and_nut_on_declared_axis=True,nut_up_reaction=True,min_envelope_nut_30deg_rotation_blocked=True,
                 head_bearing_reaction=True,full_nominal_nut_span_plus_one_pitch=True,
                 actual_thread_fit_and_strength_verified=False)
 
@@ -100,17 +139,14 @@ def buffer_kit(roof, gap=9.):
     buffer=cad.ring(43,50,1,seat)
     cap=cad.ring(49,57,3,gap+.2)
     length=next(value for value in (16,20,25,30,35,40,45,50) if value>=gap+9)
-    hardware=[];pairs=[]
+    pairs=[]
     for angle in (45,135,225,315):
         x,y=53*math.cos(math.radians(angle)),53*math.sin(math.radians(angle))
         hole=bore(x,y,-10,gap+10)
         roof=roof-hole-pocket(x,y,-10.1,-2.2)
         spacer-=hole;cap-=hole
-        screw=bolt(x,y,gap+3.2,length)
-        captive=nut(x,y,-4.8)
-        hardware.extend((screw,captive))
-        pairs.append((f'buffer-{angle}',screw,captive,gap+3.2,-1,length))
-    return dict(roof=roof,spacer=spacer,buffer=buffer,cap=cap,hardware=hardware,pairs=pairs,
+        pairs.append(make_joint(f'buffer-{angle}',(x,y),gap+3.2,length,-4.8))
+    return dict(roof=roof,spacer=spacer,buffer=buffer,cap=cap,pairs=pairs,
                 gap=gap,bolt_length=length)
 
 
@@ -126,16 +162,17 @@ def verify_buffer(kit):
     # Everything projecting above the contact plane is beyond the original bar's
     # entire R47.230665 envelope; this remains independent of its rotation angle.
     core=cad.cyl(47.230665,100,kit['gap'])
-    for part in [kit['cap'],*kit['hardware']]:
+    for part in [kit['cap'],*joint_hardware(kit['pairs'])]:
         audit.require(audit.intersection(part,core)<1e-6,'Retainer enters full-height bar radial bound')
-    pairs=[check_pair(name,screw,nut_shape,fixed,bearing,direction,length)
-           for name,screw,nut_shape,bearing,direction,length in kit['pairs']]
+    pairs=check_joints(kit['pairs'],fixed)
     audit.require(audit.intersection(kit['buffer'].translate((0,0,.3)),kit['roof']+kit['spacer'])<1e-6,
                   'Missing-cap negative control is not free')
     return dict(positive_axial_capture=True,positive_radial_capture=True,kit_bolted_to_roof=True,
                 mouth_gap_mm_proposed=kit['gap'],buffer_id_od_thickness_mm=[86,100,1],
                 cap_opening_diameter_mm=98,bar_radial_bound_mm=47.230665,
-                cap_and_hardware_clear_full_bar_bound_all_angles=True,pairs=pairs,
+                cap_and_hardware_clear_internal_bar_bound_all_angles=True,
+                actual_outer_ball_shell_clearance_verified=False,
+                cap_above_mouth_requires_outer_shell_check_before_final_review=True,pairs=pairs,
                 removal_requires_four_ordinary_2mm_hex_screws=True,
                 material_drag_and_preload_verified=False,collar_hand_access_verified=False)
 
@@ -147,17 +184,14 @@ def ballast_cassette(depth=15.):
     chamber=block(52,depth-3,7.6,(0,0,2.))
     body-=chamber
     lid=block(71,depth,2,(0,0,9.5))
-    hardware=[];pairs=[]
+    pairs=[]
     for x in (-30.75,30.75):
         hole=bore(x,0,-1,16)
         body=body-hole-pocket(x,0,-.1,5.6)
         lid-=hole
-        screw=bolt(x,0,11.5,10)
-        captive=nut(x,0,3.)
-        hardware.extend((screw,captive))
-        pairs.append((f'ballast-{x}',screw,captive,11.5,-1,10))
+        pairs.append(make_joint(f'ballast-{x}',(x,0),11.5,10,3.))
     cubes=[block(6.35,6.35,6.35,((index-3.5)*6.35,0,2.3)) for index in range(8)]
-    return dict(body=body,lid=lid,hardware=hardware,cubes=cubes,pairs=pairs,depth=depth)
+    return dict(body=body,lid=lid,cubes=cubes,pairs=pairs,depth=depth)
 
 
 def verify_cassette(cassette):
@@ -172,8 +206,7 @@ def verify_cassette(cassette):
             swept=block(bb.size.X+abs(dx),bb.size.Y+abs(dy),bb.size.Z+abs(dz),
                         ((bb.min.X+bb.max.X)/2+dx/2,(bb.min.Y+bb.max.Y)/2+dy/2,bb.min.Z+min(0,dz)))
             audit.require(audit.intersection(swept,closed)>1e-4,'Cube has an open escape direction')
-    pairs=[check_pair(name,screw,nut_shape,closed,bearing,direction,length)
-           for name,screw,nut_shape,bearing,direction,length in cassette['pairs']]
+    pairs=check_joints(cassette['pairs'],closed)
     return dict(separately_screwed_lid=True,nominal_cube_size_mm=6.35,modeled_cube_count=8,
                 nominal_supplier_mass_g=38.4,mass_is_packaging_proposal_not_stability_requirement=True,
                 cube_escape_sweeps_blocked=True,pairs=pairs,
@@ -232,7 +265,7 @@ def verify_tiedowns(tiedowns, underside):
 
 def standard_covers(shell, bottom, axes, floor, underside):
     """Raise only corner seats inward, preserving the ground and axial reserve."""
-    hardware=[];pairs=[]
+    pairs=[]
     for index,(x,y) in enumerate(axes):
         # Restore the prior illustrative nut seat before cutting the real joint.
         shell+=cad.cyl(6,3,floor).translate((x,y,0))
@@ -243,16 +276,13 @@ def standard_covers(shell, bottom, axes, floor, underside):
         bottom-=hole
         bottom-=cad.cyl(H.head_pocket_diameter/2,H.head_pocket_depth+.1,underside-.1).translate((x,y,0))
         bearing=underside+H.head_pocket_depth
-        screw=bolt(x,y,bearing,10,direction=1)
-        captive=nut(x,y,floor+2.2)
-        hardware.extend((screw,captive))
-        pairs.append((f'cover-{index}',screw,captive,bearing,1,10))
-    return dict(shell=shell,bottom=bottom,hardware=hardware,pairs=pairs,
+        pairs.append(make_joint(f'cover-{index}',(x,y),bearing,10,floor+2.2,1))
+    return dict(shell=shell,bottom=bottom,pairs=pairs,
                 head_seat_web_mm=floor+1.5-(underside+H.head_pocket_depth))
 
 
 def stock_hex_keepers(roof):
-    tabs=[];hardware=[];pairs=[]
+    tabs=[];pairs=[]
     for sign in (-1,1):
         y=sign*24
         tab=block(8,17,3,(0,y,0))
@@ -262,11 +292,9 @@ def stock_hex_keepers(roof):
         roof=roof-hole-pocket(0,axis_y,-10,-7.)
         tab=tab-hole-head
         bearing=3-H.head_pocket_depth
-        screw=bolt(0,axis_y,bearing,12)
-        captive=nut(0,axis_y,-9.6)
-        tabs.append(tab);hardware.extend((screw,captive))
-        pairs.append((f'keeper-{sign}',screw,captive,bearing,-1,12))
-    return dict(roof=roof,tabs=tabs,hardware=hardware,pairs=pairs)
+        tabs.append(tab)
+        pairs.append(make_joint(f'keeper-{sign}',(0,axis_y),bearing,12,-9.6))
+    return dict(roof=roof,tabs=tabs,pairs=pairs)
 
 
 def joint_coupon(af=5.8):
@@ -277,10 +305,8 @@ def joint_coupon(af=5.8):
     upper=cad.cyl(8,12,3)-cad.cyl(6,1.5,3)
     upper-=cad.hex_prism(af,3.3,4.5)
     upper-=bore(0,0,-1,20)
-    screw=bolt(0,0,H.head_pocket_depth,10,1)
-    captive=nut(0,0,5.2)
-    return dict(lower=lower,upper=upper,screw=screw,nut=captive,af=af,
-                bearing_z=H.head_pocket_depth,direction=1,length=10)
+    joint=make_joint('cover-coupon',(0,0),H.head_pocket_depth,10,5.2,1)
+    return dict(lower=lower,upper=upper,joint=joint,af=af)
 
 
 def verify_joint_coupon(coupon):
@@ -288,8 +314,7 @@ def verify_joint_coupon(coupon):
     for part in (lower,upper):
         audit.require(part.is_valid and len(part.solids())==1,'Invalid hardware coupon')
     audit.require(audit.intersection(lower,upper)<1e-6,'Coupon halves overlap')
-    checks=check_pair('cover-coupon',coupon['screw'],coupon['nut'],lower+upper,
-                      coupon['bearing_z'],1,10)
+    checks=check_joint(coupon['joint'],lower+upper)
     # With the lower part off, the real nut can enter from below and reach its seat.
     insertion=cad.hex_prism(H.nut_af,24.8,-17.2)
     audit.require(audit.intersection(insertion,upper)<1e-6,'Coupon traps nut during printing')
@@ -301,10 +326,11 @@ def verify_joint_coupon(coupon):
 
 
 def verify_nut_loading(pairs, body):
-    for name,screw,captive,bearing,direction,length in pairs:
-        bounds=captive.bounding_box()
+    for joint in pairs:
+        check_axes(joint)
+        bounds=joint.nut.bounding_box()
         x=(bounds.min.X+bounds.max.X)/2;y=(bounds.min.Y+bounds.max.Y)/2
         path=cad.hex_prism(H.nut_af,H.nut_height+30,bounds.min.Z-30).translate((x,y,0))
-        audit.require(audit.intersection(path,body)<1e-6,'Nut loading path blocked '+name)
+        audit.require(audit.intersection(path,body)<1e-6,'Nut loading path blocked '+joint.name)
     return dict(nuts_insert_from_below_before_mating_part_fitted=True,entry_sweep_mm=30,
                 physical_hand_or_nut_driver_access_verified=False)
