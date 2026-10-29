@@ -49,9 +49,8 @@ await cp(resolve(root, 'ui/practice/wasm/sql-wasm.wasm'), resolve(output, 'ui/pr
 const characters = JSON.parse(await readFile(resolve(root, 'assets/video/characters.json'), 'utf8'));
 const avatarFiles: string[] = [];
 for (const character of characters.characters) {
-  if (!character.publishedAvatarPath) continue;
   const path = character.publishedAvatarPath;
-  if (!/^assets\/video\/poses\/[a-z0-9-]+\.png$/.test(path)) throw new Error('Invalid character avatar path');
+  if (!/^[A-Z][0-9]{2}$/.test(character.id) || path !== `assets/video/avatars/${character.id}.png`) throw new Error('Invalid character avatar path');
   const destination = resolve(output, 'ui/practice', path);
   await mkdir(resolve(destination, '..'), { recursive: true });
   await cp(resolve(root, path), destination);

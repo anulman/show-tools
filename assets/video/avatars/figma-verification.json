@@ -1,0 +1,359 @@
+[
+  {
+    "id": "A02",
+    "node": "94:10527",
+    "name": "Frame=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A03",
+    "node": "94:10536",
+    "name": "Frame=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A04",
+    "node": "41:1688",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A06",
+    "node": "41:1695",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A07",
+    "node": "77:10473",
+    "name": "Frame=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A09",
+    "node": "41:1702",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A10",
+    "node": "41:1719",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A12",
+    "node": "41:1736",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A13",
+    "node": "41:1753",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A14",
+    "node": "41:1770",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A15",
+    "node": "41:1787",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A17",
+    "node": "41:1804",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A23",
+    "node": "41:1821",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A25",
+    "node": "41:1838",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A26",
+    "node": "41:1855",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A27",
+    "node": "41:1872",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A29",
+    "node": "86:10487",
+    "name": "Frame=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A31",
+    "node": "41:1889",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "A35",
+    "node": "41:1906",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B01",
+    "node": "41:1923",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B04",
+    "node": "41:1940",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B05",
+    "node": "41:1957",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B07",
+    "node": "41:1974",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B08",
+    "node": "41:1991",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B11",
+    "node": "41:2008",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B19",
+    "node": "45:2615",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B20",
+    "node": "45:2632",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B21",
+    "node": "45:2649",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B23",
+    "node": "45:2666",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B25",
+    "node": "45:2683",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B26",
+    "node": "45:2700",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "B28",
+    "node": "47:1393",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C01",
+    "node": "41:12",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C03",
+    "node": "41:29",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C04",
+    "node": "41:46",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C06",
+    "node": "95:10527",
+    "name": "Frame=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C12",
+    "node": "41:80",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C13",
+    "node": "41:97",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C15",
+    "node": "41:114",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C18",
+    "node": "41:131",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C19",
+    "node": "41:148",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C21",
+    "node": "41:165",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C23",
+    "node": "41:182",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C27",
+    "node": "41:199",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C28",
+    "node": "41:216",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C29",
+    "node": "41:233",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C30",
+    "node": "41:243",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C31",
+    "node": "41:267",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C34",
+    "node": "41:284",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C35",
+    "node": "41:301",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  },
+  {
+    "id": "C36",
+    "node": "41:318",
+    "name": "Pose=0",
+    "width": 640,
+    "height": 800
+  }
+]

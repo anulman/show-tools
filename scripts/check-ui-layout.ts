@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import characters from '../assets/video/characters.json';
 import { createHash } from 'node:crypto';
 import { Schema } from 'effect';
 import { readdir, readFile, access } from 'node:fs/promises';
@@ -41,6 +42,11 @@ const manifest = Schema.decodeUnknownSync(Schema.Struct({
 }))(JSON.parse(await readFile(resolve(output, 'ui/practice/offline-manifest.json'), 'utf8')));
 assert(manifest.files.includes('/ui/practice/wasm/manual-clock.wasm'), 'Offline build includes its WASM');
 assert(manifest.files.includes('/ui/practice/app.js') && manifest.files.includes('/ui/practice/practice-worklet.js'), 'Offline build includes its matching JavaScript');
+for (const character of characters.characters) {
+  const path = '/ui/practice/' + character.publishedAvatarPath;
+  assert(manifest.files.includes(path), `${character.id}: avatar is available offline`);
+  assert.deepEqual(await readFile(resolve(output, '.' + path)), await readFile(resolve(root, character.publishedAvatarPath)), `${character.id}: the build preserves the published avatar bytes`);
+}
 const offlineHash = createHash('sha256');
 for (const reference of manifest.files) {
   const path = resolve(output, '.' + reference);

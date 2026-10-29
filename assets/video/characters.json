@@ -1,264 +1,314 @@
 {
   "version": 1,
   "identityKey": "id",
-  "artworkNote": "Synthetic source-derived artwork. Optional published avatars are existing previews, not a pixel-final certification.",
   "characters": [
     {
       "id": "A02",
       "label": "Pocket Maestro",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-56"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-56",
+      "publishedAvatarPath": "assets/video/avatars/A02.png"
     },
     {
       "id": "A03",
       "label": "Disco Moth",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-59"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-59",
+      "publishedAvatarPath": "assets/video/avatars/A03.png"
     },
     {
       "id": "A04",
       "label": "Sergeant Sardine",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-62"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-62",
+      "publishedAvatarPath": "assets/video/avatars/A04.png"
     },
     {
       "id": "A06",
       "label": "The Glove Imp",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-65"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-65",
+      "publishedAvatarPath": "assets/video/avatars/A06.png"
     },
     {
       "id": "A07",
       "label": "Gator Crooner",
       "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-50",
-      "publishedAvatarPath": "assets/video/poses/gator-original-0.png"
+      "publishedAvatarPath": "assets/video/avatars/A07.png"
     },
     {
       "id": "A09",
       "label": "Accordion Auntie",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-68"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-68",
+      "publishedAvatarPath": "assets/video/avatars/A09.png"
     },
     {
       "id": "A10",
       "label": "Bowler Beetle",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1709"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1709",
+      "publishedAvatarPath": "assets/video/avatars/A10.png"
     },
     {
       "id": "A12",
       "label": "Baron Broom",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1726"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1726",
+      "publishedAvatarPath": "assets/video/avatars/A12.png"
     },
     {
       "id": "A13",
       "label": "Neon Newt",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1743"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1743",
+      "publishedAvatarPath": "assets/video/avatars/A13.png"
     },
     {
       "id": "A14",
       "label": "The Static Queen",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1760"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1760",
+      "publishedAvatarPath": "assets/video/avatars/A14.png"
     },
     {
       "id": "A15",
       "label": "Tuba Tortoise",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1777"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1777",
+      "publishedAvatarPath": "assets/video/avatars/A15.png"
     },
     {
       "id": "A17",
       "label": "Cigarette-Free Detective",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1794"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1794",
+      "publishedAvatarPath": "assets/video/avatars/A17.png"
     },
     {
       "id": "A23",
       "label": "The Velvet Worm",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1811"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1811",
+      "publishedAvatarPath": "assets/video/avatars/A23.png"
     },
     {
       "id": "A25",
       "label": "Mirror Mime",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1828"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1828",
+      "publishedAvatarPath": "assets/video/avatars/A25.png"
     },
     {
       "id": "A26",
       "label": "Ballet Buffalo",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1845"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1845",
+      "publishedAvatarPath": "assets/video/avatars/A26.png"
     },
     {
       "id": "A27",
       "label": "Professor Pigeon",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1862"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1862",
+      "publishedAvatarPath": "assets/video/avatars/A27.png"
     },
     {
       "id": "A29",
       "label": "The Tapir Tenor",
       "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=32-53",
-      "publishedAvatarPath": "assets/video/poses/tapir-original-0.png"
+      "publishedAvatarPath": "assets/video/avatars/A29.png"
     },
     {
       "id": "A31",
       "label": "Mister Metronome",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1879"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1879",
+      "publishedAvatarPath": "assets/video/avatars/A31.png"
     },
     {
       "id": "A35",
       "label": "Saxophone Snail",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1896"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1896",
+      "publishedAvatarPath": "assets/video/avatars/A35.png"
     },
     {
       "id": "B01",
       "label": "Antenna Stag",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1913"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1913",
+      "publishedAvatarPath": "assets/video/avatars/B01.png"
     },
     {
       "id": "B04",
       "label": "Vacuum Organ",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1930"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1930",
+      "publishedAvatarPath": "assets/video/avatars/B04.png"
     },
     {
       "id": "B05",
       "label": "Cassette Moth",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1947"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1947",
+      "publishedAvatarPath": "assets/video/avatars/B05.png"
     },
     {
       "id": "B07",
       "label": "Thunderclap Folder",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1964"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1964",
+      "publishedAvatarPath": "assets/video/avatars/B07.png"
     },
     {
       "id": "B08",
       "label": "Piano Key Conveyor",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1981"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1981",
+      "publishedAvatarPath": "assets/video/avatars/B08.png"
     },
     {
       "id": "B11",
       "label": "Signal Snail",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1998"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-1998",
+      "publishedAvatarPath": "assets/video/avatars/B11.png"
     },
     {
       "id": "B19",
       "label": "Boom Box Drawbridge",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2605"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2605",
+      "publishedAvatarPath": "assets/video/avatars/B19.png"
     },
     {
       "id": "B20",
       "label": "Keytar Scorpion",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2622"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2622",
+      "publishedAvatarPath": "assets/video/avatars/B20.png"
     },
     {
       "id": "B21",
       "label": "Pinball Heartbeat",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2639"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2639",
+      "publishedAvatarPath": "assets/video/avatars/B21.png"
     },
     {
       "id": "B23",
       "label": "Oscilloscope Jellyfish",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2656"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2656",
+      "publishedAvatarPath": "assets/video/avatars/B23.png"
     },
     {
       "id": "B25",
       "label": "Rug Pull Galaxy",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2673"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2673",
+      "publishedAvatarPath": "assets/video/avatars/B25.png"
     },
     {
       "id": "B26",
       "label": "Typewriter Crab",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2690"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=45-2690",
+      "publishedAvatarPath": "assets/video/avatars/B26.png"
     },
     {
       "id": "B28",
       "label": "Rhythm Traffic Signal",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=47-1383"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=47-1383",
+      "publishedAvatarPath": "assets/video/avatars/B28.png"
     },
     {
       "id": "C01",
       "label": "Fuse Moth",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-2"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-2",
+      "publishedAvatarPath": "assets/video/avatars/C01.png"
     },
     {
       "id": "C03",
       "label": "Disco Anemone",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-19"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-19",
+      "publishedAvatarPath": "assets/video/avatars/C03.png"
     },
     {
       "id": "C04",
       "label": "Meteor Janitor",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-36"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-36",
+      "publishedAvatarPath": "assets/video/avatars/C04.png"
     },
     {
       "id": "C06",
       "label": "Knob Goblin",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-53"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-53",
+      "publishedAvatarPath": "assets/video/avatars/C06.png"
     },
     {
       "id": "C12",
       "label": "Cassette Centipede",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-70"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-70",
+      "publishedAvatarPath": "assets/video/avatars/C12.png"
     },
     {
       "id": "C13",
       "label": "Cloud-Head Wrestler",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-87"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-87",
+      "publishedAvatarPath": "assets/video/avatars/C13.png"
     },
     {
       "id": "C15",
       "label": "The Wrong Planet",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-104"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-104",
+      "publishedAvatarPath": "assets/video/avatars/C15.png"
     },
     {
       "id": "C18",
       "label": "Mosquito Trumpeter",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-121"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-121",
+      "publishedAvatarPath": "assets/video/avatars/C18.png"
     },
     {
       "id": "C19",
       "label": "Velvet Volcano",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-138"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-138",
+      "publishedAvatarPath": "assets/video/avatars/C19.png"
     },
     {
       "id": "C21",
       "label": "Bone Accordion",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-155"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-155",
+      "publishedAvatarPath": "assets/video/avatars/C21.png"
     },
     {
       "id": "C23",
       "label": "Prism Slug",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-172"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-172",
+      "publishedAvatarPath": "assets/video/avatars/C23.png"
     },
     {
       "id": "C27",
       "label": "Hollow-Head Librarian",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-189"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-189",
+      "publishedAvatarPath": "assets/video/avatars/C27.png"
     },
     {
       "id": "C28",
       "label": "Walking Pinball Table",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-206"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-206",
+      "publishedAvatarPath": "assets/video/avatars/C28.png"
     },
     {
       "id": "C29",
       "label": "Fossil DJ",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-223"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-223",
+      "publishedAvatarPath": "assets/video/avatars/C29.png"
     },
     {
       "id": "C30",
       "label": "Satellite Scarecrow",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-240"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-240",
+      "publishedAvatarPath": "assets/video/avatars/C30.png"
     },
     {
       "id": "C31",
       "label": "Rag-Doll Black Hole",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-257"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-257",
+      "publishedAvatarPath": "assets/video/avatars/C31.png"
     },
     {
       "id": "C34",
       "label": "Spy-Briefcase Crab",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-274"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-274",
+      "publishedAvatarPath": "assets/video/avatars/C34.png"
     },
     {
       "id": "C35",
       "label": "Polygon Parade Horse",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-291"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-291",
+      "publishedAvatarPath": "assets/video/avatars/C35.png"
     },
     {
       "id": "C36",
       "label": "Glass-Sphere Frog King",
-      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-308"
+      "figmaRef": "https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=41-308",
+      "publishedAvatarPath": "assets/video/avatars/C36.png"
     }
-  ]
+  ],
+  "artworkNote": "Existing source-derived static UI avatars. Five repainted snapshots are pixel-final;46 gallery previews retain their earlier review and require repaint before finished sprite/video use.",
+  "avatarManifest": "assets/video/avatars/manifest.json"
 }
