@@ -24,4 +24,4 @@ The local inspection command accepts private paths without storing them in its r
 
 Only `--step` or `SHOW_TOOLS_DISCO_STEP` is required. The optional receipt records asset hashes, source hash, geometry, and comparison limits. It contains no copied model or source path. Keep generated receipts outside tracked directories.
 
-`preview(step_path=None)` returns `(objects, names, colors, alphas)` for the parent's coordinated publisher. It uses `SHOW_TOOLS_DISCO_STEP` when no path is supplied. Importing the module or invoking its CLI does not contact the viewer, transform the reference, export geometry, or modify the attachments.
+`preview(step_path=None)` returns `(objects, names, colors, alphas)` for the parent's coordinated publisher. It uses `SHOW_TOOLS_DISCO_STEP` when no path is supplied. The current preview includes three screw-clamp studies and a separately labelled reference crop lowered 35 mm for display. Importing the module or running the inspection CLI does not contact the viewer or modify attachments. The separate `--concepts DIRECTORY` command exports only proposed print parts, as described in [README.md](README.md).
