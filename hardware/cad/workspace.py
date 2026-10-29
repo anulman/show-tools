@@ -14,6 +14,7 @@ CAD_DIR = Path(__file__).parent
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("workspace", choices=("box-mount", "disco-bar"))
+    parser.add_argument("--variant", choices=("all", "arcade-inclined", "rotor-level", "mushroom-level"), default="all", help="Box-mount variants to show")
     parser.add_argument("--step", type=Path, help="Local Darren STEP path, for disco-bar only")
     parser.add_argument("--explode", type=float, default=0, help="Lower box-mount bottoms for inspection, in mm")
     parser.add_argument("--reset-camera", action="store_true")
@@ -23,10 +24,12 @@ def main():
         parser.error("--step applies only to disco-bar")
     if args.explode != 0 and args.workspace != "box-mount":
         parser.error("--explode applies only to box-mount")
+    if args.variant != "all" and args.workspace != "box-mount":
+        parser.error("--variant applies only to box-mount")
     module = importlib.import_module(args.workspace.replace("-", "_"))
     try:
         objects, names, colors, alphas = (
-            module.preview(step_path=args.step) if args.workspace == "disco-bar" else module.preview(explode=args.explode)
+            module.preview(step_path=args.step) if args.workspace == "disco-bar" else module.preview(explode=args.explode, variant=args.variant)
         )
     except (ValueError, FileNotFoundError) as error:
         parser.error(str(error))
@@ -36,7 +39,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     last_path = output / "current-view.json"
     previous = json.loads(last_path.read_text()) if last_path.exists() else {}
-    reset = args.reset_camera or previous.get("workspace") != args.workspace
+    reset = (args.reset_camera or previous.get("workspace") != args.workspace
+             or (args.workspace == "box-mount" and previous.get("variant") != args.variant))
     from ocp_viewer import Camera, show
     show(*objects, names=names, colors=colors, alphas=alphas,
          port=args.port, reset_camera=Camera.ISO if reset else Camera.KEEP,
@@ -45,6 +49,8 @@ def main():
     receipt = dict(workspace=args.workspace, labels=names, units="mm", port=args.port,
                    camera="iso" if reset else "keep", explode_mm=args.explode, physical_fit_verified=False,
                    source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sources})
+    if args.workspace == "box-mount":
+        receipt["variant"] = args.variant
     if args.workspace == "disco-bar":
         asset = args.step or (Path(os.environ["SHOW_TOOLS_DISCO_STEP"]) if os.environ.get("SHOW_TOOLS_DISCO_STEP") else None)
         if asset is not None:
