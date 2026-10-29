@@ -20,7 +20,10 @@
     "shaft_diameter_nominal": 6,
     "large_knob_diameter_nominal": 44,
     "small_knob_diameter_nominal": 34,
-    "panel_thickness_range_nominal": [1, 25],
+    "panel_thickness_range_nominal": [
+      1,
+      25
+    ],
     "drawing_34_dimension_is_hex_across_flats": false,
     "actual_stock_hex_across_flats": null,
     "actual_stock_hex_thickness": null,
@@ -37,5 +40,15 @@
     "lifting_box_for_underside_service_allowed": true,
     "original_bar_policy": "unchanged reference, optional printing after fabricator review",
     "preproduction_fit_trial": "printer checks actual standard hardware and fully processed mating latch before full run"
+  },
+  "ball_interface": {
+    "operator_confirmed": true,
+    "bar_upper_roof_circumference_contacts_ball_interior": true,
+    "full_bar_height_fills_ball_interior": true,
+    "bar_root_approximately_flush_with_ball_opening": true,
+    "preserve_original_bar_height_and_outer_insertion_profile": true,
+    "added_external_geometry_policy": "outside original bar radial profile, remain below opening with chosen setback",
+    "original_source_root_z": 0,
+    "original_source_ball_inside_direction": "-z"
   }
 }
