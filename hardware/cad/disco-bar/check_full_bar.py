@@ -42,7 +42,7 @@ def main():
     else:
         raise AssertionError("Circular guard accepted body protrusion")
     cases = {
-        "altered baseplate study": replace(len(scene[0]) - 1, scene[0][-1].translate((.2, 0, 0))),
+        "altered final C export": replace(len(scene[0]) - 1, scene[0][-1].translate((.2, 0, 0))),
         "altered locked-review pad": replace(review_pad, scene[0][review_pad].translate((.1, 0, 0))),
         "same-bounds body protrusion beyond circular opening": replace(c_body, scene[0][c_body] + protrusion),
         "unapproved extra display geometry": extra,

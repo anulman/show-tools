@@ -26,10 +26,13 @@ def main():
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
-    module = importlib.import_module(args.workspace.replace("-", "_"))
+    module = importlib.import_module('disco_bar' if args.workspace == 'disco-bar' else 'box_review')
     try:
+        selection = (importlib.import_module('final_review').load()
+                     if args.workspace == 'disco-bar' or args.variant in ('all', 'rotor-level') else None)
         objects, names, colors, alphas = (
-            module.preview(step_path=args.step) if args.workspace == "disco-bar" else module.preview(explode=args.explode, variant=args.variant)
+            module.preview(step_path=args.step, selection=selection) if args.workspace == "disco-bar"
+            else module.preview(explode=args.explode, variant=args.variant, selection=selection)
         )
     except (ValueError, FileNotFoundError) as error:
         parser.error(str(error))
@@ -37,7 +40,11 @@ def main():
         raise RuntimeError("Preview objects and labels must have matching nonzero lengths")
     if args.workspace == "disco-bar":
         reference_path, _ = module.load_reference(args.step)
-        module.verify_preview_scene(reference_path, (objects, names, colors, alphas))
+        module.verify_preview_scene(reference_path, (objects, names, colors, alphas), selection=selection)
+    else:
+        module.verify_preview_scene((objects, names, colors, alphas), explode=args.explode, variant=args.variant, selection=selection)
+    if selection is not None:
+        selection.assert_current()
     output = CAD_DIR / "build" / "workspace"
     output.mkdir(parents=True, exist_ok=True)
     last_path = output / "current-view.json"
@@ -52,10 +59,14 @@ def main():
     if args.workspace == "disco-bar":
         sources.append(CAD_DIR / "disco-bar" / "full_height.py")
         sources.append(CAD_DIR / "disco-bar" / "latches.py")
-        sources.append(CAD_DIR / "disco-bar" / "baseplates.py")
+    else:
+        sources.append(CAD_DIR / 'box_mount.py')
+    sources.append(CAD_DIR / 'final_review.py')
     receipt = dict(workspace=args.workspace, labels=names, units="mm", port=args.port,
                    camera="iso" if reset else "keep", explode_mm=args.explode, physical_fit_verified=False,
                    source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sources})
+    if selection is not None:
+        receipt['checked_final_review'] = selection.provenance()
     if args.workspace == "box-mount":
         receipt["variant"] = args.variant
     if args.workspace == "disco-bar":
