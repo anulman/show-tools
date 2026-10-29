@@ -2,16 +2,20 @@ import { Schema } from 'effect';
 import type { Database, SqlJsStatic, SqlValue } from 'sql.js';
 import { canonicalCatalog, parseCatalogDocument, parseSheetBinding, parseVoice, type CatalogDocument } from './model.js';
 
-const schemaSql = `
+const schemaSqlV1 = `
 CREATE TABLE catalog_metadata (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL CHECK(revision >= 0));
 INSERT INTO catalog_metadata VALUES (1, 0);
 CREATE TABLE voices (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, notes TEXT NOT NULL, character_id TEXT, avatar_token TEXT NOT NULL);
 CREATE TABLE voice_effects (voice_id TEXT NOT NULL REFERENCES voices(id), ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 63), definition_json TEXT NOT NULL, PRIMARY KEY(voice_id, ordinal));
 CREATE TABLE sheet_bindings (spreadsheet_id TEXT NOT NULL, sheet_id INTEGER NOT NULL CHECK(sheet_id >= 0), label_cell TEXT NOT NULL, source_label TEXT NOT NULL, voice_id TEXT NOT NULL REFERENCES voices(id), PRIMARY KEY(spreadsheet_id, sheet_id, label_cell));
 PRAGMA user_version = 1;`;
+const bindingSqlV1 = schemaSqlV1.split(';').map(sql => sql.trim()).find(sql => sql.startsWith('CREATE TABLE sheet_bindings'));
+if (!bindingSqlV1) throw new Error('Missing binding schema');
+const bindingSql = `CREATE TABLE sheet_bindings (spreadsheet_id TEXT NOT NULL, sheet_id INTEGER NOT NULL CHECK(sheet_id >= 0), label_cell TEXT NOT NULL, source_label TEXT NOT NULL, voice_id TEXT NOT NULL REFERENCES voices(id), cue_label_cell TEXT, cue_source_label TEXT, CHECK((cue_label_cell IS NULL) = (cue_source_label IS NULL)), PRIMARY KEY(spreadsheet_id, sheet_id, label_cell))`;
+const schemaSql = schemaSqlV1.replace(bindingSqlV1, bindingSql).replace('user_version = 1', 'user_version = 2');
 const decodeVoiceRow = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, name: Schema.String, notes: Schema.String, character_id: Schema.NullOr(Schema.String), avatar_token: Schema.String }));
 const decodeEffectRow = Schema.decodeUnknownSync(Schema.Struct({ voice_id: Schema.String, ordinal: Schema.Int, definition_json: Schema.String }));
-const decodeBindingRow = Schema.decodeUnknownSync(Schema.Struct({ spreadsheet_id: Schema.String, sheet_id: Schema.Int, label_cell: Schema.String, source_label: Schema.String, voice_id: Schema.String }));
+const decodeBindingRow = Schema.decodeUnknownSync(Schema.Struct({ spreadsheet_id: Schema.String, sheet_id: Schema.Int, label_cell: Schema.String, source_label: Schema.String, voice_id: Schema.String, cue_label_cell: Schema.NullOr(Schema.String), cue_source_label: Schema.NullOr(Schema.String) }));
 const decodeRevisionRow = Schema.decodeUnknownSync(Schema.Struct({ revision: Schema.Int }));
 const decodeVersionRow = Schema.decodeUnknownSync(Schema.Struct({ user_version: Schema.Int }));
 
@@ -37,7 +41,16 @@ export class VoiceCatalogSqlite {
         database.run('BEGIN');
         try { database.run(schemaSql); database.run('COMMIT'); }
         catch (error) { database.run('ROLLBACK'); throw error; }
-      } else if (version !== 1) throw new Error(`Unsupported voice library database version: ${version}`);
+      } else if (version === 1) {
+        catalog.validateSchema(schemaSqlV1);
+        database.run('BEGIN');
+        try {
+          database.run('ALTER TABLE sheet_bindings RENAME TO bindings_v1');
+          database.run(bindingSql);
+          database.run('INSERT INTO sheet_bindings SELECT spreadsheet_id, sheet_id, label_cell, source_label, voice_id, NULL, NULL FROM bindings_v1');
+          database.run('DROP TABLE bindings_v1; PRAGMA user_version = 2; COMMIT');
+        } catch (error) { database.run('ROLLBACK'); throw error; }
+      } else if (version !== 2) throw new Error(`Unsupported voice library database version: ${version}`);
       catalog.validateSchema();
       const integrity = catalog.rows('PRAGMA integrity_check');
       if (integrity.length !== 1 || integrity[0].integrity_check !== 'ok') throw new Error('Voice library database integrity check failed');
@@ -47,9 +60,9 @@ export class VoiceCatalogSqlite {
     } catch (error) { database.close(); throw error; }
   }
 
-  private validateSchema(): void {
+  private validateSchema(definition = schemaSql): void {
     const actual = this.rows("SELECT name, sql FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'");
-    const expected = schemaSql.split(';').map(sql => sql.trim()).filter(sql => sql.startsWith('CREATE TABLE'));
+    const expected = definition.split(';').map(sql => sql.trim()).filter(sql => sql.startsWith('CREATE TABLE'));
     const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim().toLowerCase();
     if (actual.length !== expected.length || expected.some(sql => !actual.some(row => typeof row.sql === 'string' && normalize(row.sql) === normalize(sql)))) {
       throw new Error('Unsupported voice library database schema');
@@ -76,8 +89,8 @@ export class VoiceCatalogSqlite {
     });
     const voiceIds = new Set(voices.map(voice => voice.id));
     if (effectRows.some(effect => !voiceIds.has(effect.voice_id))) throw new Error('Effect references unknown voice');
-    const bindings = this.rows('SELECT spreadsheet_id, sheet_id, label_cell, source_label, voice_id FROM sheet_bindings').map(row => decodeBindingRow(row)).map(row => ({ spreadsheetId: row.spreadsheet_id, sheetId: row.sheet_id, labelCell: row.label_cell, sourceLabel: row.source_label, voiceId: row.voice_id }));
-    return canonicalCatalog(parseCatalogDocument({ version: 1, revision: decodeRevisionRow(metadata[0]).revision, voices, bindings }));
+    const bindings = this.rows('SELECT spreadsheet_id, sheet_id, label_cell, source_label, voice_id, cue_label_cell, cue_source_label FROM sheet_bindings').map(row => decodeBindingRow(row)).map(row => ({ spreadsheetId: row.spreadsheet_id, sheetId: row.sheet_id, labelCell: row.label_cell, sourceLabel: row.source_label, voiceId: row.voice_id, cueRow: row.cue_label_cell === null ? null : { labelCell: row.cue_label_cell, sourceLabel: row.cue_source_label } }));
+    return canonicalCatalog(parseCatalogDocument({ version: 2, revision: decodeRevisionRow(metadata[0]).revision, voices, bindings }));
   }
 
   replace(input: unknown, expectedRevision: number): CatalogDocument {
@@ -91,7 +104,7 @@ export class VoiceCatalogSqlite {
       this.database.run('DELETE FROM sheet_bindings; DELETE FROM voice_effects; DELETE FROM voices;');
       this.insert('INSERT INTO voices VALUES (?, ?, ?, ?, ?)', next.voices.map(voice => [voice.id, voice.name, voice.notes, voice.characterId, voice.avatarToken]));
       this.insert('INSERT INTO voice_effects VALUES (?, ?, ?)', next.voices.flatMap(voice => voice.effects.map((effect, ordinal) => [voice.id, ordinal, JSON.stringify(effect)])));
-      this.insert('INSERT INTO sheet_bindings VALUES (?, ?, ?, ?, ?)', next.bindings.map(binding => [binding.spreadsheetId, binding.sheetId, binding.labelCell, binding.sourceLabel, binding.voiceId]));
+      this.insert('INSERT INTO sheet_bindings VALUES (?, ?, ?, ?, ?, ?, ?)', next.bindings.map(binding => [binding.spreadsheetId, binding.sheetId, binding.labelCell, binding.sourceLabel, binding.voiceId, binding.cueRow?.labelCell ?? null, binding.cueRow?.sourceLabel ?? null]));
       this.database.run('UPDATE catalog_metadata SET revision = ? WHERE id = 1', [next.revision]);
       this.database.run('COMMIT');
     } catch (error) { this.database.run('ROLLBACK'); throw error; }

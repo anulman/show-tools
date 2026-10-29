@@ -1,3 +1,4 @@
+import { renderVoiceAvatar } from './voice-avatar.js';
 import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 import { PracticeAudio } from './audio.js';
@@ -74,6 +75,7 @@ function keyboardEdge(event: KeyboardEvent, edge: 'press' | 'release') {
   return keyboardInput.inject({ sessionId: String(keyboardSession - 1), sourceTimeMs: event.timeStamp, kind: 'key', code: event.code,
     edge, repeat: edge === 'press' && event.repeat });
 }
+const voiceAvatars = new Map<number, { root: HTMLElement; name: string }>();
 const liveVoiceStates = new Map<number, HTMLSpanElement>();
 const rotationControls: HTMLButtonElement[] = [];
 let rotationSequence = 0;
@@ -300,7 +302,7 @@ function makePads() {
     button.className = 'pad';
     button.dataset.control = control.id;
     button.setAttribute('aria-label', `${control.id} ${controlName(control.id)}`);
-    button.innerHTML = `<span class="pad-top"><span class="pad-id">${control.id}</span><kbd>${control.shortcut}</kbd></span><span class="pad-name-row"><strong class="pad-name"></strong><span class="pad-cue" aria-label="Chart cue"><code></code><i class="pad-led" aria-hidden="true"></i></span></span><span class="pad-sample-state">Empty slot</span>`;
+    button.innerHTML = `<span class="pad-top"><span class="pad-id">${control.id}</span><kbd>${control.shortcut}</kbd></span><span class="pad-name-row"><span class="pad-identity"><span class="performance-avatar" hidden></span><strong class="pad-name"></strong></span><span class="pad-cue" aria-label="Chart cue"><code></code><i class="pad-led" aria-hidden="true"></i></span></span><span class="pad-sample-state">Empty slot</span>`;
     const volumeRow = document.createElement('label');
     volumeRow.className = 'pad-volume';
     const volumeLabel = document.createElement('span');
@@ -343,22 +345,31 @@ function makePads() {
 }
 
 function mountVoiceRows() {
-  voiceEffects.reset(song?.compiled ? 'compiled' : 'dry'); liveVoiceStates.clear(); rotationControls.length = 0;
+  voiceEffects.reset(song?.compiled ? 'compiled' : 'dry'); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0;
+  for (const pad of pads.values()) {
+    const avatar = requiredElement('.performance-avatar', HTMLElement, pad.button);
+    avatar.hidden = true; delete avatar.dataset.avatar;
+  }
   elements['live-voices'].replaceChildren();
   for (const pad of pads.values()) pad.shell.querySelector('.voice-effects')?.remove();
   const parts = song?.compiled?.parts;
   for (const part of parts ?? []) {
     if (part.role.kind === 'pad') {
       const pad = pads.get(part.role.buttonId);
-      if (pad) voiceEffects.mount(part, pad.shell, () => voiceCatalog.openProfile(part.profile));
+      if (pad) {
+        voiceEffects.mount(part, pad.shell, () => voiceCatalog.openProfile(part.profile));
+        voiceAvatars.set(part.profile, { root: requiredElement('.performance-avatar', HTMLElement, pad.button), name: part.name });
+      }
       continue;
     }
     const shell = document.createElement('article'); shell.className = 'voice-row'; shell.dataset.voice = part.id;
     const main = document.createElement('div'); main.className = 'voice-main';
-    const identity = document.createElement('div');
+    const identity = document.createElement('div'); identity.className = 'voice-identity';
+    const avatar = document.createElement('span'); avatar.className = 'performance-avatar'; avatar.hidden = true;
+    voiceAvatars.set(part.profile, { root: avatar, name: part.name });
     const name = document.createElement('h2'); name.textContent = part.name;
     main.title = part.role.kind === 'default-live' ? 'Default live voice' : 'Use vertical scroll while playing to turn the knob';
-    identity.append(name);
+    identity.append(avatar, name);
     const tools = document.createElement('div'); tools.className = 'voice-tools';
     const status = document.createElement('span'); status.className = 'voice-state'; status.textContent = 'STANDBY';
     liveVoiceStates.set(part.profile, status); tools.append(status);
@@ -406,6 +417,7 @@ function render(next: Partial<PracticeState>) {
   const effectsLocked = running || starting || switching || Boolean(preparing) || effectsApplying || outputCapture !== 'idle';
   voiceEffects.render(state.voiceEffects, effectsLocked);
   voiceCatalog.update({ bar: state.bar, voiceEffects: state.voiceEffects });
+  for (const [profile, avatar] of voiceAvatars) renderVoiceAvatar(avatar.root, voiceCatalog.voiceForProfile(profile), avatar.name);
   for (const [profile, label] of liveVoiceStates) {
     const applied = state.voiceEffects?.find(voice => voice.profile === profile);
     label.textContent = applied?.activity === 'live' ? 'LIVE' : applied?.activity === 'tail' ? 'RELEASING' : applied?.activity === 'capture' ? 'RECORDING' : 'STANDBY';
@@ -704,6 +716,7 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
   }
 }
 const chartPanel = installChartPanel(chartSource, {
+  resolveMapping: (source, mapping) => voiceCatalog.cueMapping(source, mapping),
   isBusy: () => voiceCatalog.busy || isRunning() || starting || switching || effectsApplying || preparing !== null || outputCapture !== 'idle',
   onLoad: async (input, source) => {
     const compiled = decodeCompiledSong(input);

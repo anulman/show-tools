@@ -1,5 +1,5 @@
-import type { CatalogDocument, SheetBinding, Voice } from '../../lib/voice-catalog/model.js';
-import type { SheetVoiceRow } from '../../lib/voice-catalog/sheet-voices.js';
+import type { CatalogDocument, SheetBinding, Voice, CueRow } from '../../lib/voice-catalog/model.js';
+import type { SheetCueRow, SheetVoiceRow } from '../../lib/voice-catalog/sheet-voices.js';
 import type { LiveEffectDefinition, PracticeState } from '../../lib/performance/model.js';
 
 export interface VoiceCharacter {
@@ -19,6 +19,8 @@ export interface VoiceLibraryOptions {
 export interface VoiceLibraryUpdate {
   readonly document: CatalogDocument;
   readonly rows: readonly SheetVoiceRow[];
+  readonly cueRows?: readonly SheetCueRow[];
+  readonly commandRows?: ReadonlyMap<string, readonly number[]>;
   readonly state?: Pick<PracticeState, 'bar' | 'voiceEffects'>;
   readonly locked: boolean;
   /** A nonempty loading/error message makes library editing unavailable. */
@@ -41,9 +43,11 @@ function sameEffects(a: readonly LiveEffectDefinition[], b: readonly LiveEffectD
 
 /** A catalog view only: musical timing and graph preparation remain in the native engine. */
 export function installVoiceLibrary(root: HTMLElement, options: VoiceLibraryOptions) {
-  let data: VoiceLibraryUpdate = { document: { version: 1, revision: 0, voices: [], bindings: [] }, rows: [], locked: false };
+  let data: VoiceLibraryUpdate = { document: { version: 2, revision: 0, voices: [], bindings: [] }, rows: [], locked: false };
   let draft: Voice | null = null;
   let selectedSource: string | null = null;
+  let selectedCue: CueRow | null = null;
+  let cueNeedsReview = false;
   let confirmedMapping = false;
   let dirty = false;
   let baseRevision = 0;
@@ -116,8 +120,9 @@ export function installVoiceLibrary(root: HTMLElement, options: VoiceLibraryOpti
     if (row && existing && (existing.voiceId !== draft.id || existing.sourceLabel !== row.sourceLabel) && !confirmedMapping) {
       message.textContent = 'Confirm the changed source connection before saving.'; return;
     }
+    if (cueNeedsReview) { message.textContent = 'Choose a current cue row to resolve its changed or missing label.'; return; }
     const binding: SheetBinding | undefined = row ? {
-      spreadsheetId: row.spreadsheetId, sheetId: row.sheetId, labelCell: row.labelCell, sourceLabel: row.sourceLabel, voiceId: draft.id,
+      spreadsheetId: row.spreadsheetId, sheetId: row.sheetId, labelCell: row.labelCell, sourceLabel: row.sourceLabel, voiceId: draft.id, cueRow: selectedCue,
     } : undefined;
     const voiceToSave = draft;
     saving = true; refreshStatus();
@@ -191,13 +196,14 @@ export function installVoiceLibrary(root: HTMLElement, options: VoiceLibraryOpti
     if (saving || data.availability) return;
     const voice = data.document.voices.find(item => item.id === id); if (!voice) return;
     draft = { ...voice, effects: [...(options.getDraftEffects?.(id) ?? voice.effects)] };
-    dirty = false; baseRevision = data.document.revision; selectedSource = boundRow(id)?.key ?? null; confirmedMapping = false;
+    dirty = false; baseRevision = data.document.revision; selectedSource = boundRow(id)?.key ?? null;
+    selectedCue = data.document.bindings.find(binding => binding.voiceId === id && data.rows.some(row => row.key === selectedSource && sameSource(row, binding)))?.cueRow ?? null; confirmedMapping = false;
     renderForm(); renderRoster(true); showDialog();
   }
   function openRow(row: SheetVoiceRow) {
     if (data.availability || !canLeave()) return;
     draft = { id: crypto.randomUUID(), name: row.name, notes: '', characterId: null, avatarToken: 'neutral', effects: [] };
-    dirty = true; baseRevision = data.document.revision; selectedSource = row.key; confirmedMapping = false; renderForm(); showDialog();
+    dirty = true; baseRevision = data.document.revision; selectedSource = row.key; selectedCue = null; confirmedMapping = false; renderForm(); showDialog();
   }
   function changed(next: Voice) { draft = next; dirty = true; message.textContent = ''; refreshStatus(); }
   function effectsChanged(effects: readonly LiveEffectDefinition[]) {
@@ -237,11 +243,33 @@ export function installVoiceLibrary(root: HTMLElement, options: VoiceLibraryOpti
     const notes = el('textarea'); notes.value = current.notes; notes.maxLength = 4000; notes.rows = 3;
     notes.addEventListener('input', () => { if (draft) changed({ ...draft, notes: notes.value }); });
     form.append(field('Notes', notes));
+    cueNeedsReview = false;
     const source = el('section', 'vl-source'); source.append(el('h4', '', 'Sheet connection'));
     const sourceSelect = el('select'); const noSource = el('option', '', 'Keep existing connections'); noSource.value = ''; sourceSelect.append(noSource);
     for (const row of data.rows) { const option = el('option', '', `${row.labelCell} · ${row.sourceLabel}`); option.value = row.key; sourceSelect.append(option); }
     sourceSelect.value = selectedSource ?? '';
     const sourceDetails = el('p', 'vl-source-details');
+    const cueSelect = el('select'); const cueDetails = el('p', 'vl-source-details');
+    function refreshCueRows() {
+      const row = data.rows.find(item => item.key === selectedSource);
+      const candidates = (data.cueRows ?? []).filter(cue => cue.spreadsheetId === row?.spreadsheetId && cue.sheetId === row.sheetId);
+      const loaded = data.commandRows?.get(row?.key ?? '') ?? [];
+      const loadedLabels = loaded.map(number => { const match = candidates.find(cue => Number(cue.labelCell.replace(/^[A-Z]+/, '')) === number); return match ? `${match.sourceLabel} · ${match.labelCell}` : `row ${number}`; }).join(', ') || 'No command row declared';
+      cueSelect.replaceChildren();
+      const inherited = el('option', '', `Loaded song default · ${loadedLabels}`); inherited.value = ''; cueSelect.append(inherited);
+      for (const candidate of candidates) { const option = el('option', '', `${candidate.labelCell} · ${candidate.sourceLabel}`); option.value = candidate.labelCell; cueSelect.append(option); }
+      const matching = candidates.find(candidate => candidate.labelCell === selectedCue?.labelCell && candidate.sourceLabel === selectedCue.sourceLabel);
+      cueNeedsReview = selectedCue !== null && !matching;
+      if (cueNeedsReview && selectedCue) { const missing = el('option', '', `Check mapping · ${selectedCue.labelCell} · ${selectedCue.sourceLabel}`); missing.value = '__missing__'; cueSelect.append(missing); }
+      cueSelect.value = cueNeedsReview ? '__missing__' : selectedCue?.labelCell ?? '';
+      cueDetails.textContent = `Loaded song: ${loadedLabels}. Saved cue-row changes take effect when you recompile and load the song mapping.${cueNeedsReview ? ' Saved cue label changed or is missing. Choose a current row.' : ''}${!data.cueRows?.length ? ' Load a source snapshot to select row labels.' : ''}`;
+    }
+    cueSelect.addEventListener('change', () => {
+      const row = data.rows.find(item => item.key === selectedSource);
+      const candidate = data.cueRows?.find(cue => cue.labelCell === cueSelect.value && cue.sheetId === row?.sheetId && cue.spreadsheetId === row.spreadsheetId);
+      selectedCue = candidate ? { labelCell: candidate.labelCell, sourceLabel: candidate.sourceLabel } : null;
+      dirty = true; refreshCueRows(); refreshStatus();
+    });
     const confirmation = el('label', 'vl-confirm'); const checkbox = el('input'); checkbox.type = 'checkbox';
     confirmation.append(checkbox, el('span', '', 'Confirm replacing this row’s saved connection or changed label.'));
     checkbox.addEventListener('change', () => { confirmedMapping = checkbox.checked; });
@@ -251,8 +279,8 @@ export function installVoiceLibrary(root: HTMLElement, options: VoiceLibraryOpti
       sourceDetails.textContent = row ? `${row.sheetName} · worksheet ${row.sheetId} · ${row.labelCell}\n${row.sourceLabel}\nSpreadsheet ${row.spreadsheetId}${row.managed ? '\nAF managed · source-owned label' : ''}` : data.document.bindings.filter(item => item.voiceId === current.id).map(item => `${item.sourceLabel} · ${item.labelCell} · worksheet ${item.sheetId} · ${item.spreadsheetId}`).join('\n') || 'No sheet connection. Metadata does not assign an audio input.';
       confirmation.hidden = !binding || (binding.voiceId === current.id && binding.sourceLabel === row?.sourceLabel);
     }
-    sourceSelect.addEventListener('change', () => { selectedSource = sourceSelect.value || null; confirmedMapping = false; checkbox.checked = false; dirty = true; refreshSource(); refreshStatus(); });
-    source.append(field('Source row', sourceSelect), sourceDetails, confirmation); form.append(source); refreshSource(); refreshStatus();
+    sourceSelect.addEventListener('change', () => { selectedSource = sourceSelect.value || null; selectedCue = null; confirmedMapping = false; checkbox.checked = false; dirty = true; refreshSource(); refreshCueRows(); refreshStatus(); });
+    source.append(field('Voice row', sourceSelect), sourceDetails, confirmation, field('Cue row', cueSelect), cueDetails); form.append(source); refreshSource(); refreshCueRows(); refreshStatus();
   }
   function renderEffects(container: HTMLElement) {
     container.replaceChildren(el('h4', '', 'Ordered effects')); if (!draft) return;

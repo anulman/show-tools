@@ -86,3 +86,18 @@ test('compiled-only discovery exposes known source parts with no fabricated arra
   assert.deepEqual(rows.map(row => row.partId), compiled.parts.map(part => part.id));
   assert.throws(() => discoverSheetVoices(compiled, { ...source, sheetId: source.sheetId + 1 }), /different worksheet/);
 });
+
+test('command row discovery follows exact compiled voice IDs rather than voice names', async () => {
+  const { discoverCueRows, loadedCommandRows } = await import('../sheet-voices.js');
+  const candidates = discoverCueRows(compiled, source);
+  assert(candidates.some(row => row.labelCell === 'A18' && row.sourceLabel === 'R1'));
+  assert(candidates.some(row => row.labelCell === 'A17' && row.sourceLabel === 'Knob'));
+  assert(!candidates.some(row => ['B1', 'A31', 'A44', 'A45'].includes(row.labelCell)), 'title, parts table and legend are not chart command rows');
+  assert.deepEqual(loadedCommandRows(compiled, 'drums-claps'), [18]);
+  assert.deepEqual(loadedCommandRows(compiled, 'whistle'), [20]);
+  assert.deepEqual(loadedCommandRows(compiled, 'backup-vocals'), [17]);
+  assert.deepEqual(loadedCommandRows(compiled, 'vocals'), []);
+  assert.deepEqual(loadedCommandRows(compiled, 'Drums & Claps'), []);
+  assert.deepEqual(discoverCueRows(compiled), [], 'compiled-only input cannot fabricate source row labels');
+  assert.throws(() => discoverCueRows(compiled, { ...source, sheetId: source.sheetId + 1 }));
+});

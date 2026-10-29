@@ -21,7 +21,7 @@ export function reconcileCatalog(document: CatalogDocument, rows: readonly Sheet
     voices.push(parseVoice({ id, name: row.name.trim() || row.labelCell, notes: '', characterId: null, avatarToken: 'neutral',
       effects: effects.map(effect => ({ ...effect })) }));
     bindings.push({ spreadsheetId: row.spreadsheetId, sheetId: row.sheetId, labelCell: row.labelCell,
-      sourceLabel: row.sourceLabel, voiceId: id });
+      sourceLabel: row.sourceLabel, voiceId: id, cueRow: null });
     bound.add(row.key); ids.add(id);
   }
   return voices.length === document.voices.length ? document : parseCatalogDocument({ ...document, voices, bindings });

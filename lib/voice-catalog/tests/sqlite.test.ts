@@ -8,12 +8,12 @@ import { RevisionConflictError, VoiceCatalogSqlite } from '../sqlite.js';
 const require = createRequire(import.meta.url);
 const sql = await initSqlJs({ locateFile: () => require.resolve('sql.js/dist/sql-wasm.wasm') });
 const sample: CatalogDocument = {
-  version: 1, revision: 0,
+  version: 2, revision: 0,
   voices: [{ id: 'cowbell', name: 'Cowbell', notes: '', characterId: 'future-character', avatarToken: 'amber', effects: [
     { kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: .35 },
     { kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 },
   ] }],
-  bindings: [{ spreadsheetId: 'sheet-one', sheetId: 0, labelCell: 'A11', sourceLabel: 'AF - Cowbell', voiceId: 'cowbell' }],
+  bindings: [{ spreadsheetId: 'sheet-one', sheetId: 0, labelCell: 'A11', sourceLabel: 'AF - Cowbell', voiceId: 'cowbell', cueRow: { labelCell: 'A19', sourceLabel: 'R2' } }],
 };
 
 function modifiedBytes(bytes: Uint8Array, mutation: string): Uint8Array {
@@ -25,7 +25,7 @@ function modifiedBytes(bytes: Uint8Array, mutation: string): Uint8Array {
 test('fresh catalog round trips ordered effects, unknown character IDs, JSON and SQLite backup', () => {
   const catalog = VoiceCatalogSqlite.create(sql);
   try {
-    assert.deepEqual(catalog.snapshot(), { version: 1, revision: 0, voices: [], bindings: [] });
+    assert.deepEqual(catalog.snapshot(), { version: 2, revision: 0, voices: [], bindings: [] });
     const saved = catalog.replace(JSON.parse(JSON.stringify(sample)), 0);
     assert.equal(saved.revision, 1);
     assert.equal(saved.voices[0].characterId, 'future-character');
@@ -101,7 +101,7 @@ test('unknown versions, foreign key damage, invalid effect order/bounds and corr
   const bytes = catalog.exportBytes();
   catalog.close();
   for (const mutation of [
-    'PRAGMA user_version = 2',
+    'PRAGMA user_version = 99',
     'PRAGMA user_version = 0',
     "UPDATE sheet_bindings SET voice_id = 'missing'",
     'UPDATE voice_effects SET ordinal = ordinal + 10',
@@ -112,7 +112,7 @@ test('unknown versions, foreign key damage, invalid effect order/bounds and corr
   assert.throws(() => VoiceCatalogSqlite.open(sql, new Uint8Array([1, 2, 3])));
 });
 
-test('an empty version-zero SQLite database migrates to version one', () => {
+test('an empty version-zero SQLite database migrates to version two', () => {
   const database = new sql.Database();
   const bytes = database.export();
   database.close();
@@ -143,5 +143,48 @@ test('native FX boundary values and the full 64-stage graph round trip', () => {
       assert.throws(() => catalog.saveVoice({ ...sample.voices[0], effects: [badEffect] }, 1));
       assert.deepEqual(catalog.snapshot(), saved);
     }
+  } finally { catalog.close(); }
+});
+
+test('published version-one SQLite and JSON libraries migrate without losing saved data', () => {
+  const legacy = new sql.Database();
+  legacy.run(`
+    CREATE TABLE catalog_metadata (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL CHECK(revision >= 0));
+    INSERT INTO catalog_metadata VALUES (1, 9);
+    CREATE TABLE voices (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, notes TEXT NOT NULL, character_id TEXT, avatar_token TEXT NOT NULL);
+    CREATE TABLE voice_effects (voice_id TEXT NOT NULL REFERENCES voices(id), ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 63), definition_json TEXT NOT NULL, PRIMARY KEY(voice_id, ordinal));
+    CREATE TABLE sheet_bindings (spreadsheet_id TEXT NOT NULL, sheet_id INTEGER NOT NULL CHECK(sheet_id >= 0), label_cell TEXT NOT NULL, source_label TEXT NOT NULL, voice_id TEXT NOT NULL REFERENCES voices(id), PRIMARY KEY(spreadsheet_id, sheet_id, label_cell));
+    PRAGMA user_version = 1;
+  `);
+  const voice = { ...sample.voices[0], notes: 'Keep my saved settings' };
+  legacy.run('INSERT INTO voices VALUES (?, ?, ?, ?, ?)', [voice.id, voice.name, voice.notes, voice.characterId, voice.avatarToken]);
+  for (const [index, effect] of voice.effects.entries()) legacy.run('INSERT INTO voice_effects VALUES (?, ?, ?)', [voice.id, index, JSON.stringify(effect)]);
+  legacy.run('INSERT INTO sheet_bindings VALUES (?, ?, ?, ?, ?)', ['sheet-one', 0, 'A11', 'AF - Cowbell', voice.id]);
+  const bytes = legacy.export(); legacy.close();
+  const catalog = VoiceCatalogSqlite.open(sql, bytes);
+  try {
+    const migrated = catalog.snapshot();
+    assert.equal(migrated.version, 2); assert.equal(migrated.revision, 9);
+    assert.deepEqual(migrated.voices, [voice]);
+    assert.deepEqual(migrated.bindings, [{ ...sample.bindings[0], cueRow: null }]);
+    const { cueRow: _cue, ...oldBinding } = sample.bindings[0];
+    assert.deepEqual(parseCatalogDocument({ version: 1, revision: 9, voices: [voice], bindings: [oldBinding] }), migrated);
+    const saved = catalog.bind({ ...migrated.bindings[0], cueRow: { labelCell: 'A19', sourceLabel: 'R2' } }, 9);
+    const reopened = VoiceCatalogSqlite.open(sql, catalog.exportBytes());
+    try { assert.deepEqual(reopened.snapshot(), saved); }
+    finally { reopened.close(); }
+    assert.equal(saved.revision, 10);
+  } finally { catalog.close(); }
+});
+
+test('cue row input is validated before mutation and stays in its qualified sheet binding', () => {
+  const catalog = VoiceCatalogSqlite.create(sql);
+  try {
+    const saved = catalog.replace(sample, 0);
+    assert.throws(() => catalog.bind({ ...saved.bindings[0], cueRow: { labelCell: 'A0', sourceLabel: 'R1' } }, saved.revision));
+    assert.deepEqual(catalog.snapshot(), saved);
+    const other = catalog.bind({ ...saved.bindings[0], sheetId: 7, cueRow: { labelCell: 'A19', sourceLabel: 'Other sheet commands' } }, saved.revision);
+    assert.equal(other.bindings.find(binding => binding.sheetId === 0)?.cueRow?.sourceLabel, 'R2');
+    assert.equal(other.bindings.find(binding => binding.sheetId === 7)?.cueRow?.sourceLabel, 'Other sheet commands');
   } finally { catalog.close(); }
 });

@@ -19,7 +19,7 @@ export interface SheetVoiceRow {
 
 type BindingIdentity = Pick<SheetBinding, 'spreadsheetId' | 'sheetId' | 'labelCell'>;
 const managedPrefix = /^AF\s*-\s*/;
-const structuralLabels = new Set(['key', 'meter', 'section', 'bar', 'start time', 'local bpm', 'bpm']);
+const structuralLabels = new Set(['key', 'meter', 'section', 'bar', 'start time', 'local bpm', 'bpm', 'parts', 'part']);
 export function sheetVoiceKey(binding: BindingIdentity): string {
   return JSON.stringify([binding.spreadsheetId, binding.sheetId, binding.labelCell]);
 }
@@ -78,4 +78,36 @@ export function discoverSheetVoices(compiled: CompiledSong, source?: SongSource)
         return text.trim() ? [{ bar: bar.bar, text, cell: `${columnName(bar.column)}${label.row}` }] : [];
       }) }];
   });
+}
+
+export interface SheetCueRow {
+  readonly spreadsheetId: string;
+  readonly sheetId: number;
+  readonly labelCell: string;
+  readonly sourceLabel: string;
+}
+
+/** Candidate row labels are authoring choices, never interpreted as musical commands here. */
+export function discoverCueRows(compiled: CompiledSong, source?: SongSource): SheetCueRow[] {
+  if (!source) return [];
+  if (source.spreadsheetId !== compiled.source.spreadsheetId || source.sheetId !== compiled.source.sheetId) throw new Error('Cue rows belong to a different worksheet');
+  const origin = coordinate(source.range.split(':')[0]);
+  const firstBarColumn = Math.min(...compiled.chart.bars.map(bar => bar.column));
+  const writtenColumns = [compiled.chart.leadInColumn, ...compiled.chart.bars.map(bar => bar.column)];
+  return source.values.flatMap((values, offset) => {
+    const column = values.findIndex(value => value.trim() !== '');
+    if (column < 0 || column + origin.column >= firstBarColumn) return [];
+    const sourceLabel = values[column];
+    if (structuralLabels.has(sourceLabel.trim().toLowerCase()) || !writtenColumns.some(written => written !== column + origin.column && values[written - origin.column]?.trim())) return [];
+    return [{ spreadsheetId: source.spreadsheetId, sheetId: source.sheetId,
+      labelCell: `${columnName(column + origin.column)}${offset + origin.row}`, sourceLabel }];
+  });
+}
+
+export function loadedCommandRows(compiled: CompiledSong, partId: string): number[] {
+  const cells = compiled.cues.filter(cue => cue.voiceId === partId).map(cue => cue.source.a1);
+  if (compiled.rotation?.voiceId === partId) {
+    for (const window of compiled.rotation.windows) cells.push(...window.sources.map(source => source.a1));
+  }
+  return [...new Set(cells.map(cell => coordinate(cell).row))].sort((a, b) => a - b);
 }
