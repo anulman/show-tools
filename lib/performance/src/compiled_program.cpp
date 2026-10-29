@@ -7,6 +7,7 @@
 namespace compiled {
 namespace {
 constexpr double epsilon = 1e-8;
+constexpr double minimum_bpm = 40, maximum_bpm = 240;
 bool whole(double value, double maximum) { return std::isfinite(value) && value >= 0 && value <= maximum && std::floor(value) == value; }
 bool index(double value, int count, bool optional = false) { return (optional && value == -1) || whole(value, count - 1); }
 bool point(double value, int beats) { return std::isfinite(value) && value >= 0 && value < beats && std::floor(value * 960) == value * 960; }
@@ -16,7 +17,7 @@ double cue_boundary(int bar, double cue, int timing, double execute, int beats) 
 }
 }
 struct Program::Take {
-  int voice = 0, latest = -1, anchor = -1;
+  int voice = 0, latest = -1, anchor = -1, commit_cue = -1;
   double begin = 0, end = 0, loop_end = 0, gain = 1;
   double capture_start_phase = 0;
   uint32_t capacity = 0;
@@ -38,7 +39,7 @@ Program::~Program() = default;
 std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, double rate, const patches::Rack& definition, uint32_t revision) noexcept {
   if (!data || fields < PF_COMPILED_HEADER_FIELDS || data[0] != PF_COMPILED_MAGIC || data[1] != PF_COMPILED_VERSION
     || !whole(data[2], 6) || (data[2] != 4 && data[2] != 6) || !whole(data[3], PF_MAX_BARS) || data[3] < 1
-    || !std::isfinite(data[4]) || data[4] < 40 || data[4] > 240 || !whole(data[5], data[3]) || data[5] < 1
+    || !std::isfinite(data[4]) || data[4] < minimum_bpm || data[4] > maximum_bpm || !whole(data[5], data[3]) || data[5] < 1
     || !std::isfinite(data[6]) || data[6] < 0 || data[6] > 100 || !std::isfinite(data[7]) || data[7] < 0 || data[7] > 100
     || !whole(data[8], PF_COMPILED_MAX_TAKES) || !whole(data[9], PF_MAX_EVENTS) || !whole(data[10], PF_MAX_EVENTS) || !whole(data[11], PF_MAX_EVENTS)) return nullptr;
   uint64_t needed = PF_COMPILED_HEADER_FIELDS + uint64_t(data[8]) * PF_COMPILED_TAKE_FIELDS + uint64_t(data[9]) * PF_COMPILED_CUE_FIELDS
@@ -86,8 +87,8 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       || !whole(row[6], program->bars_ + 1) || row[6] < 1 || !point(row[7], program->beats_) || (row[6] == program->bars_ + 1 && row[7] != 0)
       || !index(row[8], program->take_count_)) return nullptr;
     Take& take = program->takes_[id]; take.voice = int(row[0]); take.begin = (row[1] - 1) * program->beats_ + row[2]; take.end = (row[3] - 1) * program->beats_ + row[4]; take.gain = row[5]; take.loop_end = (row[6] - 1) * program->beats_ + row[7]; take.anchor = int(row[8]);
-    if (take.loop_end < take.end || std::ceil((take.loop_end - take.begin) * rate * 60 / 40) > std::numeric_limits<uint32_t>::max()) return nullptr;
-    double capacity = std::ceil((take.end - take.begin) * rate * 60 / 40);
+    if (take.loop_end < take.end || std::ceil((take.loop_end - take.begin) * rate * 60 / minimum_bpm) > std::numeric_limits<uint32_t>::max()) return nullptr;
+    double capacity = std::ceil((take.end - take.begin) * rate * 60 / minimum_bpm);
     if (capacity < 1 || capacity > rate * 30 || capacity > std::numeric_limits<uint32_t>::max()) return nullptr;
     take.capacity = uint32_t(capacity); pcm_bytes += uint64_t(take.capacity) * (sizeof(patches::Stereo) + sizeof(float)) * 2;
   }
@@ -102,7 +103,6 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     const Take& a = program->takes_[id]; const Take& b = program->takes_[previous];
     if (a.begin < b.end && b.begin < a.end) return nullptr;
   }
-  if (pcm_bytes > 180ULL * 1024 * 1024) return nullptr;
   for (int id = 0; id < program->cue_count_; ++id, offset += PF_COMPILED_CUE_FIELDS) {
     const double* row = data + offset;
     if (!index(row[0], PF_CHANNELS) || !index(row[1], PF_CHANNELS) || !whole(row[2], program->bars_)
@@ -125,9 +125,22 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     bool commits_take = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
     if ((!arms_take && cue.take != -1) || (!commits_take && cue.commit != -1)) return nullptr;
     double boundary = cue_boundary(cue.bar, cue.cue, cue.timing, cue.execute, program->beats_);
-    if (arms_take && (++arms[cue.take] != 1 || program->takes_[cue.take].begin != boundary)) return nullptr;
-    if (commits_take && (++commits[cue.commit] != 1 || program->takes_[cue.commit].end != boundary)) return nullptr;
+    if (arms_take) {
+      if (++arms[cue.take] != 1 || program->takes_[cue.take].begin != boundary) return nullptr;
+      if (cue.timing == 0 && cue.cue >= 0) {
+        Take& take = program->takes_[cue.take];
+        uint32_t capacity = uint32_t(std::min(std::floor(rate * 30),
+          take.capacity + std::ceil(program->early_ * rate / 1000 * maximum_bpm / minimum_bpm)));
+        pcm_bytes += uint64_t(capacity - take.capacity) * (sizeof(patches::Stereo) + sizeof(float)) * 2;
+        take.capacity = capacity;
+      }
+    }
+    if (commits_take) {
+      if (++commits[cue.commit] != 1 || program->takes_[cue.commit].end != boundary) return nullptr;
+      program->takes_[cue.commit].commit_cue = id;
+    }
   }
+  if (pcm_bytes > 180ULL * 1024 * 1024) return nullptr;
   for (int id = 0; id < program->take_count_; ++id) if (arms[id] != 1 || commits[id] != 1) return nullptr;
   for (int id = 0; id < program->member_count_; ++id, offset += PF_COMPILED_MEMBER_FIELDS) {
     const double* row = data + offset;
@@ -373,6 +386,8 @@ int Program::press(int button, double frame, double bpm, bool microphone) noexce
   if (cue.kind == PF_ARM && target <= now + epsilon && active_capture_.take >= 0) return PF_CAPTURE_BUSY;
   if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) {
     const Take& take = takes_[cue.take]; const Take& anchor = takes_[take.anchor];
+    double maximum_source_frames = std::ceil((take.end - target) * rate_ * 60 / minimum_bpm);
+    if (maximum_source_frames <= 0 || maximum_source_frames > take.capacity) return PF_LOOP_MISMATCH;
     if (take.anchor != cue.take && !(cue.kind == PF_COMMIT_ARM && cue.commit == take.anchor)) {
       if (anchor.latest < 0 || anchor.playback[anchor.latest]->state() != patches::PlaybackState::playing) return PF_LOOP_MISMATCH;
       double period = anchor.cache[anchor.latest]->period();
@@ -471,7 +486,24 @@ int Program::preflight_start(const Cue& cue, const Cue* staged_commit, uint32_t 
 void Program::discard_invalid_draft(const Cue& cue) noexcept {
   if (active_capture_.take != cue.commit) return;
   takes_[cue.commit].cache[active_capture_.bank]->reset_for_capture(); active_capture_ = {};
-  if (live_route_ == cue.voice) switch_route(-1);
+  if (live_route_ == cue.voice && pending_[cue.button].reserved_take < 0) switch_route(-1);
+}
+int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept {
+  Take& take = takes_[active_capture_.take];
+  if (!take.cache[active_capture_.bank]->commit(plan.period)) return error_ = PF_ACTION_FAILED;
+  if (take.latest >= 0) take.playback[take.latest]->stop();
+  uint64_t completed_generation = active_capture_.generation;
+  take.latest = active_capture_.bank; active_capture_ = {};
+  if (!take.playback[take.latest]->start_at_capture_end(true)) return error_ = PF_ACTION_FAILED;
+  // END playback owns this source epoch. Related monitor clones retire, while
+  // other voices and unrelated detached histories keep their own tails.
+  if (tail_generation_[cue.voice] == completed_generation) { drain_[cue.voice] = 0; tail_generation_[cue.voice] = 0; }
+  voices_[cue.voice]->reset();
+  if (cue.selection >= 0) {
+    if (!select(cue.voice, cue.selection, false)) return error_ = PF_ACTION_FAILED;
+  } else if (!play_take(cue.commit)) return error_ = PF_ACTION_FAILED;
+  if (!starts_next && live_route_ == cue.voice && pending_[cue.button].reserved_take < 0) switch_route(-1, true);
+  return PF_OK;
 }
 int Program::execute(int id, double) noexcept {
   const Cue& cue = cues_[id];
@@ -485,20 +517,8 @@ int Program::execute(int id, double) noexcept {
     return result;
   }
   if (commits) {
-    Take& take = takes_[active_capture_.take];
-    if (!take.cache[active_capture_.bank]->commit(plan.period)) return error_ = PF_ACTION_FAILED;
-    if (take.latest >= 0) take.playback[take.latest]->stop();
-    uint64_t completed_generation = active_capture_.generation;
-    take.latest = active_capture_.bank; active_capture_ = {};
-    if (!take.playback[take.latest]->start_at_capture_end(true)) return error_ = PF_ACTION_FAILED;
-    // END playback owns this source epoch. Related monitor clones retire, while
-    // other voices and unrelated detached histories keep their own tails.
-    if (tail_generation_[cue.voice] == completed_generation) { drain_[cue.voice] = 0; tail_generation_[cue.voice] = 0; }
-    voices_[cue.voice]->reset();
-    if (cue.selection >= 0) {
-      if (!select(cue.voice, cue.selection, false)) return error_ = PF_ACTION_FAILED;
-    } else if (!play_take(cue.commit)) return error_ = PF_ACTION_FAILED;
-    if (cue.kind == PF_COMMIT && live_route_ == cue.voice) switch_route(-1, true);
+    result = finish_capture(cue, plan, starts);
+    if (result != PF_OK) return result;
   }
   if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) {
     Take& take = takes_[cue.take];
@@ -542,6 +562,19 @@ void Program::apply_pending(double frame, double bpm) noexcept {
     if (action.result == PF_OK) { staged_commit = &cue; staged_period = action.commit.period; }
     else failed_commit = true;
   }
+  Due automatic;
+  int automatic_start = PF_OK;
+  if (active_capture_.take >= 0 && frame >= std::ceil(frame_at(takes_[active_capture_.take].end))
+    && (!staged_commit || staged_commit->commit != active_capture_.take)) {
+    automatic.cue = takes_[active_capture_.take].commit_cue;
+    const Cue& cue = cues_[automatic.cue];
+    automatic.result = preflight_commit(cue, automatic.commit);
+    failed_commit = automatic.result != PF_OK;
+    if (!failed_commit) {
+      staged_commit = &cue; staged_period = automatic.commit.period;
+      if (cue.kind == PF_COMMIT_ARM) automatic_start = preflight_start(cue, &cue, automatic.commit.period, automatic.bank);
+    }
+  }
   // Preflight incoming resources against the valid staged release, before it is
   // published. Independent failed starts do not roll back that valid commit.
   for (int button = 0; button < PF_CHANNELS; ++button) if (due[button].cue >= 0) {
@@ -550,31 +583,55 @@ void Program::apply_pending(double frame, double bpm) noexcept {
   }
   // All releases precede starts. A failed release never creates a vacant slot
   // that a dependent incoming cue may silently consume at this boundary.
-  for (int pass = 0; pass < 2; ++pass) for (int button = 0; button < PF_CHANNELS; ++button) {
-    Due& action = due[button]; if (action.cue < 0) continue;
-    const Cue& cue = cues_[action.cue];
-    bool commits = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
-    if (commits != (pass == 0)) continue;
-    pending_[button] = {};
-    int result = action.result;
-    if (cue.kind == PF_ARM && failed_commit) result = PF_CAPTURE_BUSY;
-    if (result == PF_OK) result = execute(action.cue, frame);
-    else if (action.commit.invalid_draft) discard_invalid_draft(cue);
-    if (result != PF_OK) {
-      bool admission = result == PF_CAPTURE_BUSY || result == PF_TAKE_UNAVAILABLE || result == PF_NO_RECORDING || result == PF_NO_SAMPLE || result == PF_LOOP_MISMATCH;
-      if (!admission) { stop(); error_ = PF_ACTION_FAILED; return; }
-      if (commits) failed_commit = true;
+  for (int pass = 0; pass < 2; ++pass) {
+    if (pass == 1 && automatic.cue >= 0) {
+      Cue& cue = cues_[automatic.cue];
+      int result = automatic.result;
+      if (result == PF_OK) {
+        result = cue.kind == PF_COMMIT_ARM && automatic_start == PF_OK
+          ? execute(automatic.cue, frame) : finish_capture(cue, automatic.commit, false);
+        if (result != PF_OK) { stop(); error_ = PF_ACTION_FAILED; return; }
+        result = automatic_start;
+      } else discard_invalid_draft(cue);
+      cue.used = true;
+      if (pending_[cue.button].cue == automatic.cue) pending_[cue.button] = {};
       error_ = PF_OK;
-      if (outcome_) outcome_(outcome_context_, frame, button, action.cue, result);
-    } else if (observer_) observer_(observer_context_, frame);
+      if (result != PF_OK && outcome_) outcome_(outcome_context_, frame, cue.button, automatic.cue, result);
+      else if (observer_) observer_(observer_context_, frame);
+    }
+    for (int button = 0; button < PF_CHANNELS; ++button) {
+      Due& action = due[button]; if (action.cue < 0) continue;
+      const Cue& cue = cues_[action.cue];
+      bool commits = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
+      if (commits != (pass == 0)) continue;
+      pending_[button] = {};
+      int result = action.result;
+      if (cue.kind == PF_ARM && failed_commit) result = PF_CAPTURE_BUSY;
+      if (result == PF_OK) result = execute(action.cue, frame);
+      else if (action.commit.invalid_draft && automatic.cue < 0) discard_invalid_draft(cue);
+      if (result != PF_OK) {
+        bool admission = result == PF_CAPTURE_BUSY || result == PF_TAKE_UNAVAILABLE || result == PF_NO_RECORDING || result == PF_NO_SAMPLE || result == PF_LOOP_MISMATCH;
+        if (!admission) { stop(); error_ = PF_ACTION_FAILED; return; }
+        if (commits && automatic.cue < 0) failed_commit = true;
+        error_ = PF_OK;
+        if (outcome_ && automatic.cue != action.cue) outcome_(outcome_context_, frame, button, action.cue, result);
+      } else if (observer_) observer_(observer_context_, frame);
+    }
   }
 }
 void Program::beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm) noexcept {
   remember_cues(frame, bpm);
-  bool wrap = phase == PF_PLAYING && phase_ == PF_PLAYING && bar < bar_;
+  double next_position = (bar - 1) * beats_ + beat - 1;
+  bool wrap = phase == PF_PLAYING && phase_ == PF_PLAYING && next_position < anchor_position_;
   if (wrap) {
     rotation_deadline_ = -1;
     apply_pending(std::ceil(frame), bpm);
+    if (active_capture_.take >= 0) {
+      int cue = takes_[active_capture_.take].commit_cue;
+      discard_invalid_draft(cues_[cue]);
+      if (outcome_) outcome_(outcome_context_, std::ceil(frame), cues_[cue].button, cue, PF_LOOP_MISMATCH);
+    }
+    for (int button = 0; button < PF_CHANNELS; ++button) pending_[button] = {};
     for (int id = 0; id < cue_count_; ++id) { cues_[id].used = false; cues_[id].occurred_frame = std::numeric_limits<double>::quiet_NaN(); }
   }
   phase_ = phase; bar_ = phase == PF_COUNT_IN ? 0 : bar;

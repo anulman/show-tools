@@ -67,6 +67,13 @@ export interface ChannelState {
   light: PadLight;
 }
 export interface RecordingState { id: ChannelId; status: 'armed' | 'recording' | 'stopping' }
+export interface CompiledTakeState {
+  index: number;
+  ready: boolean;
+  frames: number;
+  period: number;
+  playback: 'idle' | 'playing' | 'releasing';
+}
 export type Phase = 'idle' | 'count-in' | 'playing' | 'ended';
 export interface TransportState {
   phase: Phase;
@@ -94,6 +101,7 @@ export interface PracticeState extends TransportState {
   liveEffects?: LiveEffectsState;
   voiceEffects?: readonly VoiceEffectsState[];
   tempoHits?: TempoHitState;
+  compiledTakes?: readonly CompiledTakeState[];
 }
 export interface StartOptions {
   bpm?: number;

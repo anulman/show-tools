@@ -71,7 +71,7 @@ export SHOW_TOOLS_CHROMIUM_APP="/Applications/Google Chrome.app"
 
 A reused browser needs no configured executable. Its CDP connection is checked through HTTP, a WebSocket connection, browser identity, and target enumeration. A missing listener permits launching unless `--no-cdp` was supplied. Other connection failures report a conflict. Browser startup has a 15-second readiness deadline.
 
-The helper listens only on `127.0.0.1:9223`. Its default allowed origins include `http://127.0.0.1:8082` and `http://localhost:8082`, plus `SHOW_TOOLS_PRACTICE_ORIGIN`. Keep that environment override to an HTTP or HTTPS origin without a path.
+The helper listens only on `127.0.0.1:9223`. Its default allowed origins include both `127.0.0.1` and `localhost` on ports 8082 and 8084, plus `SHOW_TOOLS_PRACTICE_ORIGIN`. Port 8084 matches the development guide. Keep that environment override to an HTTP or HTTPS origin without a path.
 
 The dedicated profile is separate from your normal browser profile. If Sheets requires authentication, sign in there first. A failed initial chart selection stops the command's owned resources and reports an error. Use `--skip-open` to start without waiting for an initial chart selection. The helper changes selection only; it never writes cell values.
 

@@ -14,6 +14,7 @@ import { decodeCompiledSong } from '../../lib/performance/compiled-song.js';
 import type { CompiledSong } from '../../lib/performance/compiled-song.js';
 import { createVoiceEffectsEditor, initialVoiceEffects } from './voice-effects.js';
 import { keyboardFocusBlocksShortcut } from './keyboard-focus.js';
+import { takePresentation } from './take-presentation.js';
 import { createPeripheralInput, peripheralCommandId } from './peripheral-input.js';
 import type { PeripheralInput } from './peripheral-input.js';
 
@@ -57,7 +58,7 @@ const recordLabel = requiredElement('#record-demo span:last-child', HTMLSpanElem
 const chartSource = requiredElement('#chart-source', HTMLElement);
 interface PadElements {
   shell: HTMLElement; button: HTMLButtonElement; status: HTMLSpanElement;
-  cue: HTMLElement; sampleStatus: HTMLSpanElement; volume: HTMLInputElement;
+  cue: HTMLElement; sampleStatus: HTMLSpanElement; takePlan: HTMLSpanElement; volume: HTMLInputElement;
   volumeOutput: HTMLOutputElement;
 }
 const pads = new Map<ChannelId, PadElements>();
@@ -302,7 +303,7 @@ function makePads() {
     button.className = 'pad';
     button.dataset.control = control.id;
     button.setAttribute('aria-label', `${control.id} ${controlName(control.id)}`);
-    button.innerHTML = `<span class="pad-top"><span class="pad-id">${control.id}</span><kbd>${control.shortcut}</kbd></span><span class="pad-name-row"><span class="pad-identity"><span class="performance-avatar" hidden></span><strong class="pad-name"></strong></span><span class="pad-cue" aria-label="Chart cue"><code></code><i class="pad-led" aria-hidden="true"></i></span></span><span class="pad-sample-state">Empty slot</span>`;
+    button.innerHTML = `<span class="pad-top"><span class="pad-id">${control.id}</span><kbd>${control.shortcut}</kbd></span><span class="pad-name-row"><span class="pad-identity"><span class="performance-avatar" hidden></span><strong class="pad-name"></strong></span><span class="pad-cue" aria-label="Chart cue"><code></code><i class="pad-led" aria-hidden="true"></i></span></span><span class="pad-sample-state">Empty slot</span><span class="pad-take-plan" hidden></span>`;
     const volumeRow = document.createElement('label');
     volumeRow.className = 'pad-volume';
     const volumeLabel = document.createElement('span');
@@ -325,7 +326,13 @@ function makePads() {
     shell.append(button, status, volumeRow);
     elements.pads.append(shell);
     pads.set(control.id, { shell, button, status, cue: requiredElement('code', HTMLElement, button),
-      sampleStatus: requiredElement('.pad-sample-state', HTMLSpanElement, button), volume, volumeOutput });
+      sampleStatus: requiredElement('.pad-sample-state', HTMLSpanElement, button), takePlan: requiredElement('.pad-take-plan', HTMLSpanElement, button), volume, volumeOutput });
+    const pad = pads.get(control.id);
+    if (pad) {
+      pad.sampleStatus.id = `pad-sample-state-${control.id}`;
+      pad.takePlan.id = `pad-take-plan-${control.id}`;
+      button.setAttribute('aria-describedby', `${pad.sampleStatus.id} ${pad.takePlan.id}`);
+    }
     button.addEventListener('pointerdown', event => {
       if (event.button !== 0 || !event.isPrimary) return;
       event.preventDefault();
@@ -473,6 +480,10 @@ function render(next: Partial<PracticeState>) {
     pad.sampleStatus.textContent = sampleStatus === 'empty' ? 'Empty slot' : sampleStatus === 'ready' ? 'Sample ready' :
       sampleStatus === 'armed' ? 'Capture armed' : sampleStatus === 'stopping' ? stoppingLabel :
       sampleStatus === 'recording' ? 'Recording microphone' : 'Loop playing';
+    const take = takePresentation(song?.compiled, control.id, state);
+    if (take.summary) pad.sampleStatus.textContent = take.summary;
+    pad.takePlan.textContent = take.plan;
+    pad.takePlan.hidden = !take.plan;
     pad.cue.textContent = cue || '·';
     pad.cue.title = 'Original chart notation';
   }

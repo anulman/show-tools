@@ -18,6 +18,10 @@ The DYC authoring answers are encoded: unity gains, automatic cowbell variants, 
 
 For an executable compiled song, choose your default microphone and output in browser or system sound settings, configure each voice’s effect footer, and press **Start practice**. Grant microphone access. The demo recorder waits through the lead-in and starts with the song. Arm switches live processing immediately to the target voice; recording starts at the declared boundary. Commit starts the selected take or layers at its boundary without another play tap. `crb` commits the old take and starts the next capture at the same crossing.
 
+An already-started compiled take finishes automatically at its written capture endpoint if you miss its commit cue. The engine saves and loops that take. A missed commit-and-arm also starts its declared next recording. Initial arm, play, and stop cues still require your press. Missed play and stop cues do nothing.
+
+The pad annotations show the recording plan. Native take readback shows which layers or versions are actually saved and playing. For DYC, Drums & Claps layers bars 1–2 with bars 3–4 into a repeating `[1+3, 2+4]` phrase. Bing Bong layers bars 5–6 with bars 7–8. Its second layer stops recording at bar 8 beat 3 and keeps two counts of silent source. Cowbell retains three separate one-bar versions from bars 10, 11, and 12. Later chart phrases select their matching version.
+
 Each pad resolves its action from its own row in the active column. A blank cell does nothing and never stops an existing loop. The pad's capture or playback status appears separately from its chart cue.
 
 The supported action notation is:

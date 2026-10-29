@@ -147,6 +147,32 @@ test('rejects malformed ranges before connecting and closes on CDP failures', as
   assert(closed);
 });
 
+test('helper accepts both documented local practice ports without allowing other origins', async () => {
+  const server = createChartHelper();
+  try {
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    const endpoint = `http://127.0.0.1:${address.port}/health`;
+    for (const origin of ['http://127.0.0.1:8082', 'http://localhost:8082', 'http://127.0.0.1:8084', 'http://localhost:8084']) {
+      const response = await fetch(endpoint, { headers: { Origin: origin } });
+      assert.equal(response.status, 200, origin);
+      assert.equal(response.headers.get('Access-Control-Allow-Origin'), origin);
+      assert.deepEqual(await response.json(), { ok: true });
+    }
+    for (const origin of ['https://untrusted.example', 'http://127.0.0.1:8099']) {
+      const response = await fetch(endpoint, { headers: { Origin: origin } });
+      assert.equal(response.status, 403, origin);
+      assert.equal(response.headers.get('Access-Control-Allow-Origin'), null);
+      await response.arrayBuffer();
+    }
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});
+
 test('loopback helper validates origins and serializes selection requests', async () => {
   let active = 0;
   let maximum = 0;

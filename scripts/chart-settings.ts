@@ -2,6 +2,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Schema } from 'effect';
 
+export const LOCAL_PRACTICE_ORIGINS: readonly string[] = [
+  'http://127.0.0.1:8082', 'http://localhost:8082',
+  'http://127.0.0.1:8084', 'http://localhost:8084',
+];
+
 const decode = Schema.decodeUnknownSync(Schema.Struct({
   chromiumApp: Schema.optionalKey(Schema.String.check(Schema.isPattern(/\S/))),
   cdpPort: Schema.Int.check(Schema.isGreaterThanOrEqualTo(1), Schema.isLessThanOrEqualTo(65535)),

@@ -24,11 +24,11 @@ function render(native: NativePerformance, frames: number, value: number | ((fra
   native.process(input, mixed, frames, live);
   return { mixed, live, events: native.events() };
 }
-function until(native: NativePerformance, bar: number, beat = 1, input = .25) {
-  for (let attempts = 0; attempts < 10000; attempts++) {
+function until(native: NativePerformance, bar: number, beat = 1, input = .25, chunk = 64) {
+  for (let attempts = 0; attempts * chunk < 640000; attempts++) {
     const state = native.state();
     if (state.bar === bar && state.beat === beat && state.phase === 'playing') return;
-    render(native, 64, input);
+    render(native, chunk, input);
   }
   throw new Error(`Did not reach ${bar}:${beat}`);
 }
@@ -55,6 +55,12 @@ test('compiled artifact drives effected WASM capture, crb handoff, layer autopla
     until(native, 3);
     assert.equal(native.compiledTake(1).frames, 16000);
     const output = render(native, 128);
+    const takeState = native.state().compiledTakes;
+    assert(takeState);
+    assert.equal(takeState.length, song.takes.length);
+    assert.deepEqual(takeState.slice(0, 2).map(take => ({ index: take.index, ready: take.ready, playback: take.playback })),
+      [{ index: 0, ready: true, playback: 'playing' }, { index: 1, ready: true, playback: 'playing' }]);
+    assert(output.events.every(event => event.state.compiledTakes === undefined), 'historical events cannot inherit current take readback');
     assert(output.mixed[0].every(sample => Math.abs(sample - .625) < 1e-6), 'both processed takes autoplay as layers');
     assert(output.live[0].every(sample => Math.abs(sample - .25) < 1e-6), 'the restored default route warms from its own cold delay; capture history belongs to playback');
     assert.deepEqual(output.mixed[0], output.mixed[1]);
@@ -175,9 +181,9 @@ test('stale venue bank rejects recapture nonfatally during transport until stopp
   function startAndCapture(runId: string) {
     native.setMicrophone(true);
     native.start({ runId, bpm: 120, countInBars: 0, startBar: 1, endBar: 4, loop: true });
-    until(native, 1);
+    until(native, 1, 1, .25, 1);
     native.control({ id: 'R1' });
-    until(native, 2);
+    until(native, 2, 1, .25, 1);
     native.control({ id: 'R1' });
   }
   try {
@@ -358,3 +364,82 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
     } finally { native.dispose(); }
   });
 }
+
+test('DYC missing Bing Bong finish matches the written finish through bar 10 beat 3 and later playback', async () => {
+  const { default: song } = await import('../../../songs/dance-yrself-clean.js');
+  assert(song.compiled?.executable);
+  const program = Array.from(encodeCompiledProgram(song.compiled));
+  for (const rate of [44100, 48000]) {
+    const manual = engine(program, rate);
+    const automatic = engine(program, rate);
+    const framesPerCount = rate * 60 / song.chart.bpm;
+    const plan = song.compiled.cues.filter(cue => cue.bar <= 13).map(cue => ({
+      frame: cue.bar === 0 ? 1 : Math.ceil((5 + (cue.bar - 1) * 4 + (cue.cueBeat ?? 0)) * framesPerCount) + 1,
+      cue,
+    }));
+    let next = 0;
+    try {
+      for (const native of [manual, automatic]) {
+        native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })));
+        native.setMicrophone(true);
+        native.start({ runId: 'dyc-endpoint', bpm: song.chart.bpm, countInBars: 1, startBar: 1, endBar: 14, loop: false });
+      }
+      const end = Math.ceil(58 * framesPerCount);
+      for (let frame = 0; frame < end;) {
+        while (next < plan.length && plan[next].frame === frame) {
+          const { cue } = plan[next++];
+          manual.control({ id: cue.buttonId });
+          if (cue.source.a1 !== 'J21') automatic.control({ id: cue.buttonId });
+        }
+        const count = Math.min(128, end - frame, next < plan.length ? plan[next].frame - frame : 128);
+        const source = (position: number) => Math.sin(position * .017) * .2;
+        const written = render(manual, count, source);
+        const missed = render(automatic, count, source);
+        assert.deepEqual(missed.mixed, written.mixed, `${rate} Hz sample output preserves both layers after missed J21`);
+        assert.deepEqual(missed.live, written.live, `${rate} Hz live routing preserves the written END handoff`);
+        assert(!missed.events.some(event => event.type === 'fault'), 'missing a finish never faults the transport');
+        frame += count;
+      }
+      const bing = automatic.compiledTake(3);
+      assert.equal(bing.ready, true);
+      assert(Math.abs(bing.frames - 6 * framesPerCount) <= 1, 'source capture ends at bar 8 beat 3');
+      assert.equal(bing.period, Math.ceil(8 * framesPerCount), 'two silent-source counts complete the original two-bar phrase');
+      assert.equal(automatic.state().phase, 'playing', 'the original bar 10 beat 3 failure point is safely passed');
+      assert.equal(automatic.state().error, null);
+      assert.equal(automatic.state().recording, null, 'all authorized cowbell bars also finish before later playback');
+    } finally { manual.dispose(); automatic.dispose(); }
+  }
+});
+
+test('DYC short practice loops discard unfinished source spans instead of overflowing across wraps', async () => {
+  const { default: song } = await import('../../../songs/dance-yrself-clean.js');
+  assert(song.compiled?.executable);
+  for (const endBar of [1, 7]) {
+    const rate = 8000;
+    const native = engine(Array.from(encodeCompiledProgram(song.compiled)), rate);
+    const framesPerCount = rate * 60 / song.chart.bpm;
+    const cells = endBar === 1 ? ['B18'] : ['B18', 'D18', 'F18', 'F21', 'H21'];
+    const plan = song.compiled.cues.filter(cue => cells.includes(cue.source.a1)).map(cue => ({
+      frame: cue.bar === 0 ? 1 : Math.ceil((5 + (cue.bar - 1) * 4 + (cue.cueBeat ?? 0)) * framesPerCount) + 1,
+      cue,
+    }));
+    let next = 0;
+    try {
+      native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })));
+      native.setMicrophone(true);
+      native.start({ runId: `short-loop-${endBar}`, bpm: song.chart.bpm, countInBars: 1, startBar: 1, endBar, loop: true });
+      for (let frame = 0; frame < rate * 35;) {
+        while (next < plan.length && plan[next].frame === frame) native.control({ id: plan[next++].cue.buttonId });
+        const count = Math.min(128, next < plan.length ? plan[next].frame - frame : 128);
+        const block = render(native, count);
+        assert(!block.events.some(event => event.type === 'fault'), 'crossing a selected loop boundary cannot orphan capture');
+        frame += count;
+      }
+      assert.equal(native.state().phase, 'playing');
+      assert.equal(native.state().error, null);
+      assert.equal(native.state().recording, null);
+      assert.equal(native.compiledTake(endBar === 1 ? 0 : 3).ready, false, 'incomplete prefix never becomes a published take');
+      if (endBar === 7) assert(native.compiledTake(2).ready, 'earlier complete Bing Bong layer survives the truncated replacement');
+    } finally { native.dispose(); }
+  }
+});

@@ -4,7 +4,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import type { ChildProcess } from 'node:child_process';
 import { SONGS, loadSong } from '../songs/index.js';
 import { rangeForBar } from '../lib/performance/chart.js';
-import { chartSettings } from './chart-settings.js';
+import { chartSettings, LOCAL_PRACTICE_ORIGINS } from './chart-settings.js';
 import { createChartHelper, inspectCDP, openChart, openSetList } from './open-chart.js';
 import { spawnCDP } from './start-cdp.js';
 
@@ -77,7 +77,7 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
   inspect?: typeof inspectCDP; launch?: typeof spawnCDP; select?: typeof openChart; openList?: typeof openSetList } = {}) {
   const settings = chartSettings(env);
   const song = command.songId ? await loadSong(command.songId) : undefined;
-  const helper = createChartHelper({ cdp: settings.cdp, origins: ['http://127.0.0.1:8082', 'http://localhost:8082', settings.practiceOrigin], select });
+  const helper = createChartHelper({ cdp: settings.cdp, origins: [...LOCAL_PRACTICE_ORIGINS, settings.practiceOrigin], select });
   let browser: { child: ChildProcess; exited: Promise<Error> } | undefined;
   const lifetime = new AbortController();
   const cancelled = AbortSignal.any([signal, lifetime.signal]);
