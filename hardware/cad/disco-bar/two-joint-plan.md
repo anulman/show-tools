@@ -26,11 +26,15 @@ C1 does not rely on twisting the whole ball against a stationary knob. The knob 
 
 Every concept needs distinct released, seated, and positively locked states. The knob clamp's shoe and pad positions must be identical in all three. No latch motion establishes or adjusts knob-pad preload.
 
-## Installed access gates placement
+## Installed access permits added spacing and underside controls
 
-The pending operator answer must establish whether release can use an exposed edge control, only movement of the ball/bar itself, or a service procedure involving the complete assembly. A roughly flush box interface can hide the knob-facing controls used in the previous studies. No actuator location is selected here.
+The operator confirmed that the baseplate stays clamped to the knob during bar removal. Added collar spacing is allowed. Controls may extend toward the underside, through access openings in the mounting box. The operator prefers a buffer between printed contact surfaces. These permissions allow prototype placement; they do not supply the actual encoder stack height, a buffer material, or a printer tolerance.
 
 The box roof, encoder, knob, baseplate, and full bar must be represented together before placement is approved. The model must show the operator's reaction surface and deliberate release action, not just an unobstructed control on an isolated bar.
+
+The box is stationary while the knob and bar rotate. A fixed access opening needs either clearance at every operating angle or an explicit rotate-to-service-angle procedure. Buffer support must not obstruct the release control, shaft, or underside mounting nut. Sliding contact at the box uses a separate proposed wear surface from the high-friction knob pads.
+
+The disco-bar and box-mount sessions own separate prototype modules and exchange their access envelopes and datums. Existing viewer geometry remains unchanged during this exploration. The operator requested findings from all three STL-validated prototypes before rendering final designs in the shared viewer. Final C synthesis follows that review.
 
 ## Geometry and verification contract
 
