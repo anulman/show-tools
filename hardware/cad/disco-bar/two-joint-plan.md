@@ -32,6 +32,8 @@ Every concept needs distinct released, seated, and positively locked states. The
 
 The operator confirmed that the baseplate stays clamped to the knob during bar removal. Added collar spacing is allowed. Controls may extend toward the underside, through access openings in the mounting box. The operator prefers a buffer between printed contact surfaces. These permissions allow prototype placement; they do not supply the actual encoder stack height, a buffer material, or a printer tolerance.
 
+The operator also permits lifting the box for underside release access. On-table operation is not required. A closed-bottom service-port candidate can keep the ballast compartment closed during release; its tool paths and structural connections still require actual geometry checks.
+
 The box roof, encoder, knob, baseplate, and full bar must be represented together before placement is approved. The model must show the operator's reaction surface and deliberate release action, not just an unobstructed control on an isolated bar.
 
 The box is stationary while the knob and bar rotate. A fixed access opening needs either clearance at every operating angle or an explicit rotate-to-service-angle procedure. Buffer support must not obstruct the release control, shaft, or stock hex seat. Sliding contact at the box uses a separate proposed wear surface from the high-friction knob pads.

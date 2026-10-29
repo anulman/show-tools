@@ -1,15 +1,26 @@
 # Private C1, C2, and C3 findings
 
-All three detachable-bar concepts fail operation checks in this checkpoint. The modeled knob clamp remains preset while the bar latch moves. No final C, integrated box fit, or manufacturing approval follows from these exports.
+C1 is the strongest basis for the next C: it uses fewer parts, and a bounded flange relief clears its diagnosed withdrawal snag. All three original assemblies fail operation checks in this checkpoint. The modeled knob clamp remains preset while the bar latch moves. The relief remains a separate proposal; no final C or manufacturing approval follows from these exports.
 
-| Prototype | Individual component exports | Assembled operation | Finding |
+| Prototype | Individual component exports | Proposed print parts | Assembled operation |
 | --- | --- | --- | --- |
-| C1 quarter-turn retainer | Pass, 19 components in seven endpoint states | Fail during withdrawal | The carrier key housing strikes the preset flange at source-Z lifts of −4, −6, and −8 mm. |
-| C2 pivot-only seed | Pass, 23 components in seven states | Fail when released | Each hook intersects the carrier by 3.615 mm³. This seed lacks the required over-centre linkage. |
-| C2 over-centre attempt | Pass, 33 components in eight states | Fail in the locked state | Carrier, hook, lever, link, and pin clearances conflict. The mathematical dead-centre crossing does not establish a functioning latch. |
-| C3 sliding dogs and sleeve | Pass, 23 components in six states | Fail in the locked state and during release | The key intersects the carrier. Cam retraction begins before the blocking land clears; dog and follower-pin envelopes collide with the sleeve. |
+| C1 quarter-turn retainer | Pass, 19 components in seven endpoint states | 6 | Original housing catches the flange during lift. Separate relief clears that snag; full operation remains unverified. |
+| C2 over-centre attempt | Pass, 33 components in eight states | 11 | Locked assembly has 28 interfering pairs. The dead-centre crossing is genuine, but the linkage does not fit its surrounding parts. |
+| C3 sliding dogs and sleeve | Pass, 23 components in six states | 8 | The key interferes while locked; the dogs, followers and sleeve interfere during release. |
+
+Part counts include the common knob clamp and full bar, exclude the box, and distinguish pads and hardware from proposed print parts. They describe assembly complexity, not a manufacturing quote. The earlier pivot-only C2 seed also exports successfully but collides at full opening; it is retained as a rejected seed, not substituted for the over-centre mechanism.
 
 The receipts distinguish component validity, STEP round trips, watertight STL meshes, and assembled interference. Disconnected components fail rather than being silently split into printable solids. The checks preserve the original 109.22 mm bar reach, far attachment end, and radial envelope. Every preset piece is compared in both Boolean directions against the same baseplate at the same setting.
+
+## Recommended ingredients for the next C
+
+Keep C1's separate retainer collar, straight torque keys and fixed padded-screw grip. Use the tested flange-relief proposal as the starting correction. The useful operator idea from C3 is a captive release control; its interfering dog/cam geometry is not ready to reuse. Positive tool engagement and catch captivity still need design and validation before final C is selected.
+
+For the box, use the compact keeper-tab approach: two tabs and two flush fasteners restrain the existing stock hex in its roof well. Tape bonding and extra swing pivots add dependencies without a demonstrated benefit for this stationary joint. Keep the replaceable sliding buffer separate from the grippy knob pads.
+
+The operator permits lifting the box for underside access. The matching service openings can therefore be evaluated with the box lifted. Access through the bottom, ballast containment, tool engagement and a safe reaction surface remain separate checks; roof-port clearance alone is insufficient. The proposed 9 mm spacing still needs checking against actual knob engagement.
+
+The shared viewer is unchanged. These findings precede the final design and its publication.
 
 ## C1 withdrawal changes the endpoint conclusion
 
