@@ -1,5 +1,7 @@
 # Disco bar review for Darren
 
+Historical review, superseded by the detachable-baseplate task. This document and its associated ZIP use the former names C and B′, now A and B. Their latch-to-pad actuation does not implement the new requirement: padded set screws grip a knob-side baseplate, and a separate latch attaches/releases the full bar. Retain this record for provenance; the next handoff follows C1/C2/C3 validation and final C synthesis.
+
 The comparison contains three complete bars: the unchanged original, C's screw-driven clamp, and B′'s latch concept. A′ and D are excluded from this review.
 
 All three retain the original 109.22 mm reach and nominal 94.46133 mm insertion profile. The original pocket is the operator-confirmed snug baseline: Ø44.35475 mm, with its entry bevel and blind stop at 25.4 mm depth. Clamp changes are local to the knob end. The original long hollow body and far attachment end remain intact.
