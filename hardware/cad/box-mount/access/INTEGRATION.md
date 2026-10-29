@@ -56,3 +56,5 @@ Use the isolated CAD Python from the worktree root. The example variables refer 
 The integration output contains its source and input-file hashes, the closed-rotation check, actual contact coverage, intermediate lift witnesses, three access comparisons, and exported candidate box roofs. It records geometry findings even when the complete workflow fails. Failed runs remove the previous success receipt before reading inputs.
 
 C1's internal transition, actual tool engagement, table-compatible access, installed knob engagement, buffer retention, physical fastener fit, loads, material, and printer preparation remain unresolved. C2/C3 have not been checked by this milestone. No final C is selected and nothing is published. Print readiness remains `NOT_READY`.
+
+The operator subsequently authorized lifting for underside access. [The lifted closed-cover candidate](LIFTED_BASE.md) records that separate follow-up. It preserves the original table-contact failures while checking proposed ports through both panels and a lifted clearance condition.
