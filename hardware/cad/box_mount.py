@@ -152,8 +152,8 @@ def variant_requirements():
                 required_facts=["wiring test", "mounting and attached harness dimensions",
                                 "final installed height"]),
         },
-        level_height_intent="PROPOSED interpretation: level roofs align with arcade low roof edge; all bottoms share the ground plane",
-        level_roof_alignment_confirmed=False,
+        level_height_intent="operator confirmed: level roofs align with arcade low roof edge; all bottoms share the ground plane",
+        level_roof_alignment_confirmed=True,
         historical_comparison=dict(active=False, depth_mm=35.25, recess_mm=17.5,
                                    note="flat Adafruit A is not the rotor or mushroom variant"))
 
