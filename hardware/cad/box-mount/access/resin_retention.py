@@ -11,9 +11,9 @@ from build123d import Axis, Box, Compound, Plane, RectangleRounded, Shape, extru
 cad = audit.cad
 
 SOURCES = {
-    'button_screw': 'https://dibolt.co.uk/products/m3-x-10mm-socket-button-screw-high-tensile-grade-10-9-bright-zinc-plated-iso-7380/',
+    'button_screw': 'https://www.accu.co.uk/socket-button-screws/8103-SSB-M3-10-A2',
     'button_standard': 'https://eshop.boellhoff.de/out/media/pdf/ISO_7380-1_Edelstahl_A2_Innensechskant___de.pdf',
-    'nut': 'https://dibolt.co.uk/products/m3-hexagon-full-nuts-black-stainless-steel-a2-304-din-934/',
+    'nut': 'https://www.accu.co.uk/hexagon-nuts/7888-HPN-M3-A2',
     'tie': 'https://www.hellermanntyton.com/products/cable-ties-inside-serrated/t18i/111-02370',
     'ballast': 'https://www.pinewoodpro.com/tungsten-cube-weights.html',
 }
@@ -68,11 +68,13 @@ def bore(x, y, low, high):
 class Joint:
     name: str
     expected_xy: tuple[float, float]
-    bearing_z: float
+    length_datum_z: float
     direction: int
     length: float
     screw: Shape
     nut: Shape
+    length_basis: str = 'under-head'
+    standard: str = 'ISO7380-1'
 
 
 def make_joint(name, xy, bearing_z, length, nut_bottom_z, direction=-1):
@@ -101,7 +103,7 @@ def check_joints(joints,body):
 def check_joint(joint, body):
     check_axes(joint)
     name,screw,captive_nut=joint.name,joint.screw,joint.nut
-    bearing_z,direction,length=joint.bearing_z,joint.direction,joint.length
+    bearing_z,direction,length=joint.length_datum_z,joint.direction,joint.length
     audit.require(screw.is_valid and len(screw.solids())==1, 'Invalid standard screw '+name)
     audit.require(captive_nut.is_valid and len(captive_nut.solids())==1, 'Invalid standard nut '+name)
     audit.require(audit.intersection(screw, body)<1e-6, 'Screw blocked '+name)
@@ -124,7 +126,8 @@ def check_joint(joint, body):
     else:
         full=tip >= bb.max.Z+H.pitch and bearing_z <= bb.min.Z
     audit.require(full,'Insufficient nominal thread reach '+name)
-    return dict(name=name,declared_joint_axis_xy_mm=list(joint.expected_xy),
+    return dict(name=name,nominal_length_mm=length,length_basis=joint.length_basis,
+                fastener_standard=joint.standard,declared_joint_axis_xy_mm=list(joint.expected_xy),
                 screw_and_nut_on_declared_axis=True,nut_up_reaction=True,min_envelope_nut_30deg_rotation_blocked=True,
                 head_bearing_reaction=True,full_nominal_nut_span_plus_one_pitch=True,
                 actual_thread_fit_and_strength_verified=False)
