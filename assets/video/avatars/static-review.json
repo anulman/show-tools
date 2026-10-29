@@ -1,0 +1,20 @@
+{
+  "scope": "Static UI preview identity, alpha, crop and readability only",
+  "verdict": "pass",
+  "reviewer": "Video owner visual review of all51labelled snapshots",
+  "evidence": [
+    "review-1.png",
+    "review-2.png",
+    "review-3.png",
+    "figma-verification.json"
+  ],
+  "pixelFinalIds": [
+    "A02",
+    "A03",
+    "A07",
+    "A29",
+    "C06"
+  ],
+  "galleryPreviewCount": 46,
+  "limit": "Gallery previews are not certified for finished sprite-sheet/video use."
+}
