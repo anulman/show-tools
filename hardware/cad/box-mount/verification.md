@@ -18,7 +18,7 @@ Run these checks from the worktree root:
 ~/.local/share/show-tools/cad/venv/bin/python hardware/cad/box-mount/check_reserve.py
 ```
 
-`check_requirements.py` checks the inch conversion and confirmed axial datum, then checks the actual CAD against an independently constructed finite corridor. It rejects both the former 35.25 mm interior depth and a 63.3 mm centreline-only depth that fails the proposed radial allowance. It also rejects an axial reserve shorter tha 63.5 mm. The requirements report writes no CAD files.
+`check_requirements.py` checks the inch conversion and confirmed axial datum, then checks the actual CAD against an independently constructed finite corridor. It rejects both the former 35.25 mm interior depth and a 63.3 mm centreline-only depth that fails the proposed radial allowance. It also rejects an axial reserve shorter than 63.5 mm. The requirements report writes no CAD files.
 
 `check_reserve.py` checks actual cover and shell bounds for all three variants with both 3 mm and 5 mm covers. Both thicknesses retain the full proposed 65 mm interior reserve.
 
