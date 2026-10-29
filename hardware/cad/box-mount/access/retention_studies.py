@@ -14,6 +14,9 @@ import access_study as cad
 from build123d import Align,Axis,Box,Compound,Cone,Cylinder,export_step,import_step
 
 MIN_Z=(Align.CENTER,Align.CENTER,Align.MIN)
+KEEPER_INNER_Y=15.5
+KEEPER_OUTER_Y=32.5
+KEEPER_BOLT_Y=28.
 
 
 def box(x,y,z,at=(0,0,0)):
@@ -46,14 +49,17 @@ def make_study(kind,p,base,thickness=3.):
     retainers=[]
     hardware=[]
     tools=[]
+    fastener_specs=[]
     if kind=='R1-tape':
         retainers=[box(52,4,.3,(0,sign*17.5,0)) for sign in (-1,1)]
     elif kind=='R2-keeper-tabs':
         for sign in (-1,1):
-            tab=box(8,25,thickness,(0,sign*28,0))
-            roof,tab,fasteners,driver=flush_fastener(roof,tab,(0,sign*36),top_z=thickness)
+            tab=box(8,KEEPER_OUTER_Y-KEEPER_INNER_Y,thickness,(0,sign*(KEEPER_INNER_Y+KEEPER_OUTER_Y)/2,0))
+            roof,tab,fasteners,driver=flush_fastener(roof,tab,(0,sign*KEEPER_BOLT_Y),top_z=thickness)
             retainers.append(tab)
+            first=len(hardware)
             hardware.extend(fasteners)
+            fastener_specs.append(dict(bolt=first,nut=first+1,xy=(0,sign*KEEPER_BOLT_Y),seat_z=-7.))
             tools.append(driver)
     elif kind=='R3-swing-clips':
         for sign in (-1,1):
@@ -68,14 +74,43 @@ def make_study(kind,p,base,thickness=3.):
             nut=translate_xy(cad.hex_prism(7.4,2.8,-9.8),pivot)-cyl(2.05,4,(*pivot,-10))
             roof,clip,lock,driver=flush_fastener(roof,clip,(sign*22,0),r=1,head_r=2.3,nut_af=4.8,top_z=thickness)
             retainers.append(clip)
+            first=len(hardware)
             hardware.extend([pin,nut,*lock])
+            fastener_specs.extend([dict(bolt=first,nut=first+1,xy=pivot,seat_z=-6.8),
+                                   dict(bolt=first+2,nut=first+3,xy=(sign*22,0),seat_z=-7.)])
             tools.append(driver)
     else:
         raise ValueError(f'Unknown retention study: {kind}')
-    return dict(kind=kind,shell=roof,retainers=retainers,hardware=hardware,driver_paths=tools,thickness_mm=thickness)
+    return dict(kind=kind,shell=roof,retainers=retainers,hardware=hardware,driver_paths=tools,thickness_mm=thickness,fastener_specs=fastener_specs)
+
+
+def verify_fasteners(study):
+    """Associate every actual pair with its intended roof seat, then test reaction."""
+    covered=sorted(index for spec in study['fastener_specs'] for index in (spec['bolt'],spec['nut']))
+    cad.require(covered==list(range(len(study['hardware']))),'Every hardware piece needs exactly one fastener-pair role')
+    results=[]
+    for spec in study['fastener_specs']:
+        bolt,nut=[study['hardware'][spec[role]] for role in ('bolt','nut')]
+        for role,part in (('bolt',bolt),('nut',nut)):
+            bounds=part.bounding_box()
+            xy=((bounds.min.X+bounds.max.X)/2,(bounds.min.Y+bounds.max.Y)/2)
+            cad.require(all(math.isclose(a,b,abs_tol=1e-6) for a,b in zip(xy,spec['xy'])),
+                        f"Fastener {role} is not on its assigned axis {spec['xy']}")
+        bolt_bounds,nut_bounds=bolt.bounding_box(),nut.bounding_box()
+        span=min(bolt_bounds.max.Z,nut_bounds.max.Z)-max(bolt_bounds.min.Z,nut_bounds.min.Z)
+        cad.require(span>1,'Paired hardware envelopes have no axial engagement span')
+        allowance=spec['seat_z']-nut_bounds.max.Z
+        cad.require(math.isclose(allowance,.2,abs_tol=1e-6),'Fastener nut axial seating allowance changed')
+        reaction=cad.box_cad.volume(nut.translate((0,0,.3)) & study['shell'])
+        cad.require(reaction>cad.EPS,'Fastener nut has no upward roof reaction at its assigned axis')
+        results.append(dict(axis_xy_mm=list(spec['xy']),bolt_index=spec['bolt'],nut_index=spec['nut'],
+                            proposed_axial_envelope_span_mm=span,nut_seat_allowance_mm=allowance,
+                            nut_up_attempt_mm=.3,roof_intersection_mm3=reaction,thread_engagement_verified=False))
+    return results
 
 
 def verify_study(p,base,study):
+    fasteners=verify_fasteners(study)
     host=dict(base,shell=study['shell'])
     cad.verify_stack(p,host)
     parts=[study['shell'],*study['retainers'],*study['hardware']]
@@ -95,16 +130,18 @@ def verify_study(p,base,study):
     cad.require(overlap>cad.EPS,'Retainer has no geometric overlap with rising stock hex')
     maximum=max(part.bounding_box().max.Z for part in [*study['retainers'],*study['hardware']])
     actor_minimum=p.bar_mouth_z-4.5
-    cad.require(maximum<actor_minimum,'Retainer exceeds preliminary closed actor height boundary')
+    # This old height reference describes only part of the latch geometry.
+    # Actual C1 safety keys extend farther; only installed shape checks decide clearance.
     for path in study['driver_paths']:
         for obstruction in (study['shell'],base['spacer'],base['buffer'],*study['retainers']):
             cad.empty_intersection(path,obstruction,'Nominal bar-off fastener driver path blocked')
     result=dict(stock_hex_rise_attempt_mm=.2,retainer_intersection_mm3=overlap,
-                highest_fixed_retainer_z_mm=maximum,preliminary_rotating_actor_min_z_mm=actor_minimum,
+                highest_fixed_retainer_z_mm=maximum,preliminary_height_reference_min_z_mm=actor_minimum,
+                height_reference_is_complete_actor_bound=False,
                 preliminary_vertical_gap_mm=actor_minimum-maximum,
                 actual_latch_mesh_interference_verified=False,
                 driver_paths_scope="box only; bar/baseplate/knob/harness omitted",installed_tool_access_verified=False,
-                stock_hex_fit_or_strength_verified=False)
+                stock_hex_fit_or_strength_verified=False,per_fastener_reactions=fasteners)
     if study['kind']=='R1-tape':
         result.update(adhesive_bond_verified=False,positive_mechanical_retention=False,
                       release='peel/replace consumable; no rigid peel-force model')
@@ -112,10 +149,6 @@ def verify_study(p,base,study):
         for index,tab in enumerate(study['retainers']):
             head=study['hardware'][index*2]
             cad.require(cad.box_cad.volume(tab.translate((0,0,.1)) & head)>cad.EPS,'Keeper tab has no screw-head restraint')
-            nut=study['hardware'][index*2+1]
-            distance=nut.distance_to(study['shell'])
-            cad.require(math.isclose(distance,.2,abs_tol=1e-6),'Keeper nut seating allowance changed')
-            cad.require(cad.box_cad.volume(nut.translate((0,0,.3)) & study['shell'])>cad.EPS,'Keeper fastener nut has no upward roof reaction')
         # With spacer/buffer removed, independent tabs leave radially without
         # crossing the central body. This is maintenance, not routine bar release.
         for index,sign in enumerate((-1,1)):
@@ -210,12 +243,12 @@ def export_all(output):
         source_to_box_matrix=[[1,0,0,0],[0,-1,0,0],[0,0,-1,p.bar_mouth_z],[0,0,0,1]],
         stock_hex_well=dict(across_flats_proposed_mm=p.hex_across_flats,depth_proposed_mm=p.hex_depth,
                            bearing_z_mm=-p.hex_depth,flush_top_z_mm=0,additional_unit_mounting_nut=False),
-        keeper=dict(kind='two removable keeper tabs',height_proposed_mm=3,fastener_xy_mm=[[0,-36],[0,36]],
+        keeper=dict(kind='two removable keeper tabs',height_proposed_mm=3,fastener_xy_mm=[[0,-KEEPER_BOLT_Y],[0,KEEPER_BOLT_Y]],
                     fastener_hardware='proposed flush-head screws and captured fastener nuts; thread fit unverified'),
         contact_annulus_proposed=dict(inner_radius_mm=p.contact_inner_radius,outer_radius_mm=p.contact_outer_radius,
                                       top_z_mm=p.bar_mouth_z,actual_bar_contact_verified=False),
-        early_closed_actor_clearance=dict(source_positive_z_max_mm=4.5,physical_min_z_mm=p.bar_mouth_z-4.5,
-                                         note='preliminary worker envelope, not validated actual mesh clearance'),
+        early_closed_actor_clearance=dict(partial_source_positive_z_reference_mm=4.5,complete_actor_bound=False,
+                                         note='C1 safety key reaches source Z7.5; actual shape/radius clearance required'),
         installed_service_access='BLOCKED/UNVERIFIED: table, actual controls and support procedure still required',
         parts=final_records,source_sha256=report['sources_sha256'])
     interface_path=final_path/'interface.json'

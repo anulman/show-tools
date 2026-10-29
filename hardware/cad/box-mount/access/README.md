@@ -26,9 +26,9 @@ The coordinator's source inspection found incomplete bar contact across this ann
 
 The hardware envelopes in R2 and R3 represent proposed keeper fasteners. They are not an additional SpinTrak mounting nut. Actual screw standards, fit allowances, thread engagement, shoulder hardware, torque, and materials still need selection.
 
-R2's modeled fastener nuts have 0.2 mm seating allowance. A 0.3 mm upward attempt encounters finite roof material. No unnecessary roof bosses are added. This is a geometric reaction check, not a proof of bolt or plastic strength.
+Every bolt and nut is associated with its intended axis and roof seat. R2 keeper nuts and R3 pivot and lock nuts each have a 0.2 mm axial seating allowance. Every nut's 0.3 mm upward attempt must encounter its own roof material. Displaced nuts and two keeper nuts duplicated onto one axis are rejected. No unnecessary roof bosses are added. This is a geometric reaction check, not a proof of bolt or plastic strength.
 
-The preliminary latch interface puts rotating actors no lower than Z=4.5 with a proposed 9 mm mouth spacing. The thicker study uses 3 mm keeper tabs with flush heads at Z=3. R3's pivot caps reach Z=3.3. Their nominal vertical margins are 1.5 mm and 1.2 mm respectively. Actual latch meshes have not yet been checked against them.
+The thicker study uses 3 mm keeper tabs and a proposed 9 mm mouth spacing. An earlier general actor-height reference was incomplete: the actual preliminary C1 safety key reaches Z=1.5. The first tabs collided with it at some rotation angles. The revised tabs end inside radius 33 mm and use screw axes at Y=±28 mm, clearing the known outer controls by radius rather than relying on height alone. Actual C1/C2/C3 validated mesh integration remains a separate step; the old height reference is marked incomplete in the receipt.
 
 A separate 1 mm tab and 6 mm spacing comparison is retained as packaging evidence only. It is not selected as the final retainer and carries no strength claim.
 
@@ -60,3 +60,5 @@ The retention command exports R1/R2/R3 and `simplest-final-private/`. Tape shape
 The receipt records source and file hashes, solid validity, two-way STEP material equality, STL integrity, component separation, bearing material, stock-hex and keeper blocking, bottom withdrawal, and table-access limits. R3's conservative full-circle swing envelope contains each clip and remains clear; sampled release poses are also checked. A failed rebuild removes stale success receipts before construction. Independent single-solid export handles avoid the CAD exporter's assembly-child failure.
 
 Actual C1/C2/C3 mesh clearance, source contact support, installed reachability and reaction, hardware fit, tape adhesion, buffer capture, loads, wear, stability, encoder support, and printer preparation remain unverified. Print readiness remains `NOT_READY`.
+
+`check_contact.py --step PATH --output PATH` reads the pinned original STEP in place and reports finite-slice annulus coverage plus explicitly sampled angular gaps. It confirms partial source contact without copying the attachment. This original-source analysis does not validate new receiver support lands, a continuous unsupported-span bound, or any bearing load.
