@@ -9,6 +9,7 @@ struct VoiceInfo { bool ready = false, looping = false, muted = false; int statu
 class Program {
  public:
   static std::unique_ptr<Program> create(const double* data, uint32_t fields, double rate, const patches::Rack& definition, uint32_t revision) noexcept;
+  static std::unique_ptr<Program> create(const double* data, uint32_t fields, double rate, const patches::Rack* const* definitions, const uint32_t* revisions) noexcept;
   ~Program();
   bool prepare_effects(const patches::Rack& definition, uint32_t revision) noexcept;
   bool prepare_effects(const patches::Rack* const* definitions, const uint32_t* revisions) noexcept;
@@ -46,6 +47,7 @@ class Program {
   struct PlaybackCue;
   struct Pending;
   struct RotationWindow { double begin = 0, end = 0; };
+  struct SelectionWindow { int selection = -1, take = -1; double end = 0; int64_t cut[2]{-1, -1}; };
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   Program() = default;
@@ -57,6 +59,7 @@ class Program {
   int finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept;
   int execute(int cue, double frame) noexcept;
   bool selection_ready(int selection, int voice) const noexcept;
+  void observe_windows(double frame) noexcept;
   bool select(int voice, int selection, bool automatic) noexcept;
   bool play_take(int take, double gain = 1) noexcept;
   void stop_voice(int voice, bool hard) noexcept;
@@ -70,6 +73,8 @@ class Program {
   std::unique_ptr<double[]> table_;
   uint32_t fields_ = 0, prepared_revision_[PF_CHANNELS]{};
   std::unique_ptr<RotationWindow[]> rotation_windows_;
+  std::unique_ptr<SelectionWindow[]> selection_windows_;
+  int window_count_ = 0;
   int rotation_count_ = 0, monitor_route_ = PF_DEFAULT_PROFILE;
   double rotation_grid_ = .25, rotation_deadline_ = -1;
   bool handed_off_[PF_CHANNELS]{};

@@ -40,16 +40,19 @@ test('pad grid follows physical Q/W above A/S and preserves the left-hand column
   assert.deepEqual(CONTROLS.map(control => [control.id, control.shortcut]), [['L1', 'Q'], ['R1', 'W'], ['L2', 'A'], ['R2', 'S']]);
 });
 
-test('cowbell compiles three distinct whole-bar takes linked to its capture cues', async () => {
+test('cowbell compiles six distinct whole-bar takes linked to its capture cues', async () => {
   const song = await loadSong('dance-yrself-clean');
   const takes = song.compiled.takes.filter(take => take.voiceId === 'cowbell');
   assert.deepEqual(takes.map(take => [take.begin, take.captureEnd, take.phrase]), [
     [{ bar: 10, beat: 0 }, { bar: 11, beat: 0 }, '(4)&a'],
     [{ bar: 11, beat: 0 }, { bar: 12, beat: 0 }, '(4)&'],
     [{ bar: 12, beat: 0 }, { bar: 13, beat: 0 }, '4'],
+    [{ bar: 82, beat: 0 }, { bar: 83, beat: 0 }, '&e3a&'],
+    [{ bar: 83, beat: 0 }, { bar: 84, beat: 0 }, '&e3a&a'],
+    [{ bar: 84, beat: 0 }, { bar: 85, beat: 0 }, '&e3e'],
   ]);
-  assert.equal(new Set(takes.map(take => take.id)).size, 3);
-  assert.equal(new Set(takes.map(take => take.slot)).size, 3);
+  assert.equal(new Set(takes.map(take => take.id)).size, 6);
+  assert.equal(new Set(takes.map(take => take.slot)).size, 6);
   for (const take of takes) {
     const arm = song.compiled.cues.find(cue => cue.id === take.armCueId);
     const commit = song.compiled.cues.find(cue => cue.id === take.commitCueId);

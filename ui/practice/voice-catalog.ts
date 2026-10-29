@@ -26,6 +26,13 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   let availability: string | undefined = 'Opening local voice library…';
   let current: Pick<PracticeState, 'bar' | 'voiceEffects'> = { bar: null };
   let pendingSave = false;
+  let effectMode: 'compiled' | 'dry' = 'compiled';
+  function savedConfigurations(): readonly VoiceEffectConfiguration[] {
+    return initialVoiceEffects(effectMode).map(configuration => {
+      const row = rows.find(row => row.profile === configuration.profile);
+      return { ...configuration, effects: (row ? resolveVoice(document, row)?.effects ?? configuration.effects : configuration.effects).map(effect => ({ ...effect })) };
+    });
+  }
   const ui = installVoiceLibrary(root, {
     characters: registry.characters.map(character => ({ ...character,
       publishedAvatarPath: 'publishedAvatarPath' in character ? new URL('./' + character.publishedAvatarPath, window.document.baseURI).pathname : undefined,
@@ -82,10 +89,7 @@ export function installVoiceCatalog(root: HTMLElement, options: {
       for (const profile of profiles) options.drafts.setEffects(profile, voice.effects);
       if (!profiles.length) return { message: 'Saved locally · no audio input assigned.' };
       try {
-        const configurations = initialVoiceEffects('dry').map(configuration => {
-          const row = rows.find(row => row.profile === configuration.profile);
-          return { ...configuration, effects: row ? resolveVoice(document, row)?.effects ?? [] : [] };
-        });
+        const configurations = savedConfigurations();
         await options.apply(configurations); return { message: 'Saved locally · effects applied to audio.' }; }
       catch (error) { return { message: `Saved locally · audio preparation failed: ${error instanceof Error ? error.message : String(error)}` }; }
     } finally { pendingSave = false; options.onBusyChange(); update(current); }
@@ -107,8 +111,10 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   return {
     get busy() { return pendingSave; },
     update,
+    savedConfigurations,
     async load(song: SongScript) {
       await ready;
+      effectMode = song.compiled ? 'compiled' : 'dry';
       rows = song.compiled ? discoverSheetVoices(song.compiled, song.source) : [];
       cueRows = song.compiled ? discoverCueRows(song.compiled, song.source) : [];
       commandRows = new Map(rows.map(row => [row.key, song.compiled && row.partId ? loadedCommandRows(song.compiled, row.partId) : []]));

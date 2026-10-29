@@ -7,7 +7,7 @@ import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
 
 function prepareUIContext(context) {
-  for (const [key, value] of Object.entries({ crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
+  for (const [key, value] of Object.entries({ crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
   vm.createContext(context);
 }
 import { loadSong } from '../../../songs/index.ts';
@@ -117,7 +117,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
   assert.equal(recorders, 1);
 });
 
-function startupHarness(microphone = async () => {}, { autoPlay = true, convert = async () => new Blob(['mp3'], { type: 'audio/mpeg' }), voiceConfigurations = initialVoiceEffects(), compiled = true, loadedSong, catalogSave = async () => {} } = {}) {
+function startupHarness(microphone = async () => {}, { autoPlay = true, convert = async () => new Blob(['mp3'], { type: 'audio/mpeg' }), voiceConfigurations = initialVoiceEffects(), compiled = true, loadedSong, catalogSave = async () => {}, savedConfigurations = initialVoiceEffects() } = {}) {
   const commands = [];
   class Element {
     constructor(selector) {
@@ -147,23 +147,24 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     async dispose() { this.disposed = true; commands.push('dispose'); },
   };
   let creations = 0;
+  const creationOptions = [];
   const elements = new Map();
   const revoked = [];
   const context = {
     Map, Set, Blob, URL: { createObjectURL(blob) { assert.equal(blob.type, 'audio/mpeg'); return 'blob:test'; }, revokeObjectURL(url) { revoked.push(url); } },
     recordingToMp3: convert, loadedSong,
-    installVoiceCatalog: () => ({ saveDrafts: catalogSave, update() {}, async load() {}, openProfile() {} }),
+    installVoiceCatalog: () => ({ savedConfigurations: () => savedConfigurations, saveDrafts: catalogSave, update() {}, async load() {}, openProfile() {} }),
     createVoiceEffectsEditor: () => ({ configurations: () => typeof voiceConfigurations === 'function' ? voiceConfigurations() : voiceConfigurations }),
     window: { isSecureContext: true, MediaRecorder: Recorder }, MediaRecorder: Recorder, CONTROLS: [],
     HTMLElement: Element, HTMLSpanElement: Element, HTMLHeadingElement: Element, HTMLAnchorElement: Element,
     HTMLDivElement: Element, HTMLButtonElement: Element, HTMLParagraphElement: Element, HTMLInputElement: Element,
     HTMLSelectElement: Element, HTMLOutputElement: Element, HTMLDetailsElement: Element,
     document: { querySelector: selector => { const element = new Element(selector); elements.set(selector, element); return element; }, querySelectorAll: () => [] },
-    playableBars: () => 76, PracticeAudio: { create: async () => { creations++; return audio; } },
+    playableBars: () => 76, PracticeAudio: { create: async options => { creations++; creationOptions.push(options); return audio; } },
   };
   prepareUIContext(context);
-  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = loadedSong?.chart || { bars: Array(76) }; song = loadedSong || { chart, program: {}, compiled: ${compiled ? '{ executable: true }' : 'undefined'} }; globalThis.controls = { applyVoiceEffects, startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
-  return { commands, controls: context.controls, audio, elements, revoked, get creations() { return creations; } };
+  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = loadedSong?.chart || { bars: Array(76) }; song = loadedSong || { chart, program: {}, compiled: ${compiled ? '{ executable: true }' : 'undefined'} }; globalThis.controls = { ensureAudio, applyVoiceEffects, startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
+  return { commands, controls: context.controls, audio, elements, revoked, creationOptions, get creations() { return creations; } };
 }
 
 function voiceEditorHarness() {
@@ -544,3 +545,14 @@ for (const action of ['startPractice', 'applyVoiceEffects']) {
     assert.deepEqual(h.commands, [], 'failed persistence never prepares effects, microphone or transport');
   });
 }
+
+test('passive preparation passes saved graphs while Start passes its explicitly selected draft bundle', async () => {
+  const saved = initialVoiceEffects();
+  const draft = saved.map(configuration => configuration.profile === 0 ? { ...configuration, effects: [] } : configuration);
+  const passive = startupHarness(undefined, { savedConfigurations: saved, voiceConfigurations: draft });
+  await passive.controls.ensureAudio();
+  assert.equal(passive.creationOptions[0].initialVoiceEffects, saved);
+  const start = startupHarness(undefined, { savedConfigurations: saved, voiceConfigurations: draft });
+  await start.controls.startPractice();
+  assert.equal(start.creationOptions[0].initialVoiceEffects, draft);
+});

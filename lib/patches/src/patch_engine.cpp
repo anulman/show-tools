@@ -289,12 +289,18 @@ void Playback::finish() noexcept {
 bool Playback::start(bool loop, uint32_t start_frame) noexcept {
   if (start_frame || take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.initial_)) return false;
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
+  clear_source_end(); printed_history_valid_ = true;
   phase_ = 0; iteration_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
 }
 bool Playback::start_at_capture_end(bool loop) noexcept {
   if (take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.end_)) return false;
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
+  clear_source_end(); printed_history_valid_ = true;
   phase_ = take_.length_; iteration_ = 1; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
+}
+bool Playback::set_source_end(uint32_t exclusive_frame) noexcept {
+  if (take_.state_ != TakeState::committed || exclusive_frame > take_.length_) return false;
+  source_end_ = exclusive_frame; return true;
 }
 void Playback::stop() noexcept {
   if (state_ != PlaybackState::playing) return;
@@ -302,7 +308,7 @@ void Playback::stop() noexcept {
   if (release_remaining_) state_ = PlaybackState::releasing;
   else finish();
 }
-void Playback::reset() noexcept { shadow_->reset(); finish(); phase_ = 0; iteration_ = 0; }
+void Playback::reset() noexcept { shadow_->reset(); finish(); phase_ = 0; iteration_ = 0; clear_source_end(); printed_history_valid_ = true; }
 Stereo Playback::next() noexcept {
   if (state_ == PlaybackState::playing && phase_ == take_.period_) {
     if (loop_) {
@@ -311,8 +317,10 @@ Stereo Playback::next() noexcept {
     } else stop();
   }
   if (state_ == PlaybackState::playing) {
-    Stereo evolved = shadow_->process(take_.read_source(phase_));
-    Stereo output = !iteration_ && phase_ < take_.length_ ? take_.printed_[phase_] : evolved;
+    bool suppressed = phase_ >= source_end_;
+    if (suppressed) printed_history_valid_ = false;
+    Stereo evolved = shadow_->process(suppressed ? Stereo{} : take_.read_source(phase_));
+    Stereo output = !iteration_ && printed_history_valid_ && phase_ < take_.length_ ? take_.printed_[phase_] : evolved;
     ++phase_; return output;
   }
   if (state_ == PlaybackState::releasing) {

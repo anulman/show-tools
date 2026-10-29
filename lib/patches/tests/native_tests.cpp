@@ -726,6 +726,49 @@ void chorus_release_bounds() {
   std::puts("PASS chorus exact zero after finite tail at minimum delay corner and 1k/44.1k/384k rates");
 }
 
+void source_prefix_views() {
+  for (double rate : {44100., 48000.}) for (bool effects : {false, true}) {
+    std::unique_ptr<Effect> stages[] = {make_slapback(rate, {100, .25, .5}), make_chorus(rate, {.8, 5, 20, .35})};
+    auto live = Rack::create(stages, effects ? 2 : 0);
+    auto oracle = live->snapshot();
+    const double count = rate * 60 / 98;
+    const unsigned length = unsigned(std::ceil(333 * count) - std::ceil(329 * count));
+    const unsigned cut = unsigned(std::ceil(332.5 * count) - std::ceil(329 * count));
+    const unsigned period = unsigned(std::ceil(4 * count));
+    auto take = ProcessedTake::create(*live, length, 31);
+    auto playback = Playback::create(*take);
+    std::vector<float> source(length), left(length), right(length);
+    source[cut - 10] = .25f; source[cut] = .75f; source[cut + 10] = .5f;
+    require(take->begin(*live) && take->capture(*live, source.data(), source.data(), left.data(), right.data(), length) && take->commit(period), "prepare immutable full source for prefix view");
+    std::vector<Stereo> output(period * 3);
+    {
+      NoHeap guard;
+      require(playback->start(true) && playback->set_source_end(cut), "prefix view starts without PCM copy");
+      require(!playback->set_source_end(length + 1) && playback->source_end() == cut, "invalid source limit preserves prior prefix");
+      for (unsigned i = 0; i < output.size(); ++i) {
+        unsigned phase = i % period;
+        if (i == cut + 5 || i == period * 2) playback->clear_source_end();
+        bool full = (i >= cut + 5 && i < period) || i >= period * 2;
+        if (i == period) require(playback->set_source_end(cut), "next traversal can select prefix without resetting state");
+        float admitted = phase < length && (full || phase < cut) ? source[phase] : 0;
+        auto expected = oracle->process({admitted, admitted});
+        output[i] = playback->next();
+        equal(output[i], expected, "prefix evolves admitted source and preserves tails across restoration and wraps");
+      }
+      require(playback->phase() == period, "prefix preserves logical loop period");
+      playback->reset(); require(playback->source_end() == -1, "reset clears view");
+      require(playback->start(true) && playback->set_source_end(0), "zero-source prefix is distinct from full");
+      for (unsigned i = 0; i < period; ++i) equal(playback->next(), {}, "zero-source prefix never injects retained PCM");
+      require(playback->start(true) && playback->source_end() == -1, "fresh start restores full source and printed eligibility");
+      for (unsigned i = 0; i < length; ++i) equal(playback->next(), take->sample(i), "fresh full start retains original printed PCM");
+      playback->reset();
+    }
+    if (rate == 48000) require(cut == 102857 && std::floor(period * .875) == cut + 1, "absolute-grid source cut differs from rounded period ratio");
+    fixture.insert(fixture.end(), output.begin(), output.end());
+  }
+  std::puts("PASS dry and serial Slapback/Chorus prefix views at 44.1/48k preserve source, tails, phase and heap discipline");
+}
+
 bool write_pcm(const char* path, const std::vector<Stereo>& pcm) {
   static_assert(sizeof(Stereo) == sizeof(float) * 2);
   FILE* file = std::fopen(path, "wb");
@@ -749,7 +792,7 @@ void demo(const char* prefix) {
 }
 }
 int main(int argc, char** argv) {
-  validation_and_order(); impulses(); arbitrary_stop(false); arbitrary_stop(true); block_partitioning_and_heap(); appended_capture_and_reuse(); mono_source_storage(); finite_slapback_release(); evolving_history(); capture_period_history(); capture_period_admission(); chorus_validation_and_impulses(); chorus_independent_oracle_and_state(); chorus_order_and_capture(); chorus_release_bounds();
+  source_prefix_views(); validation_and_order(); impulses(); arbitrary_stop(false); arbitrary_stop(true); block_partitioning_and_heap(); appended_capture_and_reuse(); mono_source_storage(); finite_slapback_release(); evolving_history(); capture_period_history(); capture_period_admission(); chorus_validation_and_impulses(); chorus_independent_oracle_and_state(); chorus_order_and_capture(); chorus_release_bounds();
   if (argc == 3 && std::strcmp(argv[1], "--fixture") == 0) require(write_pcm(argv[2], fixture), "write deterministic fixture");
   else if (argc == 3 && std::strcmp(argv[1], "--demo") == 0) demo(argv[2]);
   else require(argc == 1, "usage: patch_engine_tests [--fixture PATH | --demo PREFIX]");

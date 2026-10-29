@@ -7,14 +7,14 @@ import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
 
 const module = await WebAssembly.compile(await readFile(new URL('../../../ui/practice/wasm/manual-clock.wasm', import.meta.url)));
-function engine(program: readonly number[], rate = 8000) {
+function engine(program: readonly number[], rate = 8000, initialVoiceEffects?: Parameters<NativePerformance['prepareVoiceEffects']>[0]) {
   let memory: WebAssembly.Memory;
   const instance = new WebAssembly.Instance(module, { env: { abort() { throw new Error('WASM aborted'); }, emscripten_notify_memory_growth() {} },
     wasi_snapshot_preview1: { fd_write(_fd: number, _vectors: number, _count: number, written: number) { new DataView(memory.buffer).setUint32(written, 0, true); return 0; }, fd_close: () => 0, fd_seek: () => 0, proc_exit(code: number) { throw new Error(`WASM exited ${code}`); } } });
   if (!(instance.exports.memory instanceof WebAssembly.Memory)) throw new Error('Missing WASM memory');
   memory = instance.exports.memory;
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
-  return new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0 });
+  return new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0, initialVoiceEffects });
 }
 function render(native: NativePerformance, frames: number, value: number | ((frame: number) => number) = .25) {
   const begin = native.processedFrames;
@@ -370,8 +370,9 @@ test('DYC missing Bing Bong finish matches the written finish through bar 10 bea
   assert(song.compiled?.executable);
   const program = Array.from(encodeCompiledProgram(song.compiled));
   for (const rate of [44100, 48000]) {
-    const manual = engine(program, rate);
-    const automatic = engine(program, rate);
+    const dry = Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] }));
+    const manual = engine(program, rate, dry);
+    const automatic = engine(program, rate, dry);
     const framesPerCount = rate * 60 / song.chart.bpm;
     const plan = song.compiled.cues.filter(cue => cue.bar <= 13).map(cue => ({
       frame: cue.bar === 0 ? 1 : Math.ceil((5 + (cue.bar - 1) * 4 + (cue.cueBeat ?? 0)) * framesPerCount) + 1,

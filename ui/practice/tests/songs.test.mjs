@@ -7,8 +7,8 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   const loaded = await Promise.all(SONGS.map(entry => loadSong(entry.id)));
   assert.deepEqual(loaded.map(song => song.chart.bpm), [98, 144, 117]);
   assert.deepEqual(loaded.map(song => song.chart.bars[0].column), [3, 4, 4]);
-  assert.deepEqual(loaded.map(song => song.practice.endBar), [76, 16, 16]);
-  assert.deepEqual(loaded.map(song => playableBars(song.chart)), [76, 128, 169]);
+  assert.deepEqual(loaded.map(song => song.practice.endBar), [218, 16, 16]);
+  assert.deepEqual(loaded.map(song => playableBars(song.chart)), [218, 128, 169]);
   assert.equal(loaded[0].chart.sections[0].label, 'Instrumental A1');
   assert.equal(loaded[1].chart.sections[0].label, 'Intro 1');
   assert.equal(loaded[2].chart.sections[0].label, 'Intro 1');

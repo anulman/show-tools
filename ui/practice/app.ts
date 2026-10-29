@@ -4,7 +4,7 @@ import type { SongSource } from '../../lib/performance/song-source.js';
 import { PracticeAudio } from './audio.js';
 import type { MonitoringRelationship } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
-import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript } from '../../lib/performance/model.js';
+import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
 import { createChartFollower, openCurrentChart } from './open-chart.js';
@@ -106,7 +106,7 @@ const voiceCatalog = installVoiceCatalog(requiredElement('#voice-library-root', 
   onBusyChange: () => render(state),
   apply: async configurations => {
     effectsApplying = true; render(state);
-    try { const instance = await ensureAudio(); await instance.configureVoiceEffects(configurations); }
+    try { const instance = await ensureAudio(configurations); await instance.configureVoiceEffects(configurations); }
     finally { effectsApplying = false; render(state); }
   },
 });
@@ -153,7 +153,7 @@ function cueLabel(cue: string): string {
   return cue ? labels[cue] || `Chart cue ${cue}` : 'No action in this column';
 }
 
-async function ensureAudio() {
+async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[]) {
   if (audio) return audio;
   if (!song || switching) throw new Error('The song script is still loading. Try again in a moment.');
   if (!window.isSecureContext) throw new Error('Audio needs HTTPS on your phone, or localhost on this computer. See Setup & notes.');
@@ -161,7 +161,7 @@ async function ensureAudio() {
   elements.start.disabled = true;
   startLabel.textContent = 'Preparing audio…';
   const generation = songGeneration;
-  preparing = PracticeAudio.create({ chart: song.chart, program: song.program, compiled: song.compiled }).then(async instance => {
+  preparing = PracticeAudio.create({ chart: song.chart, program: song.program, compiled: song.compiled, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() }).then(async instance => {
     if (generation !== songGeneration) {
       await instance.dispose();
       throw new Error('The song changed while audio was preparing.');
@@ -211,9 +211,10 @@ async function applyVoiceEffects(profile: number) {
   if (isRunning() || starting || switching || effectsApplying || outputCapture !== 'idle') return;
   effectsApplying = true; render(state);
   try {
-    const instance = await ensureAudio();
+    const configurations = voiceEffects.configurations(profile);
     await voiceCatalog.saveDrafts();
-    await instance.configureVoiceEffects(voiceEffects.configurations(profile));
+    const instance = await ensureAudio(configurations);
+    await instance.configureVoiceEffects(configurations);
   } finally { effectsApplying = false; render(state); }
 }
 
@@ -247,7 +248,7 @@ async function startPractice() {
   try {
     await voiceCatalog.saveDrafts();
     if (generation !== transportGeneration) return;
-    instance = await ensureAudio();
+    instance = await ensureAudio(effects);
     if (generation !== transportGeneration) return;
     await instance.configureVoiceEffects(effects);
     if (generation !== transportGeneration) return;

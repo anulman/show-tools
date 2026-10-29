@@ -107,6 +107,9 @@ class Playback {
   Playback& operator=(const Playback&) = delete;
   bool start(bool loop, uint32_t start_frame = 0) noexcept;
   bool start_at_capture_end(bool loop) noexcept;
+  bool set_source_end(uint32_t exclusive_frame) noexcept;
+  void clear_source_end() noexcept { source_end_ = UINT32_MAX; }
+  double source_end() const noexcept { return source_end_ == UINT32_MAX ? -1 : double(source_end_); }
   void stop() noexcept;
   void reset() noexcept;
   Stereo next() noexcept;
@@ -121,9 +124,11 @@ class Playback {
   std::unique_ptr<Rack> shadow_;
   PlaybackState state_ = PlaybackState::idle;
   uint32_t phase_ = 0;
+  uint32_t source_end_ = UINT32_MAX;
   uint64_t release_remaining_ = 0, iteration_ = 0;
   void finish() noexcept;
   bool loop_ = false;
+  bool printed_history_valid_ = true;
 };
 }
 #endif

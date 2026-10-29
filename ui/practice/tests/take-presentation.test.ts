@@ -13,7 +13,7 @@ function readback(channelId: ChannelId, playback: CompiledTakeState['playback'],
   let ready = 0;
   return compiled.takes.map((take, index): CompiledTakeState => {
     const present = take.voiceId === voice?.id && ready++ < readyCount;
-    return { index, ready: present, frames: present ? 123 : 0, period: present ? 456 : 0, playback: present ? playback : 'idle' };
+    return { index, ready: present, frames: present ? 123 : 0, period: present ? 456 : 0, playback: present ? playback : 'idle', sourceEndFrames: null };
   });
 }
 
@@ -50,17 +50,25 @@ test('take readout preserves native queued-stop and release status', () => {
   assert.equal(takePresentation(compiled, 'R1', { channels: released, compiledTakes }).summary, 'Releasing · 2 of 2 layers saved');
 });
 
-test('Cowbell names the playing bar identity and keeps its three versions separate', () => {
+test('Cowbell names the playing bar identity and keeps its six recordings separate', () => {
   const readings = readback('R2', 'idle', 3);
   const take = compiled.takes.findIndex(take => take.voiceId === 'cowbell' && take.begin.bar === 11);
   const compiledTakes = readings.map(reading => reading.index === take ? { ...reading, playback: 'playing' } satisfies CompiledTakeState : reading);
   const result = takePresentation(compiled, 'R2', { channels, compiledTakes });
-  assert.equal(result.plan, '3 separate versions · bar 10 (4)&a · bar 11 (4)& · bar 12 4');
-  assert.equal(result.summary, 'Playing version 2/3 · bar 11 · (4)&');
+  assert.equal(result.plan, '6 separate versions · bar 10 (4)&a · bar 11 (4)& · bar 12 4 · bar 82 &e3a& · bar 83 &e3a&a · bar 84 &e3e');
+  assert.equal(result.summary, 'Playing version 2/6 · bar 11 · (4)&');
 });
 
 test('legacy songs and incomplete readback do not fabricate take state', async () => {
   assert.deepEqual(takePresentation(undefined, 'R1', { channels }), { plan: '', summary: null });
   assert.equal(takePresentation(compiled, 'R1', { channels, compiledTakes: [] }).summary, null);
   assert.deepEqual(takePresentation(await compiledCaptureFixture(), 'R2', { channels }), { plan: '', summary: null });
+});
+
+test('trimmed playback is reported from native source admission without adding a version', () => {
+  const readings = readback('R2', 'idle', 6);
+  const take = compiled.takes.findIndex(take => take.voiceId === 'cowbell' && take.begin.bar === 82);
+  const compiledTakes = readings.map(reading => reading.index === take ? { ...reading, playback: 'playing', sourceEndFrames: 102857 } satisfies CompiledTakeState : reading);
+  assert.equal(takePresentation(compiled, 'R2', { channels, compiledTakes }).summary, 'Playing version 4/6 · bar 82 · &e3a& · Trimmed');
+  assert.equal(takePresentation(compiled, 'R2', { channels, compiledTakes: compiledTakes.map(reading => ({ ...reading, sourceEndFrames: null })) }).summary, 'Playing version 4/6 · bar 82 · &e3a&');
 });

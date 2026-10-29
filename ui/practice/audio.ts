@@ -9,7 +9,7 @@ import type { ChannelId, ChannelSettings, Chart, ChartMetadata, Control, Practic
 export type MonitoringRelationship = 'unknown' | 'different-devices' | 'same-usb-interface' | 'same-non-usb';
 type MonitoringConfirmation = { kind: 'unconfirmed' } | { kind: 'confirmed'; stream: MediaStream; relationship: Exclude<MonitoringRelationship, 'unknown'> };
 
-type AudioOptions = { chart: Chart; program?: Program; compiled?: CompiledSong };
+type AudioOptions = { chart: Chart; program?: Program; compiled?: CompiledSong; initialVoiceEffects?: readonly VoiceEffectConfiguration[] };
 type AdapterOptions = AudioOptions & { tracker: BeatTracker; endpoint: AudioEndpoint; sessionId: string };
 
 export class PracticeAudio {
@@ -37,7 +37,7 @@ export class PracticeAudio {
   startGeneration = 0;
   microphoneGeneration = 0;
 
-  static async create({ chart, program, compiled }: AudioOptions) {
+  static async create({ chart, program, compiled, initialVoiceEffects }: AudioOptions) {
     if (!chart?.bars?.length) throw new Error('A parsed chart is required');
     let audio: PracticeAudio | undefined;
     let tracker: BeatTracker | undefined;
@@ -47,7 +47,7 @@ export class PracticeAudio {
         wasmUrl: new URL('./wasm/manual-clock.wasm', import.meta.url),
         workletUrl: new URL('./practice-worklet.js', import.meta.url), processorName: 'practice', outputChannelCounts: [2, 2],
         processorOptions: { practice: { bpm: chart.bpm, beatsPerBar: chart.beatsPerBar, runId: `${sessionId}-ready`,
-          barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program,
+          barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program, initialVoiceEffects,
           compiledProgram: compiled ? Array.from(encodeCompiledProgram(compiled)) : undefined } } });
       const channel = new MessageChannel();
       tracker.node.port.postMessage({ type: 'performance-connect', port: channel.port2 }, [channel.port2]);

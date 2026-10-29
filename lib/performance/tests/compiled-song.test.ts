@@ -17,7 +17,7 @@ function fixture(): { source: SongSource; mapping: SongMapping } {
   return {
     source: { sourceVersion: 1, spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', range: 'A1:F24', values,
       notes: { A18: 'Drums', A19: 'Cowbell', A20: 'Whistle', A21: 'Synth' } },
-    mapping: { mappingVersion: 4, liveParts: [], notationVersion: 'dyc-v1', songId: 'fixture', spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', titleCell: 'B1', bpmCell: 'F2', sectionRow: 4, barRow: 5,
+    mapping: { mappingVersion: 5, liveParts: [], notationVersion: 'dyc-v1', songId: 'fixture', spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', titleCell: 'B1', bpmCell: 'F2', sectionRow: 4, barRow: 5,
       leadInColumn: 2, startBar: 1, endBar: 4, meter: { numerator: 4, denominator: 4 },
       controls: [
         { buttonId: 'R1', voiceId: 'drums', cueRow: 18, arrangementRow: 10, nameNoteCell: 'A18' },
@@ -25,7 +25,7 @@ function fixture(): { source: SongSource; mapping: SongMapping } {
         { buttonId: 'L1', voiceId: 'whistle', cueRow: 20, arrangementRow: 13, nameNoteCell: 'A20' },
         { buttonId: 'L2', voiceId: 'synth', cueRow: 21, arrangementRow: 12, nameNoteCell: 'A21' },
       ], cueWindow: { earlyMs: 25, lateMs: 12.5, ties: 'reject' }, capturePolicies: [{ voiceId: 'drums', retention: 'layer', gain: .5 }],
-      layerGroups: [{ id: 'drums-main', voiceId: 'drums', armCells: ['B18', 'D18'] }], variantRules: [], overrides: [], deferredRows: [] },
+      layerGroups: [{ id: 'drums-main', voiceId: 'drums', armCells: ['B18', 'D18'] }], variantRules: [], variantReuses: [], overrides: [], deferredRows: [] },
   };
 }
 
@@ -159,6 +159,7 @@ test('current DYC compiles answered semantics and permits F21 future arming for 
   const cowbell = song.takes.filter(take => take.voiceId === 'cowbell');
   assert.deepEqual(cowbell.map(take => [take.begin.bar, take.phrase, take.retention]), [
     [10, '(4)&a', 'variant'], [11, '(4)&', 'variant'], [12, '4', 'variant'],
+    [82, '&e3a&', 'variant'], [83, '&e3a&a', 'variant'], [84, '&e3e', 'variant'],
   ]);
   assert(!song.diagnostics.some(diagnostic => diagnostic.code === 'capture-policy' && diagnostic.source.a1.endsWith('19')));
   for (const [bar, take] of [[20, cowbell[1]], [28, cowbell[2]], [36, cowbell[1]], [44, cowbell[2]]] as const) {
@@ -182,6 +183,7 @@ test('current DYC compiles answered semantics and permits F21 future arming for 
   }
   assert.deepEqual(song.cues.filter(cue => cue.tempoBeatHint).map(cue => [cue.source.a1, cue.cueBeat, cue.execution]), [
     ['AE18', 0, { kind: 'now' }], ['AU18', 0, { kind: 'now' }],
+    ['EY18', 0, { kind: 'now' }], ['GU18', 0, { kind: 'now' }],
   ]);
   assert.deepEqual(song.cueWindow, { earlyMs: 25, lateMs: 25, ties: 'reject' });
   assert.match(inspectCompiledSong(song), /H21 -> J21\tcapture 7:1\.\.8:3 \(6 counts\)\trest 8:3\.\.9:1 \(2 counts, zero source\)\tloop 7:1\.\.9:1 \(8 counts\)/);
@@ -201,7 +203,7 @@ test('genuinely overlapping recording intervals reject without forbidding earlie
 
 test('DYC source parts survive import independently of the four pad bindings', async () => {
   const song = await compileSong(dycSource, dycMapping);
-  assert.equal(song.schemaVersion, 4);
+  assert.equal(song.schemaVersion, 5);
   assert.equal(song.voices.length, 4);
   assert.deepEqual(song.parts.map(part => [part.id, part.name, part.source.a1, part.profile, part.role.kind]), [
     ['whistle', 'Whistle', 'A13', 0, 'pad'],
@@ -236,12 +238,27 @@ test('actual DYC rotation windows preserve written half-open beat boundaries and
     [72, 3, 74, 2, 'BV17', 'BX17'], [74, 3, 76, 2, 'BX17', 'BZ17'],
   ]);
   assert.deepEqual(song.rotation?.windows[0].sources.map(source => source.a1), ['V17', 'W17', 'X17']);
-  assert.equal(song.takes.length, 9); assert.equal(song.cues.length, 29);
+  assert.equal(song.chart.bars.length, 218);
+  assert.equal(song.chart.sections.length, 27);
+  assert.equal(song.takes.length, 12); assert.equal(song.cues.length, 62);
   const table = encodeCompiledProgram(song);
-  assert.deepEqual(Array.from(table.slice(-43, -36)), [PF.COMPILED_ROTATION_MAGIC, 10, .25, 20, 3, 22, 0]);
+  const rotationStart = table.indexOf(PF.COMPILED_ROTATION_MAGIC);
+  assert.deepEqual(Array.from(table.slice(rotationStart, rotationStart + 7)), [PF.COMPILED_ROTATION_MAGIC, 10, .25, 20, 3, 22, 0]);
   assert.match(inspectCompiledSong(song), /PART\tA9\tBackup Vocals.*profile 5\trotation-live/);
   assert.match(inspectCompiledSong(song), /ROTATION\tbackup-vocals\trelease at the next 0.25 counted-beat grid boundary/);
   assert.match(inspectCompiledSong(song), /ROTATION WINDOW\tBT17 -> BV17\t70:4\.\.72:3\thalf-open/);
+});
+
+test('full DYC play cues select the Cowbell identity written at their execution bar', async () => {
+  const song = await compileSong(dycSource, dycMapping);
+  for (const a1 of ['V19', 'AL19', 'BB19', 'BJ19', 'CQ19', 'DO19', 'FG19', 'FW19', 'GL19']) {
+    const cue = song.cues.find(cue => cue.source.a1 === a1);
+    assert(cue, a1);
+    const bar = cue.execution.kind === 'next-bar' ? cue.bar + 1 : cue.bar;
+    const written = song.playback.find(entry => entry.voiceId === cue.voiceId && entry.bar === bar);
+    assert(written, a1);
+    assert.equal(cue.selectionId, written.selectionId, `${a1} uses the written variant at bar ${bar}`);
+  }
 });
 
 test('quarter-grid authoring and imports reject old inactivity artifacts and invalid count grids', async () => {
