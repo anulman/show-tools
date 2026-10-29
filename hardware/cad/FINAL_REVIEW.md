@@ -1,5 +1,19 @@
 # Prepare and publish the final review proposals
 
+The optional comparison selection adds the PR 50 prototypes beside these older proposals. On Disco bar, the order is original, OLD C, NEW C2. On Box mount, it is old arcade, new arcade, old rotor, new rotor, then the unchanged mushroom blank. Display offsets do not change any fabrication file. New models are labeled `FIT PENDING`.
+
+After staging the existing pair below, select the independently reviewed comparison receipts in the same checkout:
+
+```sh
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/comparison_review.py \
+  --collar /absolute/path/to/review-candidates/4903640/C2/receipt.json \
+  --rotor /absolute/path/to/resin-c2-integration-v2/receipt.json \
+  --arcade /absolute/path/to/resin-v4-thicker-ear-v1/arcade/receipt.json
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/check_comparison_review.py
+```
+
+The selection pins exact reviewed receipt hashes, verifies displayed STEP/STL pairs, rechecks the base inputs and generating sources, and verifies the collar's immutable source revision. The flat PTFE cutting pattern is excluded from the assembled scene. Existing page switches load both generations without restarting services. Removing the ignored `build/comparison-review/current.json` restores the older-only scene. This selection permits visual review, not fabrication release or verified spinner fit.
+
 The Disco bar page shows only the unchanged original and the complete C proposal. A and B remain historical source studies and are absent from this focused review. The Box mount page replaces the old rotor shell and bottom with C's matching fixed base. The arcade and mushroom models keep their existing positions and roof/ground alignment.
 
 The pages load checked STEP exports. Source-owned inventories require every named component and role, and independent source factories verify each loaded component's material geometry. The registry binds the C and base receipts, the exact required source files, the original reference and each displayed STEP/STL pair. Changed sources, changed files, missing parts, substituted geometry, failed checks and mismatched receipts prevent publication. Imported components are normalized to sole solids before placement.
