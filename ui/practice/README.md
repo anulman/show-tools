@@ -131,8 +131,10 @@ The smaller rows below the pads show other instruments and their literal current
 
 The library lives in this browser and site origin. Use **Export JSON** for a portable library and **Import library** to replace the current library from validated JSON. **SQLite backup** downloads the underlying database for inspection/recovery; the editor imports JSON. Export before clearing browser storage or moving devices. Song timing JSON and native packets are separate and do not contain local character/effect edits.
 
-Saved character selections also appear beside the sheet names on the sample pads and live vocal rows. Unassigned voices keep the compact text-only layout. Characters without published avatar artwork use initials; the library shows that artwork is unavailable. These portraits are static presentation and do not indicate audio activity.
+Saved character selections also appear beside the sheet names on the sample pads and live vocal rows. Unassigned voices keep the compact text-only layout. All 51 selectable characters have static preview avatars. Imported unknown character IDs still use initials. These portraits are static presentation and do not indicate audio activity.
 
 **Sheet connection** separates the **Voice row** (for example, `AF - Drums & Claps` at A10) from its **Cue row** (`R1` at A18). The default follows the loaded song's declared commands. Select and save a different cue row to author a new connection. Then open **Chart source, compiler & inspection**, compile and inspect the source, resolve any related capture/layer diagnostics, and explicitly **Load staged song** while stopped. Saved connections feed that compilation; the editor continues showing the currently loaded command row until the replacement song is loaded. A cue connection does not assign an audio input or a new physical control.
 
 Existing libraries and version-one JSON backups upgrade automatically. Version-two exports include the separate cue-row connections.
+
+The static avatar library includes five pixel-final snapshots and 46 gallery previews. Finished animation review is pending for the gallery previews. Artwork provenance and review status are recorded in [the avatar handoff](https://github.com/anulman/show-tools/tree/main/assets/video/avatars).
