@@ -81,6 +81,45 @@ def main():
         snapshot = final_review.load(candidate)
         candidate.write_text(json.dumps(registry) + '\n')
         rejected('selection replaced during publication', snapshot.assert_current)
+        original_path = Path(registry['reference']['path'])
+        def stage_variant(label, kind, report, message):
+            modified = root / (kind + '-modified.json')
+            modified.write_text(json.dumps(report))
+            disco_path = modified if kind == 'disco' else Path(registry['disco']['path'])
+            box_path = modified if kind == 'box' else Path(registry['box']['path'])
+            if kind == 'disco':
+                bound = deepcopy(selection.reports['box'])
+                bound['producer_receipt_sha256'] = final_review.digest(modified)
+                box_path = root / 'rebound-box.json'
+                box_path.write_text(json.dumps(bound))
+            try:
+                final_review.stage(disco_path, box_path, root / 'staged.json', reference=original_path)
+            except ValueError as error:
+                assert message in str(error), str(error)
+                print('PASS rejected', label, flush=True)
+            else:
+                raise AssertionError('Accepted ' + label)
+        for kind, name in (('box', 'bottom'), ('box', 'buffer'), ('disco', 'fastened captive roof')):
+            report = deepcopy(selection.reports[kind])
+            report['review_components'] = [r for r in report['review_components'] if r['name'] != name]
+            stage_variant('omitted required '+name, kind, report, 'required named components')
+        report = deepcopy(selection.reports['disco'])
+        report['review_components'][0]['role'] = 'hardware'
+        stage_variant('substituted C component role', 'disco', report, 'required named components')
+        report = deepcopy(selection.reports['box'])
+        bottom = next(i for i, r in enumerate(report['review_components']) if r['name'] == 'bottom')
+        spacer = next(r for r in report['review_components'] if r['name'] == 'spacer')
+        report['review_components'][bottom] = dict(spacer, name='bottom')
+        stage_variant('valid spacer geometry substituted for bottom', 'box', report, 'differs from source geometry')
+        report = deepcopy(selection.reports['disco'])
+        roof = next(i for i, r in enumerate(report['review_components']) if r['name'] == 'fastened captive roof')
+        carrier = next(r for r in report['review_components'] if r['name'] == 'fixed-to-bar latch carrier')
+        report['review_components'][roof] = dict(carrier, name='fastened captive roof')
+        stage_variant('valid carrier geometry substituted for C roof', 'disco', report, 'differs from source geometry')
+        for kind, name in (('disco', 'final_c.py'), ('disco', 'check_final_c.py'), ('box', 'final_base.py')):
+            report = deepcopy(selection.reports[kind])
+            del report['source_code_sha256'][name]
+            stage_variant('omitted required source '+name, kind, report, 'required source-file manifest')
     selection.assert_current()
     print(f'PASS checked pages: {len(disco[0])} disco components, {len(box[0])} box/reference components; aligned and exploded cover', flush=True)
 

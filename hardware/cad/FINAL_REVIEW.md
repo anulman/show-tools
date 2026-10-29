@@ -2,7 +2,7 @@
 
 The Disco bar page shows the unchanged original, legacy references A and B, and the complete C proposal. C replaces the historical standalone T-pad cup study. The Box mount page replaces the old rotor shell and bottom with C's matching fixed base. The arcade and mushroom models keep their existing positions and roof/ground alignment.
 
-The pages load checked STEP exports. They do not rebuild a different latch during publication. The registry binds the C and base receipts, their source files, and each displayed STEP/STL pair. Changed sources, changed files, failed geometry checks, and mismatched C/base receipts prevent publication. Imported components are normalized to sole solids before placement.
+The pages load checked STEP exports. Source-owned inventories require every named component and role, and independent source factories verify each loaded component's material geometry. The registry binds the C and base receipts, the exact required source files, the original reference and each displayed STEP/STL pair. Changed sources, changed files, missing parts, substituted geometry, failed checks and mismatched receipts prevent publication. Imported components are normalized to sole solids before placement.
 
 ## Generate a fresh private export set
 
@@ -30,10 +30,11 @@ Use the checkout that runs the existing CAD desk. Its source files must match th
 
 ```sh
 ~/.local/share/show-tools/cad/venv/bin/python hardware/cad/final_review.py \
-  --disco-report "$review_dir/C/receipt.json" --box-report "$review_dir/box/receipt.json"
+  --disco-report "$review_dir/C/receipt.json" --box-report "$review_dir/box/receipt.json" \
+  --step "$SHOW_TOOLS_DISCO_STEP"
 ```
 
-This validates the inputs before atomically replacing `build/final-review/current.json`. It does not publish, start a service, or copy the original asset. The Box mount page then reads the fixed-base exports without opening the private original STEP.
+This validates the inputs before atomically replacing `build/final-review/current.json`. It does not publish, start a service, or copy the original asset. The original's location is kept only in the local ignored registry. The Box mount page verifies fixed-base exports against its STEP-independent source factory without opening that original; the Disco bar page verifies C against the pinned original.
 
 Switch pages in the existing [CAD desk](http://127.0.0.1:3940/), or publish explicitly from that checkout:
 
