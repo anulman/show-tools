@@ -40,7 +40,7 @@ Every tree label identifies this as an unverified reference with invalid upstrea
 
 ## Compare base concepts
 
-The [four-base comparison](BASE-CONCEPTS.md) adds separate rounded-square, flared-cylinder, tilted, and capsule geometries beneath the buttons. Start with `hardware/cad/cad bases --depth 35.25 --tilt 5 --show --reset-camera`. These are adjustable form studies with unmeasured mounting interfaces.
+The [four-base comparison](BASE-CONCEPTS.md) adds separate rounded-square, flared-cylinder, tilted, and capsule geometries beneath the buttons. Start with `hardware/cad/cad bases --depth 35.25 --tilt 5 --recess 17.5 --show --reset-camera`. These are adjustable form studies with unmeasured mounting interfaces.
 
 ## Inspect and give feedback
 

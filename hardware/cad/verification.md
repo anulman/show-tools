@@ -42,3 +42,10 @@ git diff --check 6178145 HEAD -- . ":(exclude)hardware/cad/components/adafruit-1
 The operator Scrawl contact sheet and full frames 1, 3, 4, and 6 were inspected before modelling. The operator clarified that the depth proportion means the stem below the body times 1.5. `cad bases --depth 35.25 --tilt 5` produced four valid single-solid bases. All four STEP round trips and STL watertightness, winding, and volume checks passed. A preliminary 60 mm depth also passed. Model dimensions remain conceptual.
 
 The final 35.25 mm comparison was published to the existing viewer with `--show --reset-camera`, and the publish command returned successfully. Native browser inspection failed with `Sky Computer Use native pipe startup failed`, including after a tool-session reset. On-screen delivery of this revision therefore awaits operator confirmation. The viewer process was not restarted. No hardware IO or printing occurred.
+
+
+## Recessed base evolution
+
+The operator confirmed all four original bases were visible. The subsequent Scrawl `scrawl-1793232693368-20a-8.scrawl` shows those bases in Vivaldi and selects the lower button barrel for recessing. Its contact sheet and full frames 1, 4, and 5 were inspected before editing. This establishes delivery of the original concept revision.
+
+The recess revision raises the housing while retaining the button seat and Z=-35.25 mm underside. At `--depth 35.25 --tilt 5 --recess 17.5`, all four solids, STEP round trips, and STL integrity checks passed. Flat bases measure 52.75 mm tall; the tilted base reaches approximately 58.33 mm. Recess and radial clearance remain model-derived concept choices. The native browser-control outage continues, so the recessed revision's visible delivery awaits confirmation. Publishing returned successfully without restarting the viewer.
