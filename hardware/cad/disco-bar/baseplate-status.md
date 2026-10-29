@@ -1,6 +1,6 @@
 # Independent preset knob-clamp study
 
-This milestone covers joint 1 only. The baseplate stays on the knob; no bar latch, latch flange, support seat, or actuator placement is modelled yet. The required installed release-access answer still gates C1–C3.
+This milestone covers joint 1 only. The baseplate stays on the knob; no bar latch, latch flange, support seat, or actuator placement is modelled here. The operator now permits added collar spacing and underside release access through the fixed mounting box. Installed stack dimensions and physical fit remain unresolved. The [current plan](two-joint-plan.md) records these permissions and the newer cut-stock padding preference; this earlier T-backed pad model remains a historical form study.
 
 `baseplates.py` provides `knob_baseplate(reference, setting_mm)`. Its frozen assembly record contains nine components: the cup, two retained shoes, two pads, two headless set-screw envelopes, and two nut envelopes. The cup and shoes are three proposed print pieces.
 

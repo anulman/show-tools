@@ -36,6 +36,8 @@ The box roof, encoder, knob, baseplate, and full bar must be represented togethe
 
 The box is stationary while the knob and bar rotate. A fixed access opening needs either clearance at every operating angle or an explicit rotate-to-service-angle procedure. Buffer support must not obstruct the release control, shaft, or underside mounting nut. Sliding contact at the box uses a separate proposed wear surface from the high-friction knob pads.
 
+The operator confirmed that the underside mounting arrangement stays fixed. Its hex counterbore captures the mounting nut to secure the encoder body. Release access does not require a moving box mount or rotating hex recess. Knob and bar rotation, and deliberate latch-control movement, are separate from that stationary mounting joint.
+
 The disco-bar and box-mount sessions own separate prototype modules and exchange their access envelopes and datums. Existing viewer geometry remains unchanged during this exploration. The operator requested findings from all three STL-validated prototypes before rendering final designs in the shared viewer. Final C synthesis follows that review.
 
 ## Geometry and verification contract
