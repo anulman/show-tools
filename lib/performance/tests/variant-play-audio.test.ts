@@ -53,8 +53,8 @@ for (const rate of [44100, 48000]) test(`DYC Cowbell play renders the written ba
       engine.process(input, [new Float32Array(count), new Float32Array(count)], count);
       frame += count;
       for (const event of engine.events()) {
-        assert.notEqual(event.type, 'fault', event.error);
-        if (event.type === 'control') assert(event.applied, event.error);
+        assert.notEqual(event.type, 'fault', event.error ?? 'The engine emitted a fault');
+        if (event.type === 'control') assert(event.applied, event.error ?? 'The engine rejected a chart cue');
       }
     }
     const output = [new Float32Array(32), new Float32Array(32)];

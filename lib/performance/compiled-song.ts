@@ -521,10 +521,12 @@ export async function compileSong(sourceInput: unknown, mappingInput: unknown): 
   for (let i = 0; i < cues.length; i++) {
     const cue = cues[i];
     if (cue.kind !== 'play') continue;
+    const executionBar = cueBoundary(cue).bar;
     const previous = takes.filter(t => t.voiceId === cue.voiceId && t.captureEnd && t.captureEnd.bar <= cue.bar).at(-1);
-    const selection = selections.find(s => previous && s.takeIds.includes(previous.id));
-    cues[i] = { ...cue, selectionId: selection?.id ?? null };
-    if (!selection) issue('play-selection', 'The play cue has no resolved committed take selection.', cue.source);
+    const selectionId = playback.find(entry => entry.voiceId === cue.voiceId && entry.bar === executionBar)?.selectionId
+      ?? selections.find(s => previous && s.takeIds.includes(previous.id))?.id ?? null;
+    cues[i] = { ...cue, selectionId };
+    if (selectionId === null) issue('play-selection', 'The play cue has no resolved committed take selection.', cue.source);
   }
   const artifact: CompiledSong = {
     schemaVersion: 4, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
