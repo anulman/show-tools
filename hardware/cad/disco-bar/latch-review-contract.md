@@ -21,6 +21,8 @@ A valid STL does not establish grip, fatigue life, support loads or printer fit.
 
 Knob pads resist sliding. A support surface between the rotating bar and stationary box must allow sliding. Keep these functions separate in the models and parts list.
 
+Use padding cut from off-the-shelf stock on rigid backing shoes. Record pad thickness, compression envelope, replacement access and adhesive location as proposals. Do not require custom moulded or printed compliant pads. The set screw loads the rigid shoe, which spreads load into the padding. Neither adhesive strength nor the stock padding's compression behaviour follows from a CAD clearance check.
+
 A replaceable polymer thrust washer is a candidate buffer. [Igus describes dry-running polymer thrust washers](https://www.igus.com/plastic-bearings/thrust-washer?contentview=1). [Curbell describes friction and wear plastics](https://www.curbellplastics.com/materials/operating-environments/plastics-for-friction-and-wear-applications/) and explains that wear depends on operating conditions. These references identify candidate approaches; they do not establish performance against our printed surfaces.
 
 No bearing material or thickness is selected. Each prototype records its proposed buffer envelope and how it is retained and replaced. The model must distinguish support through the box from loads still carried by the knob and encoder. Physical tests must check drag, runout, wear, slip, lift-off and repeated release.
