@@ -122,8 +122,11 @@ def run(args):
     for name in ('driver locked','fork pushed','spanner locked'):
         record = next(r for r in selected.reports['disco']['tools'] if r['name']==name)
         shape = selected.artifacts.load(record)
-        add(record['stl'], '05-custom-fabrication/'+name.split()[0]+'-tool.stl', shape,
-            category='custom-tool-fabrication-proposal', expected_hash=record['stl_sha256'])
+        is_driver = name.startswith('driver')
+        folder = '07-tool-clearance-reference' if is_driver else '05-custom-fabrication'
+        add(record['stl'], folder+'/'+name.split()[0]+'-tool.stl', shape,
+            category='ordinary-tool-clearance-reference' if is_driver else 'custom-tool-fabrication-proposal',
+            expected_hash=record['stl_sha256'])
 
     selected.assert_current()
     require(sha(arcade_path)==args.arcade_sha, 'Arcade receipt changed during packaging')
@@ -139,7 +142,7 @@ All STL coordinates are millimetres. Each file represents quantity 1. Preserve s
 - 02-knob-mounting-box: one housing, bottom, spacer, and two stock-hex keeper tabs. The separate buffer is a material reference in folder 06.
 - 03-darren-original-bar: one unchanged original bar, re-exported from the pinned STEP in millimetres.
 - 04-collar-bar-assembly: one complete proposed replacement bar assembly, comprising seven print-part proposals. The two shoes are separate files. This assembly is an alternative to the original bar, not an addition to it.
-- 05-custom-fabrication: one captive pin and one each of the driver, fork and spanner. These are custom fabrication proposals, not approved plastic print instructions.
+- 05-custom-fabrication: one captive pin, pull fork and long-reach spanner. These are custom fabrication proposals, not approved plastic print instructions. An ordinary long precision flat screwdriver is a candidate for the driver; its clearance reference is kept outside the fabrication ZIP in folder 07.
 - 06-material-reference-envelopes: two cut-stock grip pads and one low-drag buffer. These are material/cutting references, not print instructions.
 
 Screws, nuts, the spinner, knob, arcade button, ballast and disco-ball shell are not printable files in this package. Fastener specifications remain unselected. Use the device's existing stock hex; no extra device retaining nut is assumed. Grip pads and the box buffer serve different purposes and need separate material choices.
@@ -148,9 +151,10 @@ Darren's unchanged original contains a sealed internal cavity, represented by an
 
 The collar grips the knob-mounted preset cup's flange. Assembly and grip screws stay fitted; routine bar attachment uses the independent collar and captive pin. Underside service currently proposes three tools and 140 mm of box lift.
 
-Every delivered STL passed fresh watertightness, consistent winding, positive volume, single-CAD-solid, matching boundary-shell topology, source-volume and source-bounds checks. Existing source-owned component inventories, source hashes, STEP/STL checks and geometry identity were checked before packaging. See manifest.json for all hashes and dimensions. These checks do not establish actual component fit, printer preparation, strength, adhesion, load capacity, or operator ergonomics. Status: GEOMETRY_VALIDATED; MANUFACTURING_NOT_APPROVED.
+The ZIP contains only 18 fabrication STL files. This README, the manifest, material envelopes, and ordinary screwdriver clearance reference remain outside the ZIP. Every delivered STL passed fresh watertightness, consistent winding, positive volume, single-CAD-solid, matching boundary-shell topology, source-volume and source-bounds checks. Existing source-owned component inventories, source hashes, STEP/STL checks and geometry identity were checked before packaging. See manifest.json for all hashes and dimensions. These checks do not establish actual component fit, printer preparation, strength, adhesion, load capacity, or operator ergonomics. Status: GEOMETRY_VALIDATED; MANUFACTURING_NOT_APPROVED.
 '''
     procurement = [
+        dict(item='Long precision flat-blade screwdriver', quantity=1, unit='tool', method='buy or reuse', specification='2.5 mm tip x 100 mm blade is a candidate; thickness, shaft and full access still require verification'),
         dict(item='Arcade box cover fasteners', quantity=4, unit='screw/nut pairs', method='buy', specification='Size, head, length and nut standard require selection and fit verification'),
         dict(item='Knob box cover fasteners', quantity=4, unit='screw/nut pairs', method='buy', specification='Size, head, length and nut standard require selection and fit verification'),
         dict(item='Stock-hex keeper fasteners', quantity=2, unit='screw/nut pairs', method='buy', specification='Keeper hardware, not additional spinner retaining nuts; specifications unselected'),
@@ -161,7 +165,7 @@ Every delivered STL passed fresh watertightness, consistent winding, positive vo
         dict(item='Low-drag buffer', quantity=1, unit='cut-stock ring', method='buy stock and cut', specification='Proposed ID 86 / OD 91 x 1 mm; match folder 06 envelope; material unselected and distinct from high-grip pads'),
         dict(item='Ballast', quantity=2, unit='contained loads, optional', method='buy or reuse', specification='One compartment per box; material, containment and mass unselected'),
         dict(item='Cable protection and strain relief', quantity=None, unit='as required at two box exits', method='buy or reuse', specification='Actual cable size, protection and strain-relief hardware remain unselected'),
-        dict(item='Bar-to-ball adhesive', quantity=None, unit='as needed', method='buy', specification='Adhesive and bond preparation/load capacity require selection and testing'),
+        dict(item='Bar-to-ball adhesive', quantity=None, unit='as needed', method='buy', specification='Darren recommends hot glue; match sticks to gun, and test bond preparation/load capacity'),
         dict(item='Arcade button and matching mounting nut', quantity=1, unit='existing set', method='reuse existing', specification='100 mm button, installed switch/LED and wiring; no printed hardware substitutes'),
         dict(item='Spinner, knob and existing stock hex', quantity=1, unit='existing set', method='reuse existing', specification='Stock hex sits in the roof well; no additional spinner retaining nut assumed'),
     ]
@@ -169,7 +173,7 @@ Every delivered STL passed fresh watertightness, consistent winding, positive vo
     for r in records:
         if r['category'] in ('proposed-print-part','original-design-export'):
             readme += f"| {r['file']} | 1 | 3D-print proposal; slicer/material review required |\n"
-    readme += '\n## Custom fabrication list\n\nThese four items are needed to operate the proposed collar. No off-the-shelf equivalent or printing process is selected. Commission fabrication or assess these geometries with the fabricator; they are not included in the ordinary print list.\n\n| STL file | Quantity | Method |\n| --- | --- | --- |\n'
+    readme += '\n## Custom fabrication list\n\nThese three items remain custom fabrication proposals for the current collar. No verified off-the-shelf replacement or printing process is selected. The screwdriver is an ordinary-tool candidate, listed under buy/reuse instead. Assess the custom geometries with the fabricator; they are not in the ordinary print list.\n\n| STL file | Quantity | Method |\n| --- | --- | --- |\n'
     for r in records:
         if r['category'].startswith('custom-'):
             readme += f"| {r['file']} | 1 | Custom fabrication; material/process unverified |\n"
@@ -177,6 +181,10 @@ Every delivered STL passed fresh watertightness, consistent winding, positive vo
     for r in procurement:
         quantity = f"{r['quantity']} {r['unit']}" if r['quantity'] is not None else r['unit']
         readme += f"| {r['item']} | {quantity} | {r['method']} | {r['specification']} |\n"
+    shopping = Path(__file__).with_name('STL_SHOPPING.md')
+    require(shopping.is_file(), 'Missing shopping and tool guide')
+    shutil.copyfile(shopping, output/'shopping-list.md')
+    readme += '\nSee the separate [shopping and ordinary-tool guide](shopping-list.md) for product links and compatibility limits.\n'
     (output/'README.md').write_text(readme)
     manifest = dict(status='GEOMETRY_VALIDATED_MANUFACTURING_NOT_APPROVED', units='mm',
                     model_checkout_revision=args.revision, packager_sha256=sha(__file__),
@@ -186,20 +194,26 @@ Every delivered STL passed fresh watertightness, consistent winding, positive vo
                     procurement_bom=procurement,
                     print_bom=[dict(file=r['file'],quantity=1,method='3D-print proposal') for r in records if r['category'] in ('proposed-print-part','original-design-export')],
                     custom_fabrication_bom=[dict(file=r['file'],quantity=1,method='custom fabrication; process unselected') for r in records if r['category'].startswith('custom-')],
-                    readme_sha256=sha(output/'README.md'),
+                    readme_sha256=sha(output/'README.md'), shopping_guide_sha256=sha(output/'shopping-list.md'),
                     collar_hardware_reference_inventory=[dict(name=r['name'],role=r['role']) for r in selected.reports['disco']['review_components'] if 'hardware' in r['role'] or 'fastener' in r['role']],
                     physical_fit_verified=False, manufacturing_approved=False)
+    fabrication = [r for r in records if r['category'] in ('proposed-print-part','original-design-export','custom-fabrication-proposal','custom-tool-fabrication-proposal')]
+    require(len(fabrication)==18, 'Expected exactly 18 fabrication STLs')
+    manifest['fabrication_archive_members'] = [r['file'] for r in fabrication]
     (output/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')
     archive = output.with_suffix('.zip')
     require(not archive.exists(), 'Archive already exists')
     with zipfile.ZipFile(archive,'w',compression=zipfile.ZIP_DEFLATED) as z:
-        for path in sorted(output.rglob('*')):
-            if path.is_file(): z.write(path, output.name+'/'+str(path.relative_to(output)))
+        for record in fabrication:
+            path = output / record['file']
+            z.write(path, output.name+'/'+record['file'])
     with zipfile.ZipFile(archive) as z:
         require(z.testzip() is None, 'Archive CRC validation failed')
-        for record in records:
+        require(set(z.namelist()) == {output.name+'/'+r['file'] for r in fabrication}, 'Unexpected archive members')
+        require(all(n.endswith('.stl') for n in z.namelist()), 'Only fabrication STLs belong in ZIP')
+        for record in fabrication:
             require(hashlib.sha256(z.read(output.name+'/'+record['file'])).hexdigest()==record['sha256'], 'Archived STL changed')
-    print(json.dumps(dict(directory=str(output),archive=str(archive),archive_sha256=sha(archive),stl_count=len(records),quantities=counts),indent=2))
+    print(json.dumps(dict(directory=str(output),archive=str(archive),archive_sha256=sha(archive),directory_stl_count=len(records),fabrication_zip_stl_count=len(fabrication),quantities=counts),indent=2))
 
 
 if __name__=='__main__':
