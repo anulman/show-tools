@@ -19,4 +19,4 @@ Run the independent check from the repository root:
 
 The receipt and three STEP/STL pairs go to ignored `hardware/cad/build/two-joint-baseplate/`. The check covers released and proposed preset states, source void and stop preservation, component intersections, bar-off driver paths, pad seats, positive retaining geometry, and export round trips. It also rejects preset pad overlap falsely labelled as released, and a removed blind stop. Source/reference hashes identify the checked code and asset.
 
-These are CAD checks of an independent form study. They do not establish clamp strength, knurl protection, pad installation, complete bar attachment, support loads, or installed access. The original full-height bar and existing page were not changed by this milestone.
+These are CAD checks of an independent form study. They do not establish clamp strength, knurl protection, pad installation, complete bar attachment, support loads, or installed access. The original full-height bar is unchanged. The Disco bar page shows this preset component study beside the original, A and B, labelled as a component only with no bar latch.
