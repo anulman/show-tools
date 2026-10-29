@@ -10,9 +10,11 @@ The baseplate contains the original snug socket, its entry bevel, and the fixed 
 
 Two opposed set screws act on retained padded shoes. Their tips do not touch the knurl directly. Captured nuts or other actual threaded hardware provide the screw reaction. The screws are adjusted while the bar is removed, then remain at the same setting throughout every bar-latch operation. Thread hardware, pads, preload, and print tolerances remain proposals until selected and tested.
 
+The operator prefers padding cut from off-the-shelf stock, such as foam, rather than custom compliant parts. New prototypes use simple cut pads on rigid load-spreading shoes. The working interpretation places adhesive between pad and shoe, with an exposed grippy face against the knob. Adhesive contact with the knob is not assumed. The earlier T-backed pad model remains a historical form study; it does not establish the new pad construction.
+
 The baseplate-to-bar pilot provides alignment. Separate positive keys carry clockwise and counterclockwise torque. The latch provides axial capture between the bar and baseplate. The knob clamp's own axial retention is a separate test: releasing the latch must not pull the preset baseplate off the knob.
 
-Print-on-print support contact is confirmed. Which part carries that contact, its seating height, and the complete nut/encoder/box stack still need an installed assembly model. The encoder's mounting nut must not be treated as a rotating knob clamp or an assumed thrust bearing.
+Print-on-print support contact is confirmed. Which part carries that contact, its seating height, and the complete stock-hex/encoder/box stack still need an installed assembly model. The encoder's existing hex feature must not be treated as a rotating knob clamp or an assumed thrust bearing.
 
 ## Three distinct bar-to-baseplate latches
 
@@ -26,11 +28,17 @@ C1 does not rely on twisting the whole ball against a stationary knob. The knob 
 
 Every concept needs distinct released, seated, and positively locked states. The knob clamp's shoe and pad positions must be identical in all three. No latch motion establishes or adjusts knob-pad preload.
 
-## Installed access gates placement
+## Installed access permits added spacing and underside controls
 
-The pending operator answer must establish whether release can use an exposed edge control, only movement of the ball/bar itself, or a service procedure involving the complete assembly. A roughly flush box interface can hide the knob-facing controls used in the previous studies. No actuator location is selected here.
+The operator confirmed that the baseplate stays clamped to the knob during bar removal. Added collar spacing is allowed. Controls may extend toward the underside, through access openings in the mounting box. The operator prefers a buffer between printed contact surfaces. These permissions allow prototype placement; they do not supply the actual encoder stack height, a buffer material, or a printer tolerance.
 
 The box roof, encoder, knob, baseplate, and full bar must be represented together before placement is approved. The model must show the operator's reaction surface and deliberate release action, not just an unobstructed control on an isolated bar.
+
+The box is stationary while the knob and bar rotate. A fixed access opening needs either clearance at every operating angle or an explicit rotate-to-service-angle procedure. Buffer support must not obstruct the release control, shaft, or stock hex seat. Sliding contact at the box uses a separate proposed wear surface from the high-friction knob pads.
+
+The operator clarified that no additional nut is available above or below the mount. The part's existing hex sits in a well in the roof; the working interpretation seats its top flush with the roof. Earlier underside-retaining-nut proposals are superseded. The seat locates the stationary hex; no additional hardware or upward retention is assumed. Release access does not require a moving box mount or rotating hex recess. Knob and bar rotation, and deliberate latch-control movement, are separate from that stationary mounting joint. Actual hex dimensions and installed stack fit remain unverified.
+
+The disco-bar and box-mount sessions own separate prototype modules and exchange their access envelopes and datums. Existing viewer geometry remains unchanged during this exploration. The operator requested findings from all three STL-validated prototypes before rendering final designs in the shared viewer. Final C synthesis follows that review.
 
 ## Geometry and verification contract
 
