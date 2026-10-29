@@ -11,7 +11,7 @@ This review covers C1, C2 and C3 as proposed mechanisms. The existing A and B re
 | Torque and retention | Identify positive keys for clockwise and counterclockwise torque, and separate positive geometry resisting axial separation. A friction-only latch is insufficient. |
 | Operation | Represent released, seated and locked states. Check intermediate motion, insertion and removal paths, control reach and the operator's reaction surface. State any sampled-motion limits. |
 | Deliberate release | Attempted opening with the lock engaged must hit actual blocking geometry. Ordinary bidirectional rotation must not execute the release sequence. |
-| Fixed box interface | Check moving controls against the roof, underside nut envelope, buffer, bottom and proposed wiring/ballast spaces. State whether access is continuous or requires a service angle. |
+| Fixed box interface | Check moving controls against the roof, existing stock hex seat, buffer, bottom and proposed wiring/ballast spaces. Do not add a separate retaining nut. State whether access is continuous or requires a service angle. |
 | Export integrity | Each proposed print part is a valid positive solid. STEP round trips preserve material. STL meshes are watertight, consistently wound and have positive, matching volume. |
 | Repeatability | Record source and asset hashes, parameters, units, parts, states, rejected mutations and validation limits in a fresh receipt. |
 

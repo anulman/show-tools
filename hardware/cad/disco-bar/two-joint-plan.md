@@ -14,7 +14,7 @@ The operator prefers padding cut from off-the-shelf stock, such as foam, rather 
 
 The baseplate-to-bar pilot provides alignment. Separate positive keys carry clockwise and counterclockwise torque. The latch provides axial capture between the bar and baseplate. The knob clamp's own axial retention is a separate test: releasing the latch must not pull the preset baseplate off the knob.
 
-Print-on-print support contact is confirmed. Which part carries that contact, its seating height, and the complete nut/encoder/box stack still need an installed assembly model. The encoder's mounting nut must not be treated as a rotating knob clamp or an assumed thrust bearing.
+Print-on-print support contact is confirmed. Which part carries that contact, its seating height, and the complete stock-hex/encoder/box stack still need an installed assembly model. The encoder's existing hex feature must not be treated as a rotating knob clamp or an assumed thrust bearing.
 
 ## Three distinct bar-to-baseplate latches
 
@@ -34,9 +34,9 @@ The operator confirmed that the baseplate stays clamped to the knob during bar r
 
 The box roof, encoder, knob, baseplate, and full bar must be represented together before placement is approved. The model must show the operator's reaction surface and deliberate release action, not just an unobstructed control on an isolated bar.
 
-The box is stationary while the knob and bar rotate. A fixed access opening needs either clearance at every operating angle or an explicit rotate-to-service-angle procedure. Buffer support must not obstruct the release control, shaft, or underside mounting nut. Sliding contact at the box uses a separate proposed wear surface from the high-friction knob pads.
+The box is stationary while the knob and bar rotate. A fixed access opening needs either clearance at every operating angle or an explicit rotate-to-service-angle procedure. Buffer support must not obstruct the release control, shaft, or stock hex seat. Sliding contact at the box uses a separate proposed wear surface from the high-friction knob pads.
 
-The operator confirmed that the underside mounting arrangement stays fixed. Its hex counterbore captures the mounting nut to secure the encoder body. Release access does not require a moving box mount or rotating hex recess. Knob and bar rotation, and deliberate latch-control movement, are separate from that stationary mounting joint.
+The operator clarified that no additional nut is available above or below the mount. The part's existing hex sits in a well in the roof; the working interpretation seats its top flush with the roof. Earlier underside-retaining-nut proposals are superseded. The seat locates the stationary hex; no additional hardware or upward retention is assumed. Release access does not require a moving box mount or rotating hex recess. Knob and bar rotation, and deliberate latch-control movement, are separate from that stationary mounting joint. Actual hex dimensions and installed stack fit remain unverified.
 
 The disco-bar and box-mount sessions own separate prototype modules and exchange their access envelopes and datums. Existing viewer geometry remains unchanged during this exploration. The operator requested findings from all three STL-validated prototypes before rendering final designs in the shared viewer. Final C synthesis follows that review.
 
