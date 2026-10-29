@@ -1,6 +1,8 @@
-# Disco bar screw-clamp studies
+# Full disco bar and historical clamp studies
 
-The Disco bar preview now shows three screw-clamp concepts side by side. Magnets are removed from the current design. The parent session owns the shared viewer and page publishing. This workstream owns this directory and `../disco_bar.py`.
+The Disco bar preview shows the complete, unmodified original STEP in its original pose. The operator confirmed that the full 109.22 mm height reaches the top attachment and that the outer width was precisely measured to fit the disco ball's opening. Preserve the complete insertion profile, cross-sections, and attachment geometry in future revisions. Matching the bounding box alone is insufficient.
+
+The three isolated clamp studies below are historical mechanism studies, not approved replacements for the bar. Their short carriers omitted the functional full height, and B and C extend beyond the original outer profile. They remain available through headless exports only. The parent session owns the shared viewer and page publishing. This workstream owns this directory and `../disco_bar.py`.
 
 | Concept | Mechanism | Proposed print parts |
 | --- | --- | --- |
@@ -8,9 +10,15 @@ The Disco bar preview now shows three screw-clamp concepts side by side. Magnets
 | B | Two radial pressure screws move independent padded jaws inside guides | Carrier and two jaws |
 | C | Two axial screws follow the original channel axes and lift a drawplate against tapered shoes | Upper carrier, drawplate, and two shoes |
 
-Blue parts are proposed prints, orange parts are replaceable pad envelopes, and grey parts are hardware envelopes. The translucent knob is an illustrative Ø40 mm cylinder, not a measured part. All coordinates are millimetres. No concept is fit-ready.
+In the historical studies, blue parts are proposed prints, orange parts are replaceable pad envelopes, and grey parts are hardware envelopes. The knob is an illustrative Ø40 mm cylinder, not a measured part. All coordinates are millimetres. No concept is fit-ready.
 
-The preview includes separately named crops of the upper 28 mm of Darren's reference, lowered 35 mm for display. These are context rather than mated assembly parts. C's fixed upper carrier has a display-only front cutaway to expose the shoes. Its export contains the complete carrier.
+The rejected preview cropped the original bar to 28 mm and displaced it for display. The restored default preview performs neither operation and shows no replacement carrier. Its source hash, bounds, and volume are checked against the original asset. Run the regression check with the private STEP path:
+
+```sh
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/disco-bar/check_full_bar.py --step "$SHOW_TOOLS_DISCO_STEP"
+```
+
+The check also rejects the historical crop, display offset, and replacement assembly scene. This protects the restoration; it does not approve future fitted modifications or establish mechanical performance.
 
 Run the headless geometry and export checks from the repository root:
 

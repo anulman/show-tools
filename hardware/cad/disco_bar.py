@@ -1,4 +1,4 @@
-"""Compare screw-clamp concepts and inspect private disco reference assets locally."""
+"""Preserve the complete disco bar; retain historical clamp studies for inspection."""
 from __future__ import annotations
 
 import argparse
@@ -26,8 +26,8 @@ def load_reference(step_path: Path | None = None):
     return path, shape
 
 
-# Concept dimensions are deliberately illustrative. Only the reference crop and
-# channel positions come from Darren's STEP. None of these parts is fit-ready.
+# Historical clamp dimensions are illustrative. These isolated studies do not
+# preserve the full bar and must not replace its opening-fit or attachment geometry.
 @dataclass
 class Piece:
     name: str
@@ -340,7 +340,7 @@ def verify_concepts(output: Path):
                         "print_and_pad_collisions": collisions, "intentional_pad_seats": contacts,
                         "knob_radius_mm_ILLUSTRATIVE": KNOB_RADIUS,
                         "hardware_limit": "Screw/nut envelopes only; threads, torque, fastener selection and retention not verified"})
-    receipt = {"concept_only": True, "fit_verified": False, "units": "mm", "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "concepts": reports}
+    receipt = {"concept_only": True, "status": "SUPERSEDED_STANDALONE_STUDIES", "fit_verified": False, "units": "mm", "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "concepts": reports}
     (output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
     return receipt
 
@@ -400,7 +400,7 @@ def main():
     parser.add_argument("--stl", type=Path)
     parser.add_argument("--obj", type=Path)
     parser.add_argument("--output", type=Path, help="Optional local JSON receipt; no source assets copied")
-    parser.add_argument("--concepts", type=Path, help="Export and verify proposed print parts to a local directory")
+    parser.add_argument("--concepts", type=Path, help="Export historical isolated clamp studies, not full-bar replacements")
     args = parser.parse_args()
     report = verify_concepts(args.concepts) if args.concepts else inspect(args.step, args.stl, args.obj)
     result = json.dumps(report, indent=2) + "\n"
