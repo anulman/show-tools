@@ -21,29 +21,30 @@ def rounded_box(width, length, radius, height):
     return extrude(RectangleRounded(width, length, radius), amount=height)
 
 
-def concepts(depth: float, tilt: float):
-    """Mounting face is z=0. Open-bottom bodies extend downward by depth."""
+def concepts(depth: float, tilt: float, recess: float):
+    """Button underside is z=0. Counterbore walls rise by recess; floors stay fixed."""
     roof = 5.0
     # All holes and cavities are conceptual, deliberately independent of invalid STEP.
-    square = rounded_box(116, 116, 12, depth).translate((0, 0, -depth))
+    square = rounded_box(116, 116, 12, depth + recess).translate((0, 0, -depth))
     square -= rounded_box(106, 106, 8, depth - roof).translate((0, 0, -depth - .1))
 
-    flared = Cone(70, 55, depth, align=CENTRE_MIN).translate((0, 0, -depth))
+    flared = Cone(70, 55, depth + recess, align=CENTRE_MIN).translate((0, 0, -depth))
     flared += Cylinder(72, 5, align=CENTRE_MIN).translate((0, 0, -depth))
     flared -= Cone(64, 49, depth - roof, align=CENTRE_MIN).translate((0, 0, -depth - .1))
 
     # Button normal leans toward -Y. Floor remains flat; roof and hole share tilt.
     slope = math.tan(math.radians(tilt))
-    shell = rounded_box(116, 126, 12, depth + 12).translate((0, 0, -depth))
+    shell = rounded_box(116, 126, 12, depth + recess + 12).translate((0, 0, -depth))
+    top_offset = recess / math.cos(math.radians(tilt))
     profile = Plane.YZ * Polygon((-80, -depth - 1), (80, -depth - 1),
-                                 (80, 80 * slope), (-80, -80 * slope), align=None)
+                                 (80, 80 * slope + top_offset), (-80, -80 * slope + top_offset), align=None)
     shell &= extrude(profile, amount=180, both=True)
-    cavity = rounded_box(106, 116, 8, depth + 12).translate((0, 0, -depth - .1))
+    cavity = rounded_box(106, 116, 8, depth + recess + 12).translate((0, 0, -depth - .1))
     inner = Plane.YZ * Polygon((-80, -depth - 1), (80, -depth - 1),
                                (80, 80 * slope - roof), (-80, -80 * slope - roof), align=None)
     shell -= cavity & extrude(inner, amount=180, both=True)
 
-    capsule = extrude(SlotOverall(156, 112), amount=depth).translate((18, 0, -depth))
+    capsule = extrude(SlotOverall(156, 112), amount=depth + recess).translate((18, 0, -depth))
     capsule -= extrude(SlotOverall(146, 102), amount=depth - roof).translate((18, 0, -depth - .1))
     # Rear service opening gives a visibly different cable-access approach.
     capsule -= Box(42, 34, depth - 14, align=CENTRE_MIN).translate((92, 0, -depth - .1))
@@ -53,7 +54,13 @@ def concepts(depth: float, tilt: float):
         bore = Cylinder(14, depth + 40, align=CENTRE_MIN).translate((0, 0, -depth - 20))
         if index == 2:
             bore = bore.rotate(Axis.X, tilt)
-        bodies[index] = body - bore
+        body -= bore
+        if recess > 0:
+            pocket = Cylinder(50, recess + 20, align=CENTRE_MIN)
+            if index == 2:
+                pocket = pocket.rotate(Axis.X, tilt)
+            body -= pocket
+        bodies[index] = body
     return bodies
 
 
@@ -81,6 +88,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--depth", type=float, required=True, help="Concept depth below mounting-face centre, mm; not a measured clearance")
     parser.add_argument("--tilt", type=float, default=5, help="Third concept tilt toward -Y, 0..5 degrees")
+    parser.add_argument("--recess", type=float, default=0, help="Counterbore depth along button axis, 0..17.5 mm; adds housing height without lowering the button")
     parser.add_argument("--show", action="store_true")
     parser.add_argument("--reset-camera", action="store_true")
     parser.add_argument("--port", type=int, default=3939)
@@ -89,12 +97,24 @@ def main():
         parser.error("Concept depth must be finite and between 35 and 180 mm")
     if not math.isfinite(args.tilt) or not 0 <= args.tilt <= 5:
         parser.error("Tilt must be finite and between 0 and 5 degrees")
+    if not math.isfinite(args.recess) or not 0 <= args.recess <= 17.5:
+        parser.error("Recess must be finite and between 0 and 17.5 mm")
     names = ["A rounded square", "B flared cylinder", "C tilted square", "D capsule with rear access"]
-    bodies = concepts(args.depth, args.tilt)
-    output = CAD_DIR / "build" / f"base-concepts-{args.depth:g}mm-{args.tilt:g}deg"
+    bodies = concepts(args.depth, args.tilt, args.recess)
+    output = CAD_DIR / "build" / f"base-concepts-{args.depth:g}mm-{args.tilt:g}deg-recess{args.recess:g}mm"
+    for index, body in enumerate(bodies):
+        if not math.isclose(body.bounding_box().min.Z, -args.depth, abs_tol=1e-6):
+            raise RuntimeError("Recess changed the underside depth")
+        angle = math.radians(args.tilt if index == 2 else 0)
+        def seat_point(z):
+            return (40, -z * math.sin(angle), z * math.cos(angle))
+        if not body.is_inside(seat_point(-2)):
+            raise RuntimeError("Counterbore lost its supporting shoulder")
+        if args.recess > 0 and body.is_inside(seat_point(args.recess / 2)):
+            raise RuntimeError("Counterbore pocket is obstructed")
     records = {name: verify(body, output / name[0]) for name, body in zip(names, bodies)}
     receipt = dict(concept_only=True, fit_verified=False, units="mm", depth_mm=args.depth,
-                   tilt_degrees=args.tilt, mounting_hole_diameter_mm=28, roof_thickness_mm=5,
+                   tilt_degrees=args.tilt, recess_depth_mm=args.recess, counterbore_diameter_mm=100, mounting_hole_diameter_mm=28, roof_thickness_mm=5,
                    source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), bodies=records)
     if args.show:
         from ocp_viewer import Camera, show
@@ -109,7 +129,7 @@ def main():
         for index, (name, body, (x, y), colour) in enumerate(zip(names, bodies, positions, ["#d63b35", "#36a15c", "#367fd4", "#e7bd31"])):
             reference = button.rotate(Axis.X, args.tilt) if index == 2 else button
             objects.extend([body.translate((x, y, 0)), reference.translate((x, y, 0))])
-            labels.extend([f"{name}: CONCEPT ONLY, {args.depth:g}mm depth" + (f", {args.tilt:g}deg toward -Y" if index == 2 else ""),
+            labels.extend([f"{name}: CONCEPT ONLY, {args.depth:g}mm below seat, recess {args.recess:g}mm" + (f", {args.tilt:g}deg toward -Y" if index == 2 else ""),
                            f"{name[0]} button REF: upstream invalid, no measured fit"])
             colours.extend(["#b8a084", colour])
             alphas.extend([.72, 1])
