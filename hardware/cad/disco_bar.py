@@ -63,12 +63,18 @@ def preview_variants(reference):
     variants = full_variants(reference)
     latches = latch_review_module()
     bayonet = latches.bayonet(reference)
-    bayonet.name = "B′ REVIEW ONLY - bayonet; holding/access unverified"
+    bayonet.name = "B REVIEW ONLY - prior knob-grip latch; holding/access unverified"
     return variants + [bayonet]
+
+
+def preview_label(variant):
+    # Keep the legacy geometry's internal C identity: its motion checks use it.
+    return "A | axial screw clamp (previously C)" if variant.mechanism == "screw" else variant.name
 
 
 def verify_integrated(reference, output):
     report = integrated_module().verify_integrated(reference, output)
+    report["display_model"] = "A (formerly C); legacy axial knob-grip clamp"
     report["entrypoint_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     (output / "receipt.json").write_text(json.dumps(report, indent=2) + "\n")
     return report
@@ -92,7 +98,7 @@ def verify_preview_scene(path, scene):
     if len(objects) != 1 + sum(len(variant.pieces) for variant in variants):
         raise ValueError("Preview must contain only the original and selected complete assemblies")
     for index, variant in enumerate(variants, start=1):
-        prefix = variant.name + " / "
+        prefix = preview_label(variant) + " / "
         matches = [(shape.translate((-index * model.SPACING, 0, 0)), name)
                    for shape, name in zip(objects, names) if name.startswith(prefix)]
         if len(matches) != len(variant.pieces):
@@ -111,8 +117,8 @@ def verify_preview_scene(path, scene):
         model.preserved_geometry(reference, variant)
         model.check_assembly(variant, 0.)
     return {"complete_original_unchanged": True, "original_pose_preserved": True,
-            "complete_variants": list(model.DEFAULT_VARIANTS),
-            "review_only_locked_latches": ["B′: holding/access unverified"],
+            "complete_variants": ["A (legacy axial drawplate)"],
+            "review_only_locked_latches": ["B: prior knob-grip latch; holding/access unverified"],
             "source_pocket_entry_depth_preserved": True,
             "installed_latch_access_verified": False}
 
@@ -132,7 +138,7 @@ def preview(step_path: Path | None = None):
         model.preserved_geometry(reference, variant)
         for piece in variant.pieces:
             objects.append(piece.shape.translate((index * model.SPACING, 0, 0)))
-            names.append(variant.name + " / " + piece.name)
+            names.append(preview_label(variant) + " / " + piece.name)
             colors.append(("#148c7c" if variant.mechanism != "screw" else palette[piece.role])
                           if piece.role in ("body", "print") else palette[piece.role])
             alphas.append(.18 if piece.role == "body" else 1.)
@@ -196,7 +202,7 @@ def main():
     parser.add_argument("--stl", type=Path)
     parser.add_argument("--obj", type=Path)
     parser.add_argument("--output", type=Path, help="Optional local JSON receipt; no source assets copied")
-    parser.add_argument("--concepts", type=Path, help="Export and verify four full-height integrated variants using the private STEP")
+    parser.add_argument("--concepts", type=Path, help="Export and verify baseline A, formerly C, using the private STEP")
     args = parser.parse_args()
     if args.concepts:
         path, reference = load_reference(args.step)

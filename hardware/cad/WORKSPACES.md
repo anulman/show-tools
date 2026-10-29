@@ -43,6 +43,8 @@ All three retain proposed removable screw-fastened bottoms, wiring passages, and
 
 ## Continue the disco bar
 
+Current display names are **A** for the former C axial screw clamp and **B** for the former B′ grip-latch study. They remain reference geometries. The new target is a separate knob-gripping baseplate with padded set screws, plus a latch joint that attaches and releases the full bar. Prototype C1/C2/C3 validation must precede the final C synthesis. Do not reuse a pad-preload latch as the bar-to-plate joint. Installed release access is a required operator-specific fact before choosing that joint's placement.
+
 Inspect the [disco-bar notes](disco-bar/README.md) before designing a coupling. The supplied STEP describes the full bar inside the disco ball, rather than the spherical shell. Its full height reaches the top attachment. The STL and OBJ use coordinate magnitudes that differ from the STEP, so raw mesh coordinates must not be treated as millimetres. Use the STEP for the preview and preserve source units.
 
 The operator confirmed that the full bar height reaches its top attachment and the width was precisely measured to fit the disco-ball opening. Only axial access is available once installed. The **Disco bar** tab shows the complete original, C's axial screw clamp, and B′'s static bayonet concept. A, B, A′, and D are omitted and are not generated. B′ has unverified holding and access against the roughly flush printed box surface. It is labelled for visual review and excluded from checked exports. C's geometry-check export has four printed pieces. Variant offsets are for side-by-side display only. Full bodies remain visible; no crop replaces their functional length.
