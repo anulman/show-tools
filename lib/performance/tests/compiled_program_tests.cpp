@@ -125,6 +125,20 @@ void capture_layers_and_boundaries() {
   ok(engine, pf_prepare_live_effects(engine, &edited, 1, 2));
   require(take(engine, 0) == retained, "venue edit preserves latest committed PCM, phase and captured revision");
 }
+void authored_capture_end_finishes_without_finish_press() {
+  for (double rate : {8000., 44100., 48000.}) {
+    Engine engine(rate); prepare(engine, table());
+    ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0));
+    until(engine, 1); until(engine, 2);
+    require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == rate * 2,
+      "missing finish press commits at the authored endpoint");
+    require(!take(engine, 1)[PF_TAKE_READY] && channel(engine, 0)[PF_CHANNEL_STATUS] != PF_RECORDING,
+      "automatic finish never starts the unpressed commit-arm capture");
+    until(engine, 3);
+    require(state(engine)[PF_PHASE] == PF_PLAYING && !state(engine)[PF_ERROR],
+      "a missed finish does not overflow or stop the transport");
+  }
+}
 void load_atomicity_and_six_counts() {
   Engine engine; auto data = table(); prepare(engine, data);
   auto before = state(engine);
@@ -917,4 +931,4 @@ void prepared_capture_reuses_banks_without_heap_work() {
   require(heap_allocations == 0 && heap_frees == 0, "idempotent stopped preparation avoids allocations when all reusable banks are current");
 }
 }
-int main() { rotation_releases_on_strict_quarter_grid(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
+int main() { authored_capture_end_finishes_without_finish_press(); rotation_releases_on_strict_quarter_grid(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_rejects_start_nonfatally(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); std::puts("Compiled native program tests passed."); }
