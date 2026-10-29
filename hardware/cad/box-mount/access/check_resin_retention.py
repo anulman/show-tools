@@ -5,6 +5,7 @@ import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import resin_retention as r
 import resin_base as base
+import below_plane_buffer as buffer_cad
 
 
 def reject(action,message):
@@ -25,7 +26,7 @@ for gap in (9,16):
     r.verify_buffer(kit)
     reject(lambda:r.verify_buffer(dict(kit,cap=kit['cap'].translate((0,0,20)))),'Buffer can escape axially')
     short=kit['pairs'][0]
-    short=replace(short,length=3,screw=r.bolt(*short.expected_xy,short.bearing_z,3))
+    short=replace(short,length=3,screw=r.bolt(*short.expected_xy,short.length_datum_z,3))
     reject(lambda:r.check_joint(short,kit['roof']+kit['spacer']+kit['cap']),
            'Insufficient nominal thread reach')
 # These exact same-Z mistakes passed a5bf946's reaction/length checks.
@@ -56,6 +57,23 @@ reject(lambda:base.verify(wrong),'nut axis')
 first,neighbor=candidate['keepers']['pairs']
 wrong=dict(candidate,keepers=dict(candidate['keepers'],pairs=[replace(first,screw=neighbor.screw,nut=neighbor.nut),neighbor]))
 reject(lambda:base.verify(wrong),'screw axis')
+# The operator's flush opening datum forbids outside-profile parts at/above root.
+current=base.build('knob',19)
+old_cap=r.buffer_kit(r.cad.cyl(58,10,-10),19)['cap']
+wrong=dict(current,parts=dict(current['parts'],raised_cap=old_cap))
+reject(lambda:base.verify(wrong),'Outside-bar part crosses required below-root plane')
+flat_wide=r.cad.ring(44,57,1,18)
+reject(lambda:buffer_cad.below_root_guard([('flat wide washer',flat_wide)],19),
+       'Outside-bar part crosses required below-root plane')
+kit=buffer_cad.build(r.cad.cyl(58,10,-10),19)
+buffer_cad.verify(kit)
+wrong_flat=kit['flat_pattern']
+for angle in (45,135,225,315):
+    extra=kit['neutral_ramp_extra']
+    cut=r.block(extra+.1,8.2,1.2,(buffer_cad.EAR_END+(extra+.1)/2,0,-.1)).rotate(r.Axis.Z,angle)
+    wrong_flat-=cut
+reject(lambda:buffer_cad.verify(dict(kit,flat_pattern=wrong_flat)),'change stock volume')
+reject_wrong_seats(kit['pairs'],kit['roof']+kit['spacer']+kit['buffer'])
 for depth in (15,23):
     capsule=r.ballast_cassette(depth)
     r.verify_cassette(capsule)

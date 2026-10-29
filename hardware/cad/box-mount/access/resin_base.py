@@ -9,17 +9,18 @@ import sys
 
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import resin_retention as r
+import below_plane_buffer as buffer_cad
 import final_base as legacy
 from build123d import Axis,Compound,export_step,extrude,import_step
 cad=r.cad
 audit=r.audit
 
 
-def build(variant='arcade-inclined',gap=9):
+def build(variant='arcade-inclined',gap=19):
     box=replace(cad.box_cad.Proposal(),tray_height=14,
                 screw_clearance_diameter=r.H.clearance,nut_across_flats=r.H.nut_pocket_af,
                 head_diameter=r.H.head_pocket_diameter,head_depth=r.H.head_pocket_depth)
-    stack=cad.StackProposal(spacer_height=gap-1)
+    stack=cad.StackProposal(spacer_height=gap-1,contact_inner_radius=44,contact_outer_radius=46)
     if variant=='arcade-inclined':
         shell,bottom,axes,cable,ballast=cad.box_cad.build(box,variant)
         floor,underside=box.floor_z,box.underside_z
@@ -45,8 +46,8 @@ def build(variant='arcade-inclined',gap=9):
                 ballast_cubes=[part.translate(capsule_shift) for part in capsule['cubes']],gap=gap)
     if variant=='knob':
         keepers=r.stock_hex_keepers(shell)
-        kit=r.buffer_kit(keepers['roof'],gap)
-        parts.update(shell=kit['roof'],spacer=kit['spacer'],buffer=kit['buffer'],buffer_cap=kit['cap'],
+        kit=buffer_cad.build(keepers['roof'],gap)
+        parts.update(shell=kit['roof'],spacer=kit['spacer'],buffer=kit['buffer'],
                      keeper_tab_0=keepers['tabs'][0],keeper_tab_1=keepers['tabs'][1])
         result.update(keepers=keepers,kit=kit)
     return result
@@ -112,7 +113,9 @@ def verify(candidate):
         audit.require(audit.volume((original['shell']&region)-shell)<1e-6 and
                       audit.volume((shell&region)-original['shell'])<1e-6,'Unmeasured stock-hex interface changed')
         checks['unchanged_unmeasured_unit_interface']=True
-        checks['buffer']=r.verify_buffer(candidate['kit'])
+        checks['buffer']=buffer_cad.verify(candidate['kit'])
+        fixed_parts=[*parts.items(),*[(f'hardware-{i}',part) for i,part in enumerate(candidate_hardware(candidate))]]
+        checks['whole_fixed_base_root_plane_guard']=buffer_cad.below_root_guard(fixed_parts,candidate['gap'])
         checks['buffer_nut_loading']=r.verify_nut_loading(candidate['kit']['pairs'],shell)
         checks['keeper_nut_loading']=r.verify_nut_loading(candidate['keepers']['pairs'],shell)
         study=shell
@@ -154,18 +157,27 @@ def export_candidate(candidate,output):
                 path=stem.with_suffix('.'+kind).resolve()
                 record[kind]=str(path);record[kind+'_sha256']=audit.digest(path)
             validation.load(record);coupon_records.append(record)
+    material_patterns=[]
+    if candidate['variant']=='knob':
+        stem=output/'material-patterns'/'PTFE-flat-cut-pattern-DO-NOT-PRINT'
+        record=cad.export_part(candidate['kit']['flat_pattern'],stem)
+        record.update(name='PTFE developed flat pattern',role='cut and form purchased 1 mm PTFE; do not print')
+        for kind in ('step','stl'):
+            path=stem.with_suffix('.'+kind).resolve()
+            record[kind]=str(path);record[kind+'_sha256']=audit.digest(path)
+        validation.load(record);material_patterns.append(record)
     validation.unchanged()
-    source_paths=(Path(__file__),Path(r.__file__),Path(legacy.__file__),Path(audit.__file__),Path(cad.__file__),Path(cad.box_cad.__file__))
+    source_paths=(Path(__file__),Path(r.__file__),Path(buffer_cad.__file__),Path(legacy.__file__),Path(audit.__file__),Path(cad.__file__),Path(cad.box_cad.__file__))
     report=dict(concept='resin-retention-v2-'+candidate['variant'],scope='INDEPENDENT_RETENTION_CANDIDATE_NOT_COLLAR_INTEGRATED',
                 geometry_review_pass=False,independent_base_geometry_checks_pass=True,print_readiness='NOT_READY',units='mm',
                 review_components=records,checks=checks,proposed_box_parameters=asdict(candidate['box']),
                 proposed_stack_parameters=asdict(candidate['stack']),standard_hardware=asdict(r.H),
                 hardware_sources=r.SOURCES,hardware_envelope_count=len(candidate_hardware(candidate)),
                 assembly_step=str(assembly_path.resolve()),assembly_sha256=audit.digest(assembly_path),
-                fit_coupons=coupon_records,coupon_nut_pocket_af_variants_mm=[5.7,5.8,5.9],
+                fit_coupons=coupon_records,material_patterns=material_patterns,coupon_nut_pocket_af_variants_mm=[5.7,5.8,5.9],
                 source_code_sha256={path.name:audit.digest(path) for path in source_paths},
                 pending=['operator stock-hex AF/thickness and knob top height','simpler collar envelope and service access contract',
-                         'actual resin/process/cure fit coupon and hardware trial','outer ball shell clearance around cap and screw heads','physical tie threading and cable pull test',
+                         'actual resin/process/cure fit coupon and hardware trial','physical outer ball-shell fit despite verified below-root envelope','physical tie threading and cable pull test',
                          'PTFE drag and retention trial','contained ballast rattle, retention and stability trials'],
                 no_existing_models_or_exports_modified=True,no_viewer_or_services_started=True)
     target.write_text(json.dumps(report,indent=2)+'\n')
@@ -175,7 +187,7 @@ def export_candidate(candidate,output):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--variant',choices=('arcade-inclined','knob'),required=True)
-    parser.add_argument('--gap',type=float,default=9,help='Temporary packaging value; not a selected collar spacing')
+    parser.add_argument('--gap',type=float,default=19,help='Temporary packaging value; not a selected collar spacing')
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
     export_candidate(build(args.variant,args.gap),args.output)
