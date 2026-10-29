@@ -130,3 +130,5 @@ Open a voice's **FX** footer or **Manage voices** below the pads. The local libr
 The smaller rows below the pads show other instruments and their literal current-bar chart cues. They do not detect whether an external instrument is audible. AF-prefixed rows belong to the managed voice set; the prefix is part of a row label, not column AF.
 
 The library lives in this browser and site origin. Use **Export JSON** for a portable library and **Import library** to replace the current library from validated JSON. **SQLite backup** downloads the underlying database for inspection/recovery; the editor imports JSON. Export before clearing browser storage or moving devices. Song timing JSON and native packets are separate and do not contain local character/effect edits.
+
+Saved character selections also appear beside the sheet names on the sample pads and live vocal rows. Unassigned voices keep the compact text-only layout. Characters without published avatar artwork use initials; the library shows that artwork is unavailable. These portraits are static presentation and do not indicate audio activity.

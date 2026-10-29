@@ -114,6 +114,10 @@ export function installVoiceCatalog(root: HTMLElement, options: {
       }
       update(current);
     },
+    voiceForProfile(profile: number) {
+      const row = rows.find(row => row.profile === profile);
+      return row ? resolveVoice(document, row) : undefined;
+    },
     openProfile(profile: number) {
       const row = rows.find(row => row.profile === profile);
       const voice = row && resolveVoice(document, row);

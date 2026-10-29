@@ -155,3 +155,14 @@ test('pending persistence locks the view, exposes busy and rejects concurrent sa
   assert.equal(h.controller.busy, false); assert.equal(h.data().locked, false);
   assert.deepEqual(h.busy, [true, false]); assert.equal(h.applied.length, 1);
 });
+
+test('performance avatars resolve only saved voices at their exact native profile mapping', async () => {
+  const h = await harness();
+  const selected = h.voice('A13');
+  assert.equal(h.controller.voiceForProfile(0)?.characterId, null);
+  await h.ui.onSave({ ...selected, characterId: 'A07', avatarToken: 'blue' }, undefined, h.data().document.revision);
+  assert.equal(h.controller.voiceForProfile(0)?.characterId, 'A07');
+  assert.equal(h.controller.voiceForProfile(0)?.avatarToken, 'blue');
+  assert.equal(h.controller.voiceForProfile(4)?.characterId, null, 'a pad avatar never leaks to live vocals');
+  assert.equal(h.controller.voiceForProfile(999), undefined);
+});
