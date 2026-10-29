@@ -47,6 +47,8 @@ hardware/cad/cad view disco-bar --step "$SHOW_TOOLS_DISCO_STEP" --reset-camera
 
 ## Review the service workflow before manufacturing
 
+Follow [Attach and release final C](disco-bar/final-C-operating-guide.md) for the operating steps and the command that creates the short MP4 and GIF guide. Routine attachment turns the separate collar and locks its captive pin. The assembly screws and knob-grip screws stay fitted.
+
 C's proposed sequence uses a slotted driver, an under-head fork, and a two-pin spanner. The pin remains captive; routine bar removal does not change the padded-screw grip. The spanner bridge stays below the box. Complete straight tool insertion needs approximately 130 mm of free space; the matching base proposes a 140 mm lift. The earlier 15 mm result covered working probes only.
 
 The fixed base has a top-side well for the device's existing stock hex, two compact keeper tabs, a separate buffer, closed-cover tool ports, and a proposed cable exit 25 degrees from the front. No additional device retaining nut is assumed. The shortened ballast pocket stays separated from the tool ports.
