@@ -10,8 +10,8 @@ BAR_RADIUS=47.230665
 CLEARANCE=.5
 THICKNESS=1.
 RAMP_START=46.
-RAMP_END=48.
-DROP=1.2
+RAMP_END=49.
+DROP=1.8
 EAR_END=57.
 EAR_WIDTH=8.
 FLAT_HEAD_DIAMETER=6.72
@@ -132,7 +132,11 @@ def verify_seated_head_tolerances(kit):
                 lift=audit.intersection(kit['buffer'].translate((0,0,.3)),screw)
                 audit.require(lift>1e-4,'Minimum flat head does not retain PTFE after seating')
                 below_root_guard([('seated flat screw',screw)],kit['gap'])
+                ideal_pilot_z=top-.01-(diameter/2-r.H.clearance/2)/math.tan(math.radians(angle/2))
+                residual_web=ideal_pilot_z-(kit['gap']-DROP-THICKNESS)
+                audit.require(residual_web>=.5-1e-7,'Worst-case seated head leaves less than 0.5 mm PTFE web')
                 rows.append(dict(joint=joint.name,head_diameter_mm=diameter,angle_degrees=angle,
+                                 minimum_residual_web_under_seated_head_mm=residual_web,
                                  seated_head_top_z_mm=top,axial_lift_attempt_overlap_mm3=lift))
     return rows
 
@@ -160,12 +164,15 @@ def verify(kit):
     guard=below_root_guard([('spacer',kit['spacer']),('PTFE',kit['buffer']),
                            *[(f'hardware-{index}',part) for index,part in enumerate(hardware)]],kit['gap'])
     head_tolerances=verify_seated_head_tolerances(kit)
+    web=THICKNESS+DROP-CLEARANCE-FLAT_HEAD_HEIGHT+(r.H.clearance/2-1.55)
+    audit.require(web>=.5-1e-7,'Counterseat leaves less than 0.5 mm PTFE web')
     return dict(positive_axial_capture_by_four_standard_cones=True,axial_attempt_overlap_mm3=axial,
                 positive_radial_capture_by_standard_screws=True,joints=joints,root_plane_guard=guard,
                 seated_head_tolerance_checks=head_tolerances,
                 material_id_mm=88,active_flat_od_mm=92,material_nominal_thickness_mm=1,
-                ear_width_mm=EAR_WIDTH,outer_ear_drop_mm=DROP,ramp_projected_run_mm=2,
-                developed_ramp_length_mm=math.hypot(2,DROP),flat_pattern_extra_radial_length_mm=kit['neutral_ramp_extra'],
+                minimum_material_web_under_counterseat_mm=web,
+                ear_width_mm=EAR_WIDTH,outer_ear_drop_mm=DROP,ramp_projected_run_mm=RAMP_END-RAMP_START,
+                developed_ramp_length_mm=math.hypot(RAMP_END-RAMP_START,DROP),flat_pattern_extra_radial_length_mm=kit['neutral_ramp_extra'],
                 flat_and_formed_sheet_volume_match=True,
                 flat_head_source=FLAT_SCREW_SOURCE,flat_head_max_diameter_height_mm=[6.72,1.86],
                 head_top_below_root_mm=CLEARANCE,total_screw_length_including_head_mm=kit['screw_length_including_head'],

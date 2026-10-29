@@ -74,6 +74,14 @@ for angle in (45,135,225,315):
     wrong_flat-=cut
 reject(lambda:buffer_cad.verify(dict(kit,flat_pattern=wrong_flat)),'change stock volume')
 reject_wrong_seats(kit['pairs'],kit['roof']+kit['spacer']+kit['buffer'])
+# Replay the former full-joint bend recipe: its 0.09 mm web must be rejected.
+saved_drop,saved_end=buffer_cad.DROP,buffer_cad.RAMP_END
+try:
+    buffer_cad.DROP=1.2;buffer_cad.RAMP_END=48.
+    former=buffer_cad.build(r.cad.cyl(58,10,-10),19)
+    reject(lambda:buffer_cad.verify(former),'less than 0.5 mm PTFE web')
+finally:
+    buffer_cad.DROP=saved_drop;buffer_cad.RAMP_END=saved_end
 for depth in (15,23):
     capsule=r.ballast_cassette(depth)
     r.verify_cassette(capsule)
