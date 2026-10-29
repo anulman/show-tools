@@ -26,7 +26,7 @@ def main():
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
-    module = importlib.import_module('disco_bar' if args.workspace == 'disco-bar' else 'box_review')
+    module = importlib.import_module('disco_review' if args.workspace == 'disco-bar' else 'box_review')
     try:
         selection = (importlib.import_module('final_review').load()
                      if args.workspace == 'disco-bar' or args.variant in ('all', 'rotor-level') else None)

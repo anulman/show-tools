@@ -1,6 +1,6 @@
 # Prepare and publish the final review proposals
 
-The Disco bar page shows the unchanged original, legacy references A and B, and the complete C proposal. C replaces the historical standalone T-pad cup study. The Box mount page replaces the old rotor shell and bottom with C's matching fixed base. The arcade and mushroom models keep their existing positions and roof/ground alignment.
+The Disco bar page shows only the unchanged original and the complete C proposal. A and B remain historical source studies and are absent from this focused review. The Box mount page replaces the old rotor shell and bottom with C's matching fixed base. The arcade and mushroom models keep their existing positions and roof/ground alignment.
 
 The pages load checked STEP exports. Source-owned inventories require every named component and role, and independent source factories verify each loaded component's material geometry. The registry binds the C and base receipts, the exact required source files, the original reference and each displayed STEP/STL pair. Changed sources, changed files, missing parts, substituted geometry, failed checks and mismatched receipts prevent publication. Imported components are normalized to sole solids before placement.
 
@@ -46,6 +46,8 @@ hardware/cad/cad view disco-bar --step "$SHOW_TOOLS_DISCO_STEP" --reset-camera
 `--variant rotor-level` isolates the new fixed base. `--explode 25` lowers its cover and the other selected box bottoms. Arcade-only and mushroom-only views do not require the final-review registry. Publication keeps one selection snapshot through scene construction, geometry comparison and the final input check.
 
 ## Review the service workflow before manufacturing
+
+Follow [Attach and release final C](disco-bar/final-C-operating-guide.md) for the operating steps and the command that creates the short MP4 and GIF guide. Routine attachment turns the separate collar and locks its captive pin. The assembly screws and knob-grip screws stay fitted.
 
 C's proposed sequence uses a slotted driver, an under-head fork, and a two-pin spanner. The pin remains captive; routine bar removal does not change the padded-screw grip. The spanner bridge stays below the box. Complete straight tool insertion needs approximately 130 mm of free space; the matching base proposes a 140 mm lift. The earlier 15 mm result covered working probes only.
 
