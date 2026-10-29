@@ -1,43 +1,49 @@
-# Screw-clamping the disco knob
+# Clamps within the original full-height bar
 
-The operator rejected the isolated clamp studies as replacements for the full bar. Its complete height is needed to affix to the top of the disco ball, and its width was precisely measured to pass through the ball opening. The default preview is restored to the complete original STEP. The studies below explain mechanisms only. The earlier recommendation to proceed with A as a replacement was premature.
+The full bar reaches the disco ball's top attachment, and its width was measured to fit through the ball opening. The earlier short-carrier studies discarded those functions. The active designs start from the complete source and change only the knob-end clamp region.
 
-Future clamp variants must preserve the full bar, insertion profile, and top attachment while integrating the clamp locally at the knob interface. B's hardware reaches beyond the source radius, as do C's bosses. No additional opening clearance is established. Assembly access, insertion of the complete assembly, and the continuous connection from the knob to the top attachment must be checked before presenting revised variants.
+The original remains unchanged beside A, B, C, and D. Each variant has the same 109.22 mm reach and nominal 94.46133 mm outer profile. The long hollow body and far end below z=-30 remain geometrically identical to the source. No external carrier or oversized screw boss is added.
 
-The operator replaced magnetic retention with screw clamps and two rubber or foam pads. The proposed screws through the alcohol-release channels led to concept C. A and B compare more direct transverse tightening arrangements. None has been printed or physically tested.
+## The source pocket sets the released opening
 
-The STEP channels are open scallops at the outer shell edge, not closed screw bores. Their axes are parallel to Z at x=-45.643165 mm and x=45.996684 mm, y=0. Their cylindrical radius is 7.9375 mm. The central Ø44.35475 mm recess has a blind floor at z=-25.4 mm. Its wall and the main shell wall are approximately 1.5875 mm thick.
+The operator confirms that the original socket is snug. Its cylindrical diameter is 44.35475 mm, its blind stop is at z=-25.4 mm, and its entry bevel reaches diameter 45.94225 mm at z=0. These dimensions describe the existing socket, not a newly measured knob diameter.
 
-The new carriers therefore include substantial screw bosses. They are replacement form studies, not hardware bolted into unmodified thin shell walls. The carrier-to-shell attachment and independent ball-weight support still require a design.
+All pads are recessed outward from that socket. Their nominal inner surfaces match its cylindrical surface. The full source void, including the bevel and depth, remains empty in every released assembly. The blind floor is fixed even in C, where the drawframe moves around the insertion path.
 
-## A pulls a separate bridge toward a fixed saddle
+Proposed pad thickness is 1.5 mm, with 0.75 mm outer retaining flanges in matching jaw pockets. These are adjustable concept dimensions. Rubber or foam selection, insertion of the flanged pads, replacement access, and retained grip require a physical trial. No adhesive bond or friction coefficient is assumed.
 
-Two screws pass either side of the knob opening, parallel to Y. They pull a separate front bridge toward the fixed rear saddle. Each saddle has one curved pad, so screw tension closes the jaws directly across the knob. Captured hex nuts in the fixed saddle provide the reaction. The carrier and fixed saddle are one print.
+## A uses a removable bridge
 
-This arrangement follows the operator's separate-plate idea with transverse screws. It does not reuse the alcohol channels as bolt bores. It needs access to both screw heads and clearance for the bridge to open. Long screws around the opening occupy more space than B's pressure screws.
+Two transverse screws pass either side of the opening and pull a bridge toward a fixed padded saddle. Captured hex nuts react against the fixed saddle, which is fused to the original bar. One pad sits on the bridge and the other on the fixed saddle.
 
-## B adjusts two jaws independently
+The screws and nuts remain inside the insertion radius. Explicit local driver ports pass through the shell at z=-13 mm. These new ports are bounded clamp edits rather than assumed existing channels. A's bridge relies on the engaged screws for retention when loosened.
 
-Two opposed screws act radially along X through reinforced bosses near the original channels. Captured hex nuts stop the nuts from turning. Each screw presses a guided shoe, which distributes force through one pad. The screw never presses directly against the knob.
+## B moves two jaws independently
 
-Integral lips above the shoes resist lift-out. The shoes slide along X beneath those lips and need manual retraction when screws are loosened. Guide clearance is proposed geometry, not a tested sliding fit. Unequal screw adjustment can shift the knob or create unequal pad loads. Both heads require side access.
+Opposed pressure screws act along X on separate padded shoes. Internal bosses contain anti-rotation nut pockets. Upper and lower guide lips retain the shoes, while side cheeks constrain their motion. The screws press the shoes rather than the knob.
 
-## C draws a plate through the original channel axes
+Recessed heads sit near the original alcohol channels, with local reliefs for their tool paths at z=-10 mm. Independent adjustment can produce unequal pad loading. Loosening the screws does not positively retract the jaws.
 
-C is the direct axial interpretation. Two screws pass through enclosed bosses on the original scallop axes. Their heads react against the fixed upper carrier. Captured nuts in the lower drawplate let the screws lift that plate.
+## C converts axial draw into radial grip
 
-The plate pushes the inner heels of two separate shoes against fixed planar taper seats. Each seat narrows by 2 mm over 20 mm of height. In this proposed geometry, 1 mm of upward shoe travel requires 0.1 mm of inward travel per shoe. This relation describes the wedge geometry, not a prediction of screw force or pad compression.
+Two vertical screws at proposed x=±38 mm lift an open drawframe beneath two separate shoes. Their heads sit in recessed wells. The original alcohol-channel axes are closer to the outer edge and cannot accommodate these heads within the original insertion width, so this is an explicitly inboard revision.
 
-The drawplate is an open bridge frame. Its central push ring supports the shoes while its crossbars and side ties clear the fixed seats and guide cheeks. A full circular plate would hit those fixed parts during tightening. Separate shoes can slide radially on the plate; a rigid one-piece jaw ring could not follow both seats inward.
+The shoes meet fixed planar taper seats. In the proposed geometry, 1 mm of axial rise corresponds to 0.1 mm of inward motion per shoe. This relation describes shape and motion, not force, elastic response, or a safe stroke. Fixed cheeks constrain the shoes; the drawframe's open bridges clear the fixed seats.
 
-C requires screw-head access from above and drawplate/nut access from below during assembly. Loosening the screws does not positively retract the shoes, so release may need manual assistance. Wedge friction, release behavior, carrier stiffness, and pad deformation need a physical trial. C has more parts and assembly work than A or B.
+Two internal posts reconnect the lower cup around the drawframe clearance while preserving the original blind floor. The fixed body remains one connected solid. C requires axial driver access at the knob end, plus assembly access for its frame and nuts. Release may require manual assistance.
 
-## Pads and dimensions remain proposals
+## D captures A's bridge in guides
 
-All concepts show two flanged pad envelopes in matching jaw pockets. The flanges sit behind printed retaining lips instead of relying entirely on glue. Insertion and replacement depend on sufficient pad flexibility or later changes to the pocket. Rigid pad-envelope geometry does not prove that rubber or foam can be inserted or retained in use.
+D retains A's two draw screws and opposed pads. Integral side guides and upper/lower lips constrain the bridge's transverse and vertical movement while allowing the closing direction. The fixed guides connect to the rear saddle and full bar.
 
-The illustrative knob is Ø40 mm. Nominal pad thickness is 2 mm, with 1 mm outer retaining flanges. These are declared form-study dimensions, not measurements or material specifications. Screw shafts are Ø3 mm envelopes in Ø3.6 mm clearance bores. The model does not specify an M3 thread, nut standard, screw length, tightening torque, or print tolerance. Hex nut envelopes and pockets show proposed anti-rotation capture only.
+The guides make bridge retention explicit when the screws are loosened. Their sliding fit and pad replacement sequence remain untested. D uses the same proposed side driver ports as A.
 
-Nominal pads touch the illustrative knob without compression. Sampled closing positions deliberately overlap the pad and knob envelopes to represent proposed compression. Rigid print parts remain clear. This geometric overlap supplies no friction coefficient, clamp force, deformation field, or safe operating stroke.
+## The checks preserve geometry, not operating loads
 
-The [SpinTrak manufacturer page](https://www.ultimarc.com/trackballs-and-spinners/spinners/spintrak/) describes bearing races but supplies no load rating for this ball assembly. None of these clamps establishes a safe ball-weight or hand-load path through the encoder shaft. Actual knob diameter, usable knurled height, ball mass, shell material, support arrangement, and assembly access are still needed before a fitted prototype.
+The internal edit mask is radius 45.5 mm from z=-24 to -3 mm. A and D add narrow driver-port masks. B adds channel/head reliefs, and C adds two small inboard access-well masks. Boolean comparisons reject any source removal or addition outside these explicit regions. Separate checks preserve the original mouth, fixed stop, and far end.
+
+Released assemblies contain no material in the actual source socket void. The void reconstruction is compared with the source in both directions. Every moving piece, including screws or nuts that follow the motion, remains within the nominal source insertion envelope at the sampled positions. All piece pairs are checked for rigid overlap. Deliberate pad overlap with the socket envelope during closing records proposed compression only.
+
+Free-bar driver paths are checked against the actual prints and pads. The surrounding disco ball may block those paths after installation. Its access, the internal assembly sequence, and physical pad insertion are not verified by those checks.
+
+Shafts, heads, nuts, and pockets are geometric envelopes rather than selected hardware standards. Threads and fastener torque are not modelled. Clamp force, print strength, knurl protection, shell attachment, and ball-weight support still require physical work. The [SpinTrak manufacturer page](https://www.ultimarc.com/trackballs-and-spinners/spinners/spintrak/) supplies no applicable rating for the complete ball assembly.

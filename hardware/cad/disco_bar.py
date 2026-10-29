@@ -1,17 +1,19 @@
-"""Preserve the complete disco bar; retain historical clamp studies for inspection."""
+"""Compare the complete original disco bar with four integrated clamp variants."""
 from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import os
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import trimesh
-from build123d import (Axis, Box, Cylinder, Plane, Polygon, RegularPolygon,
-                      Vertex, export_step, export_stl, extrude, import_step)
+from build123d import Axis, Box, Vertex, import_step
+
+REFERENCE_SHA256 = "f0a21384179b69eff79205032dad536bfa1350e358c25ed0fe01de4189f2e003"
+ORIGINAL_LABEL = "ORIGINAL | complete unchanged bar | original pose, mm"
 
 
 def load_reference(step_path: Path | None = None):
@@ -24,27 +26,6 @@ def load_reference(step_path: Path | None = None):
     if not shape.is_valid or len(shape.solids()) != 1 or shape.volume <= 0:
         raise ValueError("Reference must import as one valid positive-volume solid")
     return path, shape
-
-
-# Historical clamp dimensions are illustrative. These isolated studies do not
-# preserve the full bar and must not replace its opening-fit or attachment geometry.
-@dataclass
-class Piece:
-    name: str
-    shape: object
-    role: str  # print, pad, hardware, knob, or context
-
-
-@dataclass
-class Concept:
-    name: str
-    pieces: list[Piece]
-    pad_contacts: list[tuple[str, str]]
-
-
-KNOB_RADIUS = 20.0
-CHANNEL_X = (-45.643165, 45.996683776)
-REFERENCE_SHA256 = "f0a21384179b69eff79205032dad536bfa1350e358c25ed0fe01de4189f2e003"
 
 
 def verify_full_reference(path, shape):
@@ -66,283 +47,74 @@ def verify_full_reference(path, shape):
             "width_role": "operator-confirmed measured fit through disco-ball opening"}
 
 
+def integrated_module():
+    return importlib.import_module("disco-bar.full_height")
+
+
+def full_variants(reference):
+    return integrated_module().full_variants(reference)
+
+
+def verify_integrated(reference, output):
+    report = integrated_module().verify_integrated(reference, output)
+    report["entrypoint_sha256"] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
+    (output / "receipt.json").write_text(json.dumps(report, indent=2) + "\n")
+    return report
+
+
 def verify_preview_scene(path, scene):
-    if any(len(items) != 1 for items in scene):
-        raise ValueError("Default preview must contain the complete original bar only")
-    return verify_full_reference(path, scene[0][0])
+    objects, names, colors, alphas = scene
+    if not objects or not len(objects) == len(names) == len(colors) == len(alphas):
+        raise ValueError("Preview objects and attributes must have matching nonzero lengths")
+    if hashlib.sha256(Path(path).read_bytes()).hexdigest() != REFERENCE_SHA256:
+        raise ValueError("Use the pinned complete original source asset")
+    _, reference = load_reference(path)
+    verify_full_reference(path, reference)
+    if names.count(ORIGINAL_LABEL) != 1 or names[0] != ORIGINAL_LABEL:
+        raise ValueError("Keep one unchanged original first, labelled and in its original pose")
+    verify_full_reference(path, objects[0])
+    model = integrated_module()
+    model.assert_empty(reference - objects[0], "Original preview lost source material")
+    model.assert_empty(objects[0] - reference, "Original preview gained or displaced material")
+    for index, variant in enumerate(full_variants(reference), start=1):
+        prefix = variant.name + " / "
+        matches = [(shape.translate((-index * model.SPACING, 0, 0)), name)
+                   for shape, name in zip(objects, names) if name.startswith(prefix)]
+        if len(matches) != len(variant.pieces):
+            raise ValueError(f"Missing complete assembly: {variant.name}")
+        bodies = [shape for shape, name in matches if name == prefix + "complete integrated bar"]
+        if len(bodies) != 1:
+            raise ValueError(f"Keep one full body per variant: {variant.name}")
+        for piece in variant.pieces:
+            actual = [shape for shape, name in matches if name == prefix + piece.name]
+            if len(actual) != 1:
+                raise ValueError(f"Missing or duplicate preview piece: {prefix}{piece.name}")
+            piece.shape = actual[0]
+        model.preserved_geometry(reference, variant)
+        model.check_assembly(variant, 0.)
+    return {"complete_original_unchanged": True, "original_pose_preserved": True,
+            "four_complete_variants": True, "source_pocket_entry_depth_preserved": True}
 
 
 def box(x, y, z, center):
     return Box(x, y, z).translate(center)
 
 
-def cylinder(radius, height, center, axis="z"):
-    part = Cylinder(radius, height)
-    if axis == "x":
-        part = part.rotate(Axis.Y, 90)
-    elif axis == "y":
-        part = part.rotate(Axis.X, 90)
-    return part.translate(center)
-
-
-def carrier():
-    part = cylinder(47.230665, 6, (0, 0, 3)) - cylinder(22.5, 8, (0, 0, 3))
-    for x in CHANNEL_X:
-        part -= cylinder(7.9375, 8, (x, 0, 3))
-    return part
-
-
-def pad_sector(axis, sign, wide=False):
-    # Flanged elastomer envelope, retained behind the jaw's inner lip.
-    pad = cylinder(22, 10, (0, 0, 13)) - cylinder(20, 12, (0, 0, 13))
-    for z in (8.5, 17.5):
-        pad += cylinder(23, 1, (0, 0, z)) - cylinder(20, 3, (0, 0, z))
-    if wide:
-        clip = box(90, 40, 20, (0, sign * 22, 13))
-    elif axis == "y":
-        clip = box(20, 30, 20, (0, sign * 29, 13))
-    else:
-        clip = box(30, 20, 20, (sign * 29, 0, 13))
-    return pad & clip
-
-
-def screw(axis, center, length):
-    shaft = cylinder(1.5, length, center, axis)
-    location = list(center)
-    index = 0 if axis == "x" else 1
-    location[index] += length / 2 + 1.5
-    return shaft + cylinder(3, 3, location, axis)
-
-
-def concept_bridge():
-    rear_pad, front_pad = pad_sector("y", -1), pad_sector("y", 1)
-    rear = box(68, 18, 14, (0, -23, 13)) - cylinder(22, 18, (0, 0, 13))
-    front = box(68, 18, 14, (0, 23, 13)) - cylinder(22, 18, (0, 0, 13))
-    rear -= rear_pad
-    front -= front_pad
-    base = carrier() + rear
-    pieces = [Piece("carrier with fixed rear saddle", base, "print"),
-              Piece("removable front bridge plate", front, "print"),
-              Piece("rear captured pad", rear_pad, "pad"),
-              Piece("front captured pad", front_pad, "pad")]
-    for x in (-29, 29):
-        bore = cylinder(1.8, 80, (x, 0, 13), "y")
-        pieces[0].shape -= bore
-        pieces[1].shape -= bore
-        # A loose nut reference shows that the printed clearance bore is not a thread.
-        pieces[0].shape -= hex_prism(3.5, 3, (x, -30.5, 13), "y")
-        nut = hex_prism(3.2, 3, (x, -30.5, 13), "y") - cylinder(1.6, 5, (x, -30.5, 13), "y")
-        pieces += [Piece(f"{x:+g} screw envelope, not a hardware specification", screw("y", (x, -1, 13), 66), "hardware"),
-                   Piece(f"{x:+g} nut envelope", nut, "hardware")]
-    return Concept("A | two-screw padded bridge", pieces,
-                   [("carrier with fixed rear saddle", "rear captured pad"),
-                    ("removable front bridge plate", "front captured pad")])
-
-
-def concept_jaws():
-    base = carrier()
-    pieces = []
-    for sign in (-1, 1):
-        pad = pad_sector("x", sign)
-        jaw = (box(16, 24, 14, (sign * 23, 0, 13)) - cylinder(22, 18, (0, 0, 13))) - pad
-        # Two cheeks guide each shoe radially. A fixed outer boss receives a nut.
-        for y in (-14, 14):
-            base += box(22, 3, 14, (sign * 34, y, 13))
-            base += box(22, 7, 2, (sign * 34, y - (2 if y > 0 else -2), 21))
-        base += box(8, 31, 14, (sign * 43, 0, 13))
-        base -= cylinder(1.8, 20, (sign * 43, 0, 13), "x")
-        base -= hex_prism(3.5, 3, (sign * 45.5, 0, 13), "x")
-        nut = hex_prism(3.2, 3, (sign * 45.5, 0, 13), "x") - cylinder(1.6, 5, (sign * 45.5, 0, 13), "x")
-        # Each pressure screw terminates at the shoe's outer flat face, not the knob.
-        stem = cylinder(1.5, 20, (sign * 41, 0, 13), "x")
-        stem += cylinder(3, 3.2, (sign * 52.5, 0, 13), "x")
-        pieces += [Piece(f"{sign:+d} guided jaw", jaw, "print"),
-                   Piece(f"{sign:+d} captured pad", pad, "pad"),
-                   Piece(f"{sign:+d} pressure screw envelope", stem, "hardware"),
-                   Piece(f"{sign:+d} nut envelope", nut, "hardware")]
-    pieces.insert(0, Piece("carrier with reinforced side bosses and guides", base, "print"))
-    return Concept("B | independent padded jaws", pieces,
-                   [(f"{s:+d} guided jaw", f"{s:+d} captured pad") for s in (-1, 1)])
-
-
-def hex_prism(radius, height, center, axis="z"):
-    shape = extrude(RegularPolygon(radius, 6), amount=height).translate((0, 0, -height / 2))
-    if axis == "x":
-        shape = shape.rotate(Axis.Y, 90)
-    elif axis == "y":
-        shape = shape.rotate(Axis.X, 90)
-    return shape.translate(center)
-
-
-def concept_drawplate():
-    # Fixed planar ramps narrow by 2 mm per side over 20 mm of rise.
-    # Separate shoes can move radially on the drawplate; a rigid ring cannot.
-    top = cylinder(47.230665, 6, (0, 0, 25)) - cylinder(23.5, 8, (0, 0, 25))
-    plate = cylinder(23.25, 4, (0, 0, -2)) - cylinder(20.8, 6, (0, 0, -2))
-    for y in (-18, 18):
-        plate += box(92, 5, 4, (0, y, -2))
-    for x in CHANNEL_X:
-        plate += box(8, 40, 4, (x, 0, -2))
-    plate -= cylinder(20.8, 8, (0, 0, -2))
-    pieces = []
-    for sign in (-1, 1):
-        fixed_profile = Plane.XZ * Polygon((27, 0), (32, 0), (32, 20), (25, 20), align=None)
-        jaw_profile = Plane.XZ * Polygon((14, 0), (27, 0), (25, 20), (14, 20), align=None)
-        ramp = extrude(fixed_profile, amount=12, both=True)
-        jaw = extrude(jaw_profile, amount=10, both=True) - cylinder(22, 24, (0, 0, 10))
-        pad = pad_sector("x", 1).translate((0, 0, -3))
-        jaw -= pad
-        if sign == -1:
-            ramp = ramp.rotate(Axis.Z, 180)
-            jaw = jaw.rotate(Axis.Z, 180)
-            pad = pad.rotate(Axis.Z, 180)
-        # Fixed cheeks retain each shoe tangentially, with a proposed 0.5 mm gap.
-        for y in (-12, 12):
-            top += box(13, 3, 22, (sign * 27.5, y, 11))
-        top += ramp
-        pieces += [Piece(f"{sign:+d} taper shoe", jaw, "print"),
-                   Piece(f"{sign:+d} captured pad", pad, "pad")]
-    for x in CHANNEL_X:
-        top += cylinder(7, 6, (x, 0, 25))
-        plate += cylinder(7, 4, (x, 0, -2))
-        bore = cylinder(1.8, 40, (x, 0, 10))
-        top -= bore
-        plate -= bore
-        plate -= hex_prism(3.5, 3, (x, 0, -2.5))
-        nut = hex_prism(3.2, 3, (x, 0, -2.5)) - cylinder(1.6, 5, (x, 0, -2.5))
-        bolt = cylinder(1.5, 32.1, (x, 0, 12)) + cylinder(3, 3, (x, 0, 29.5))
-        pieces += [Piece(f"{x:+.2f} axial draw screw envelope", bolt, "hardware"),
-                   Piece(f"{x:+.2f} captured drawplate nut envelope", nut, "hardware")]
-    pieces = [Piece("fixed upper carrier with planar taper seats", top, "print"),
-              Piece("lower drawplate with captive nut seats", plate, "print")] + pieces
-    return Concept("C | channel-aligned axial drawplate", pieces,
-                   [(f"{s:+d} taper shoe", f"{s:+d} captured pad") for s in (-1, 1)])
-
-
-def concepts():
-    return [concept_bridge(), concept_jaws(), concept_drawplate()]
-
-
 def preview(step_path: Path | None = None):
-    """Publish the complete original bar; clamp studies remain headless only."""
+    """Show the immutable original and four complete locally integrated variants."""
     path, reference = load_reference(step_path)
     verify_full_reference(path, reference)
-    return ([reference],
-            ["FULL original bar | 109.22 mm reach to top attachment | measured opening-fit width | original pose, mm"],
-            ["#9ea8b4"], [1.0])
-
-
-def check_motion(concept, index):
-    """Sample release and closure; rigid pieces may touch but cannot intersect."""
-    samples = []
-    knob = cylinder(20, 34, (0, 0, 5))
-    for travel in ((0., .5, 1.) if index == 2 else (-.5, -.25, 0., .5, 1.)):
-        moved = []
-        for piece in concept.pieces:
-            offset = (0, 0, 0)
-            if index == 0 and piece.name in ("removable front bridge plate", "front captured pad"):
-                offset = (0, travel, 0)
-            elif index == 1 and ("guided jaw" in piece.name or "captured pad" in piece.name):
-                offset = ((-1 if piece.name.startswith("-1") else 1) * travel, 0, 0)
-            elif index == 2:
-                if piece.name == "lower drawplate with captive nut seats":
-                    offset = (0, 0, travel)
-                elif "taper shoe" in piece.name or "captured pad" in piece.name:
-                    sign = -1 if piece.name.startswith("-1") else 1
-                    offset = (-sign * .1 * travel, 0, travel)
-            if piece.role in ("print", "pad"):
-                moved.append(Piece(piece.name, piece.shape.translate(offset), piece.role))
-        max_overlap = 0.
-        for number, first in enumerate(moved):
-            for second in moved[number + 1:]:
-                overlap = first.shape & second.shape
-                volume = overlap.volume if overlap else 0.
-                max_overlap = max(max_overlap, volume)
-                if volume > 1e-5:
-                    raise RuntimeError(f"Motion collision at {travel}: {first.name}/{second.name}: {volume}")
-        pad_compression_envelope = 0.
-        for piece in moved:
-            overlap = piece.shape & knob
-            volume = overlap.volume if overlap else 0.
-            if piece.role == "print" and volume > 1e-5:
-                raise RuntimeError(f"Rigid knob collision at {travel}: {piece.name}")
-            if piece.role == "pad":
-                pad_compression_envelope += volume
-        samples.append({"travel_mm": travel, "direction": "axial closure" if index == 2 else "radial release" if travel >= 0 else "radial closure",
-                        "radial_shoe_closure_mm": .1 * travel if index == 2 else None,
-                        "max_rigid_or_pad_pair_overlap_mm3": max_overlap,
-                        "pad_knob_compression_envelope_mm3": pad_compression_envelope})
-    return {"samples": samples, "limit": "Discrete geometry checks, not continuous collision proof, rubber deformation, preload, or operating stroke validation"}
-
-
-def verify_concepts(output: Path):
-    """Export only proposed print parts, with roundtrip and assembly checks."""
-    reports = []
-    for index, concept in enumerate(concepts()):
-        part_reports = []
-        for number, piece in enumerate(concept.pieces):
-            shape = piece.shape
-            if not shape.is_valid or len(shape.solids()) != 1 or shape.volume <= 0:
-                raise RuntimeError(f"Invalid concept piece: {concept.name}/{piece.name}")
-            if piece.role != "print":
-                continue
-            folder = output / chr(97 + index)
-            folder.mkdir(parents=True, exist_ok=True)
-            stem = f"{number:02d}-{piece.name.replace(' ', '-').replace('+', 'plus')}"
-            step_path, stl_path = folder / f"{stem}.step", folder / f"{stem}.stl"
-            if not export_step(shape, step_path) or not export_stl(shape, stl_path, tolerance=.03):
-                raise RuntimeError(f"Export failed: {piece.name}")
-            restored = import_step(step_path)
-            mesh = trimesh.load_mesh(stl_path)
-            if not restored.is_valid or len(restored.solids()) != 1 or not np.isclose(restored.volume, shape.volume, rtol=1e-8):
-                raise RuntimeError(f"STEP roundtrip failed: {piece.name}")
-            if not mesh.is_watertight or not mesh.is_winding_consistent or mesh.volume <= 0 or not np.isclose(mesh.volume, shape.volume, rtol=.005):
-                raise RuntimeError(f"STL check failed: {piece.name}")
-            part_reports.append({"name": piece.name, "volume_mm3": shape.volume, "valid_solid": True,
-                                 "step_roundtrip": True, "stl_watertight": True,
-                                 "stl_volume_mm3": float(mesh.volume)})
-        collisions = []
-        for a, first in enumerate(concept.pieces):
-            for second in concept.pieces[a + 1:]:
-                # Hardware envelopes include unmodelled thread/nut contact.
-                if first.role == "hardware" or second.role == "hardware":
-                    continue
-                intersection = first.shape & second.shape
-                volume = intersection.volume if intersection else 0
-                if volume > 1e-5:
-                    collisions.append([first.name, second.name, volume])
-        if collisions:
-            raise RuntimeError(f"Unintended assembly intersections: {collisions}")
-        lookup = {p.name: p.shape for p in concept.pieces}
-        contacts = []
-        for jaw, pad in concept.pad_contacts:
-            distance = lookup[jaw].distance_to(lookup[pad])
-            if distance > 1e-5:
-                raise RuntimeError(f"Pad has no seat: {pad}")
-            contacts.append({"jaw": jaw, "pad": pad, "distance_mm": distance})
-        knob = cylinder(20, 34, (0, 0, 5))
-        for piece in concept.pieces:
-            if piece.role not in ("print", "pad"):
-                continue
-            intersection = piece.shape & knob
-            if intersection and intersection.volume > 1e-5:
-                raise RuntimeError(f"Knob envelope collision: {piece.name}")
-        # Hardware contact is checked separately from nut/thread approximations.
-        for piece in concept.pieces:
-            if piece.role != "hardware":
-                continue
-            for printed in (p for p in concept.pieces if p.role == "print"):
-                overlap = piece.shape & printed.shape
-                if overlap and overlap.volume > 1e-5:
-                    raise RuntimeError(f"Hardware penetrates print: {piece.name}/{printed.name}")
-        reports.append({"concept": concept.name, "print_parts": part_reports,
-                        "motion": check_motion(concept, index),
-                        "print_and_pad_collisions": collisions, "intentional_pad_seats": contacts,
-                        "knob_radius_mm_ILLUSTRATIVE": KNOB_RADIUS,
-                        "hardware_limit": "Screw/nut envelopes only; threads, torque, fastener selection and retention not verified"})
-    receipt = {"concept_only": True, "status": "SUPERSEDED_STANDALONE_STUDIES", "fit_verified": False, "units": "mm", "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(), "concepts": reports}
-    (output / "receipt.json").write_text(json.dumps(receipt, indent=2) + "\n")
-    return receipt
+    model = integrated_module()
+    objects, names, colors, alphas = [reference], [ORIGINAL_LABEL], ["#9ea8b4"], [1.]
+    palette = {"body": "#2880b8", "print": "#187ac9", "pad": "#efa028", "hardware": "#a0abb8"}
+    for index, variant in enumerate(full_variants(reference), start=1):
+        model.preserved_geometry(reference, variant)
+        for piece in variant.pieces:
+            objects.append(piece.shape.translate((index * model.SPACING, 0, 0)))
+            names.append(variant.name + " / " + piece.name)
+            colors.append(palette[piece.role])
+            alphas.append(.18 if piece.role == "body" else 1.)
+    return objects, names, colors, alphas
 
 
 def mesh_report(path: Path, scale: float, reference):
@@ -380,6 +152,7 @@ def inspect(step_path: Path | None, stl_path: Path | None, obj_path: Path | None
         "reference_only": True, "fit_verified": False, "units": "mm",
         "step_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
         "source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "integrated_source_sha256": hashlib.sha256(Path(integrated_module().__file__).read_bytes()).hexdigest(),
         "cad_valid": shape.is_valid, "solids": len(shape.solids()),
         "faces": len(shape.faces()), "volume_mm3": shape.volume,
         "bounds_mm": [[bounds.min.X, bounds.min.Y, bounds.min.Z],
@@ -400,9 +173,16 @@ def main():
     parser.add_argument("--stl", type=Path)
     parser.add_argument("--obj", type=Path)
     parser.add_argument("--output", type=Path, help="Optional local JSON receipt; no source assets copied")
-    parser.add_argument("--concepts", type=Path, help="Export historical isolated clamp studies, not full-bar replacements")
+    parser.add_argument("--concepts", type=Path, help="Export and verify four full-height integrated variants using the private STEP")
     args = parser.parse_args()
-    report = verify_concepts(args.concepts) if args.concepts else inspect(args.step, args.stl, args.obj)
+    if args.concepts:
+        path, reference = load_reference(args.step)
+        verify_full_reference(path, reference)
+        report = verify_integrated(reference, args.concepts)
+        report["reference_sha256"] = hashlib.sha256(path.read_bytes()).hexdigest()
+        (args.concepts / "receipt.json").write_text(json.dumps(report, indent=2) + "\n")
+    else:
+        report = inspect(args.step, args.stl, args.obj)
     result = json.dumps(report, indent=2) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

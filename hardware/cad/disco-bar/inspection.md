@@ -4,7 +4,7 @@ Inspection on 2026-10-29 used the existing pinned CAD environment. The STEP impo
 
 The bounds are x and y ±47.2306651 mm, with z from -109.22 to 0 mm. The model contains cylindrical, conical, planar, and toroidal faces, with no spherical faces. An offline rendering shows a cylindrical shell, a rounded lower edge, top notches, and a central blind recess. The operator confirmed that the full bar reaches the top attachment and its outer width was precisely measured to fit the disco-ball opening. Preserve the original pose without inferring that source Z=0 is the ball's physical top.
 
-The main cylindrical wall has outer radius 47.230665 mm and inner radius 45.643165 mm. Their difference is 1.5875 mm. The central recess has a cylindrical diameter of 44.35475 mm and a floor at z=-25.4 mm, with a bevel near z=0. These are CAD dimensions, not caliper measurements or a confirmed SpinTrak fit.
+The main cylindrical wall has outer radius 47.230665 mm and inner radius 45.643165 mm. Their difference is 1.5875 mm. The central recess has a cylindrical diameter of 44.35475 mm and a floor at z=-25.4 mm, with a bevel near z=0. These are source CAD dimensions rather than independent caliper measurements. The operator confirms that the existing pocket provides snug knob insertion. New variants preserve that known clearance; their clamp fit remains physically untested.
 
 The STL's raw height is 4.3000002 units. Multiplying by 25.4 gives the STEP's height. The OBJ's raw height is 0.10922 units, requiring a factor of 1000 for the same comparison. These factors are hypotheses checked against the STEP, not unit declarations read from the meshes.
 
@@ -24,4 +24,6 @@ The local inspection command accepts private paths without storing them in its r
 
 Only `--step` or `SHOW_TOOLS_DISCO_STEP` is required. The optional receipt records asset hashes, source hash, geometry, and comparison limits. It contains no copied model or source path. Keep generated receipts outside tracked directories.
 
-`preview(step_path=None)` returns `(objects, names, colors, alphas)` for the parent's coordinated publisher. It uses `SHOW_TOOLS_DISCO_STEP` when no path is supplied. The current preview contains one complete original bar, without cropping, offsets, or replacement carriers. Its source hash, bounds, and volume are checked. Importing the module or running the inspection CLI does not contact the viewer or modify attachments. The separate `--concepts DIRECTORY` command exports historical proposed print parts only, as described in [README.md](README.md).
+`preview(step_path=None)` returns `(objects, names, colors, alphas)` for the parent's coordinated publisher. It uses `SHOW_TOOLS_DISCO_STEP` when no path is supplied. The current scene contains the complete unchanged original at its source pose and four complete integrated variants at positive X display offsets. No default crop or explosion replaces any full bar.
+
+The `--concepts DIRECTORY` command requires the original private STEP and exports only the active full-height variant print pieces. See [README.md](README.md). The old isolated carriers and Ø40 mm illustrative knob are retired. Neither the inspector nor exporter contacts the viewer or modifies attachments.
