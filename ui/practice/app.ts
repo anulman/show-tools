@@ -340,7 +340,7 @@ function mountVoiceRows() {
     const main = document.createElement('div'); main.className = 'voice-main';
     const identity = document.createElement('div');
     const name = document.createElement('h2'); name.textContent = part.name;
-    main.title = part.role.kind === 'default-live' ? 'Default live voice' : 'Knob cue with half-beat grace';
+    main.title = part.role.kind === 'default-live' ? 'Default live voice' : 'Use vertical scroll while playing to turn the knob';
     identity.append(name);
     const tools = document.createElement('div'); tools.className = 'voice-tools';
     const status = document.createElement('span'); status.className = 'voice-state'; status.textContent = 'STANDBY';
@@ -353,12 +353,6 @@ function mountVoiceRows() {
         button.title = 'Knob rotation'; button.disabled = true;
         button.addEventListener('click', () => { void act(() => rotate(value)); }); rotations.append(button); rotationControls.push(button);
       }
-      rotations.addEventListener('wheel', event => {
-        if (!isRunning() || !state.voiceEffects?.some(voice => voice.rotationEligible)) return;
-        const delta = event.deltaY || event.deltaX;
-        if (!delta) return;
-        event.preventDefault(); void act(() => rotate(delta));
-      }, { passive: false });
       tools.append(rotations);
     }
     main.append(identity, tools); shell.append(main); voiceEffects.mount(part, shell); elements['live-voices'].append(shell);
@@ -567,6 +561,14 @@ elements['start-section'].addEventListener('change', () => {
   render(state);
 });
 for (const element of [elements['count-in'], elements['end-bar']]) element.addEventListener('change', () => render(state));
+
+window.addEventListener('wheel', event => {
+  if (!audio || !isRunning() || !song?.compiled?.rotation || !Number.isFinite(event.deltaY) || event.deltaY === 0
+    || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest('input,select,textarea,[contenteditable=true],details[open]')) return;
+  event.preventDefault(); void act(() => rotate(event.deltaY));
+}, { passive: false });
 
 window.addEventListener('keydown', event => {
   if (event.repeat || heldKeys.has(event.code)) return;
