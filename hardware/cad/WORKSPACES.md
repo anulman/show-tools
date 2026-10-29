@@ -33,7 +33,7 @@ The ignored `build/workspace/current-view.json` records the last successful publ
 
 ## Continue the box mount
 
-The active forms are the flat red A and 5-degree blue C from the [counterbored concepts](BASE-CONCEPTS.md). Preserve the button's seating datum, the initial 35.25 mm depth below it, and the 17.5 mm recess unless the operator changes them. Those dimensions come from reference geometry and the operator's requested proportions. They do not establish installed harness clearance. The proposed 3 mm bottom consumes 3 mm of that open underside depth, leaving an internal floor at Z=-32.25 mm. Increase the depth if the measured harness requires the full original reserve.
+The active forms are the flat red A and 5-degree blue C from the [counterbored concepts](BASE-CONCEPTS.md). Preserve the button's seating datum, the initial 35.25 mm interior depth below it, and the 17.5 mm recess unless the operator changes them. Those dimensions come from reference geometry and the operator's requested proportions. They do not establish installed harness clearance. The interior floor stays at Z=-35.25 mm. The proposed 3 mm bottom extends outward to Z=-38.25 mm so it does not consume that interior reserve.
 
 The next design includes wiring passages, removable screw-fastened bottoms, and retained ballast. Fastener geometry, wire exit, and ballast dimensions are proposals until confirmed against the actual parts. Keep ballast separate from the electrical volume and accessible through the removable bottom. See [box-mount notes](box-mount/README.md) for parameters and outstanding measurements.
 

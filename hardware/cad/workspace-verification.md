@@ -13,3 +13,5 @@ The coordinator independently imported Darren's original STEP through `disco_bar
 No USB IO, printer jobs, Sheets, Chrome CDP, or audio processes were started or changed. No adhesive, friction, strength, stability, or measured hardware fit has been tested.
 
 `bash -n hardware/cad/cad`, local guide-link checks, and `git diff --check` passed.
+
+Independent main-session review rejected the initial bottom placement because it consumed 3 mm of the operator's minimum interior reserve. The correction keeps the interior floor at Z=-35.25 mm and extends the 3 mm bottom outward to Z=-38.25 mm. The coordinator reran corrected exports and the actual-CAD reserve regression check; both passed. The check measures A/C cover and shell bounds with 3 mm and 5 mm bottoms. The corrected boxes were republished with bottoms lowered 25 mm, retaining the current camera.
