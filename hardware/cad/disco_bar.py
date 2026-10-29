@@ -14,6 +14,14 @@ from build123d import Axis, Box, Vertex, import_step
 
 REFERENCE_SHA256 = "f0a21384179b69eff79205032dad536bfa1350e358c25ed0fe01de4189f2e003"
 ORIGINAL_LABEL = "ORIGINAL | complete unchanged bar | original pose, mm"
+BASEPLATE_LABEL = "KNOB BASEPLATE STUDY | component only, no bar latch | preset 0.2 mm"
+
+
+def baseplate_review(reference):
+    module = importlib.import_module("disco-bar.baseplates")
+    assembly = module.knob_baseplate(reference, .2)
+    module.verify_baseplate(reference, assembly)
+    return module, assembly
 
 
 def load_reference(step_path: Path | None = None):
@@ -95,8 +103,9 @@ def verify_preview_scene(path, scene):
     model.assert_empty(reference - objects[0], "Original preview lost source material")
     model.assert_empty(objects[0] - reference, "Original preview gained or displaced material")
     variants = preview_variants(reference)
-    if len(objects) != 1 + sum(len(variant.pieces) for variant in variants):
-        raise ValueError("Preview must contain only the original and selected complete assemblies")
+    baseplate_module, baseplate = baseplate_review(reference)
+    if len(objects) != 1 + sum(len(variant.pieces) for variant in variants) + len(baseplate.pieces):
+        raise ValueError("Preview must contain only the original, selected assemblies and labelled component study")
     for index, variant in enumerate(variants, start=1):
         prefix = preview_label(variant) + " / "
         matches = [(shape.translate((-index * model.SPACING, 0, 0)), name)
@@ -116,6 +125,18 @@ def verify_preview_scene(path, scene):
             piece.shape = actual[0]
         model.preserved_geometry(reference, variant)
         model.check_assembly(variant, 0.)
+    actual_pieces = []
+    for piece in baseplate.pieces:
+        label = BASEPLATE_LABEL + " / " + piece.name
+        matches = [shape.translate((-3 * model.SPACING, 0, 0))
+                   for shape, name in zip(objects, names) if name == label]
+        if len(matches) != 1:
+            raise ValueError(f"Missing or duplicate component study piece: {label}")
+        model.assert_empty(piece.shape - matches[0], "Baseplate study lost material")
+        model.assert_empty(matches[0] - piece.shape, "Baseplate study gained or displaced material")
+        actual_pieces.append(model.Piece(piece.name, matches[0], piece.role))
+    baseplate_module.verify_baseplate(reference, baseplate_module.KnobBaseplate(
+        baseplate.setting_mm, tuple(actual_pieces), baseplate.driver_paths))
     return {"complete_original_unchanged": True, "original_pose_preserved": True,
             "complete_variants": ["A (legacy axial drawplate)"],
             "review_only_locked_latches": ["B: prior knob-grip latch; holding/access unverified"],
@@ -142,6 +163,12 @@ def preview(step_path: Path | None = None):
             colors.append(("#148c7c" if variant.mechanism != "screw" else palette[piece.role])
                           if piece.role in ("body", "print") else palette[piece.role])
             alphas.append(.18 if piece.role == "body" else 1.)
+    _, baseplate = baseplate_review(reference)
+    for piece in baseplate.pieces:
+        objects.append(piece.shape.translate((3 * model.SPACING, 0, 0)))
+        names.append(BASEPLATE_LABEL + " / " + piece.name)
+        colors.append(palette[piece.role])
+        alphas.append(.25 if piece.role == "body" else 1.)
     return objects, names, colors, alphas
 
 
