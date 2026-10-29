@@ -65,9 +65,9 @@ def empty_intersection(first, second, message):
     require(box_cad.volume(first & second)<EPS,message)
 
 
-def stack(proposal: StackProposal):
+def stack(proposal: StackProposal,box_parameters=None):
     proposal.validate()
-    original=box_cad.Proposal()
+    original=box_parameters if box_parameters is not None else box_cad.Proposal()
     original.validate()
     old_shell,old_bottom,axes,cable,ballast=box_cad.build(original,'rotor-level')
     shift=(0,0,-original.level_top_z)
