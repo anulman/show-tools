@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.js';
 import { effectSummary, initialVoiceEffects } from '../voice-effects.js';
-import { ROTATION_LIVE_PROFILE, VOICE_PROFILE_COUNT } from '../../../lib/performance/model.js';
+import { DEFAULT_LIVE_PROFILE, ROTATION_LIVE_PROFILE, VOICE_PROFILE_COUNT } from '../../../lib/performance/model.js';
 
 test('Space leaves focused disclosures, actions and links to their native keyboard behavior', () => {
   assert.equal(keyboardFocusBlocksShortcut('Space', false, true), true);
@@ -12,14 +12,17 @@ test('Space leaves focused disclosures, actions and links to their native keyboa
   assert.equal(keyboardFocusBlocksShortcut('Space', true, true), true);
 });
 
-test('each voice starts with its own stack and backup has serial slapback then chorus', () => {
+test('capture voices start dry while live vocals retain their approved independent stacks', () => {
   const configurations = initialVoiceEffects();
   assert.equal(configurations.length, VOICE_PROFILE_COUNT);
   assert.equal(new Set(configurations.map(configuration => configuration.profile)).size, VOICE_PROFILE_COUNT);
   const backup = configurations.find(configuration => configuration.profile === ROTATION_LIVE_PROFILE);
   assert.deepEqual(backup?.effects.map(effect => effect.kind), ['slapback', 'chorus']);
-  assert.notEqual(configurations[0].effects[0], configurations[1].effects[0]);
-  assert.deepEqual(configurations[0].effects, [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }]);
+  for (const configuration of configurations.filter(item => item.profile < DEFAULT_LIVE_PROFILE)) assert.deepEqual(configuration.effects, []);
+  assert.notEqual(configurations[0].effects, configurations[1].effects, 'dry arrays are independent');
+  const main = configurations.find(configuration => configuration.profile === DEFAULT_LIVE_PROFILE);
+  assert.deepEqual(main?.effects, [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }]);
+  assert.notEqual(main?.effects[0], backup?.effects[0], 'live profiles do not share mutable stage objects');
 });
 
 test('effect summaries retain the supplied processing order and parameter units', () => {

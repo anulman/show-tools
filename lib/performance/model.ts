@@ -1,3 +1,4 @@
+import type { SongSource } from './song-source.js';
 import type { CompiledSong } from './compiled-song.js';
 
 export type ChannelId = 'L1' | 'L2' | 'R1' | 'R2';
@@ -141,4 +142,5 @@ export interface SongScript {
   practice: { startBar: number; endBar: number };
   description: string;
   compiled?: CompiledSong;
+  source?: SongSource;
 }

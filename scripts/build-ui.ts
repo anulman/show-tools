@@ -9,7 +9,7 @@ const output = resolve(root, 'dist');
 await rm(output, { recursive: true, force: true });
 const result = await build({
   absWorkingDir: root,
-  entryPoints: ['ui/practice/app.ts', 'ui/practice/practice-worklet.ts', 'ui/practice/mp3-worker.ts', 'ui/practice/sw.ts'],
+  entryPoints: ['ui/practice/app.ts', 'ui/practice/practice-worklet.ts', 'ui/practice/mp3-worker.ts', 'ui/practice/catalog-worker.ts', 'ui/practice/sw.ts'],
   outdir: output, outbase: '.', bundle: true, splitting: true, format: 'esm', target: 'es2022',
   chunkNames: 'ui/practice/chunks/[name]-[hash]', metafile: true, sourcemap: true,
 });
@@ -31,7 +31,7 @@ await build({ absWorkingDir: root,
 });
 async function copyAssets(directory: string): Promise<void> {
   for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (['tests', 'evidence', 'wasm'].includes(entry.name)) continue;
+    if (['tests', 'evidence', 'studies', 'wasm'].includes(entry.name)) continue;
     const path = resolve(directory, entry.name);
     if (entry.isDirectory()) await copyAssets(path);
     else if (/\.(html|css|svg|webmanifest|md)$/.test(path) || path.includes('/licenses/') || path.endsWith('sheets-extension/manifest.json')) {
@@ -44,10 +44,23 @@ async function copyAssets(directory: string): Promise<void> {
 await copyAssets(resolve(root, 'ui/practice'));
 await mkdir(resolve(output, 'ui/practice/wasm'), { recursive: true });
 await cp(resolve(root, 'ui/practice/wasm/manual-clock.wasm'), resolve(output, 'ui/practice/wasm/manual-clock.wasm'));
+await cp(resolve(root, 'node_modules/sql.js/dist/sql-wasm.wasm'), resolve(root, 'ui/practice/wasm/sql-wasm.wasm'));
+await cp(resolve(root, 'ui/practice/wasm/sql-wasm.wasm'), resolve(output, 'ui/practice/wasm/sql-wasm.wasm'));
+const characters = JSON.parse(await readFile(resolve(root, 'assets/video/characters.json'), 'utf8'));
+const avatarFiles: string[] = [];
+for (const character of characters.characters) {
+  if (!character.publishedAvatarPath) continue;
+  const path = character.publishedAvatarPath;
+  if (!/^assets\/video\/poses\/[a-z0-9-]+\.png$/.test(path)) throw new Error('Invalid character avatar path');
+  const destination = resolve(output, 'ui/practice', path);
+  await mkdir(resolve(destination, '..'), { recursive: true });
+  await cp(resolve(root, path), destination);
+  avatarFiles.push('/ui/practice/' + path);
+}
 const browserFiles = Object.keys(result.metafile.outputs).filter(path => path.endsWith('.js') && !path.endsWith('/sw.js')).map(path => '/' + relative(output, resolve(root, path)).replaceAll('\\', '/'));
 const worker = resolve(output, 'ui/practice/sw.js');
 const offlineFiles = [...browserFiles, '/ui/practice/index.html', '/ui/practice/style.css', '/ui/practice/icon.svg',
-  '/ui/practice/manifest.webmanifest', '/ui/practice/wasm/manual-clock.wasm'].sort();
+  '/ui/practice/manifest.webmanifest', '/ui/practice/voice-library.css', '/ui/practice/wasm/sql-wasm.wasm', ...avatarFiles, '/ui/practice/wasm/manual-clock.wasm'].sort();
 const offlineHash = createHash('sha256');
 for (const path of offlineFiles) {
   offlineHash.update(path).update('\0').update(await readFile(resolve(output, '.' + path))).update('\0');

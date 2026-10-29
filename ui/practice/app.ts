@@ -1,3 +1,5 @@
+import { installVoiceCatalog } from './voice-catalog.js';
+import type { SongSource } from '../../lib/performance/song-source.js';
 import { PracticeAudio } from './audio.js';
 import type { MonitoringRelationship } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
@@ -94,6 +96,17 @@ let recorder: MediaRecorder | undefined;
 let recordingURL: string | undefined;
 let chartFollower: ReturnType<typeof createChartFollower> | undefined;
 let chartFollowOptIn = false;
+const voiceCatalog = installVoiceCatalog(requiredElement('#voice-library-root', HTMLElement), {
+  drafts: voiceEffects,
+  isBusy: () => isRunning() || starting || switching || effectsApplying || Boolean(preparing) || outputCapture !== 'idle',
+  onError: showError,
+  onBusyChange: () => render(state),
+  apply: async configurations => {
+    effectsApplying = true; render(state);
+    try { const instance = await ensureAudio(); await instance.configureVoiceEffects(configurations); }
+    finally { effectsApplying = false; render(state); }
+  },
+});
 
 function showError(error: unknown) {
   elements.error.textContent = error instanceof Error ? error.message : String(error);
@@ -182,6 +195,7 @@ function releasePresses() {
 }
 
 async function triggerPad(id: ChannelId, commandId?: string) {
+  if (voiceCatalog.busy) return;
   const generation = transportGeneration;
   const instance = await ensureAudio();
   if (generation !== transportGeneration) return;
@@ -195,6 +209,7 @@ async function applyVoiceEffects(profile: number) {
   effectsApplying = true; render(state);
   try {
     const instance = await ensureAudio();
+    await voiceCatalog.saveDrafts();
     await instance.configureVoiceEffects(voiceEffects.configurations(profile));
   } finally { effectsApplying = false; render(state); }
 }
@@ -212,7 +227,7 @@ function monitoringRelationship(value: string): MonitoringRelationship {
 }
 
 async function startPractice() {
-  if (starting || isRunning() || outputCapture === 'starting' || outputCapture === 'stopping') return;
+  if (voiceCatalog.busy || starting || isRunning() || outputCapture === 'starting' || outputCapture === 'stopping') return;
   if (!chart) throw new Error('The song chart is still loading. Try again in a moment.');
   const bpm = Number(elements.bpm.value);
   const startBar = Number(elements['start-section'].value);
@@ -227,6 +242,8 @@ async function startPractice() {
   let startedRecording = false;
   let microphoneGeneration: number | undefined;
   try {
+    await voiceCatalog.saveDrafts();
+    if (generation !== transportGeneration) return;
     instance = await ensureAudio();
     if (generation !== transportGeneration) return;
     await instance.configureVoiceEffects(effects);
@@ -333,7 +350,7 @@ function mountVoiceRows() {
   for (const part of parts ?? []) {
     if (part.role.kind === 'pad') {
       const pad = pads.get(part.role.buttonId);
-      if (pad) voiceEffects.mount(part, pad.shell);
+      if (pad) voiceEffects.mount(part, pad.shell, () => voiceCatalog.openProfile(part.profile));
       continue;
     }
     const shell = document.createElement('article'); shell.className = 'voice-row'; shell.dataset.voice = part.id;
@@ -355,7 +372,7 @@ function mountVoiceRows() {
       }
       tools.append(rotations);
     }
-    main.append(identity, tools); shell.append(main); voiceEffects.mount(part, shell); elements['live-voices'].append(shell);
+    main.append(identity, tools); shell.append(main); voiceEffects.mount(part, shell, () => voiceCatalog.openProfile(part.profile)); elements['live-voices'].append(shell);
   }
   elements['live-voices'].hidden = !liveVoiceStates.size;
 }
@@ -383,11 +400,12 @@ function render(next: Partial<PracticeState>) {
   elements['bar-number'].textContent = inCountIn ? 'IN' : String(displayBar).padStart(2, '0');
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
-  elements.start.disabled = song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
-  elements['song-select'].disabled = switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
-  elements['record-demo'].disabled = outputCapture === 'starting' || outputCapture === 'stopping';
+  elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
+  elements['song-select'].disabled = voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
+  elements['record-demo'].disabled = voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
   const effectsLocked = running || starting || switching || Boolean(preparing) || effectsApplying || outputCapture !== 'idle';
   voiceEffects.render(state.voiceEffects, effectsLocked);
+  voiceCatalog.update({ bar: state.bar, voiceEffects: state.voiceEffects });
   for (const [profile, label] of liveVoiceStates) {
     const applied = state.voiceEffects?.find(voice => voice.profile === profile);
     label.textContent = applied?.activity === 'live' ? 'LIVE' : applied?.activity === 'tail' ? 'RELEASING' : applied?.activity === 'capture' ? 'RECORDING' : 'STANDBY';
@@ -473,6 +491,7 @@ function finishOutputRecording() {
 }
 
 async function toggleOutputRecording() {
+  if (voiceCatalog.busy) return;
   if (outputCapture === 'starting' || outputCapture === 'stopping') return;
   if (outputCapture === 'waiting' || recorder?.state === 'recording') { finishOutputRecording(); render(state); return; }
   const generation = transportGeneration;
@@ -567,6 +586,7 @@ window.addEventListener('wheel', event => {
     || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
   const target = event.target instanceof Element ? event.target : null;
   if (target?.closest('input,select,textarea,[contenteditable=true],details[open]')
+    || document.querySelector('dialog[open]')
     || document.activeElement?.closest('input,select,textarea,[contenteditable=true]')) return;
   event.preventDefault(); void act(() => rotate(event.deltaY));
 }, { passive: false });
@@ -582,6 +602,7 @@ window.addEventListener('keydown', event => {
     act(() => panic(peripheralCommandId(input)));
     return;
   }
+  if (document.querySelector('dialog[open]')) return;
   const target = event.target instanceof Element ? event.target : null;
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
     || keyboardFocusBlocksShortcut(event.code, Boolean(target?.closest('input,select,textarea,[contenteditable=true]')), Boolean(target?.closest('button,summary,a,[role=button]')))) return;
@@ -630,7 +651,8 @@ for (const entry of SONGS) {
   elements['song-select'].append(option);
 }
 elements.start.disabled = true;
-async function switchSong(id: string, imported?: CompiledSong): Promise<void> {
+async function switchSong(id: string, imported?: CompiledSong, source?: SongSource): Promise<void> {
+  if (voiceCatalog.busy) throw new Error('Wait for the voice library save before switching songs.');
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
   const generation = ++songGeneration;
@@ -645,7 +667,7 @@ async function switchSong(id: string, imported?: CompiledSong): Promise<void> {
     if (previousAudio) await previousAudio.dispose();
     if (preparing) await preparing.catch(() => {});
     const loaded: SongScript = imported ? {
-      id: imported.id, chart: imported.chart, program: { lengthBeats: imported.chart.beatsPerBar, events: [] }, compiled: imported,
+      id: imported.id, chart: imported.chart, program: { lengthBeats: imported.chart.beatsPerBar, events: [] }, compiled: imported, source,
       practice: { startBar: imported.chart.bars[0]?.bar || 1, endBar: imported.chart.annotatedThroughBar },
       description: 'Chart-compiled performance. Source cells and native instructions are available below.',
     } : await loadSong(id);
@@ -655,6 +677,7 @@ async function switchSong(id: string, imported?: CompiledSong): Promise<void> {
     state = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', recording: null, microphone: false,
       looping: [], error: null, channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
     mountVoiceRows();
+    await voiceCatalog.load(loaded).catch(showError);
     elements['song-select'].value = loaded.id;
     document.title = `${loaded.chart.title} · Practice desk`;
     elements.bpm.value = String(loaded.chart.bpm);
@@ -681,12 +704,12 @@ async function switchSong(id: string, imported?: CompiledSong): Promise<void> {
   }
 }
 const chartPanel = installChartPanel(chartSource, {
-  isBusy: () => isRunning() || starting || switching || effectsApplying || preparing !== null || outputCapture !== 'idle',
-  onLoad: async input => {
+  isBusy: () => voiceCatalog.busy || isRunning() || starting || switching || effectsApplying || preparing !== null || outputCapture !== 'idle',
+  onLoad: async (input, source) => {
     const compiled = decodeCompiledSong(input);
     if (!compiled.executable) throw new Error('Resolve the chart inspection errors before loading.');
-    if (isRunning() || starting || switching || preparing || effectsApplying || outputCapture !== 'idle') throw new Error('Stop practice and finish the recording before loading a chart.');
-    await switchSong(compiled.id, compiled);
+    if (voiceCatalog.busy || isRunning() || starting || switching || preparing || effectsApplying || outputCapture !== 'idle') throw new Error('Stop practice and finish the recording before loading a chart.');
+    await switchSong(compiled.id, compiled, source);
   },
 });
 await act(() => switchSong('dance-yrself-clean'));

@@ -120,3 +120,13 @@ Compiled song pads support processed capture with Slapback enabled. Legacy songs
 While that song is running, vertical scrolling over the desk also sends knob movement. Both directions count as activity. Scrolling over value editors or an open settings/inspection panel keeps its normal behavior, as do horizontal scrolling and modified zoom gestures. A focused value editor also keeps the proxy inactive. Trackpad momentum continues to count while it produces wheel events. Raw wheel deltas retain their sign in pixel, line, or page mode; they indicate activity and are not calibrated physical-knob distances. The native chart rule owns activation and release; the wheel proxy adds no inactivity timer.
 
 Automated browser checks use synthetic microphone input. An operator microphone/room test must record the actual input/output facts and be reported separately. No fixture audition is a physical monitoring test.
+
+## Voices, effects, and characters
+
+Open a voice's **FX** footer or **Manage voices** below the pads. The local library stores its display name, notes, optional Video character, avatar frame, ordered effect stack, and sheet-row connections. **Dry** means an empty stack. Capture instruments begin dry; vocal defaults remain available. Character artwork is a preview, and unassigned voices use initials.
+
+**Save voice** first saves locally, then prepares routed audio while stopped. It does not open the microphone. The readback distinguishes saved from applied effects. Retained takes keep their recorded effects. Extra sheet voices can have metadata and effects without an assigned audio input. A changed source label requires explicit confirmation before reconnecting its saved voice.
+
+The smaller rows below the pads show other instruments and their literal current-bar chart cues. They do not detect whether an external instrument is audible. AF-prefixed rows belong to the managed voice set; the prefix is part of a row label, not column AF.
+
+The library lives in this browser and site origin. Use **Export JSON** for a portable library and **Import library** to replace the current library from validated JSON. **SQLite backup** downloads the underlying database for inspection/recovery; the editor imports JSON. Export before clearing browser storage or moving devices. Song timing JSON and native packets are separate and do not contain local character/effect edits.

@@ -1,13 +1,13 @@
-import { VOICE_PROFILE_COUNT, ROTATION_LIVE_PROFILE } from '../../lib/performance/model.js';
+import { VOICE_PROFILE_COUNT, ROTATION_LIVE_PROFILE, DEFAULT_LIVE_PROFILE } from '../../lib/performance/model.js';
 import type { LiveEffectDefinition, VoiceEffectConfiguration, VoiceEffectsState } from '../../lib/performance/model.js';
 
 type Voice = { id: string; name: string; profile: number };
-type Footer = { voice: Voice; root: HTMLDetailsElement; summary: HTMLSpanElement; pending: HTMLSpanElement; controls: HTMLInputElement[]; buttons: HTMLButtonElement[] };
+type Footer = { edit?: () => void; voice: Voice; root: HTMLDetailsElement; summary: HTMLSpanElement; pending: HTMLSpanElement; controls: HTMLInputElement[]; buttons: HTMLButtonElement[] };
 const slapback = (): LiveEffectDefinition => ({ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 });
 const chorus = (): LiveEffectDefinition => ({ kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: .35 });
 export function initialVoiceEffects(mode: 'compiled' | 'dry' = 'compiled'): VoiceEffectConfiguration[] {
   return Array.from({ length: VOICE_PROFILE_COUNT }, (_, profile) => ({ profile,
-    effects: mode === 'dry' ? [] : profile === ROTATION_LIVE_PROFILE ? [slapback(), chorus()] : [slapback()] }));
+    effects: mode === 'dry' ? [] : profile === ROTATION_LIVE_PROFILE ? [slapback(), chorus()] : profile === DEFAULT_LIVE_PROFILE ? [slapback()] : [] }));
 }
 export function effectSummary(effects: readonly LiveEffectDefinition[]): string {
   return effects.map(effect => effect.kind === 'slapback'
@@ -28,8 +28,10 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
   function refresh() {
     for (const footer of footers) {
       const native = applied.find(item => item.profile === footer.voice.profile && item.prepared);
-      footer.summary.textContent = native ? effectSummary(native.effects) : 'Not applied';
-      footer.pending.textContent = dirty(footer.voice.profile) ? 'Unapplied' : 'Applied';
+      const summary = native ? effectSummary(native.effects) : effectSummary(draft(footer.voice.profile));
+      if (footer.summary.textContent !== summary) footer.summary.textContent = summary;
+      const status = dirty(footer.voice.profile) ? 'Unapplied' : 'Applied';
+      if (footer.pending.textContent !== status) footer.pending.textContent = status;
       footer.pending.dataset.dirty = String(dirty(footer.voice.profile));
       footer.root.dataset.prepared = String(Boolean(native));
       for (const input of footer.controls) input.disabled = locked;
@@ -38,6 +40,7 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
   }
   function renderFields(footer: Footer) {
     footer.root.querySelector('.fx-body')?.remove();
+    if (footer.edit) return;
     footer.controls = []; footer.buttons = [];
     const body = document.createElement('div'); body.className = 'fx-body';
     const effects = draft(footer.voice.profile);
@@ -103,14 +106,20 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
   }
   return {
     reset(nextMode: 'compiled' | 'dry') { mode = nextMode; drafts = initialVoiceEffects(mode); applied = []; footers.length = 0; },
-    mount(voice: Voice, container: HTMLElement) {
+    setEffects(profile: number, effects: readonly LiveEffectDefinition[]) {
+      drafts = drafts.map(item => item.profile === profile ? { ...item, effects: effects.map(effect => ({ ...effect })) } : item);
+      for (const footer of footers.filter(item => item.voice.profile === profile)) renderFields(footer);
+      refresh();
+    },
+    mount(voice: Voice, container: HTMLElement, edit?: () => void) {
       const root = document.createElement('details'); root.className = 'voice-effects'; root.dataset.voice = voice.id;
       const summaryElement = document.createElement('summary');
       const label = document.createElement('span'); label.className = 'fx-label'; label.textContent = 'FX';
       const summary = document.createElement('span'); summary.className = 'fx-summary';
       const pending = document.createElement('span'); pending.className = 'fx-state';
       summaryElement.append(label, summary, pending); root.append(summaryElement); container.append(root);
-      const footer: Footer = { voice, root, summary, pending, controls: [], buttons: [] };
+      if (edit) summaryElement.addEventListener('click', event => { event.preventDefault(); edit(); });
+      const footer: Footer = { edit, voice, root, summary, pending, controls: [], buttons: [] };
       footers.push(footer); renderFields(footer); refresh();
     },
     configurations(profile?: number): readonly VoiceEffectConfiguration[] {

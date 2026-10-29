@@ -7,7 +7,7 @@ import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
 
 function prepareUIContext(context) {
-  for (const [key, value] of Object.entries({ crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut })) if (!(key in context)) context[key] = value;
+  for (const [key, value] of Object.entries({ crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
   vm.createContext(context);
 }
 import { loadSong } from '../../../songs/index.ts';
@@ -117,7 +117,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
   assert.equal(recorders, 1);
 });
 
-function startupHarness(microphone = async () => {}, { autoPlay = true, convert = async () => new Blob(['mp3'], { type: 'audio/mpeg' }), voiceConfigurations = initialVoiceEffects(), compiled = true, loadedSong } = {}) {
+function startupHarness(microphone = async () => {}, { autoPlay = true, convert = async () => new Blob(['mp3'], { type: 'audio/mpeg' }), voiceConfigurations = initialVoiceEffects(), compiled = true, loadedSong, catalogSave = async () => {} } = {}) {
   const commands = [];
   class Element {
     constructor(selector) {
@@ -152,6 +152,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   const context = {
     Map, Set, Blob, URL: { createObjectURL(blob) { assert.equal(blob.type, 'audio/mpeg'); return 'blob:test'; }, revokeObjectURL(url) { revoked.push(url); } },
     recordingToMp3: convert, loadedSong,
+    installVoiceCatalog: () => ({ saveDrafts: catalogSave, update() {}, async load() {}, openProfile() {} }),
     createVoiceEffectsEditor: () => ({ configurations: () => typeof voiceConfigurations === 'function' ? voiceConfigurations() : voiceConfigurations }),
     window: { isSecureContext: true, MediaRecorder: Recorder }, MediaRecorder: Recorder, CONTROLS: [],
     HTMLElement: Element, HTMLSpanElement: Element, HTMLHeadingElement: Element, HTMLAnchorElement: Element,
@@ -179,6 +180,8 @@ function voiceEditorHarness() {
   }
   const roots = new Map(), applied = [];
   const editor = createVoiceEffectsEditor(profile => applied.push(profile));
+  // Explicit non-default stacks exercise field validation for otherwise dry capture voices.
+  for (const profile of [0, 1]) editor.setEffects(profile, [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }]);
   const original = globalThis.document;
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
@@ -190,7 +193,7 @@ function voiceEditorHarness() {
     if (original === undefined) delete globalThis.document;
     else globalThis.document = original;
   }
-  const native = initialVoiceEffects().map(configuration => ({ ...configuration, prepared: true, revision: 1, activity: 'standby', rotationEligible: false, rotationRemainingBeats: 0 }));
+  const native = editor.configurations().map(configuration => ({ ...configuration, prepared: true, revision: 1, activity: 'standby', rotationEligible: false, rotationRemainingBeats: 0 }));
   editor.render(native, false);
   function descendants(element) { return [element, ...element.children.flatMap(descendants)]; }
   function field(profile, label, value) {
@@ -214,7 +217,7 @@ for (const [profile, label, stage, parameter] of [[0, 'Wet', 0, 'wet'], [0, 'Fee
 test('Start rejects blank voice settings before microphone setup and preserves the applied bundle', async () => {
   const editor = voiceEditorHarness(); editor.field(0, 'Wet', '');
   const h = startupHarness(undefined, { voiceConfigurations: () => editor.editor.configurations() });
-  const previous = initialVoiceEffects(); h.audio.configuredEffects = previous;
+  const previous = editor.native.map(({ profile, effects }) => ({ profile, effects })); h.audio.configuredEffects = previous;
   h.audio.configureVoiceEffects = async configurations => {
     h.commands.push('effects');
     NativePerformance.prototype.prepareVoiceEffects.call({}, configurations);
@@ -388,6 +391,7 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   let padCalls = 0;
   class Element { closest() { return true; } }
   const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+    document: { querySelector: () => null },
     window: { addEventListener(_type, listener) { keydown = listener; } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: () => padCalls++,
   };
@@ -412,7 +416,7 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
   }
   const controls = [{ key: 'KeyQ', id: 'L1' }, { key: 'KeyW', id: 'R1' }, { key: 'KeyA', id: 'L2' }, { key: 'KeyS', id: 'R2' }];
   const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: controls,
-    document: { querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
+    document: { querySelector: () => null, querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }),
   };
@@ -460,7 +464,8 @@ for (const bypass of [false, true]) {
     await h.controls.startPractice();
     assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), configurations);
     assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
-    assert.equal(h.audio.configuredEffects[0].effects[0].delayMs, 100, 'tuning one voice does not change the other host draft');
+    assert.deepEqual(h.audio.configuredEffects[0].effects, [], 'tuning one voice leaves another capture voice dry');
+    assert.deepEqual(h.audio.configuredEffects[4].effects, initialVoiceEffects()[4].effects, 'tuning a capture voice preserves the live vocal stack');
   });
 }
 
@@ -493,6 +498,7 @@ test('Space on an effect disclosure, action button or link never toggles transpo
     closest(selector) { return selector.split(',').includes(this.kind) ? this : null; }
   }
   const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+    document: { querySelector: () => null },
     window: { addEventListener(_type, callback) { keydown = callback; } },
     act: action => action(), flash() {}, isRunning: () => false, startPractice: () => starts++, stopPractice() {}, panic: () => panics++, triggerPad: () => pads++,
   };
@@ -518,5 +524,23 @@ for (const id of ['drunk-girls', 'i-can-change']) {
     assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), initialVoiceEffects('dry'));
     assert(h.audio.configuredEffects.every(configuration => configuration.effects.length === 0));
     assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
+  });
+}
+
+for (const action of ['startPractice', 'applyVoiceEffects']) {
+  test(`${action} persists voice drafts before configuring audio`, async () => {
+    const operations = [];
+    const h = startupHarness(undefined, { catalogSave: async () => { operations.push('saved'); } });
+    const configure = h.audio.configureVoiceEffects;
+    h.audio.configureVoiceEffects = async effects => { operations.push('configured'); await configure.call(h.audio, effects); };
+    await h.controls[action](1);
+    assert.deepEqual(operations, ['saved', 'configured']);
+  });
+
+  test(`${action} blocks audio configuration when saving voice drafts fails`, async () => {
+    const failure = new Error('Local voice library could not be saved');
+    const h = startupHarness(undefined, { catalogSave: async () => { throw failure; } });
+    await assert.rejects(h.controls[action](1), error => error === failure);
+    assert.deepEqual(h.commands, [], 'failed persistence never prepares effects, microphone or transport');
   });
 }
