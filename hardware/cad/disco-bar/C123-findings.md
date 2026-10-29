@@ -18,7 +18,7 @@ Keep C1's separate retainer collar, straight torque keys and fixed padded-screw 
 
 For the box, use the compact keeper-tab approach: two tabs and two flush fasteners restrain the existing stock hex in its roof well. Tape bonding and extra swing pivots add dependencies without a demonstrated benefit for this stationary joint. Keep the replaceable sliding buffer separate from the grippy knob pads.
 
-The operator permits lifting the box for underside access. The matching service openings can therefore be evaluated with the box lifted. Access through the bottom, ballast containment, tool engagement and a safe reaction surface remain separate checks; roof-port clearance alone is insufficient. The proposed 9 mm spacing still needs checking against actual knob engagement.
+The operator permits lifting the box for underside access. The [lifted-base candidate](../box-mount/access/LIFTED_BASE.md) extends the supplied clearance probes through both panels while preserving the ballast floor and cover fastener seats. Its proposed 15 mm lift clears those probes above the table. Tool engagement, hand access and stability remain unverified. The proposed 9 mm spacing still needs checking against actual knob engagement.
 
 The shared viewer is unchanged. These findings precede the final design and its publication.
 
