@@ -28,8 +28,10 @@ def main():
     integrated = model.integrated_module()
     d_body = next(i for i, name in enumerate(scene[1]) if name.startswith("D |") and name.endswith(" / complete integrated bar"))
     c_screw = next(i for i, name in enumerate(scene[1]) if name.startswith("C |") and name.endswith(" / -38 axial screw"))
+    review_pad = next(i for i, name in enumerate(scene[1]) if name.startswith("A′ REVIEW ONLY") and name.endswith(" / +1 captured pad"))
     protrusion = integrated.cyl(3.6, 12, (2 * integrated.SPACING + 28, 40, -13), "y")
     cases = {
+        "altered locked-review pad": replace(review_pad, scene[0][review_pad].translate((.1, 0, 0))),
         "same-bounds body protrusion through driver-port mask": replace(d_body, scene[0][d_body] + protrusion),
         "unapproved extra display geometry": extra,
         "historical 28 mm original crop": replace(0, crop),

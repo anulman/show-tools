@@ -51,6 +51,7 @@ def main():
     sources = [Path(module.__file__), Path(__file__)]
     if args.workspace == "disco-bar":
         sources.append(CAD_DIR / "disco-bar" / "full_height.py")
+        sources.append(CAD_DIR / "disco-bar" / "latches.py")
     receipt = dict(workspace=args.workspace, labels=names, units="mm", port=args.port,
                    camera="iso" if reset else "keep", explode_mm=args.explode, physical_fit_verified=False,
                    source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sources})
