@@ -18,6 +18,18 @@ The [SpinTrak manufacturer page](https://www.ultimarc.com/trackballs-and-spinner
 
 No adhesive specification applies yet. The shell material, print material, glue product, contact preparation, and operating temperature are unknown. Claims about bond strength, temperature resistance, or removability require those facts and a physical coupon test.
 
+## Rubber or glue at the knob socket
+
+The operator proposed rubber or glue at the bar's knob insertion point. A replaceable elastomer liner inside an adjustable split collar is the leading candidate for a grip trial. The proposed liner provides compliant contact against the knurl, while the collar allows contact pressure to be adjusted. This is a design hypothesis, not a verified improvement over a bare printed socket.
+
+The socket can retain the liner with a recess or lip. Retention must prevent the liner from sliding, twisting, or bunching during insertion and direction changes. A retention feature also needs clearance for removal. Liner thickness, hardness, material, interference, and clamp force remain unselected.
+
+Glue between the liner and the printed socket is a separate option from glue between the socket and the knob. Keeping adhesive off the knob preserves the possibility of a removable connection, although the liner bond still needs a material-specific test. A mechanical retention feature avoids relying entirely on that bond.
+
+Directly gluing the knob into the socket creates a bonded joint whose performance depends on the actual adhesive, printed material, and knob surface. It also makes disassembly and cleanup dependent on that bond. A sleeve formed from glue and then released from the knob would instead act as an unverified liner. Neither approach establishes grip from the word "glue" alone.
+
+A trial must check insertion and removal, slip during reversals, liner movement, and contact damage. It must also check that the coupler clears stationary parts and turns freely. Rubber or glue at this interface does not by itself establish support for the ball's weight or hand loads.
+
 The parent session is collecting the facts needed for a fitted model:
 
 - What does Darren's cylindrical reference represent, and does its opening expose the proposed glue surfaces?

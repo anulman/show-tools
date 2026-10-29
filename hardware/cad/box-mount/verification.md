@@ -1,23 +1,27 @@
-# Box-mount geometry checks
+# Three-variant geometry checks
 
-Checked on October 29, 2026 with the existing isolated CAD environment. The corrected generator records its own SHA-256 in every receipt. `depth` now measures to the interior floor; the bottom extends below that reserve. Generated geometry stays outside Git.
+Checked on October 29, 2026 with the isolated CAD environment. This revision supersedes the former A/C comparison and its 35.25 mm reserve. The operator confirmed that the new 82.55 mm minimum starts at the counterbore floor and follows the tilted button centre axis.
 
-| Run | Parameters | Result |
-| --- | --- | --- |
-| Default | Interior depth 35.25 mm, recess 17.5 mm, C tilt 5 degrees | Both assemblies pass; interior floor -35.25 mm, exterior underside -38.25 mm |
-| Deeper variant | Interior depth 40 mm, other defaults unchanged | Both assemblies pass; interior floor -40 mm, exterior underside -43 mm |
-| Unrecessed variant | Interior depth 35 mm, recess 0, tilt 0 | Both assemblies pass; interior floor -35 mm, exterior underside -38 mm |
-| Exploded preview | Default parameters, bottoms lowered 30 mm | Six separate entries; enclosure parts valid; invalid manufacturer references isolated |
-| Clash rejection | Default parameters with `tray_y=30` | C rejected because its tilted stem passage intersects the ballast compartment |
+The active export includes `arcade-inclined`, `rotor-level`, and `mushroom-level`. It must produce six valid single-solid enclosure parts and three valid two-solid assembly STEP files. Each part must survive STEP round-trip and STL integrity checks. The receipt records all source and output hashes, parameters, versions, and assembly results.
 
-The floor regression in `check_reserve.py` fails against the previous source with `A 3.0mm cover interior floor: -32.25 != -35.25`. It passes against the corrected source for both A/C and both 3 mm and 5 mm covers. It checks actual CAD bounds against the requested reserve, independently of the derived datum properties.
+For the default arcade box, the interior floor is -84 mm and the external underside is -87 mm. The axis reaches 84.3209 mm before crossing the floor. The complete proposed 27 mm diameter, 82.55 mm long corridor is unobstructed by the shell, bottom, and ballast compartment. Its lowest end point has approximately 0.5875 mm above the floor. This finite corridor check is separate from the centreline projection and does not verify the actual harness.
 
-The default compartment moved to `tray_y=32` to remove that CAD clash. This does not establish the actual switch or harness envelope.
+The default ballast compartment centre is Y=36 mm. Its actual shell walls, roof, and closed bottom are checked against the proposed wiring and ballast envelopes. All variants preserve the shared floor datum and matching maximum exterior height. Each has zero measured shell-cover solid overlap, planar cover contact, a clear downward removal sweep, clear screw axes, and clear underside nut insertion paths.
 
-The generator also rejects nonfinite dimensions, boolean dimensions, channel or head pockets that consume the bottom skin, and nut pockets that consume the boss roof. Unknown parameter names fail at parsing.
+Rotor checks establish an open proposed 34 mm across-flats by 5 mm deep hex pocket, an open 29 mm body passage, and a supporting shelf. The hex dimensions remain illustrative. Mushroom checks establish that its roof has no component opening.
 
-The default receipt is `hardware/cad/build/box-mount-proposal/receipt.json`. It records four valid single-solid part exports, two valid two-solid assembly STEP exports, watertight consistently wound STL meshes, export hashes, package versions, and assembly checks. Both assemblies have zero measured solid overlap between shell and cover, and zero measured overlap with the modeled downward cover sweep.
+Run these checks from the worktree root:
 
-SVG views into both shells and bottoms were generated from CAD visible edges and inspected. The views expose the nut pockets, screw passages, ballast compartment, cover groove, and seam exit. No shared viewer was started or published by this workstream.
+```sh
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/box_mount.py --output /tmp/box-mount-review
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/box-mount/check_requirements.py
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/box-mount/check_reserve.py
+```
 
-These checks establish the recorded properties of the proposed CAD geometry. Physical fit, actual wire clearance, screw engagement, retained ballast behavior, strength, stability, printing, and assembly remain unverified. Machine-readable print readiness is `NOT_READY`.
+`check_requirements.py` checks the inch conversion and confirmed axial datum, then checks the actual CAD against an independently constructed finite corridor. It rejects both the former 35.25 mm interior depth and an 82.3 mm centreline-only depth that fails the proposed radial allowance. It also rejects an axial reserve shorter than 82.55 mm. The requirements report writes no CAD files.
+
+`check_reserve.py` checks actual cover and shell bounds for all three variants with both 3 mm and 5 mm covers. Both thicknesses retain the full proposed 84 mm interior reserve.
+
+The pure preview returns seven entries for all variants: six enclosure parts and one separate upstream-invalid arcade reference. Selecting arcade returns three entries. Selecting rotor or mushroom returns two. Exploded covers remain independently selectable. No shared viewer is started or published by this workstream.
+
+The SVG inspection views show the shell interior, exterior roof, and cover interior for each variant. Physical fit, actual wire clearance, screw engagement, ballast retention under load, strength, stability, printing, and assembled hardware remain unverified. Machine-readable print readiness remains `NOT_READY`.
