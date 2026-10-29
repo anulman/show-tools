@@ -68,4 +68,8 @@ The final scene passed the publication guard and was published with a reset came
 
 Independent review found that the body needed a round-envelope check in addition to its bounding box and edit mask. Both sessions reproduced the gap with a valid connected addition inside a driver-port mask that kept the original bounds but protruded beyond the circular opening. The corrected guard checks the complete body against the original cylindrical envelope. Eleven negative cases now pass, including that exact protrusion; all eleven exports and twelve sampled positions passed again. The correction changes validation only, and the current model geometry remains unchanged.
 
+## Omit A and B after axial-only access confirmation
+
+The operator confirmed that installed screws cannot be reached from the sides and requested A and B be removed from the page while axial latch alternatives are developed. The default factory now constructs only C and D, reducing the scene from 36 to 19 pieces without building and discarding the hidden models. D is explicitly labelled as a historical side-access comparison. The original remains complete and unchanged. The scene guard uses the selected factory set, and negative tests locate the actual C screw and D body by semantic names rather than old piece indices. The coordinator independently reran the 19-piece scene and all eleven negative cases. This is a selection change; existing C and D geometry is unchanged.
+
 These are integrated geometry studies. Tool access through the bar can be checked locally; access after installation in the actual ball is still operator-specific. No physical grip, pad deformation, material strength, adhesive attachment, encoder loading, or print readiness is established by these checks.

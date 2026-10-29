@@ -1,6 +1,8 @@
 # Full-height disco bar clamp comparison
 
-The Disco bar page shows the complete unchanged original first, followed by four full-height variants. Every variant retains the original long hollow body, top-attachment end, measured insertion width, and known-snug released socket. Only display copies move sideways. The original remains opaque and in its source pose. Variant bodies are translucent so their internal clamps remain visible.
+The Disco bar page currently shows only the complete unchanged original, C, and D. A and B are omitted and are not constructed by the page. The operator confirmed that only axial access is available, so D is retained as a historical comparison rather than a suitable access solution. New axial latch studies are in progress.
+
+All four source-derived screw studies remain in the generator for explicit headless selection. Every variant retains the original long hollow body, top-attachment end, measured insertion width, and known-snug released socket. Only display copies move sideways. The original remains opaque and in its source pose. Variant bodies are translucent so their internal clamps remain visible.
 
 | Variant | Mechanism | Exported print pieces |
 | --- | --- | --- |
@@ -18,7 +20,7 @@ hardware/cad/cad disco-check --step "$SHOW_TOOLS_DISCO_STEP" \
   --concepts hardware/cad/build/disco-full-height
 ```
 
-The command exports eleven proposed print pieces as STEP and STL into `a`, `b`, `c`, and `d` directories. It writes `receipt.json` with both model-source hashes and the reference asset hash. Pads, hardware, and the unchanged original are not exported. Full-bar derivatives remain local in the ignored build directory. STL coordinates must be interpreted as millimetres.
+The command exports six selected proposed print pieces as STEP and STL into `c` and `d` directories. It writes `receipt.json` with both model-source hashes and the reference asset hash. Pads, hardware, and the unchanged original are not exported. Full-bar derivatives remain local in the ignored build directory. STL coordinates must be interpreted as millimetres.
 
 The active generators and checks are in [full_height.py](full_height.py). The entrypoint remains `../disco_bar.py`. The old short carriers and Ø40 mm illustrative knob are retired; their source remains in Git history.
 
