@@ -2,7 +2,7 @@
 
 C1 separates the preset knob clamp from the bar latch. The shared v2 baseplate uses simple proposed 2 × 16 × 8 mm cut-stock pad envelopes, adhesive-backed toward retained printed rigid shoes. Adhesive never contacts the knob. The full bar seats over straight pilot keys. A separate quarter-turn retainer captures the baseplate flange; an independently retained safety key blocks reverse collar movement.
 
-This is the first prototype checkpoint, not final C or manufacturing approval. C2 and C3 have not yet been compared.
+This endpoint checkpoint is superseded by the release-path failure below. See [the comparison findings](C123-findings.md) for C2 and C3. No prototype is final C or approved for manufacture.
 
 ## Checked in actual CAD
 
@@ -15,11 +15,13 @@ This is the first prototype checkpoint, not final C or manufacturing approval. C
 - Straight key extraction and unpushed key rotation encounter the key housing. Pilot keys reject relative bar torque in both directions.
 - The contact artifact contains two actual planar bar patches in the proposed R43–45.5 mm support band. It does not assume a complete source annulus or prove washer support strength.
 
-## Unresolved findings
+## Intermediate withdrawal fails
 
-The original C1 fails intermediate bar withdrawal. The carrier's safety-key housing intersects the baseplate flange at 4 through 8 mm of lift, despite clear released and detached endpoints. Independent checks reproduce the collision from both the CAD model and normalized exported STEP solids. The seven checked poses do not establish a continuous operating path.
+`check_withdrawal.py` detects a carrier key-housing collision with the unchanged preset flange at source-Z lifts of −4, −6, and −8 mm. The seated and detached endpoints clear. C1 therefore fails its release path despite passing the seven original endpoint states. The supplemental receipt sets `operation_pass` to false and records exported collision witnesses.
 
 `check_c1_relief.py` evaluates a separate bounded proposal: a 6.8 by 6.8 mm relief through the flange at the housing's diagonal position. It preserves all knob-cup material inside radius 33 mm and retains the locked collar's flange capture. The changed baseplate passes STEP material equality and STL integrity checks. All moving-versus-fixed component pairs clear 1 mm withdrawal samples over 35 mm. A containing swept box proves continuous clearance of the diagnosed housing against the relieved flange. The other motions, operator engagement and strength remain unverified; this proposal is not final C and is not published.
+
+## Unresolved findings
 
 The collar tool sweep is a clearance envelope only. Positive tool engagement and actual operator ergonomics are not verified. The operator must hold the keyed bar while turning the separate collar; spinning the entire ball does not establish relative collar motion on a free spinner.
 
@@ -46,6 +48,14 @@ Run the separate relief proposal without changing the original C1 model:
 ~/.local/share/show-tools/cad/venv/bin/python \
   hardware/cad/disco-bar/check_c1_relief.py \
   --step "$SHOW_TOOLS_DISCO_STEP" --output hardware/cad/build/c1-relief
+```
+
+Run the supplemental withdrawal check after the endpoint checker:
+
+```sh
+~/.local/share/show-tools/cad/venv/bin/python \
+  hardware/cad/disco-bar/check_withdrawal.py \
+  --step "$SHOW_TOOLS_DISCO_STEP" --output hardware/cad/build/c123
 ```
 
 The [box integration findings](../box-mount/access/INTEGRATION.md) describe the actual artifact checks, compact keepers, service-port options and remaining table-access obstruction.
