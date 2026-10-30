@@ -4,7 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Schema } from 'effect';
-import { motionReadScript, nativeFromCanonical, verifyTiming } from './promotion.mjs';
+import { motionReadScript, nativeFromCanonical, verifyTiming } from './canonical-export.mjs';
 import { digest, verifyPublished } from './published.mjs';
 
 const approved = await verifyPublished('assets/video/published/C06-default/promotion.json');
