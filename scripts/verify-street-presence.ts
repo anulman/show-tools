@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import sharp from 'sharp';
 import { verifyStreetAsset, type StreetAsset } from '../lib/video/street-assets.js';
 import { parseStreetScene, type ActorFrame } from '../lib/video/street-score.js';
 import { createStreetSampler } from '../lib/video/street-sampler.js';
 import { streetPoofPlacement } from '../lib/video/presentation.js';
 import { spritePlacement } from './export-street-preview.js';
+import { isCliEntrypoint } from './cli-entry.js';
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 type Mask = { readonly pixels: Buffer; readonly width: number; readonly height: number };
@@ -152,7 +152,7 @@ export async function verifyStreetPresence({ scenePath, assetRoot, wasmPath }: {
   } finally { sampler.dispose(); }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (await isCliEntrypoint(import.meta.url)) {
   try {
     const [scenePath, assetRoot, wasmPath, reportPath, ...extra] = process.argv.slice(2);
     if (!scenePath || !assetRoot || !wasmPath || extra.length) throw new Error('Usage: verify-street-presence.ts SCENE ASSET_ROOT WASM [NEW_REPORT_JSON]');

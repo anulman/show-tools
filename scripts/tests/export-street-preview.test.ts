@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { createHash } from 'node:crypto';
 import { parseStreetScene, type ActorFrame } from '../../lib/video/street-score.js';
@@ -10,6 +12,17 @@ import type { StreetAsset } from '../../lib/video/street-assets.js';
 import { createStreetCompositor, exportFrameCount, parseExportArguments } from '../export-street-preview.js';
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
+
+test('export CLI rejects missing inputs when launched through a checkout symlink', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'street-export-entry-'));
+  try {
+    const alias = join(root, 'checkout');
+    await symlink(fileURLToPath(new URL('../../', import.meta.url)), alias, 'dir');
+    const result = spawnSync(process.execPath, ['--import', 'tsx', join(alias, 'scripts/export-street-preview.ts')], { encoding: 'utf8' });
+    assert.equal(result.status, 1);
+    assert(result.stderr.length > 0);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 function scene(backgroundHash = '0'.repeat(64), poseHash = '0'.repeat(64)) {
   const clips = ['simple', 'vigorous', 'special'].map(tier => ({
     id: tier, tier, cycleQuarters: 1, actionQuarters: null, nativeGrid: { width: 2, height: 2 }, sourceOffset: { x: 50, y: 50 },

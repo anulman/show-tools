@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { Schema } from 'effect';
 import sharp from 'sharp';
@@ -10,6 +10,7 @@ import { grayscaleRgba, streetPoofPlacement } from '../lib/video/presentation.js
 import { parseStreetScene, type PreparedStreetScene, type ActorFrame } from '../lib/video/street-score.js';
 import { createStreetSampler } from '../lib/video/street-sampler.js';
 import { verifyStreetAsset, type StreetAsset } from '../lib/video/street-assets.js';
+import { isCliEntrypoint } from './cli-entry.js';
 
 const ExportOptions = Schema.Struct({
   scene: Schema.NonEmptyString,
@@ -176,7 +177,7 @@ export async function exportStreetPreview(input: ExportOptions) {
   } finally { sampler.dispose(); }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+if (await isCliEntrypoint(import.meta.url)) {
   try {
     const result = await exportStreetPreview(parseExportArguments(process.argv.slice(2)));
     process.stdout.write(`${JSON.stringify({ movie: result.movie, frames: result.receipt.frameCount, fps: result.receipt.fps })}\n`);

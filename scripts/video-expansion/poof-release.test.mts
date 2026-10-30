@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { chmod, copyFile, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -8,6 +9,30 @@ import sharp from 'sharp';
 import { buildPoofRelease, POOF_CATALOG_PATH, PoofCatalog, poofSha256, readPoofRelease } from './poof-release.mjs';
 
 const checkout = fileURLToPath(new URL('../../', import.meta.url));
+
+test('release CLI executes through a checkout alias and rejects invalid inputs', async () => {
+  const root = await mkdtemp('/private/tmp/poof-release-entry-test-');
+  try {
+    const alias = join(root, 'checkout');
+    await symlink(checkout, alias, 'dir');
+    const entry = join(alias, 'scripts/video-expansion/poof-release.mts');
+    const usage = spawnSync(process.execPath, ['--import', 'tsx', entry], { encoding: 'utf8' });
+    assert.equal(usage.status, 1);
+    assert.match(usage.stderr, /Usage: poof-release/);
+    const invalid = spawnSync(process.execPath, ['--import', 'tsx', entry, join(root, 'missing-source'), join(root, 'output')], { encoding: 'utf8' });
+    assert.equal(invalid.status, 1);
+    assert.match(invalid.stderr, /ENOENT/);
+    await assert.rejects(lstat(join(root, 'output')), /ENOENT/);
+    const f = await fixture();
+    try {
+      const valid = spawnSync(process.execPath, ['--import', 'tsx', entry, f.sourceRoot, f.outputRoot], { encoding: 'utf8' });
+      assert.equal(valid.status, 0, valid.stderr);
+      const result = JSON.parse(valid.stdout);
+      assert.equal(result.drawings, 18);
+      assert.equal((await filePaths(f.outputRoot)).length, 19);
+    } finally { await discard(f.root); }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 async function fixture() {
   const root = await mkdtemp('/private/tmp/poof-release-test-'), sourceRoot = join(root, 'source'), outputRoot = join(root, 'release');
   const bytes = await readFile(join(checkout, POOF_CATALOG_PATH));

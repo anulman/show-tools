@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { pathToFileURL } from 'node:url';
+import { isCliEntrypoint } from '../cli-entry.js';
 import { Schema } from 'effect';
 import sharp from 'sharp';
 
@@ -181,7 +181,7 @@ export async function buildPoofRelease(options: { sourceRoot: string; outputRoot
   }
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+if (await isCliEntrypoint(import.meta.url)) {
   const [sourceRoot, outputRoot, ...extra] = process.argv.slice(2);
   if (!sourceRoot || !outputRoot || extra.length) throw Error('Usage: poof-release.mts SOURCE_ROOT NEW_TEMP_OUTPUT_ROOT');
   process.stdout.write(JSON.stringify(await buildPoofRelease({ sourceRoot, outputRoot })) + '\n');

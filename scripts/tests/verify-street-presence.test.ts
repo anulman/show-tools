@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { parseStreetScene } from '../../lib/video/street-score.js';
 import { verifyStreetPresence } from '../verify-street-presence.js';
@@ -224,6 +225,41 @@ test('CLI writes one exclusive report and exits nonzero for failed admission', a
     assert.equal(second.status, 1); assert.match(second.stderr, /EEXIST/);
     assert.equal(await readFile(reportPath, 'utf8'), original);
   } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('CLI runs through a checkout symlink and cannot silently skip failed admission', async () => {
+  const f = await fixture({ wrongPeak: true });
+  try {
+    const alias = join(f.root, 'checkout');
+    await symlink(fileURLToPath(new URL('../../', import.meta.url)), alias, 'dir');
+    const entry = join(alias, 'scripts/verify-street-presence.ts');
+    const usage = spawnSync(process.execPath, ['--import', 'tsx', entry], { encoding: 'utf8' });
+    assert.equal(usage.status, 1);
+    assert.match(usage.stderr, /Usage: verify-street-presence/);
+    const reportPath = join(f.root, 'alias-report.json');
+    const failed = spawnSync(process.execPath, ['--import', 'tsx', entry, f.scenePath, f.root, wasmPath, reportPath], { encoding: 'utf8' });
+    assert.equal(failed.status, 1, failed.stderr);
+    assert.equal(JSON.parse(await readFile(reportPath, 'utf8')).admission, false);
+    assert(f.scene.staging.kind === 'poof');
+    await writeFile(f.scenePath, JSON.stringify({ ...f.scene, staging: { ...f.scene.staging,
+      tracks: f.scene.staging.tracks.map(track => ({ ...track, keys: track.keys.map(key => ({ ...key,
+        poof: key.poof === null ? null : { ...key.poof, pose: 2 },
+      })) })),
+    } }));
+    const validReport = join(f.root, 'alias-valid.json');
+    const valid = spawnSync(process.execPath, ['--import', 'tsx', entry, f.scenePath, f.root, wasmPath, validReport], { encoding: 'utf8' });
+    assert.equal(valid.status, 0, valid.stderr);
+    assert.equal(JSON.parse(await readFile(validReport, 'utf8')).admission, true);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('stdin scripts can import the verifier API without invoking its CLI', () => {
+  const moduleUrl = new URL('../verify-street-presence.ts', import.meta.url).href;
+  const result = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-'], {
+    encoding: 'utf8', input: `import { verifyStreetPresence } from ${JSON.stringify(moduleUrl)}; process.stdout.write(typeof verifyStreetPresence);`,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, 'function');
 });
 
 test('explicit pre-existing presence does not invent an entrance at song zero', async () => {
