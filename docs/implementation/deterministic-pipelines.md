@@ -42,4 +42,8 @@ Retain useful recoveries as concise instructions or focused regression cases. Do
 
 ## Delivery status
 
-The shared diagnostic contract and its focused tests are implemented. The four command milestones are being developed and reviewed independently. Their successful integration updates the relevant command guides; this plan does not claim that their interfaces have shipped.
+The shared diagnostic contract and all four bounded command milestones are implemented and merged. The [development guide](../development.md#run-deterministic-product-commands) collects the command entry points and focused checks.
+
+Review reproduced and corrected unsafe audition reads, incomplete renderer replies, and silent CLI startup through macOS path aliases. Regression cases exercise those failures without changing operator inputs. Verification uses synthetic audio, copied animation fixtures, and isolated CAD outputs; it does not establish physical audio quality, live Figma equivalence, or installed hardware fit.
+
+Preboot failures such as a missing Node executable or loader occur before these command handlers can format a record. An agent driving the command must hand those failures to Chief. Commands do not claim power-loss durability or provide an independent backup.

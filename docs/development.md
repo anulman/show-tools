@@ -8,6 +8,48 @@ The [canonical-data and retention policy](data-retention.md) governs promotion a
 
 The [deterministic command plan](implementation/deterministic-pipelines.md) separates product validation from harness recovery. Product blocks require an operator-facing explanation and suggested next steps when driven by an agent. Harness failures hand control to Chief. Shared CLI diagnostics live in `scripts/lib/command-diagnostics.ts`; domain code owns the actual validation rules.
 
+## Run deterministic product commands
+
+Use the [native performance guide](../lib/performance/README.md) for chart options and source mappings. Each command publishes one output. Inspect the JSON before encoding the exact inspected file for the engine.
+
+```sh
+./show-tools chart compile --source SOURCE.json --mapping MAPPING.json --out SONG.json
+./show-tools chart inspect SONG.json
+./show-tools chart encode --song SONG.json --out SONG.pfp
+```
+
+The removed `--native-out` option reports a migration instruction. A draft can be inspected but cannot be encoded for execution. Add `--json` to receive a structured failure without preceding human output.
+
+Use the [audition guide](../lib/patches/tools/README.md) to render approved shared effects from explicit synthetic or WAV input. Supply both linear gains and a fresh output directory.
+
+```sh
+node --import tsx scripts/audition-patches.ts --source synthetic --rate 48000 --patch tribulations-guitar --input-gain 1 --output-gain 1 --out /tmp/guitar-audition
+```
+
+The pack contains dry, processed, and exact-duplicate controls. It performs no automatic gain correction or loudness matching. Existing packs are preserved. The manifest records the actual input, gains, hashes, and frame counts; toolchain provenance is separate.
+
+The [canonical animation guide](../assets/video/published/README.md) describes generating complete Figma read scripts and checking captured output. These commands preserve the existing pixel, visible-scene, layer, and HOLD gates. They do not edit Figma or promote artwork by fallback.
+
+Run the allowlisted CAD fit-trial workflow with an explicit installed CAD Python and a fresh absolute output directory.
+
+```sh
+hardware/cad/cad candidate measured-hex-joint --python /absolute/path/to/cad/python --output /absolute/path/to/new-trial --json
+```
+
+The command runs the existing negative checker before export and verifies the actual receipt and file hashes. Its result covers an isolated two-piece fit trial, not the complete mount or physical fit. It does not discover services, publish to a viewer, or start live services. Runtime and protocol failures return to Chief. A final checked receipt marks a consumable export. Partial output without that receipt is untrusted; ask Chief to inspect it and rerun into a fresh directory.
+
+Run the changed command checks without starting live services.
+
+```sh
+node --import tsx --test scripts/tests/command-diagnostics.test.ts scripts/tests/chart-compiler.test.ts scripts/tests/audition-patches.test.ts
+npm run test:figma-exports
+npm run test:cad-commands
+/absolute/path/to/cad/python -m unittest discover -s hardware/cad/tests -p test_headless_candidate.py
+npm run typecheck
+```
+
+CAD Python checks require the environment from `hardware/cad/requirements.lock`. Missing verification dependencies are a Chief recovery task. Expected negative fixtures do not require operator notifications. Unexpected product blocks encountered while carrying out an operator request do.
+
 ## Give each session its own checkout
 
 Create separate worktrees before running agents concurrently. This separates source edits, the Git index, dependencies, and generated `dist/` files.
