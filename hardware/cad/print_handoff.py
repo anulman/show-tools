@@ -44,6 +44,15 @@ def read_inputs(selector,arcade_path,box_path,box_sha):
     require(box['geometry_checks_pass'] is True and box['C_receipt_sha256']==admission['candidate_receipt']['sha256'],
             'Box is not checked for this C coupling')
     require(box.get('tool_service_requires_bottom_removed') is True,'C box must establish bottom-panel-off service')
+    lifecycle=box['checks'].get('panel_service_lifecycle',{})
+    require(lifecycle.get('reachable_states')==66 and lifecycle.get('C_projection_states')==39
+            and lifecycle.get('every_reachable_state_returns_to_bare_glued_bar_and_closed_box') is True
+            and lifecycle.get('initial_and_final_panel_closed') is True
+            and lifecycle.get('all_installed_C_actions_require_bottom_open') is True
+            and lifecycle.get('panel_changes_require_both_C_keys_withdrawn') is True
+            and len(lifecycle.get('negative_controls',{}))==9,'Incomplete bottom-panel service proof')
+    require(box.get('service_keeps_sealed_ballast_and_wiring_on_stationary_shell') is True,
+            'Bottom removal releases ballast or wiring')
     require(box.get('no_rotor_to_box_retaining_joint_or_stop') is True,'Box constrains rotating assembly')
     require(box['manufacturing_approved'] is False and box['physical_fit_verified'] is False,'Prototype scope changed')
     return arcade,box,coupling
@@ -68,7 +77,8 @@ def prepare(selector,arcade_path,box_path,box_sha,step,output):
                   stl=str(reference_dir/'darren-original-bar.stl'))
     record.update(step_sha256=record['files']['darren-original-bar.step'],stl_sha256=record['files']['darren-original-bar.stl'])
     groups=[dict(id='arcade',title='01 Arcade button box mount',frame='box',records=arcade['review_components']),
-            dict(id='knob-box',title='02 Disco knob box mount - C',frame='box',records=box['review_components']),
+            dict(id='knob-box',title='02 Disco knob box mount - C',frame='box',
+                 records=box['review_components']+box.get('purchased_components',[])),
             dict(id='original',title='03 Darren original disco bar',frame='bar',records=[record]),
             dict(id='C',title='04 Option C disco bar and collar',frame='bar',
                  records=[coupling['environment']]+coupling['stages']['locked']['components'])]
@@ -141,7 +151,8 @@ def load_selection(path):
     for file,sha in data['source_artifacts'].items():require(digest(file)==sha,'Print source artifact changed')
     require([q['id'] for q in data['groups']]==['arcade','knob-box','original','C'],'Exactly four requested assemblies required')
     require([q['frame'] for q in data['groups']]==['box','box','bar','bar'],'Changed assembly frames')
-    expected={'arcade':arcade['review_components'],'knob-box':box['review_components'],
+    expected={'arcade':arcade['review_components'],
+              'knob-box':box['review_components']+box.get('purchased_components',[]),
               'C':[coupling['environment']]+coupling['stages']['locked']['components']}
     for group in data['groups']:
         if group['id'] in expected:require(group['records']==expected[group['id']],'Wrong displayed assembly inventory')
@@ -172,8 +183,10 @@ def publish(path,port=3939,reset=False,boxes_only=False):
         for item,shape in pieces:
             objects.append(shape.translate((x,0,-minimum)));label=group['title']+' - '+item['name'];labels.append(label);group_labels.append(label)
             shell=item['name'] in ('shell','bare glued bar','Darren original full-height bar')
-            colors.append('#d1b394' if group['id']=='arcade' else '#96b5c8' if group['id']=='knob-box' else '#83a4c1' if group['id']=='original' else
-                          '#a48bc5' if item['role']=='print' else '#e4b24a' if item['role']=='pad' else '#969da7')
+            colors.append('#e4b24a' if item['role']=='materials-DO-NOT-PRINT' else
+                          '#969da7' if item['role'].startswith('purchased') else
+                          '#d1b394' if group['id']=='arcade' else '#96b5c8' if group['id']=='knob-box' else '#83a4c1' if group['id']=='original' else
+                          '#a48bc5' if item['role']=='print' else '#414449' if item['role']=='pad' else '#969da7')
             alphas.append(.4 if shell and group['id'] in ('arcade','knob-box','C') else 1.)
         if group['id']=='knob-box':
             for item in data['optional_box_components']:
@@ -181,7 +194,9 @@ def publish(path,port=3939,reset=False,boxes_only=False):
                 objects.append(shape.translate((x,-130,-bb.min.Z)));label=group['title']+' - OPTIONAL 2mm height shim';labels.append(label);group_labels.append(label)
                 colors.append('#7894ab');alphas.append(1.)
         groups.append(dict(id=group['id'],title=group['title'],labels=group_labels))
-    files.unchanged();show(*objects,names=labels,colors=colors,alphas=alphas,port=port,reset_camera=Camera.ISO if reset else Camera.KEEP)
+    files.unchanged();show(*objects,names=labels,colors=colors,alphas=alphas,port=port,
+        reset_camera=Camera.RESET if reset else Camera.KEEP,
+        zoom=.85 if reset else None,ortho=True if reset else None)
     receipt=dict(workspace='box-mount' if boxes_only else 'disco-bar',presentation=data['presentation'],groups=groups,labels=labels,
         selection=pin(path),tool_service_requires_bottom_removed=True,actual_artifacts=files.files,
         physical_fit_verified=False,manufacturing_approved=False,canvas_delivery_verified=False)
