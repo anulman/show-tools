@@ -1,4 +1,4 @@
-"""Display reviewed prototype exports beside the previous models, without replacing them."""
+"""Display reviewed exports as candidates or comparisons without deleting prior data."""
 from __future__ import annotations
 
 import argparse
@@ -28,6 +28,8 @@ class Comparison:
         self.sha256 = hashlib.sha256(data).hexdigest()
         self.registry = json.loads(data)
         final_review.require(self.registry.get('schema') == 1, 'Unknown comparison registry')
+        self.presentation = self.registry.get('presentation', 'comparison')
+        final_review.require(self.presentation in ('comparison', 'candidates'), 'Unknown review presentation')
         entries = self.registry['receipts']
         final_review.require(set(entries) == set(PINS), 'Incomplete comparison selection')
         self.files = {str(self.path): self.sha256}
@@ -73,7 +75,59 @@ class Comparison:
 
     def provenance(self):
         return dict(registry_sha256=self.sha256, receipts=PINS,
+                    presentation=self.presentation,
                     physical_fit_verified=False, manufacturing_approved=False)
+
+    def candidates(self, workspace, *, variant='all', explode=0):
+        """Build selected assemblies only; historical comparisons remain on disk."""
+        import math
+        from build123d import Axis, import_step
+        final_review.require(math.isfinite(explode) and explode >= 0, 'Invalid explode distance')
+        scene = ([], [], [], [])
+
+        def base_at(x, z=0, lower_bottom=0):
+            for name, role, shape in self.parts['rotor']:
+                self.append(scene, shape, 'SPINNER BASE CANDIDATE / ' + name,
+                            '#48acaa' if name == 'shell' else '#e6a238' if name == 'buffer' else '#80c8bd',
+                            .6 if name == 'shell' else 1.,
+                            (x, 0, z-(lower_bottom if name == 'bottom' else 0)))
+
+        if workspace == 'disco-bar':
+            # Show the installed orientation and the actual checked companion base.
+            base_at(0)
+            layout = self.reports['rotor']['proposed_layout']
+            final_review.require(layout['source_to_box_rotation_x_degrees'] == 180,
+                                 'Unsupported installed bar orientation')
+            for name, role, shape in self.parts['collar']:
+                placed = final_review.integration.pose(
+                    shape, layout['gap_mm'], layout['service_index_degrees'])
+                color = '#e6a238' if role == 'pad' else '#8b65c1' if role == 'bar' else '#39bca7'
+                self.append(scene, placed, 'BAR / BASEPLATE CANDIDATE / ' + name,
+                            color, .18 if role == 'bar' else .35 if role == 'body' else 1., (0, 0, 0))
+        else:
+            final_review.require(workspace == 'box-mount', 'Unknown candidate workspace')
+            final_review.require(variant in ('all', 'arcade-inclined', 'rotor-level'),
+                                 'No complete publication candidate for this box variant')
+            if variant in ('all', 'arcade-inclined'):
+                x = -80 if variant == 'all' else 0
+                for name, role, shape in self.parts['arcade']:
+                    self.append(scene, shape, 'ARCADE CANDIDATE, DUAL EXITS / ' + name,
+                                '#48acaa' if name == 'shell' else '#80c8bd',
+                                .6 if name == 'shell' else 1., (x, 0, -explode if name == 'bottom' else 0))
+                folder = HERE / 'components' / 'adafruit-1185'
+                provenance = folder / 'source.json'
+                reference = folder / 'button.step'
+                self.files[str(provenance)] = final_review.digest(provenance)
+                self.files[str(reference)] = json.loads(provenance.read_text())['sha256']
+                self.assert_current()
+                # This upstream reference contains invalid bodies and is never a print target.
+                scene[0].append(import_step(reference).rotate(Axis.X, box_mount.Proposal().tilt).translate((x, 0, 0)))
+                scene[1].append('ARCADE / button REFERENCE, not a print target')
+                scene[2].append('#367fd4'); scene[3].append(1.)
+            if variant in ('all', 'rotor-level'):
+                base_at(80 if variant == 'all' else 0, box_mount.Proposal().level_top_z, explode)
+        self.assert_current()
+        return scene
 
     @staticmethod
     def append(scene, shape, name, color, alpha, offset):
@@ -134,10 +188,11 @@ def load_optional():
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     for kind in PINS: parser.add_argument('--' + kind, type=Path, required=True)
+    parser.add_argument('--presentation', choices=('comparison', 'candidates'), default='comparison')
     args = parser.parse_args()
     CURRENT.parent.mkdir(parents=True, exist_ok=True)
     temporary = CURRENT.with_suffix('.pending.json')
-    temporary.write_text(json.dumps(dict(schema=1, receipts={
+    temporary.write_text(json.dumps(dict(schema=1, presentation=args.presentation, receipts={
         kind: str(getattr(args, kind).resolve()) for kind in PINS}), indent=2)+'\n')
     try:
         selection = Comparison(temporary)
