@@ -1,137 +1,99 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { resolve, join } from 'node:path';
+import { realpath } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Schema } from 'effect';
-import { digest, normalizedPixels, verifyPublished, Published } from './published.mjs';
+import { chiefHandoff, commandFailureExitCode, formatCommandFailure, productFailure, type CommandFailure } from '../../lib/command-diagnostics.js';
+import { OutputConflict, publishDirectory, publishReport } from './atomic-output.mjs';
 
-const Live = Schema.Struct({
-  rootNodeId: Schema.String,
-  duration: Schema.Number,
-  scene: Schema.Unknown,
-  tracks: Schema.Array(Schema.Struct({
-    componentId: Schema.String,
-    track: Schema.Struct({ keyframes: Schema.Array(Schema.Struct({
-      timelinePosition: Schema.Number,
-      easing: Schema.Struct({ type: Schema.Literal('HOLD') }),
-      value: Schema.Struct({ value: Schema.Literals([0, 1]) }),
-    })) }),
-  })),
-});
+const usage = `Usage:
+  promotion.mts reexport-scripts PACKAGE_DIRECTORY OUTPUT_DIRECTORY [--json]
+  promotion.mts check PACKAGE_DIRECTORY CAPTURE_DIRECTORY [--report REPORT.json] [--json]
+`;
 
-export async function nativeFromCanonical(path: string, publication: typeof Published.Type) {
-  const { width, height } = publication.nativeGrid;
-  const matrix = publication.nativeToFigma;
-  const source = await normalizedPixels(path), result = Buffer.alloc(width * height * 4);
-  if (matrix.length !== 2 || matrix.some(row => row.length !== 3 || row.some(value => !Number.isInteger(value))) || matrix[0][1] || matrix[1][0] || matrix[0][0] <= 0 || matrix[1][1] <= 0) throw new Error('Unsupported canonical pixel transform');
-  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
-    const sx = Math.floor((x + .5) * matrix[0][0] + matrix[0][2]);
-    const sy = Math.floor((y + .5) * matrix[1][1] + matrix[1][2]);
-    if (sx >= 0 && sy >= 0 && sx < source.width && sy < source.height) {
-      const at = (sy * source.width + sx) * 4;
-      source.data.copy(result, (y * width + x) * 4, at, at + 4);
+class UsageFailure extends Error {}
+
+type Command =
+  | { operation: 'help' }
+  | { operation: 'reexport-scripts'; packageDirectory: string; directory: string }
+  | { operation: 'check'; packageDirectory: string; directory: string; report: string | null };
+
+function commandArguments(args: readonly string[]): Command {
+  if (args.length === 1 && (args[0] === '--help' || args[0] === '-h')) return { operation: 'help' };
+  const [operation, ...rest] = args.filter(arg => arg !== '--json');
+  if (operation !== 'check' && operation !== 'reexport-scripts') throw new UsageFailure('Choose reexport-scripts or check.');
+  const positional = [];
+  let report: string | null = null;
+  for (let index = 0; index < rest.length; index++) {
+    const arg = rest[index];
+    if (arg === '--report' && operation === 'check' && report === null) {
+      const value = rest[++index];
+      if (!value || value.startsWith('-')) throw new UsageFailure('--report needs a report file path.');
+      report = value;
+    } else if (!arg || arg.startsWith('-')) throw new UsageFailure('An argument is empty or a flag is unsupported.');
+    else positional.push(arg);
+  }
+  if (positional.length !== 2) throw new UsageFailure('Supply exactly one package directory and one output or capture directory.');
+  return operation === 'check'
+    ? { operation, packageDirectory: positional[0], directory: positional[1], report }
+    : { operation, packageDirectory: positional[0], directory: positional[1] };
+}
+
+function ioCode(error: unknown): string | null {
+  return error instanceof Error && 'code' in error && typeof error.code === 'string' && /^[A-Z][A-Z0-9_]+$/.test(error.code) ? error.code : null;
+}
+
+export async function runCommand(args: readonly string[]): Promise<void> {
+  const json = args.includes('--json');
+  let command: Command | undefined;
+  let core: typeof import('./canonical-export.mjs') | undefined;
+  let phase: 'startup' | 'input' | 'output' = 'startup';
+  try {
+    command = commandArguments(args);
+    if (command.operation === 'help') { process.stdout.write(usage); return; }
+    core = await import('./canonical-export.mjs');
+    phase = 'input';
+    let result;
+    if (command.operation === 'reexport-scripts') {
+      const prepared = await core.readScripts(command.packageDirectory);
+      phase = 'output';
+      await publishDirectory(command.directory, prepared.files);
+      result = { fileKey: prepared.fileKey, outputDirectory: command.directory, poses: prepared.poses };
+    } else {
+      result = await core.checkCanonicalExport(command.packageDirectory, command.directory);
+      if (command.report !== null) {
+        phase = 'output';
+        await publishReport(command.report, JSON.stringify(result, null, 2) + '\n');
+      }
     }
-    if (result[(y * width + x) * 4 + 3] && (x * matrix[0][0] + matrix[0][2] < 0 || y * matrix[1][1] + matrix[1][2] < 0 || (x + 1) * matrix[0][0] + matrix[0][2] > source.width || (y + 1) * matrix[1][1] + matrix[1][2] > source.height)) throw new Error('Occupied native pixel cell is clipped by the canonical canvas');
-  }
-  for (let y = 0; y < source.height; y++) for (let x = 0; x < source.width; x++) {
-    const nx = Math.floor((x - matrix[0][2]) / matrix[0][0]);
-    const ny = Math.floor((y - matrix[1][2]) / matrix[1][1]);
-    const inside = nx >= 0 && ny >= 0 && nx < width && ny < height;
-    for (let channel = 0; channel < 4; channel++) {
-      const expected = inside ? result[(ny * width + nx) * 4 + channel] : 0;
-      if (source.data[(y * source.width + x) * 4 + channel] !== expected) throw new Error('Canonical geometry differs inside native pixel cells or registration margins');
+    process.stdout.write(JSON.stringify(result) + '\n');
+  } catch (error) {
+    const locations = command && command.operation !== 'help'
+      ? [join(command.packageDirectory, 'promotion.json'), command.directory, ...(command.operation === 'check' && command.report !== null ? [command.report] : [])] : [];
+    if (error instanceof Error && 'path' in error && typeof error.path === 'string' && error.path.trim()) locations.push(error.path);
+    let failure: CommandFailure;
+    if (error instanceof UsageFailure) {
+      failure = productFailure({ code: 'FIGMA_ARGUMENTS_INVALID', message: error.message, locations: [], nextSteps: ['Run promotion.mts --help, then supply the required paths and supported flags.'] });
+    } else if (error instanceof OutputConflict && error.reason !== 'busy') {
+      failure = productFailure({ code: 'FIGMA_OUTPUT_CONFLICT', message: error.message, locations: [error.outputPath], nextSteps: ['Choose a fresh output path, or reuse an existing output only when its complete contents match. Existing output was preserved.'] });
+    } else if (error instanceof OutputConflict) {
+      failure = chiefHandoff({ code: 'FIGMA_PUBLICATION_LOCKED', message: error.message, locations: [error.outputPath], nextSteps: ['Chief: establish whether the publisher is still active before retrying or resolving an orphaned lock. Do not steal the lock or stop another session.'] });
+    } else if (phase === 'input' && ((core && error instanceof core.CanonicalViolation) || Schema.isSchemaError(error) || error instanceof SyntaxError || ['ENOENT', 'ENOTDIR', 'EISDIR'].includes(ioCode(error) ?? '') || error instanceof Error && /Input buffer (contains unsupported image format|has corrupt header)|XML parse error/.test(error.message))) {
+      const message = core && error instanceof core.CanonicalViolation ? error.message
+        : Schema.isSchemaError(error) ? 'Package or capture metadata does not match the required schema.'
+        : error instanceof SyntaxError ? 'A package or capture JSON file is invalid.'
+        : ioCode(error) ? 'A required input file or directory is missing or has the wrong type.'
+        : 'A package or capture image could not be decoded.';
+      failure = productFailure({ code: 'FIGMA_CANONICAL_INPUT_BLOCKED', message, locations,
+        nextSteps: ['Restore the approved runtime package if it changed. Generate fresh reexport-scripts for that package and capture the recorded Figma nodes.', 'Repair the pixel, visible-scene or HOLD mismatch before retrying. Do not edit a certificate to silence a failed check; no dependent output was published.'] });
+    } else {
+      const code = ioCode(error);
+      failure = chiefHandoff({ code: phase === 'startup' ? 'FIGMA_RUNTIME_UNAVAILABLE' : phase === 'output' ? 'FIGMA_OUTPUT_IO_FAILED' : 'FIGMA_RUNNER_FAILED',
+        message: phase === 'startup' ? 'The verification runtime could not be loaded.' : phase === 'output' ? `Complete output could not be published${code ? ` (${code})` : ''}.` : `An unexpected runner failure interrupted verification${code ? ` (${code})` : ''}.`, locations,
+        nextSteps: ['Chief: restore the declared dependencies and inspect the isolated runner or output filesystem, then rerun the same command. Keep the canonical validation gates enabled.'] });
     }
+    (json ? process.stdout : process.stderr).write(formatCommandFailure(failure, json ? 'json' : 'human'));
+    process.exitCode = commandFailureExitCode(failure);
   }
-  return result;
 }
 
-export function verifyTiming(publication: typeof Published.Type, input: unknown) {
-  const live = Schema.decodeUnknownSync(Live)(input);
-  if (digest(Buffer.from(JSON.stringify(live.scene))) !== publication.reexport.sceneSha256) throw new Error('Canonical visible scene contract changed');
-  const { durationSeconds, referenceBpm, timingSamples } = publication.reexport;
-  if (live.rootNodeId !== publication.canonical.timelineRootId || live.duration !== durationSeconds || live.tracks.length !== publication.drawings.length) throw new Error('Canonical timeline changed');
-  const ids = new Set(live.tracks.map(track => track.componentId));
-  if (ids.size !== publication.drawings.length || publication.drawings.some(drawing => !ids.has(drawing.nodeId))) throw new Error('Canonical pose track identity changed');
-  const samples = new Set(Array.from({ length: timingSamples }, (_, index) => durationSeconds * index / (timingSamples - 1)));
-  for (const { track } of live.tracks) {
-    if (track.keyframes[0]?.timelinePosition !== 0) throw new Error('Canonical track has no initial HOLD');
-    for (const [index, key] of track.keyframes.entries()) {
-      if (key.timelinePosition < 0 || key.timelinePosition > durationSeconds || index > 0 && key.timelinePosition <= track.keyframes[index - 1].timelinePosition) throw new Error('Canonical track keys are unordered or out of range');
-      samples.add(key.timelinePosition);
-    }
-  }
-  for (let cycle = 0; cycle * publication.cycleBeats * 60 / referenceBpm < durationSeconds; cycle++) {
-    for (const key of publication.keyframes) {
-      const time = (cycle * publication.cycleBeats + key.atBeat) * 60 / referenceBpm;
-      if (time <= durationSeconds) samples.add(time);
-    }
-  }
-  for (const time of samples) {
-    const beat = time === durationSeconds ? 0 : time * referenceBpm / 60 % publication.cycleBeats;
-    const expected = [...publication.keyframes].reverse().find(key => key.atBeat <= beat);
-    const active = live.tracks.filter(({ track }) => [...track.keyframes].reverse().find(key => key.timelinePosition <= time)?.value.value === 1);
-    if (!expected || active.length !== 1 || active[0].componentId !== publication.drawings[expected.pose].nodeId) throw new Error('Canonical re-export HOLD timing failed');
-  }
-  return samples.size;
-}
-
-export async function checkCanonicalExport(packageDirectory: string, exportDirectory: string) {
-  const publication = await verifyPublished(join(packageDirectory, 'promotion.json'));
-  let layers = 0;
-  for (const drawing of publication.drawings) {
-    const raw = await nativeFromCanonical(join(exportDirectory, `pose-${drawing.index}.svg`), publication);
-    if (digest(raw) !== drawing.pixelSha256) throw new Error('Canonical re-export pixel parity failed');
-    for (const [kind, layer] of Object.entries(drawing.layers)) {
-      const raw = await nativeFromCanonical(join(exportDirectory, `${kind}-${drawing.index}.svg`), { ...publication, nativeToFigma: [[1, 0, 0], [0, 1, 0]] });
-      if (digest(raw) !== layer.pixelSha256) throw new Error('Canonical layer pixel parity failed');
-      layers++;
-    }
-  }
-  const motion: unknown = JSON.parse(await readFile(join(exportDirectory, 'motion.json'), 'utf8'));
-  const timingSamples = verifyTiming(publication, motion);
-  return { status: 'PASS', motionId: publication.motionId, poses: publication.drawings.length, layers, timingSamples, rawApprovalDependencies: 0 };
-}
-
-export function motionReadScript(publication: typeof Published.Type) {
-  const ids = publication.drawings.map(drawing => drawing.nodeId);
-  const fields = ['x', 'y', 'width', 'height', 'visible', 'opacity', 'relativeTransform', 'clipsContent', 'isMask', 'maskType', 'blendMode', 'effects', 'fills', 'strokes', 'strokeWeight', 'strokeAlign', 'topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius', 'boundVariables', 'explicitVariableModes'];
-  return `const p=await figma.getNodeByIdAsync('54:1383');await figma.setCurrentPageAsync(p);
-const root=await figma.getNodeByIdAsync(${JSON.stringify(publication.canonical.timelineRootId)});if(root.parent.type!=='PAGE')throw Error('Canonical review must remain a top-level frame');const ids=${JSON.stringify(ids)};const fields=${JSON.stringify(fields)};const tracks=[],scene=[];
-async function visit(n,inPose){
-const master=n.type==='INSTANCE'?await n.getMainComponentAsync():null;const pose=master&&ids.includes(master.id);
-if(n.type==='INSTANCE'&&!pose)throw Error('Unexpected instance in canonical review scene');
-if(pose&&n.overrides.some(o=>o.overriddenFields.some(f=>!['name','boundVariables','opacity'].includes(f)||f==='opacity'&&o.id!==n.id)))throw Error('Canonical pose has a visual override');
-if((pose||inPose)&&Object.keys(n.boundVariables).length)throw Error('Canonical pose has variable overrides');
-const motion={...n.manualKeyframeTracks};if(pose){tracks.push({componentId:master.id,track:motion.OPACITY});delete motion.OPACITY;}
-const values=fields.map(f=>n===root&&['x','y','relativeTransform'].includes(f)?null:f in n?n[f]:null);
-const extra={motion,styles:n.animationStyles};if(Object.keys(n.boundVariables).length){extra.resolvedVariableModes=n.resolvedVariableModes;const aliases=new Set();function find(v){if(!v||typeof v!=='object')return;if(v.type==='VARIABLE_ALIAS')aliases.add(v.id);else for(const x of Object.values(v))find(x);}find(n.boundVariables);extra.resolvedBindings=await Promise.all([...aliases].sort().map(async id=>{const v=await figma.variables.getVariableByIdAsync(id);if(!v)throw Error('Canonical bound variable missing');return[id,v.resolveForConsumer(n)];}));}
-if(pose){extra.componentId=master.id;extra.overrides=n.overrides;extra.componentProperties=n.componentProperties;extra.scaleFactor=n.scaleFactor;}
-if(!pose&&!inPose){if('vectorPaths'in n)extra.vectorPaths=n.vectorPaths;if(n.type==='TEXT'){extra.characters=n.characters;extra.segments=n.getStyledTextSegments(['fontName','fontSize','fills','lineHeight','letterSpacing','textCase','textDecoration']);}}
-scene.push([n.id,n===root?null:n.parent.id,n.type,values,extra]);
-if('children'in n)for(const child of n.children)await visit(child,inPose||pose);
-}
-await visit(root,false);
-const counts=new Map();for(const row of scene)for(const value of [...row[3],row[4]])if(value&&typeof value==='object'){const s=JSON.stringify(value);if(s.length>24)counts.set(s,(counts.get(s)||0)+1);}
-const values=[],indices=new Map();function compact(v){if(!v||typeof v!=='object')return v;const s=JSON.stringify(v);if((counts.get(s)||0)<2)return v;if(!indices.has(s)){indices.set(s,values.length);values.push(v);}return{$:indices.get(s)};}
-return{rootNodeId:root.id,duration:root.timelines[0].duration,scene:{fields,values,nodes:scene.map(row=>[row[0],row[1],row[2],row[3].map(compact),compact(row[4])])},tracks};`;
-}
-
-async function reexportScripts(packageDirectory: string, outputDirectory: string) {
-  const publication = await verifyPublished(join(packageDirectory, 'promotion.json'));
-  await mkdir(outputDirectory, { recursive: true });
-  for (const drawing of publication.drawings) {
-    const ids = { pose: drawing.nodeId, ...Object.fromEntries(Object.entries(drawing.layers).map(([kind, layer]) => [kind, layer.nodeId])) };
-    const code = `const p=await figma.getNodeByIdAsync('31:51');await figma.setCurrentPageAsync(p);const ids=${JSON.stringify(ids)};const out={};for(const [kind,id]of Object.entries(ids)){const n=await figma.getNodeByIdAsync(id);if(!n)throw Error('Canonical node missing');out[kind]=('children'in n&&n.children.length===0&&n.fills.every(f=>f.visible===false||f.opacity===0)&&n.strokes.every(s=>s.visible===false||s.opacity===0))?'<svg xmlns="http://www.w3.org/2000/svg" width="'+n.width+'" height="'+n.height+'"/>':await n.exportAsync({format:'SVG_STRING'});}return out;`;
-    await writeFile(join(outputDirectory, `read-pose-${drawing.index}.txt`), code + '\n');
-  }
-  await writeFile(join(outputDirectory, 'read-motion.txt'), motionReadScript(publication) + '\n');
-  return { fileKey: publication.canonical.fileKey, outputDirectory, poses: publication.drawings.length };
-}
-
-if (resolve(process.argv[1] ?? '') === fileURLToPath(import.meta.url)) {
-  const [operation, packageDirectory, outputDirectory] = process.argv.slice(2);
-  if (!packageDirectory || !outputDirectory) throw new Error('Usage: promotion.mts reexport-scripts|check PACKAGE_DIRECTORY TEMP_EXPORT_DIRECTORY');
-  const result = operation === 'reexport-scripts' ? await reexportScripts(packageDirectory, outputDirectory)
-    : operation === 'check' ? await checkCanonicalExport(packageDirectory, outputDirectory)
-    : (() => { throw new Error('Expected reexport-scripts or check'); })();
-  process.stdout.write(JSON.stringify(result) + '\n');
-}
+if (process.argv[1] && await realpath(resolve(process.argv[1])) === await realpath(fileURLToPath(import.meta.url))) await runCommand(process.argv.slice(2));
