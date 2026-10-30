@@ -9,11 +9,21 @@ import { decodeCompiledSong } from '../../lib/performance/compiled-song.js';
 import { compiledProgramBytes } from '../../lib/performance/compiled-native.js';
 import { parseSongSource } from '../../lib/performance/song-source.js';
 import { runChartCompiler } from '../chart-compiler.js';
+import { parseCommandFailure } from '../lib/command-diagnostics.js';
 import mapping from '../../songs/dance-yrself-clean.mapping.json';
 
 const execute = promisify(execFile);
 const root = new URL('../../', import.meta.url);
 const run = (args: string[]) => execute(process.execPath, ['--import', 'tsx', 'scripts/show-tools.ts', 'chart', ...args], { cwd: root, maxBuffer: 1024 * 1024 });
+async function rejectedCommand(args: string[]) {
+  try { await run(args); }
+  catch (error) {
+    assert(error instanceof Error && 'code' in error && 'stdout' in error && 'stderr' in error);
+    assert.equal(typeof error.stdout, 'string'); assert.equal(typeof error.stderr, 'string');
+    return error;
+  }
+  assert.fail('Expected a rejected chart command');
+}
 
 test('chart CLI compiles the actual DYC source into deterministic reviewable JSON and portable native bytes', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'show-tools-chart-resolved-'));
@@ -82,8 +92,16 @@ test('chart CLI reports unknown cells and preserves the last good output', async
     await writeFile(sourcePath, JSON.stringify({ ...source, values }));
     await writeFile(output, 'last good song\n');
     await assert.rejects(run(['compile', '--source', sourcePath, '--mapping', 'songs/dance-yrself-clean.mapping.json', '--out', output]),
-      error => error instanceof Error && 'stdout' in error && typeof error.stdout === 'string'
-        && /unknown-cue\s+F18\s+"not-a-cue"/.test(error.stdout));
+      error => error instanceof Error && 'stderr' in error && typeof error.stderr === 'string'
+        && /unknown-cue/.test(error.stderr) && /#F18 "not-a-cue"/.test(error.stderr));
+    const failure = await rejectedCommand(['compile', '--source', sourcePath, '--mapping', 'songs/dance-yrself-clean.mapping.json', '--out', output, '--json']);
+    assert.equal(failure.code, 2);
+    assert.equal(failure.stderr, '');
+    assert.equal(typeof failure.stdout, 'string');
+    const diagnostic = parseCommandFailure(JSON.parse(String(failure.stdout)));
+    assert.equal(diagnostic.status, 'blocked');
+    assert.equal(diagnostic.code, 'CHART_COMPILE_BLOCKED');
+    assert(diagnostic.locations.some(location => location.includes('#F18 "not-a-cue"')));
     assert.equal(await readFile(output, 'utf8'), 'last good song\n');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
@@ -103,9 +121,61 @@ test('chart CLI does not overwrite an input or another invocation’s temporary 
     for (const alias of [hardlink, symbolic]) await assert.rejects(run(['compile', ...inputs, '--out', alias]), /input file/);
     const unrelated = `${output}.${process.pid}.tmp`;
     await writeFile(unrelated, 'another invocation');
-    await runChartCompiler(['compile', ...inputs, '--out', output]);
+    await runChartCompiler(['compile', ...inputs, '--out', output], () => {});
     assert.equal(await readFile(unrelated, 'utf8'), 'another invocation');
     assert.equal(decodeCompiledSong(JSON.parse(await readFile(output, 'utf8'))).executable, true);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('chart CLI JSON failures distinguish invalid inputs and provide next steps without replacing output', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'show-tools-chart-json-'));
+  try {
+    const input = join(directory, 'input.json'), output = join(directory, 'song.pfp');
+    await writeFile(output, 'last good native');
+    for (const [content, code] of [['{secret-invalid-json', 'CHART_INPUT_JSON'], ['{}', 'CHART_INPUT_SCHEMA']]) {
+      await writeFile(input, content);
+      const result = await rejectedCommand(['encode', '--song', input, '--out', output, '--json']);
+      assert.equal(result.code, 2); assert.equal(result.stderr, '');
+      const failure = parseCommandFailure(JSON.parse(String(result.stdout)));
+      assert.equal(failure.code, code); assert.equal(failure.status, 'blocked');
+      assert.deepEqual(failure.locations, [input]);
+      assert(failure.nextSteps.length > 0);
+      assert(!String(result.stdout).includes('secret-invalid-json'));
+      assert.equal(await readFile(output, 'utf8'), 'last good native');
+    }
+    const result = await rejectedCommand(['encode', '--song', join(directory, 'missing'), '--out', output, '--json']);
+    assert.equal(parseCommandFailure(JSON.parse(String(result.stdout))).code, 'CHART_FILE_ACCESS');
+    const invalidUrl = await rejectedCommand(['fetch', '--url', 'invalid-private-url', '--out', output, '--json']);
+    assert.equal(invalidUrl.code, 2);
+    const failure = parseCommandFailure(JSON.parse(String(invalidUrl.stdout)));
+    assert.equal(failure.code, 'CHART_WORKSHEET_URL');
+    assert(!String(invalidUrl.stdout).includes('invalid-private-url'));
+    assert.equal(await readFile(output, 'utf8'), 'last good native');
+    await writeFile(input, JSON.stringify({ ...mapping, titleCell: 'bad-cell' }));
+    const invalidMapping = await rejectedCommand(['compile', '--source', 'songs/dance-yrself-clean.source.json', '--mapping', input, '--out', output, '--json']);
+    assert.equal(invalidMapping.code, 2);
+    assert.equal(parseCommandFailure(JSON.parse(String(invalidMapping.stdout))).code, 'CHART_MAPPING_CELL');
+    assert.equal(await readFile(output, 'utf8'), 'last good native');
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('chart CLI hands unexpected tooling failures to Chief without leaking error content', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'show-tools-chart-chief-'));
+  try {
+    const script = join(directory, 'failure.mts'), output = join(directory, 'song.json');
+    await writeFile(output, 'last good song');
+    const args = ['chart', 'compile', '--source', 'songs/dance-yrself-clean.source.json', '--mapping', 'songs/dance-yrself-clean.mapping.json', '--out', output, '--json'];
+    await writeFile(script, `import { main } from ${JSON.stringify(new URL('../show-tools.ts', import.meta.url).href)};\nObject.defineProperty(crypto.subtle, 'digest', { value() { throw new Error('SECRET unexpected digest failure'); } });\nawait main(${JSON.stringify(args)});\n`);
+    await assert.rejects(execute(process.execPath, ['--import', 'tsx', script], { cwd: root }), error => {
+      assert(error instanceof Error && 'code' in error && 'stdout' in error && 'stderr' in error);
+      assert.equal(error.code, 3); assert.equal(error.stderr, '');
+      const failure = parseCommandFailure(JSON.parse(String(error.stdout)));
+      assert.equal(failure.status, 'needs-chief');
+      assert.equal(failure.code, 'CHART_COMMAND_FAILED');
+      assert(!String(error.stdout).includes('SECRET'));
+      return true;
+    });
+    assert.equal(await readFile(output, 'utf8'), 'last good song');
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
