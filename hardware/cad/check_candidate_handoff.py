@@ -3,6 +3,7 @@ import argparse
 import json
 from pathlib import Path
 import tempfile
+import struct
 from unittest.mock import patch
 import zipfile
 
@@ -17,7 +18,23 @@ def main():
     with tempfile.TemporaryDirectory(prefix='check-candidate-handoff-') as directory:
         root=Path(directory)
         args.output=root/'failed'
-        with patch.object(zipfile.ZipFile,'testzip',return_value='injected-bad-member.stl'):
+        original_zip = zipfile.ZipFile
+        class CorruptPrintZip(original_zip):
+            def testzip(self):
+                if Path(self.filename).name == 'prototype-print-files.zip':
+                    member = self.infolist()[0]
+                    with open(self.filename, 'r+b') as stream:
+                        stream.seek(member.header_offset)
+                        header = stream.read(30)
+                        name_length, extra_length = struct.unpack_from('<HH', header, 26)
+                        offset = member.header_offset + 30 + name_length + extra_length + member.compress_size//2
+                        stream.seek(offset)
+                        byte = stream.read(1)
+                        stream.seek(offset)
+                        stream.write(bytes([byte[0] ^ 1]))
+                return super().testzip()
+        with patch.object(zipfile,'ZipFile',CorruptPrintZip):
+
             try: package.run(args)
             except ValueError as error: assert 'ZIP integrity failed' in str(error)
             else: raise AssertionError('Late ZIP failure accepted')
