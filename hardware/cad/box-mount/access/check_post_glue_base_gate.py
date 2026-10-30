@@ -46,6 +46,14 @@ reject(lambda:g.check_rotor(data,[('keeper-striking fin',fin)],5.),'Rotor escape
 below=g.r.block(1,1,1,(38,0,-14))
 reject(lambda:g.check_rotor(data,[('below-floor actor',below)],5.),'Rotor escapes analytic all-angle envelope')
 producer=data['snapshots']['reference_tools'].parse()
+record=producer['control_sweeps'][0]
+adaptive=dict(record,mass_integration=g.ADAPTIVE_MASS,
+              volume_mm3=g.adaptive_mass(data['artifacts'].load(record)))
+g.load_candidate_record(data['artifacts'],adaptive)
+reject(lambda:g.load_candidate_record(data['artifacts'],dict(adaptive,volume_mm3=adaptive['volume_mm3']*1.00001)),
+       'Actual component disagrees with receipt volume')
+reject(lambda:g.load_candidate_record(data['artifacts'],dict(adaptive,mass_integration='unknown')),
+       'Unknown candidate mass integration method')
 records={rec['name']:rec for rec in producer['control_sweeps']}
 work=data['artifacts'].load(records['2.5 mm lock key operating envelope'])
 entry=data['artifacts'].load(records['2.5 mm lock key full axial staging'])

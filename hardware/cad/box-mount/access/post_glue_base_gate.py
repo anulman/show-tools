@@ -123,9 +123,57 @@ def load_records(data,records,expected_names):
     """Expected names must come from the complete actor/tool registry, including hardware."""
     names=[record['name'] for record in records]
     audit.require(len(names)==len(set(names)) and set(names)==set(expected_names),'Incomplete/duplicate geometry inventory')
-    parts=[(record['name'],data['artifacts'].load(record)) for record in records]
+    parts=[(record['name'],load_candidate_record(data['artifacts'],record)) for record in records]
     unchanged(data)
     return parts
+
+
+ADAPTIVE_MASS='native adaptive closed-volume Eps1e-10; original rtol1e-6 unchanged'
+
+
+def adaptive_mass(part):
+    audit.require(not part.wrapped.IsNull() and BRepCheck_Analyzer(part.wrapped,True).IsValid(),
+                  'Invalid adaptive mass input')
+    properties=GProp_GProps()
+    error=BRepGProp.VolumeProperties_s(part.wrapped,properties,1e-10,True,False)
+    volume=properties.Mass()
+    audit.require(math.isfinite(volume) and volume>0 and math.isfinite(error) and 0<=error<=1e-8,
+                  'Adaptive closed-volume integration failed')
+    return volume
+
+
+def load_candidate_record(artifacts,record):
+    """Match a candidate's declared mass algorithm without changing frozen base loading."""
+    if 'mass_integration' not in record:return artifacts.load(record)
+    audit.require(record['mass_integration']==ADAPTIVE_MASS,'Unknown candidate mass integration method')
+    paths={kind:Path(record[kind]) for kind in ('step','stl')}
+    for kind,path in paths.items():
+        sha=audit.digest(path)
+        audit.require(sha==record[kind+'_sha256'],'Changed '+kind+' artifact: '+record['name'])
+        artifacts.files[str(path)]=sha
+    key=record['step_sha256']
+    if key not in artifacts.shapes:
+        imported=audit.import_step(paths['step'])
+        audit.require(imported.is_valid and len(imported.solids())==1,'Invalid actual STEP component')
+        artifacts.shapes[key]=imported.solids()[0]
+    part=artifacts.shapes[key]
+    audit.require(part.is_valid and len(part.solids())==1,'Invalid actual STEP component')
+    volume=adaptive_mass(part)
+    mesh_key=record['stl_sha256']
+    if mesh_key not in artifacts.meshes:
+        mesh=audit.trimesh.load_mesh(paths['stl'])
+        audit.require(isinstance(mesh,audit.trimesh.Trimesh) and mesh.is_watertight and
+                      mesh.is_winding_consistent and math.isfinite(mesh.volume) and mesh.volume>0,
+                      'Invalid actual STL component')
+        artifacts.meshes[mesh_key]=(float(mesh.volume),mesh.bounds.copy())
+    mesh_volume,mesh_bounds=artifacts.meshes[mesh_key]
+    audit.require(math.isclose(mesh_volume,volume,rel_tol=.005),'Actual STEP/STL volumes disagree')
+    bounds=part.bounding_box()
+    expected=[[bounds.min.X,bounds.min.Y,bounds.min.Z],[bounds.max.X,bounds.max.Y,bounds.max.Z]]
+    audit.require(audit.np.allclose(mesh_bounds,expected,atol=.05,rtol=0),'Actual STEP/STL bounds disagree')
+    audit.require(math.isclose(volume,record['volume_mm3'],rel_tol=1e-6),
+                  'Actual component disagrees with receipt volume')
+    return part
 
 
 def fixed_geometry(data,gap):

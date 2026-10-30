@@ -25,6 +25,8 @@ New comparisons use native `BRepAlgoAPI_Common`/`Cut`. Each requires completed o
 
 ## Frames and ports
 
+Candidate records declaring native adaptive closed-volume integration are independently recomputed with `BRepGProp.VolumeProperties` at Eps 1e-10 and error bound 1e-8. Receipt agreement remains relative tolerance 1e-6; STEP/STL volume agreement remains 0.5% and bounding-box agreement 0.05 mm. Unknown mass methods fail. The frozen base loader remains unchanged.
+
 Original source Z is negative inside the bar/ball. X180 makes the assembly upright. The frozen base then uses service Z rotation −90 degrees.
 
 | Station | Canonical upright angle | Installed box angle | Radius |
