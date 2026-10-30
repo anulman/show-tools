@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "protectedPaths": [
+    {
+      "path": "assets/video/motion/pixel-final",
+      "requiredBy": ["Unmigrated quiet families and the local candidate-import builder"]
+    },
+    {
+      "path": "assets/video/motion/expansion-dances",
+      "requiredBy": ["Unmigrated default/vigorous families and the local candidate-import builder"]
+    },
+    {
+      "path": "assets/video/motion/special-moves",
+      "requiredBy": ["Unmigrated specials and the local candidate-import builder, including C06-special-03"]
+    },
+    {
+      "path": "assets/video/design-system",
+      "requiredBy": ["The local 30-family authoring catalog and Procedural Video consumer contract"]
+    }
+  ]
+}
