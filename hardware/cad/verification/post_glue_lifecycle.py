@@ -149,6 +149,24 @@ def verify(model):
                   hashlib.sha256(json.dumps(model,sort_keys=True,separators=(',',':')).encode()).hexdigest())
 
 
+def verify_inventory(model, source_inventory):
+    """Bind actor and module ownership to independently reconstructed CAD inventory.
+
+    source_inventory is produced by the admitted generator/checker, not copied
+    from a supplied protocol. The bonded bar and stationary base are excluded.
+    """
+    require(isinstance(source_inventory, dict) and source_inventory, 'Missing source inventory')
+    require(set(model['parts']) == set(source_inventory), 'Protocol omits or invents CAD components')
+    expected_modules = {}
+    for name, record in source_inventory.items():
+        require(model['parts'][name]['role'] == record['role'], 'Protocol component role differs: '+name)
+        require(record.get('module'), 'Source component lacks owned module: '+name)
+        expected_modules.setdefault(record['module'], set()).add(name)
+    supplied = {n:set(members) for n,members in model['modules'].items()}
+    require(supplied == expected_modules, 'Protocol changes CAD module ownership')
+    return verify(model)
+
+
 def verify_evidence(model, root):
     """Verify motion evidence names and file digests; no receipt bool can replace a file.
 

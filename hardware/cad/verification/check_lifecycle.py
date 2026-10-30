@@ -2,7 +2,7 @@
 from copy import deepcopy
 from dataclasses import asdict
 import json
-from post_glue_lifecycle import verify, verify_evidence, Violation
+from post_glue_lifecycle import verify, verify_evidence, verify_inventory, Violation
 
 
 def fixture():
@@ -78,3 +78,16 @@ with tempfile.TemporaryDirectory(prefix='post-glue-evidence-') as temporary:
     except Violation as error: assert 'Changed evidence' in str(error)
     else: raise AssertionError('Changed geometric evidence admitted')
 print('PASS: exact motion evidence binding; changed evidence rejected')
+
+source_inventory={'module':dict(role='printed',module='cup')}
+verify_inventory(fixture(),source_inventory)
+wrong=fixture();wrong['parts']['hidden-nut']=dict(initial='outside',final='secured',role='hardware')
+wrong['modules']['cup'].append('hidden-nut')
+try: verify_inventory(wrong,source_inventory)
+except Violation as error: assert 'omits or invents CAD' in str(error)
+else: raise AssertionError('Invented actor admitted')
+missing=fixture();source_inventory['hidden-nut']=dict(role='hardware',module='cup')
+try: verify_inventory(missing,source_inventory)
+except Violation as error: assert 'omits or invents CAD' in str(error)
+else: raise AssertionError('Omitted actor admitted')
+print('PASS: exact source actor/module binding; omitted and invented hardware rejected')
