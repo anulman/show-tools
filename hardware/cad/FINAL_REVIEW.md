@@ -1,6 +1,6 @@
 # Prepare and publish the final review proposals
 
-The selected publication candidates are the dual-exit inclined arcade box, compact spinner base and unchanged C2 bar/baseplate. Box mount shows the two selected bases. Disco bar shows C2 installed on the matching 5 mm base, with the full bar extending upward. Historical comparisons, the uncut mushroom blank, optional uninstalled shim and isolated fit coupons stay out of these scenes. Existing data remains intact.
+The selected publication candidates are the dual-exit inclined arcade box, compact spinner base and unchanged C2 bar/baseplate. Box mount shows the two selected bases. Disco bar shows Darren’s unchanged original bar and the C2 bar/baseplate side by side, both upright on the same root plane, without boxes. Historical comparisons, the uncut mushroom blank, optional uninstalled shim and isolated fit coupons stay out of these scenes. Existing data remains intact.
 
 Select the checked receipts in the CAD desk checkout:
 
@@ -10,7 +10,7 @@ Select the checked receipts in the CAD desk checkout:
   --rotor /absolute/path/to/compact-mount-v4/receipt.json \
   --arcade /absolute/path/to/arcade-dual-exit-v4/receipt.json \
   --presentation candidates
-~/.local/share/show-tools/cad/venv/bin/python hardware/cad/check_candidate_review.py
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/check_candidate_review.py --step /absolute/reference.step
 ```
 
 The selection pins exact reviewed receipt hashes, verifies displayed STEP/STL pairs, rechecks the base inputs and generating sources, and verifies the collar's immutable source revision. Existing page switches load the selected candidates without restarting services. Staging saves the previous selection under ignored `build/comparison-review/prior-selections/`; no source models or frozen export sets are deleted. Candidate-only publication bypasses the historical final-review selection. This permits human review, not fabrication release or verified physical fit.
