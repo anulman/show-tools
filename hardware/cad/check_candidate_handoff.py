@@ -60,6 +60,17 @@ def main():
         else: raise AssertionError('Existing handoff replaced')
         after={str(p.relative_to(args.output)):package.digest(p) for p in args.output.rglob('*') if p.is_file()}
         assert before==after
+        for alias, target in [('existing-link', args.output), ('dangling-link', root/'absent-target')]:
+            link=root/alias
+            link.symlink_to(target, target_is_directory=True)
+            request=argparse.Namespace(**vars(args))
+            request.output=link
+            try: package.run(request)
+            except ValueError as error: assert 'fresh output directory' in str(error)
+            else: raise AssertionError('Existing output alias accepted')
+            assert link.is_symlink() and link.readlink()==target
+        assert not (root/'absent-target').exists()
+        assert before=={str(p.relative_to(args.output)):package.digest(p) for p in args.output.rglob('*') if p.is_file()}
         print('PASS complete 26-STL publication, separate references, existing output unchanged',flush=True)
 
 

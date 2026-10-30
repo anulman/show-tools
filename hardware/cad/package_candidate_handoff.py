@@ -108,7 +108,9 @@ def build(args):
 
 def run(args):
     """Expose the output name only after the complete package passes validation."""
-    output = args.output.resolve()
+    requested = Path(args.output)
+    require(not requested.is_symlink() and not requested.exists(), 'Use a fresh output directory')
+    output = requested.resolve()
     require(not output.exists(), 'Use a fresh output directory')
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.'+output.name+'-', dir=output.parent) as staging:

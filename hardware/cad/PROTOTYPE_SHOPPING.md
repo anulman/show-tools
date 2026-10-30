@@ -1,6 +1,6 @@
 # Hardware for one arcade box and one disco-ball assembly
 
-This list matches the October 29 compact prototype: one inclined arcade box with front and rear cable exits, one spinner box, and one full-height collar bar. Darren's original bar is included as an alternative. The quantities below build the collar version; they do not require printing both bars. All dimensions are millimetres.
+This list covers one inclined arcade box, one spinner box, and the corrected collar bar. The arcade box has front and rear cable exits. Darren's original bar is included as an alternative. Use the corrected bar and receiver files together. The earlier modified collar/bar files remain on hold. Quantities below build the collar version. Only one of the two bars is needed. All dimensions are millimetres.
 
 ## Buy or check your supply
 
@@ -43,6 +43,6 @@ The print-only ZIP contains **26 STL files**. Print each file once in folders 01
 
 The cut-material STEP files are separate and must not be resin printed. The STL coordinates describe assembly positions, not printer orientation. Ask the printer to orient, support, wash and cure the parts using a suitable tough engineering resin for their machine. Darren may prepare or skip his original alternative at print time.
 
-Ask the printer to test the small hex/keeper and PTFE-ear joints with the listed hardware before committing to the large shells. Also check the collar's fit, quarter-turn, captive lock and release with the actual knob before gluing the bar into the ball. Assemble permanent bar-side carrier and cap hardware before gluing; the exterior will be inaccessible afterward.
+Ask the printer to test the small hex/keeper and PTFE-ear joints with the listed hardware before committing to the large shells. Also check the collar's fit, quarter-turn, captive lock and release with the actual knob before gluing the bar into the ball. Assemble permanent bar-side carrier and cap hardware before gluing; the exterior will be inaccessible afterward. For mounting, secure the spinner hex first with cup and ball off, fit and tighten the cup with the ball off, then attach the glued ball/bar using the underside collar and lock. Normal ball removal does not require debonding. Receiver repair can require debonding; the original bottom-fed passages are preserved, but actual fluid delivery and glue release remain unverified.
 
 These are geometrically checked first-prototype candidates. Actual resin shrinkage, hardware fit, grip, wear, pull resistance and stability remain physical checks. The fit-test hardware can be reused in the finished assembly. Supplier pages were checked October 29, 2026; shipping and stock are not promised.
