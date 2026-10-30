@@ -21,7 +21,7 @@ Load the Figma use/motion skills, create a Figma MCP session for the returned fi
 node --import tsx scripts/video-expansion/design-system/promotion.mts check assets/video/published/C06-special-03 /tmp/c06-reexport
 ```
 
-Use actual component `SVG_STRING` geometry. A canvas-background preview PNG can destroy transparency. Sampling follows the declared native registration without filtering; transparent RGB is normalized to zero. Blank Effects frames remain explicitly empty. Pixel or composition changes, missing poses, fractional opacity, incorrect HOLD timing and extra blinks return failure. Verification inspects all authored changes as well as the fixed sample grid. Re-exporting changed art requires a new review, never an automatic new certificate.
+Use actual component `SVG_STRING` geometry. A canvas-background preview PNG can destroy transparency. Recovery follows the declared native registration without filtering and checks every source raster pixel against its native cell and transparent margins; centre-only sampling could hide stray geometry or blurred edges. Transparent RGB is normalized to zero. Blank Effects frames remain explicitly empty. Pixel or composition changes, missing poses, fractional opacity, incorrect HOLD timing and extra blinks return failure. Verification inspects all authored changes as well as the fixed sample grid. Re-exporting changed art requires a new review, never an automatic new certificate.
 
 ## Plan routine expiry
 

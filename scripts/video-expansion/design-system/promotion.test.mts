@@ -47,6 +47,15 @@ test('canonical pixel sampling preserves scale, registration and transparent bac
     const pixels = await nativeFromCanonical(path, input);
     assert.deepEqual([...pixels], [255, 0, 0, 255, ...Array<number>(12).fill(0)]);
     await writeFile(path, '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="6"><path fill="#f5f5f5" d="M0 0h4v6H0z"/><path fill="#ff0000" d="M0 2h2v2H0z"/></svg>');
-    assert.notDeepEqual(await nativeFromCanonical(path, input), pixels);
+    await assert.rejects(nativeFromCanonical(path, input), /registration margins/);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+test('changes away from a scaled native cell centre cannot hide during recovery', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'canonical-cell-'));
+  try {
+    const path = join(root, 'pose.svg');
+    await writeFile(path, '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="6"><path fill="#ff0000" d="M0 2h2v2H0z"/><rect x="0" y="2" width="1" height="1" fill="#00ff00"/></svg>');
+    const input = { ...publication, nativeGrid: { width: 2, height: 2 }, nativeToFigma: [[2, 0, 0], [0, 2, 2]] };
+    await assert.rejects(nativeFromCanonical(path, input), /inside native pixel cells/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });

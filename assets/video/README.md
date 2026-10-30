@@ -14,4 +14,4 @@ The Original treatment is generated cleanup matching the PDF treatment. The oper
 
 The Figma gallery and motion study were visually inspected on October 27, 2026. Structural checks confirmed eight component sets, 24 image-filled pose variants, 24 gallery instances, and 24 animated study instances. Eight sampled moments from the decoded MP4 showed the expected pose sequence without missing or cropped figures. These checks cover the authored study, not live browser interaction, audio synchronization, or CRT output.
 
-Figma is canonical for promoted art and animation. The [canonical export pilots](published/README.md) retain required runtime PNGs and compact Figma references, verify recovery without raw studies, and provide plan-only expiry checks.
+The [canonical export pilots](published/README.md) retain required runtime PNGs and compact Figma references, verify recovery without raw studies, and provide plan-only expiry checks.

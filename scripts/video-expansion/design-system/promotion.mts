@@ -21,13 +21,22 @@ export async function nativeFromCanonical(path: string, publication: typeof Publ
   const { width, height } = publication.nativeGrid;
   const matrix = publication.nativeToFigma;
   const source = await normalizedPixels(path), result = Buffer.alloc(width * height * 4);
-  if (matrix.length !== 2 || matrix.some(row => row.length !== 3) || matrix[0][1] || matrix[1][0] || matrix[0][0] <= 0 || matrix[1][1] <= 0) throw new Error('Unsupported canonical pixel transform');
+  if (matrix.length !== 2 || matrix.some(row => row.length !== 3 || row.some(value => !Number.isInteger(value))) || matrix[0][1] || matrix[1][0] || matrix[0][0] <= 0 || matrix[1][1] <= 0) throw new Error('Unsupported canonical pixel transform');
   for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
     const sx = Math.floor((x + .5) * matrix[0][0] + matrix[0][2]);
     const sy = Math.floor((y + .5) * matrix[1][1] + matrix[1][2]);
     if (sx >= 0 && sy >= 0 && sx < source.width && sy < source.height) {
       const at = (sy * source.width + sx) * 4;
       source.data.copy(result, (y * width + x) * 4, at, at + 4);
+    }
+  }
+  for (let y = 0; y < source.height; y++) for (let x = 0; x < source.width; x++) {
+    const nx = Math.floor((x - matrix[0][2]) / matrix[0][0]);
+    const ny = Math.floor((y - matrix[1][2]) / matrix[1][1]);
+    const inside = nx >= 0 && ny >= 0 && nx < width && ny < height;
+    for (let channel = 0; channel < 4; channel++) {
+      const expected = inside ? result[(ny * width + nx) * 4 + channel] : 0;
+      if (source.data[(y * source.width + x) * 4 + channel] !== expected) throw new Error('Canonical geometry differs inside native pixel cells or registration margins');
     }
   }
   return result;
