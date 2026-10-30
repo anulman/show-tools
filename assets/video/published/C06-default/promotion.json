@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "toolVersion": 1,
+  "status": "canonical-reexport-verified",
+  "motionId": "C06/default",
+  "characterId": "C06",
+  "artworkId": "C06/mid-res-8-bit/dance/default",
+  "canonical": {
+    "store": "Figma",
+    "fileKey": "QWreOYAnaje2LlywefJFiK",
+    "componentSetId": "95:10533",
+    "timelineRootId": "96:10979"
+  },
+  "nativeGrid": {
+    "width": 64,
+    "height": 80
+  },
+  "nativeToFigma": [
+    [
+      10,
+      0,
+      0
+    ],
+    [
+      0,
+      10,
+      6
+    ]
+  ],
+  "sourceOffset": {
+    "x": 0,
+    "y": 0
+  },
+  "cycleBeats": 2,
+  "actionBeats": null,
+  "beatUnit": "quarter-note",
+  "interpolation": "hold",
+  "keyframes": [
+    {
+      "atBeat": 0,
+      "pose": 0
+    },
+    {
+      "atBeat": 0.5,
+      "pose": 1
+    },
+    {
+      "atBeat": 1,
+      "pose": 0
+    },
+    {
+      "atBeat": 1.5,
+      "pose": 2
+    },
+    {
+      "atBeat": 2,
+      "pose": 0
+    }
+  ],
+  "drawings": [
+    {
+      "index": 0,
+      "nodeId": "95:10527",
+      "path": "pose-0.png",
+      "sha256": "ea303b648b69148d9f14d7598c0cc88911beb69c0e2662d5898fc105ca42de2b",
+      "pixelSha256": "ec2d91c474892909e6544ef76db2ebf3747f391866b7419f9d4b62fa2ab11fb8",
+      "pivot": {
+        "x": 32,
+        "y": 77
+      },
+      "layers": {}
+    },
+    {
+      "index": 1,
+      "nodeId": "95:10529",
+      "path": "pose-1.png",
+      "sha256": "8bc48defc37aa611e15cbf5d1d9d18d869dab97121729edc74537bf765313a69",
+      "pixelSha256": "0f7124f789af41c7ca17872937d153c74a7aa4e7cc4428a04512a0bf7d455272",
+      "pivot": {
+        "x": 32,
+        "y": 77
+      },
+      "layers": {}
+    },
+    {
+      "index": 2,
+      "nodeId": "95:10531",
+      "path": "pose-2.png",
+      "sha256": "94a66b5c52ca2d85980b62dbf1af93cc620d07a994dc2a1995851cb5cefea2a6",
+      "pixelSha256": "ade763f529cfe84340c783310e461e56e13399875f13904823f46daaab46a6a0",
+      "pivot": {
+        "x": 32,
+        "y": 77
+      },
+      "layers": {}
+    }
+  ],
+  "approval": {
+    "styleQuestion": "Is this the work of a mid-res 8-bit pixel artist?",
+    "style": "pass",
+    "temporalQuestion": "Does this look like intentional movement of the same pixel model, rather than texture crawl or distortion?",
+    "temporal": "pass",
+    "anatomy": "included-in-temporal-articulation-review",
+    "export": "pass",
+    "basis": "Existing recorded visual verdict carried forward only after exact canonical RGBA parity for every pose and named layer;65live HOLD samples agree with beat metadata",
+    "pixelEncoding": "RGBA8; transparent RGB normalized to0",
+    "approvedPixelHashes": [
+      "ec2d91c474892909e6544ef76db2ebf3747f391866b7419f9d4b62fa2ab11fb8",
+      "0f7124f789af41c7ca17872937d153c74a7aa4e7cc4428a04512a0bf7d455272",
+      "ade763f529cfe84340c783310e461e56e13399875f13904823f46daaab46a6a0"
+    ]
+  },
+  "sourceCatalogRevision": "sha256:36e0c755e3f05bef2f16f5a3ace4d6aa045692921993d6e0402d285f2cdaba70",
+  "reexport": {
+    "format": "Figma SVG_STRING, rasterized without filtering to native grid",
+    "referenceBpm": 120,
+    "timingSamples": 65,
+    "durationSeconds": 8
+  },
+  "retention": "Runtime package and compact certificate retained. Temporary exports, comparisons and raw approval reports are not dependencies of this package."
+}

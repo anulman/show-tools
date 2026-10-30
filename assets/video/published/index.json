@@ -1,0 +1,9 @@
+{
+  "schemaVersion": 1,
+  "canonicalStore": "Figma",
+  "scope": "Two verified promotion pilots; other families are not cleared for process-evidence expiry",
+  "publications": [
+    { "motionId": "C06/default", "manifest": "assets/video/published/C06-default/promotion.json" },
+    { "motionId": "C06/special/03", "manifest": "assets/video/published/C06-special-03/promotion.json" }
+  ]
+}
