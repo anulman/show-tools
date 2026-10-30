@@ -10,7 +10,7 @@ from candidate_protocol import expected_inventory,negative_controls
 import rotation_connectivity
 from post_glue_lifecycle import verify_inventory,verify_evidence,Violation,require
 
-REQUIRED_PROOFS={'external','root','module','preservation','contacts','base','tools'}
+REQUIRED_PROOFS={'external','root','module','preservation','contacts','base','tools','grip-base'}
 
 def required_proofs(concept):return REQUIRED_PROOFS|({'race'} if concept=='C' else set())
 
@@ -90,6 +90,10 @@ def proof_requirements(name,report,concept):
     elif name=='base':
         require(report.get('all_provided_stages_base_rotary_clear') is True and report.get('angular_samples_used')==0,
                 'Every-angle base clearance not proved')
+    elif name=='grip-base':
+        require(report.get('full_grip_tools_every_angle_base_clear') is True
+                and report.get('angular_samples_used')==0 and set(report['results'])=={'5','7'},
+                'Mounted grip adjustment tool paths not proved')
     elif name=='race':
         require(report.get('actual_delivered_step_only') is True and report.get('head_float_motion_verified') is True
                 and report.get('collar_delta_source_range_mm')==[-.5,.6]
