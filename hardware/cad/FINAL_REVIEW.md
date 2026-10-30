@@ -1,22 +1,25 @@
 # Prepare and publish the final review proposals
 
-For the operator's next publication, stage the checked complete candidates with `comparison_review.py --presentation candidates` and the three selected receipt paths. Activate this only after the replacement compact mount passes its dependent checks and the selected receipt pins are updated. Box mount then shows the selected arcade and rotor bases. Disco bar shows the selected bar/baseplate installed on its matching base, with the bar extending upward. Historical comparisons, the uncut mushroom blank and isolated fit trials are absent from these scenes. All earlier files remain intact. Omit `--presentation candidates` when deliberately restoring the historical comparison presentation.
+The selected publication candidates are the dual-exit inclined arcade box, compact spinner base and unchanged C2 bar/baseplate. Box mount shows the two selected bases. Disco bar shows C2 installed on the matching 5 mm base, with the full bar extending upward. Historical comparisons, the uncut mushroom blank, optional uninstalled shim and isolated fit coupons stay out of these scenes. Existing data remains intact.
 
-The optional comparison selection adds the PR 50 prototypes beside these older proposals. On Disco bar, the order is original, OLD C, NEW C2. On Box mount, it is old arcade, new arcade, old rotor, new rotor, then the unchanged mushroom blank. Display offsets do not change any fabrication file. New models are labeled `FIT PENDING`.
-
-After staging the existing pair below, select the independently reviewed comparison receipts in the same checkout:
+Select the checked receipts in the CAD desk checkout:
 
 ```sh
 ~/.local/share/show-tools/cad/venv/bin/python hardware/cad/comparison_review.py \
   --collar /absolute/path/to/review-candidates/4903640/C2/receipt.json \
-  --rotor /absolute/path/to/resin-c2-integration-v2/receipt.json \
-  --arcade /absolute/path/to/arcade-dual-exit-v4/receipt.json
-~/.local/share/show-tools/cad/venv/bin/python hardware/cad/check_comparison_review.py
+  --rotor /absolute/path/to/compact-mount-v4/receipt.json \
+  --arcade /absolute/path/to/arcade-dual-exit-v4/receipt.json \
+  --presentation candidates
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/check_candidate_review.py
 ```
 
-The selection pins exact reviewed receipt hashes, verifies displayed STEP/STL pairs, rechecks the base inputs and generating sources, and verifies the collar's immutable source revision. The flat PTFE cutting pattern is excluded from the assembled scene. Existing page switches load both generations without restarting services. Removing the ignored `build/comparison-review/current.json` restores the older-only scene. This selection permits visual review, not fabrication release or verified spinner fit.
+The selection pins exact reviewed receipt hashes, verifies displayed STEP/STL pairs, rechecks the base inputs and generating sources, and verifies the collar's immutable source revision. Existing page switches load the selected candidates without restarting services. Staging saves the previous selection under ignored `build/comparison-review/prior-selections/`; no source models or frozen export sets are deleted. Candidate-only publication bypasses the historical final-review selection. This permits human review, not fabrication release or verified physical fit.
 
-The current teal arcade proposal includes both low/front and raised high/back cable exits. Its rear outlet passes above the intact ballast, with an integral cable-tie bridge. The beige older arcade remains a single-exit comparison. See [the dual-exit checks and limits](box-mount/access/ARCADE_DUAL_EXIT.md).
+The arcade proposal includes low/front and raised high/back cable exits. The rotor base uses a 5 mm stand-off, or 7 mm with its optional 2 mm shim. See [the dual-exit checks](box-mount/access/ARCADE_DUAL_EXIT.md) and [compact mount checks](box-mount/access/COMPACT_MOUNT.md).
+
+## Historical proposal generation and comparisons
+
+The following instructions describe the earlier proposals and remain available for recovery. They are not the current publication selection.
 
 The Disco bar page shows only the unchanged original and the complete C proposal. A and B remain historical source studies and are absent from this focused review. The Box mount page replaces the old rotor shell and bottom with C's matching fixed base. The arcade and mushroom models keep their existing positions and roof/ground alignment.
 

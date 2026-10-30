@@ -1,6 +1,8 @@
 """Verify candidate-only scenes without publishing or deleting prior selections."""
 import json
+import hashlib
 from pathlib import Path
+import sys
 import tempfile
 
 import comparison_review as review
@@ -30,5 +32,29 @@ with tempfile.TemporaryDirectory(prefix='candidate-review-') as directory:
     assert abs(bounds.min.Z-gap) < 1e-5 and abs(bounds.size.Z-109.22) < 1e-5
     assert bounds.max.Z > gap+100, 'Installed bar must extend upward from its root'
     candidate.assert_current()
+    # A presentation change must preserve the previous selection, including on failure.
+    live_path = review.CURRENT
+    argv = sys.argv
+    try:
+        review.CURRENT = Path(directory)/'staged'/'current.json'
+        review.CURRENT.parent.mkdir()
+        previous = dict(registry, presentation='comparison')
+        previous_bytes = json.dumps(previous).encode()
+        review.CURRENT.write_bytes(previous_bytes)
+        sys.argv = ['comparison_review.py', '--presentation', 'candidates']
+        for kind, receipt in registry['receipts'].items(): sys.argv.extend(('--'+kind, receipt))
+        review.main()
+        saved = review.CURRENT.parent/'prior-selections'/(hashlib.sha256(previous_bytes).hexdigest()+'.json')
+        assert saved.read_bytes() == previous_bytes
+        staged = review.CURRENT.read_bytes()
+        assert json.loads(staged)['presentation'] == 'candidates'
+        sys.argv[sys.argv.index('--rotor')+1] = registry['receipts']['arcade']
+        try: review.main()
+        except ValueError as error: assert 'independently reviewed' in str(error)
+        else: raise AssertionError('Wrong rotor receipt staged')
+        assert review.CURRENT.read_bytes() == staged and saved.read_bytes() == previous_bytes
+    finally:
+        review.CURRENT = live_path
+        sys.argv = argv
 assert review.CURRENT.read_bytes() == original, 'Candidate check replaced the prior selection'
 print('PASS: complete installed candidate assembly, full upward bar, no historical scenes; prior data untouched')

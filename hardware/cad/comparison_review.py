@@ -197,6 +197,16 @@ def main():
     try:
         selection = Comparison(temporary)
         selection.assert_current()
+        if CURRENT.exists():
+            previous = CURRENT.read_bytes()
+            history = CURRENT.parent / 'prior-selections'
+            history.mkdir(exist_ok=True)
+            saved = history / (hashlib.sha256(previous).hexdigest()+'.json')
+            if saved.exists():
+                final_review.require(saved.read_bytes() == previous, 'Prior selection archive differs')
+            else:
+                saved.write_bytes(previous)
+            final_review.require(CURRENT.read_bytes() == previous, 'Selection changed while staging')
         temporary.replace(CURRENT)
     finally:
         temporary.unlink(missing_ok=True)
