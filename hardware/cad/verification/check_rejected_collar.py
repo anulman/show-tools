@@ -25,7 +25,7 @@ def run(receipt):
     parts={n:dict(initial='secured' if n in PREINSTALLED else 'outside',
                   final='secured',role='hardware' if n.startswith('M3') else 'printed')
            for n in names if n!='full-height bar'}
-    model=dict(schema=1,bar_already_glued=True,above_root_exterior_access=False,parts=parts,actions=[])
+    model=dict(schema=1,bar_already_glued=True,above_root_exterior_access=False,parts=parts,modules={'old-coupling':list(parts)},actions=[])
     try: verify(model)
     except Violation as error:
         assert 'Pre-glue/captive installed part' in str(error)

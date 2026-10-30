@@ -50,6 +50,12 @@ def verify(model):
     parts = model['parts']
     require(isinstance(parts, dict) and bool(parts), 'Missing removable part inventory')
     require('bar' not in parts and 'glue' not in parts, 'Bonded bar is immutable environment')
+    modules = model['modules']
+    require(isinstance(modules, dict) and bool(modules), 'Missing module ownership')
+    members = [n for group in modules.values() for n in group]
+    require(len(members) == len(set(members)) and set(members) == set(parts),
+            'Module ownership must partition exact part inventory')
+    require(all(group for group in modules.values()), 'Empty module ownership')
     variables = model.get('variables', {})
     require(not (set(parts) & set(variables)), 'Duplicate part/state variable')
     require('bar_glued' not in variables, 'Glue state cannot be changed')
@@ -57,6 +63,7 @@ def verify(model):
     for name, variable in variables.items():
         require(variable['domain'] and len(variable['domain']) == len(set(variable['domain'])), 'Invalid state domain')
         require(variable['initial'] in variable['domain'] and variable['final'] in variable['domain'], 'State outside domain')
+        require(variable.get('owners') and set(variable['owners']) <= set(modules), 'Missing state ownership: '+name)
         domains[name] = set(variable['domain'])
     names = tuple(sorted(domains))
     for name, part in parts.items():
@@ -72,19 +79,30 @@ def verify(model):
         require(a.get('access') in {'root', 'external-module'}, 'Inaccessible action: '+a['id'])
         require(a.get('geometry_evidence'), 'No CAD motion evidence: '+a['id'])
         require(a['requires'] and a['sets'], 'Unbounded/no-op action: '+a['id'])
-        require(all(n in domains and v in domains[n] for n,v in (a['requires'] | a['sets']).items()),
+        require(all(n in domains and v in domains[n] for mapping in (a['requires'], a['sets']) for n,v in mapping.items()),
                 'Unknown actor/state: '+a['id'])
         require(all(n in a['requires'] for n in a['sets']), 'Effects must guard prior values: '+a['id'])
         require(any(a['requires'][n] != v for n,v in a['sets'].items()), 'No-op action: '+a['id'])
         if a['access'] == 'external-module':
-            require(a.get('external_parts'), 'External work lacks affected assembly: '+a['id'])
-            require(all(n in parts and a['requires'].get(n) == 'outside' for n in a['external_parts']),
+            require(all(n not in parts or v == 'outside' for n,v in a['sets'].items()),
+                    'External work cannot insert or secure parts inside ball: '+a['id'])
+            owned = set()
+            for name in a['sets']:
+                if name in parts:
+                    owned.update(group for group, actors in modules.items() if name in actors)
+                else:
+                    owned.update(variables[name]['owners'])
+            affected = {n for group in owned for n in modules[group]}
+            require(affected and all(a['requires'].get(n) == 'outside' for n in affected),
                     'External work on inserted component: '+a['id'])
+            if 'external_parts' in a:
+                require(set(a['external_parts']) == affected, 'External actor subset differs from owned module: '+a['id'])
     reached = {initial: None}
     queue = deque([initial])
     edges = {}
     reverse = {}
     count = 0
+    enabled_actions = set()
     while queue:
         state = queue.popleft()
         values = dict(zip(names, state))
@@ -97,11 +115,13 @@ def verify(model):
             edges[state].append((target, a['id']))
             reverse.setdefault(target, []).append((state, a['id']))
             count += 1
+            enabled_actions.add(a['id'])
             if target not in reached:
                 reached[target] = (state, a['id'])
                 require(len(reached) <= MAX_STATES, 'State bound exceeded; no proof produced')
                 queue.append(target)
     require(final in reached, 'No complete assembly path from bare glued bar')
+    require(enabled_actions == {a['id'] for a in actions}, 'Unreachable claimed operations: '+str(sorted({a['id'] for a in actions}-enabled_actions)))
     # Backward reachability from the bare-bar state is stronger than one happy removal path.
     can_remove = {initial: None}
     queue = deque([initial])
