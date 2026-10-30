@@ -126,4 +126,3 @@ if __name__ == '__main__':
     args=parser.parse_args()
     if args.configure_reference:configure_reference(args.configure_reference)
     else:configure_publication(args.configure_publication)
-
