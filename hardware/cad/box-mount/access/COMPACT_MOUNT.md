@@ -52,4 +52,6 @@ The default `review_components` contains exactly eight installed base components
 
 The checker rejects a restored solid roof, removed lower web, either missing keeper nose, a capped nut-loading channel, a 1 mm substitute shim, an actual M3×10 screw at the raised configuration, insufficient lift, omitted producer/tool records and a changed receipt. Export round trips are compared to actual source material. The small prior coupon's keeper and critical well/fastener regions are preserved; prior ballast parts and PTFE cut pattern remain identical.
 
+The cup-entry check establishes clearance against the fixed base. It does not model the real knob or prove that loosened shoes slide over it. The original snug socket is retained on the operator's confirmation; actual fit still needs the hardware trial.
+
 This is review geometry, not a manufacturing release. Review resin orientation, drainage and cleanup in the deep well, the 2 mm outer wall, thin keeper nose, shim seating and source-clipped specimens. Actual fit, fastening preload, PTFE forming/creep/drag, cycling, abrasion, loads, encoder isolation and ball stability remain physical tests. Existing sources and frozen outputs stay intact; the worker does not publish or start services.
