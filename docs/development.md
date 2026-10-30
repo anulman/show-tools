@@ -178,7 +178,7 @@ Keep compiled output, recordings, and test artifacts out of commits. The `wasm-a
 
 ## Verify the independent video studio
 
-Use `npm run build:video` to build its native C++ pose module to WASM and bundle `ui/video/` without requiring the practice WASM artifact. Serve `dist/` on a separate port, such as 8087, and open `/ui/video/`. Run `npm run test:video` for pose and input-boundary checks. The [studio guide](../ui/video/README.md) includes native checks and explicit-time inspection methods. Keep live PE delivery and real CRT output claims separate from the fixture preview. Coordinate edits to shared build packaging with Performance Engine; the current video builder preserves other `dist/` entries.
+Use `npm run build:video` to build the C++ held-frame sampler to WASM and bundle `ui/video/` without requiring the practice WASM artifact. Prepare a private Street score from the saved catalog and verified Figma asset package, then serve it with its referenced assets on an isolated port. The [studio guide](../ui/video/README.md) documents preparation, explicit-time inspection, and clean movie export. Run `npm run test:video` and the focused exporter tests before reviewing the actual browser scene and decoded movie frames. Keep private catalog exports and prepared binding receipts outside Git. Video Agent owns Figma writes and asset verification; the runtime owner consumes its handoff. Keep full-song chart interpretation, live per-voice PE delivery, and real CRT output claims separate from the authored fixture. Coordinate shared build packaging with Performance Engine; the video builder preserves other `dist/` entries.
 
 ## Prepare the arrived I-PAC harness
 
