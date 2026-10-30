@@ -27,6 +27,8 @@ flowchart LR
 
 The worklet receives mono microphone PCM and produces separate stereo sample/click and processed-live buses for browser routing. The UI receives snapshots and events after audio decisions. It can stall without becoming the source of beat timing.
 
+Offline product commands remain separate from this audio path. The [deterministic command contract](implementation/deterministic-pipelines.md) rejects invalid inputs or artifacts with actionable diagnostics. Surrounding harness failures request Chief recovery. Neither path schedules audio or supplies a JavaScript fallback for musical execution.
+
 ```mermaid
 flowchart LR
 	clock["C++ clock compiled to WASM"] -->|"beat ID and audio frame"| transport["C++ song transport"]
