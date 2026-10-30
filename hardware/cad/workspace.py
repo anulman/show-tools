@@ -26,6 +26,11 @@ def main():
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
+    import print_handoff
+    if print_handoff.CONFIG.is_file() and args.variant == 'all' and args.explode == 0:
+        print_handoff.publish_configured(args.port, args.reset_camera,
+                                         boxes_only=args.workspace == 'box-mount')
+        return
     if args.workspace == 'disco-bar':
         import post_glue_review
         post_glue_review.publish_reference_hold(args.step, args.port, args.reset_camera)

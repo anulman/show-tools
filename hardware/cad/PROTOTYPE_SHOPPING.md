@@ -1,48 +1,52 @@
-# Hardware for one arcade box and one disco-ball assembly
+# Hardware for the four-model prototype
 
-This list covers one inclined arcade box, one spinner box, and the corrected collar bar. The arcade box has front and rear cable exits. Darren's original bar is included as an alternative. Use the corrected bar and receiver files together. The earlier modified collar/bar files remain on hold. Quantities below build the collar version. Only one of the two bars is needed. All dimensions are millimetres.
+This list covers one inclined arcade box, one Option C spinner box, and one Option C bar with its removable cup and collar. Darren's original full-height bar is a separate comparison print. The two bars are alternatives for one disco ball. All dimensions are millimetres.
 
 ## Buy or check your supply
 
-Quantities are installed quantities. Buy a few spare screws and nuts, or round up to supplier pack sizes. All threads below are M3 × 0.5. Match the head type as well as the length.
+Quantities are installed quantities. Buy spares or round up to supplier pack sizes. M3 threads have 0.5 mm pitch; M4 threads have 0.7 mm pitch. Match the head type and length. Supplier links identify exact product examples, not guaranteed stock or delivery.
 
-| Part | Required | Where it goes | Exact product example |
+| Part | Quantity | Location | Product example |
 | --- | ---: | --- | --- |
-| M3 × 10 button-head screws, ISO 7380-1 | 12 | Four bottom screws and two ballast-lid screws per box | [Accu SSB-M3-10-A2](https://www.accu.co.uk/socket-button-screws/8103-SSB-M3-10-A2) |
+| M3 × 10 button-head screws, ISO 7380-1 | 12 | Six per box for the bottom and sealed ballast cassette | [Accu SSB-M3-10-A2](https://www.accu.co.uk/socket-button-screws/8103-SSB-M3-10-A2) |
 | M3 × 12 button-head screws, ISO 7380-1 | 2 | Spinner stock-hex keeper tabs | [Accu SSB-M3-12-A2](https://www.accu.co.uk/socket-button-screws/8104-SSB-M3-12-A2) |
-| M3 × 8 button-head screws, ISO 7380-1 | 4 | Three bar carrier screws and one captive-lock cap screw | [Accu SSB-M3-8-A2](https://www.accu.co.uk/socket-button-screws/8102-SSB-M3-8-A2) |
+| M3 × 16 button-head screws, ISO 7380-1 | 2 | Retain the spinner ballast cassette independently of the bottom | [Accu SSB-M3-16-A2](https://www.accu.co.uk/socket-button-screws/8106-SSB-M3-16-A2) |
+| M3 × 8 button-head screws, ISO 7380-1 | 4 | Option C screw-capture cover | [Accu SSB-M3-8-A2](https://www.accu.co.uk/socket-button-screws/8102-SSB-M3-8-A2) |
 | M3 × 12 countersunk screws, ISO 10642 | 4 | PTFE bearing ears and their support | [Accu SSK-M3-12-A2](https://www.accu.co.uk/countersunk-socket-head-screws/5425-SSK-M3-12-A2) |
-| M3 × 6 flat-point set screws, DIN 913 / ISO 4026 | 2 | Padded knob grip | [Accu SSF-M3-6-A2](https://www.accu.co.uk/flat-point-set-screws/4514-SSF-M3-6-A2) |
-| M3 full hex nuts, DIN 934, 5.5 across flats × 2.4 thick | 25 | Arcade box 6; spinner box 12; collar assembly 7 | [Accu HPN-M3-A2](https://www.accu.co.uk/hexagon-nuts/7888-HPN-M3-A2) |
-| Captive M3 × 12 screw **with threaded retaining washer** | 1 kit | Collar's positive lock | [WDS 899-M3-12M3, plain 316 stainless kit](https://www.wdscomponents.com/en-gb/m3-x-12-captive-socket-cap-screw-with-threaded-washer) |
-| Cable ties, 145 × 2.5 × 1.2 | Up to 3, plus spares | One spinner tie and one per used arcade exit; two eyes hold one tie | [HellermannTyton T18I, 111-02370](https://www.hellermanntyton.com/products/cable-ties-inside-serrated/t18i/111-02370) |
+| M3 × 6 flat-point set screws, ISO 4026 | 2 | Padded knob grip | [Accu SSF-M3-6-A2](https://www.accu.co.uk/flat-point-set-screws/4514-SSF-M3-6-A2) |
+| M3 full hex nuts, DIN 934, 5.5 across flats × 2.4 thick | 26 | Arcade box 6; spinner box 14; C coupling 6 | [Accu HPN-M3-A2](https://www.accu.co.uk/hexagon-nuts/7888-HPN-M3-A2) |
+| M4 × 12 fully threaded socket-cap screw, ISO 4762 | 1 | Option C lock | [Accu SSCF-M4-12-A2](https://www.accu.co.uk/metric-cap-head-screws/3839-SSCF-M4-12-A2) |
+| M4 full hex nut, 7 across flats × 3.2 thick | 1 | Option C lock | [Harrison Silverdale 10401 M4 SS](https://www.harrisonsilverdale.com/products/details/standard-thread-full-nuts.html) |
+| M3 Type L penny washers, ID3.2 × OD12 × 0.8 thick | 2 | Spinner ballast cassette retainers | [TC Fixings 718](https://www.tcfixings.co.uk/product/m3-type-l-penny-washers-bzp/718) |
+| Cable ties, 145 × 2.5 × 1.2 | Up to 3, plus spares | One spinner tie and one per used arcade exit | [HellermannTyton T18I 111-02370](https://www.hellermanntyton.com/products/cable-ties-inside-serrated/t18i/111-02370) |
 
-The WDS kit includes its 899-M3 retaining washer. Do not order another washer unless you want a spare. An ordinary fully threaded M3 screw does not replace the reduced-shank captive screw. Use plain full nuts, not taller nyloc nuts, in the captured pockets. Button-head length is measured under the head; countersunk length includes the head.
+Use plain full nuts in the captured pockets. Taller nyloc nuts do not fit the same envelope. Button-head and socket-cap lengths exclude the head; countersunk lengths include the head. No proprietary captive-screw kit is required.
 
-## Buy and cut the soft materials
+## Buy or cut the remaining materials
 
-| Material | Amount for this prototype | Product and preparation |
+| Material | Amount | Exact product example and cut size |
 | --- | --- | --- |
-| Solid PTFE sheet, 1.0 thick | One sheet, 150 × 150 or larger, including trial offcuts | [Beeplastic PTFE sheet](https://www.beeplastic.com/products/3mm-ptfe-teflon-sheet-sealing-cut-to-size): select **150 × 150 / 1 mm**, despite the page's 3 mm title. Cut and form the supplied STEP pattern, including all four mounting ears and countersinks. The active ring is ID88 / OD92; a plain washer alone omits its retention features. |
-| Adhesive-backed neoprene sponge, nominally 2 thick | Two pads, each 16 × 8; keep an offcut for a grip trial | [Rubber & Sponge 210-2-40-10-2](https://rubberandsponge.co.uk/product/2mm-thick-x-40mm-wide-adhesive-neoprene-sponge-strip/). The listed coil is 10 m: ask for an offcut to avoid excess. International delivery requires contacting the supplier. Adhesive faces the printed shoe. Verify total thickness and grip on the actual knob. |
-| Ballast, optional | Eight nominal 6.35 cubes per box, 16 total | [Pinewood Pro 021244 tungsten cubes](https://www.pinewoodpro.com/tungsten-cube-weights.html). Buy enough packs for 16 cubes. The CAD checks packaging, not sufficient stabilizing weight. Alternatively, use dry sand in a fitted sealed pouch inside each screwed cassette; keep the lid and screws clear. |
-| Heat-shrink tubing | Enough for the two actual cable bundles | Use your existing tubing sized to the wires. Confirm the recovered bundle and connectors pass through the exits. Cable ties provide the box-side anchor; heat shrink protects the cable. |
-| Hot-glue sticks | Match your glue gun | [Gorilla Hot Glue Sticks](https://gorillatough.com/product/gorilla-hot-glue-sticks). Use Darren's proposed method and test adhesion to the actual shell and cured print. |
+| Solid PTFE sheet, 1.0 thick | One 150 × 150 sheet or suitable offcut | [Beeplastic PTFE sheet](https://www.beeplastic.com/products/3mm-ptfe-teflon-sheet-sealing-cut-to-size). Select **150 × 150 / 1 mm**, despite the page title. Cut and form the separate STEP references with all four mounting ears and countersinks. The active ring is ID88 / OD92. A plain washer omits its retention features. |
+| Adhesive-backed neoprene sponge, nominally 2 thick | Two pads, each 16 × 8, plus a grip-test offcut | [Rubber & Sponge 210-2-40-10-2](https://rubberandsponge.co.uk/product/2mm-thick-x-40mm-wide-adhesive-neoprene-sponge-strip/). The listed coil is 10 m; request an offcut or use matching stock. Adhesive faces the printed shoe. Confirm the actual total thickness and grip. |
+| Optional tungsten ballast | Eight 6.35 mm cubes per box, 16 total | [Pinewood Pro 021244](https://www.pinewoodpro.com/tungsten-cube-weights.html). Buy enough packs for 16 cubes. Each cube is approximately 4.8 g. The checks establish packaging, not sufficient stabilizing mass. |
+| Optional sand instead of tungsten | A small sealed pouch inside each cassette | [Quikrete Play Sand 111320](https://www.homedepot.ca/product/quikrete-play-sand-20kg/1000179897). This is a 20 kg bag; borrow a small quantity if available. Use dry sand, seal the pouch, and keep the cassette lid and screws clear. |
+| Heat-shrink tubing | Size to the actual wires | Reuse your planned tubing. Confirm the recovered bundle and connectors pass through the exits. Cable ties anchor the wiring; heat shrink protects it. |
+| Hot-glue sticks | Match your glue gun | [Gorilla Hot Glue Sticks](https://gorillatough.com/product/gorilla-hot-glue-sticks). Choose the gun's stick diameter. Test the bond on the actual shell and cured print before assembly. |
 
-PTFE is the low-friction bearing surface. Neoprene is the high-friction knob grip. Keep these materials in their separate roles. Do not add an unbudgeted adhesive layer beneath the PTFE.
+PTFE provides the low-friction bearing surface. Neoprene provides grip against the knob. Do not add an adhesive layer beneath the PTFE without checking the resulting height. The cut-material STEP references are outside the STL ZIP and must not be resin printed.
 
-## Reuse your components and standard tools
+## Reuse these components and tools
 
-Reuse the arcade button, its matching mounting nut, attached switch/LED module and wiring. Reuse the spinner, red knob and existing adjustable stock hex. No additional spinner mounting nut, magnet, custom fork or custom spanner is required.
+Reuse the arcade button, its matching mounting nut, switch/LED module, and wiring. Reuse the spinner, red knob, and existing adjustable stock hex. No extra spinner mounting nut, magnet, custom fork, or custom spanner is required.
 
-Use ordinary metric L-shaped hex keys: **1.5, 2, 2.5, and 4 mm**. The checked tool sizes are Wera 950 L 05021600001 (90 × 14), 05021605001 (100 × 16), 05021610001 (112 × 18), and 05021620001 (140 × 25), respectively. Short keys and thick bit holders are not equivalent to these checked access envelopes. Keep scissors or a knife, calipers, and the glue gun on hand. Support and lift the box about 180 mm for underside collar service.
+Use ordinary metric L-shaped hex keys in **1.5, 2, 3, and 4 mm** sizes. The checked access envelopes use long keys, including the 3 mm Wera 950 L at 126 mm overall length and the 4 mm key at 140 mm. The [Wera 950/9 Hex-Plus set 05021909001](https://www.wera.de/en/05021909001) contains these sizes. Short keys and bulky bit holders have different access envelopes. Keep scissors, calipers, and the glue gun on hand.
 
-## Print quantities and first-article checks
+## Print and service scope
 
-The print-only ZIP contains **26 STL files**. Print each file once in folders 01–03: four arcade parts, seven spinner-box parts, and eight collar-bar parts. Folder 04 contains one optional 2 mm shim for a 7 mm bearing height instead of the default 5 mm. Folder 05 contains five small fit-test parts. Folder 06 contains Darren's original bar as an alternative, not an additional part in the collar assembly.
+Print each STL once. The archive separates the arcade box, spinner box, Darren's original bar, and the Option C bar with its cup and collar. The spinner folder also contains an optional 2 mm height shim. Use the default 5 mm stack or the 7 mm stack with that shim. Do not install both heights together.
 
-The cut-material STEP files are separate and must not be resin printed. The STL coordinates describe assembly positions, not printer orientation. Ask the printer to orient, support, wash and cure the parts using a suitable tough engineering resin for their machine. Darren may prepare or skip his original alternative at print time.
+Option C's cup, collar, grip shoes, and hardware can be installed and removed after the bare bar has been glued inside the ball. Service the collar with the spinner box's bottom removed. The ballast cassette and cable anchors remain attached to the fixed shell. Withdraw both service keys before refitting the bottom or rotating the ball normally. The fitted assembly has no rotational stop with the tools withdrawn.
 
-Ask the printer to test the small hex/keeper and PTFE-ear joints with the listed hardware before committing to the large shells. Also check the collar's fit, quarter-turn, captive lock and release with the actual knob before gluing the bar into the ball. Assemble permanent bar-side carrier and cap hardware before gluing; the exterior will be inaccessible afterward. For mounting, secure the spinner hex first with cup and ball off, fit and tighten the cup with the ball off, then attach the glued ball/bar using the underside collar and lock. Normal ball removal does not require debonding. Receiver repair can require debonding; the original bottom-fed passages are preserved, but actual fluid delivery and glue release remain unverified.
+Ask the printer to use a tough engineering resin suited to their machine, and to choose orientation and supports. Test fully washed and cured mating parts with the listed hardware and your actual knob before printing the remaining large pieces or gluing the bar. Check lock, release, free rotation, grip, pull resistance, and bearing drag. Resin shrinkage, strength, wear, adhesive performance, and sufficient ballast remain physical checks.
 
-These are geometrically checked first-prototype candidates. Actual resin shrinkage, hardware fit, grip, wear, pull resistance and stability remain physical checks. The fit-test hardware can be reused in the finished assembly. Supplier pages were checked October 29, 2026; shipping and stock are not promised.
+The archive contains fabrication STL files only. The separate validation report lists the exact files, source hashes, and geometry checks. Previous shopping lists and exports describe superseded designs.
