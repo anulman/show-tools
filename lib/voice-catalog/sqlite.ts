@@ -1,18 +1,7 @@
 import { Schema } from 'effect';
 import type { Database, SqlJsStatic, SqlValue } from 'sql.js';
 import { canonicalCatalog, parseCatalogDocument, parseSheetBinding, parseVoice, type CatalogDocument } from './model.js';
-
-const schemaSqlV1 = `
-CREATE TABLE catalog_metadata (id INTEGER PRIMARY KEY CHECK(id = 1), revision INTEGER NOT NULL CHECK(revision >= 0));
-INSERT INTO catalog_metadata VALUES (1, 0);
-CREATE TABLE voices (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, notes TEXT NOT NULL, character_id TEXT, avatar_token TEXT NOT NULL);
-CREATE TABLE voice_effects (voice_id TEXT NOT NULL REFERENCES voices(id), ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 63), definition_json TEXT NOT NULL, PRIMARY KEY(voice_id, ordinal));
-CREATE TABLE sheet_bindings (spreadsheet_id TEXT NOT NULL, sheet_id INTEGER NOT NULL CHECK(sheet_id >= 0), label_cell TEXT NOT NULL, source_label TEXT NOT NULL, voice_id TEXT NOT NULL REFERENCES voices(id), PRIMARY KEY(spreadsheet_id, sheet_id, label_cell));
-PRAGMA user_version = 1;`;
-const bindingSqlV1 = schemaSqlV1.split(';').map(sql => sql.trim()).find(sql => sql.startsWith('CREATE TABLE sheet_bindings'));
-if (!bindingSqlV1) throw new Error('Missing binding schema');
-const bindingSql = `CREATE TABLE sheet_bindings (spreadsheet_id TEXT NOT NULL, sheet_id INTEGER NOT NULL CHECK(sheet_id >= 0), label_cell TEXT NOT NULL, source_label TEXT NOT NULL, voice_id TEXT NOT NULL REFERENCES voices(id), cue_label_cell TEXT, cue_source_label TEXT, CHECK((cue_label_cell IS NULL) = (cue_source_label IS NULL)), PRIMARY KEY(spreadsheet_id, sheet_id, label_cell))`;
-const schemaSql = schemaSqlV1.replace(bindingSqlV1, bindingSql).replace('user_version = 1', 'user_version = 2');
+import { schemaSqlV1, schemaSqlV2 as schemaSql, bindingSqlV2 as bindingSql } from './schema.js';
 const decodeVoiceRow = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String, name: Schema.String, notes: Schema.String, character_id: Schema.NullOr(Schema.String), avatar_token: Schema.String }));
 const decodeEffectRow = Schema.decodeUnknownSync(Schema.Struct({ voice_id: Schema.String, ordinal: Schema.Int, definition_json: Schema.String }));
 const decodeBindingRow = Schema.decodeUnknownSync(Schema.Struct({ spreadsheet_id: Schema.String, sheet_id: Schema.Int, label_cell: Schema.String, source_label: Schema.String, voice_id: Schema.String, cue_label_cell: Schema.NullOr(Schema.String), cue_source_label: Schema.NullOr(Schema.String) }));
