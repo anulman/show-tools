@@ -6,6 +6,19 @@ The collar has a nominal 0.5 mm radial race gap, 0.5 mm axial race gaps and 1 mm
 
 The two simpler alternatives were a hand-operated ring with a snap-in captive lock, and three direct captive screws. The former needed another support-height change and an unqualified resin snap interface; the latter required three routine lock operations. The selected collar keeps one purchased lock operation and one ordinary-key quarter turn.
 
+## Operator's mounting contract
+
+The bar stays permanently glued inside the disco ball. The baseplate grips the knob tightly. The removable joint couples that baseplate to the bar and must lock and unlock from below the ball. There is no separate bar-to-box retaining joint. Any stationary bearing surface is passive support, not another attachment to release.
+
+The operator accepts either complete assembly order:
+
+- A: preset the baseplate's knob grip, insert and lock the baseplate into the ball/bar, then seat the spinner's stock hex in the box counterbore and secure it against pullout.
+- B: seat and secure the stock hex in the box first, fitting the knob and baseplate before or afterward as access permits, then secure the ball/bar to the baseplate from below.
+
+Verify at least one complete order, including grip adjustment, knob installation, hex retention and access to every required fastener. The existing separate C2 assembly and motion checks do not establish this complete installation sequence. In particular, the knob cup can obscure top-driven hex-keeper screws. Pull-apart testing must cover the complete connection, including the knob's attachment to the spinner, rather than infer it from the hex tabs alone.
+
+The operator reports that the stock hex's mounting height is adjustable and the knob can sit close to it. The usable range and chosen installed height remain unmeasured. The 19 mm roof-to-bar gap is a proposed latch placement, not an operator hardware requirement.
+
 ## Parts and tools
 
 The candidate has 25 components: eight printed pieces, two cut-stock pads, and 15 purchased hardware pieces.
