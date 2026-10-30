@@ -7,9 +7,10 @@ from . import full_height as c
 from . import standard_collar as grip
 from . import debond_checks as channels
 old=grip.old
-ANGLES=(45.,110.,240.)
+ANGLES=(45.,110.,260.)
 TURN=35.
 RADIUS=38.
+M4_PITCH=.7
 
 
 @dataclass
@@ -41,7 +42,7 @@ def cup(reference):
     body=c.cyl(33.,26.9875,(0,0,-13.49375))-c.pocket()
     for sign in (-1,1):
         body-=c.box(14,23,15,(sign*20.5,0,-13))
-        for y in (-12,12):body-=c.box(4,3,11,(sign*25.5,y,-13))
+        for y in (-12,12):body-=c.box(10,3,11,(sign*22.5,y,-13))
         body-=c.hexagon(5.8/math.sqrt(3),3.6,(sign*28.5,0,-13),'x')
         body-=c.cyl(1.8,10,(sign*31,0,-13),'x')
     body+=old.ring(30.,43.,0.,1.5)+old.ring(33.5,43.,1.5,3.)
@@ -107,10 +108,10 @@ def build(reference,concept):
         for angle in ANGLES:
             bar-=old.radial(c.box(11,10,4.5,(37.5,0,-1.5)),angle)
             body+=old.radial(c.box(10,6,2,(37,0,-7.5)),angle)
-        point=old.xy(38.5,225.)
-        body+=c.cyl(5.,9.,(*point,7.5))
-        body-=c.hexagon(4.35/math.sqrt(3),7.5,(*point,8.75))
-        parts[0].shape-=c.cyl(5.5,5,(*point,8.5))
+    point=old.xy(38.5,225.)
+    body+=c.cyl(5.,9.,(*point,7.5))
+    body-=c.hexagon(4.35/math.sqrt(3),7.5,(*point,8.75))
+    parts[0].shape-=c.cyl(5.5,5,(*point,8.5))
     print("BUILD",concept,"protect channels",flush=True)
     body=clear_inlets(body,oracle)
     bar=protect(reference,bar,oracle)
@@ -129,7 +130,9 @@ def posed(candidate,stage):
     for piece in candidate.parts:
         shape=piece.shape
         if piece.name.startswith('threaded M4 full nut'):shape=shape.translate((0,0,values['nut_drop']))
-        elif piece.name.startswith('axial M4x12 socket screw'):shape=shape.translate((0,0,values['head_drop']))
+        elif piece.name.startswith('axial M4x12 socket screw'):
+            a=float(piece.name.rsplit(' ',1)[1]);point=old.xy(RADIUS,a)
+            shape=shape.rotate(Axis((*point,0),(0,0,1)),(values['nut_drop']-values['head_drop'])/M4_PITCH*360).translate((0,0,values['head_drop']))
         shape=old.radial(shape,values['angle']).translate((0,0,values['shift']))
         result.append(c.Piece(piece.name,shape,piece.role))
     return result
