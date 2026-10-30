@@ -8,12 +8,35 @@ from pathlib import Path
 import disco_bar
 
 HERE = Path(__file__).resolve().parent
+REFERENCE_CONFIG = HERE/'build/post-glue-review/reference.json'
+
+
+def reference_path(step):
+    """Use an explicitly pinned durable input instead of an expiring mail cache."""
+    if not REFERENCE_CONFIG.exists():
+        return step
+    config = json.loads(REFERENCE_CONFIG.read_text())
+    if config.get('schema') != 1 or config.get('sha256') != disco_bar.REFERENCE_SHA256:
+        raise ValueError('Unexpected private CAD reference configuration')
+    path = Path(config['path'])
+    if hashlib.sha256(path.read_bytes()).hexdigest() != disco_bar.REFERENCE_SHA256:
+        raise ValueError('Private CAD reference changed')
+    return path
+
+
+def configure_reference(path):
+    path = Path(path).expanduser().resolve()
+    _, shape = disco_bar.load_reference(path)
+    disco_bar.verify_full_reference(path, shape)
+    REFERENCE_CONFIG.parent.mkdir(parents=True, exist_ok=True)
+    REFERENCE_CONFIG.write_text(json.dumps(dict(schema=1, path=str(path),
+                                               sha256=disco_bar.REFERENCE_SHA256), indent=2)+'\n')
 
 
 def reference_hold(step, port=3939, reset=False):
     """Return only the preserved source while replacement mechanisms are checked."""
     from build123d import Axis
-    path, shape = disco_bar.load_reference(step)
+    path, shape = disco_bar.load_reference(reference_path(step))
     disco_bar.verify_full_reference(path, shape)
     return path, shape.rotate(Axis.X, 180).rotate(Axis.Z, -90)
 
@@ -34,4 +57,11 @@ def publish_reference_hold(step, port=3939, reset=False):
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(receipt, indent=2)+'\n')
     print(json.dumps(receipt, indent=2))
+
+
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--configure-reference', type=Path, required=True)
+    configure_reference(parser.parse_args().configure_reference)
 
