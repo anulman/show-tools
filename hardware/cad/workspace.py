@@ -36,7 +36,7 @@ def main():
                      (args.workspace == 'disco-bar' or args.variant in ('all', 'rotor-level')) else None)
         if candidate_only:
             objects, names, colors, alphas = comparison.candidates(
-                args.workspace, variant=args.variant, explode=args.explode)
+                args.workspace, variant=args.variant, explode=args.explode, step_path=args.step)
         else:
             objects, names, colors, alphas = (
                 module.preview(step_path=args.step, selection=selection) if args.workspace == "disco-bar"
@@ -72,6 +72,7 @@ def main():
          axes=True, grid=(True, False, False))
     sources = [Path(module.__file__), Path(__file__)]
     if args.workspace == "disco-bar":
+        sources.append(CAD_DIR / "disco_bar.py")
         sources.append(CAD_DIR / "disco-bar" / "full_height.py")
         sources.append(CAD_DIR / "disco-bar" / "latches.py")
     else:

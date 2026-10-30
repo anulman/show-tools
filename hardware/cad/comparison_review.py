@@ -78,8 +78,8 @@ class Comparison:
                     presentation=self.presentation,
                     physical_fit_verified=False, manufacturing_approved=False)
 
-    def candidates(self, workspace, *, variant='all', explode=0):
-        """Build selected assemblies only; historical comparisons remain on disk."""
+    def candidates(self, workspace, *, variant='all', explode=0, step_path=None):
+        """Build the selected box assemblies or original/C2 bar comparison."""
         import math
         from build123d import Axis, import_step
         final_review.require(math.isfinite(explode) and explode >= 0, 'Invalid explode distance')
@@ -93,17 +93,25 @@ class Comparison:
                             (x, 0, z-(lower_bottom if name == 'bottom' else 0)))
 
         if workspace == 'disco-bar':
-            # Show the installed orientation and the actual checked companion base.
-            base_at(0)
+            import disco_bar
+            reference_path, reference = disco_bar.load_reference(step_path)
+            disco_bar.verify_full_reference(reference_path, reference)
+            final_review.require(disco_bar.REFERENCE_SHA256 == self.reports['collar']['reference_sha256'],
+                                 'C2 was checked against another original bar')
+            self.files[str(reference_path)] = disco_bar.REFERENCE_SHA256
             layout = self.reports['rotor']['C2_source_to_box']
             final_review.require(layout['rotation_x_degrees'] == 180,
                                  'Unsupported installed bar orientation')
+            # Both bars stand upright on the same mouth plane, without a box.
+            original = final_review.integration.pose(reference.solids()[0], 0, layout['rotation_z_degrees'])
+            self.append(scene, original, 'ORIGINAL DARREN BAR / full-height reference',
+                        '#367fd4', .35, (-80, 0, 0))
             for name, role, shape in self.parts['collar']:
                 placed = final_review.integration.pose(
-                    shape, layout['mouth_z_mm'], layout['rotation_z_degrees'])
+                    shape, 0, layout['rotation_z_degrees'])
                 color = '#e6a238' if role == 'pad' else '#8b65c1' if role == 'bar' else '#39bca7'
-                self.append(scene, placed, 'BAR / BASEPLATE CANDIDATE / ' + name,
-                            color, .18 if role == 'bar' else .35 if role == 'body' else 1., (0, 0, 0))
+                self.append(scene, placed, 'C2 BAR / BASEPLATE CANDIDATE / ' + name,
+                            color, .18 if role == 'bar' else .35 if role == 'body' else 1., (80, 0, 0))
         else:
             final_review.require(workspace == 'box-mount', 'Unknown candidate workspace')
             final_review.require(variant in ('all', 'arcade-inclined', 'rotor-level'),
