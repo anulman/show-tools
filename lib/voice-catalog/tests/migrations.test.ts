@@ -11,6 +11,7 @@ import { canonicalBodyJson } from '../authority-model.js';
 import { migrateCatalog, readMigratedCatalog, restoreCatalog } from '../migrations.js';
 import { VoiceCatalogSqlite } from '../sqlite.js';
 import { schemaSqlV1 } from '../schema.js';
+import { readCanonicalCatalog } from '../sql-reader.js';
 import type { CatalogDocument } from '../model.js';
 
 const require = createRequire(import.meta.url);
@@ -153,6 +154,10 @@ test('migrated fixture opens in native SQLite and a consistent snapshot restores
       assert.equal(native.prepare('PRAGMA user_version').get()?.user_version, 3);
       assert.equal(native.prepare('PRAGMA integrity_check').get()?.integrity_check, 'ok');
       assert.equal(native.prepare('SELECT generation_id FROM catalog_metadata').get()?.generation_id, identity.generationId);
+      native.exec('BEGIN');
+      const nativeView = readCanonicalCatalog({ all: query => native.prepare(query).all() });
+      native.exec('COMMIT');
+      assert.deepEqual(nativeView, { stamp: expected.stamp, body: expected.body }, 'native and sql.js readers preserve the same complete catalog');
       native.prepare('VACUUM INTO ?').run(backupPath);
       native.prepare('UPDATE voices SET name = ? WHERE id = ?').run('Later live change', document.voices[0].id);
     } finally { native.close(); }

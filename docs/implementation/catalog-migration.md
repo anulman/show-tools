@@ -1,6 +1,6 @@
 # Voice catalog migration core
 
-This milestone prepares a filesystem authority without changing the running practice desk. The browser still stores schema-v2 SQLite through sql.js in IndexedDB. No sidecar service, endpoint, automatic synchronization, backup schedule or operator-data migration is installed.
+This work prepares a filesystem authority without changing the running practice desk. The browser still stores schema-v2 SQLite through sql.js in IndexedDB. A native file adapter is verified with temporary databases. No sidecar service, endpoint, automatic synchronization, backup schedule or operator-data migration is installed.
 
 Follow the [canonical data policy](../data-retention.md). The operator selected forward migrations over backward-compatible APIs. Old schemas are migration inputs, not alternate canonical write protocols.
 
@@ -15,6 +15,20 @@ Follow the [canonical data policy](../data-retention.md). The operator selected 
 Schema v3 stores catalog identity and restore generation alongside revision in SQLite metadata. There is no external manifest transaction or mutation-history ledger. The new reader checks schema, integrity, foreign keys, metadata and domain values. The current browser's v2 writer is unchanged apart from importing the shared schema definitions.
 
 These functions operate on supplied bytes. They do not install a filesystem authority, select a seed library or overwrite a database. Migration inputs remain available for recovery until a later canonical handoff verifies.
+
+## Native file adapter
+
+`native-store.ts` is a Node-only adapter around an explicitly supplied, existing schema-v3 file. It opens absolute filesystem paths without creating a missing database. It neither migrates old schemas on open nor selects a default data path. The browser and audio worklet do not import it.
+
+Paths reject embedded NULs. Existing paths and destination directories resolve through the operating system before URL encoding, preserving the meaning of `..` across symlinks. File arguments cannot end in a separator or final dot segment. A lexical file-URL conversion alone can select a different catalog.
+
+`NativeCatalogAuthority.open(filename)` validates the file. Its `read()` captures a coherent SQLite transaction. `replace(base, desired)` checks catalog and generation before considering identical-content acknowledgment, then checks revision before changing data. Business rows and the next revision commit in the same `BEGIN IMMEDIATE` transaction. Unchanged content within the same generation does not advance revision. An exhausted revision cannot wrap.
+
+All transaction steps are synchronous. The asynchronous content digest uses the captured result after the transaction completes, so another connection cannot change the returned stamp/body pair during hashing. SQLite errors propagate. A failed or unobserved acknowledgment is not proof that a write failed; the replica's uncertain state retains that request until reconciliation. SQLite transactions serialize connections; this module does not provide a deployment process lock, connection service or retry timer.
+
+`snapshot(destination)` creates a consistent `VACUUM INTO` copy in an owned staging directory, validates that copy and flushes its completed file. It publishes with a no-clobber hard link and flushes the destination directory. Existing files, including empty files, are not replaced. The returned stamp and digest describe the copied database, even if the live source changes afterward. Cleanup removes only its own staging directory. Failure after publication can leave a completed destination; the method does not delete that file or claim publication was rolled back.
+
+`close()` releases the native connection. The adapter uses Node's built-in `node:sqlite`; a production host/runtime has not been selected. The fixtures verify the available Node runtime, not Windows filesystem behavior or power-loss durability. No automatic live restore or off-machine upload is supplied.
 
 ## Snapshots and local edits
 
@@ -39,15 +53,17 @@ node --import tsx --test lib/voice-catalog/tests/*.test.ts
 npm run typecheck
 ```
 
-The migration fixtures cover v1/v2 conversion, export/reopen, malformed metadata/schema, invalid effects and links, unknown character preservation, source-byte preservation and generation-changing restore. A temporary native SQLite database produces a consistent backup that a fresh process reopens. The test compares the complete expected catalog after reopening it through sql.js and restoring its generation. The native fixture uses Node's built-in `node:sqlite`; it is a test dependency, not a selected production host driver.
+The migration fixtures cover v1/v2 conversion, export/reopen, malformed metadata/schema, invalid effects and links, unknown character preservation, source-byte preservation and generation-changing restore. A temporary native SQLite database produces a consistent backup that a fresh process reopens. The test compares the complete expected catalog after reopening it through sql.js and restoring its generation. The native fixtures and file adapter use Node's built-in `node:sqlite`; no production host/runtime is selected.
 
 Replica tests cover stale local saves, independent local/canonical revisions, initial-library conflicts, reordered and conflicting snapshots, edits made during a request, stale or mismatched acknowledgments, outage retries, undo after a lost acknowledgment with committed or uncommitted writes, restored generations, explicit resolution and immutable effective views.
 
-These tests do not establish real cross-tab synchronization, filesystem crash durability, endpoint authentication, actual offline Start integration or off-machine backup. No physical devices or operator browser libraries are opened.
+Native adapter tests cover coherent reads, revision persistence, stale writers, identity-first generation fences, no-op writes, exhausted revisions, SQLite busy errors, exact path resolution, copied-snapshot identity, fresh-process reopen and no-clobber publication. On non-root Mac/Linux fixtures, a real directory-permission failure after publication verifies that the completed snapshot remains intact. Real authority/replica tests exercise an uncertain save followed by a local undo, with committed or uncommitted writes and another writer. They verify that a late old-base request cannot overwrite the final undo. A restored snapshot with repeated revision rejects an old-generation equal-content save.
+
+These tests do not establish real cross-tab synchronization, after-DML disk-full handling, filesystem crash durability, endpoint authentication, actual offline Start integration or off-machine backup. No physical devices or operator browser libraries are opened.
 
 ## Remaining cutover
 
-After the canonical host and backup destination are selected, implement the native filesystem adapter and its explicit runtime/durability configuration. Upgrade the worker, cache envelope, editor and Video callers together. Obsolete clients must fail clearly without a legacy write adapter. Preserve each existing browser copy while the replacement verifies.
+After the canonical host and backup destination are selected, configure and verify the host's runtime, filesystem durability and ownership around the file adapter. Upgrade the worker, cache envelope, editor and Video callers together. Obsolete clients must fail clearly without a legacy write adapter. Preserve each existing browser copy while the replacement verifies.
 
 Compare operator-selected exports before choosing the initial canonical library. Revisions from different origins do not identify a winner. Link an identical cache explicitly, and retain a differing cache for resolution. Do not clear a cache when a connection succeeds.
 
