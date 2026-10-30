@@ -7,7 +7,7 @@ export type CatalogSyncRequest = { readonly attemptId: number; readonly base: Ca
 export type CatalogReplica = WorkingCopy & (
   | { readonly kind: 'unlinked' }
   | { readonly kind: 'ready'; readonly base: CatalogSnapshot }
-  | { readonly kind: 'sending'; readonly base: CatalogSnapshot; readonly request: CatalogSyncRequest }
+  | { readonly kind: 'sending' | 'uncertain'; readonly base: CatalogSnapshot; readonly request: CatalogSyncRequest }
   | { readonly kind: 'conflict'; readonly base: CatalogSnapshot | null; readonly remote: CatalogSnapshot }
 );
 export class CatalogReplicaRevisionError extends Error {
@@ -49,6 +49,15 @@ export function receiveCatalogSnapshot(state: CatalogReplica, expectedLocalRevis
   expectRevision(state, expectedLocalRevision);
   if (state.kind === 'sending') throw new Error('Finish the in-flight catalog synchronization before refreshing');
   const remote = structuredClone(snapshot);
+  if (state.kind === 'uncertain') {
+    checkSnapshotOrder(state.base, remote);
+    if (sameGeneration(state.base.stamp, remote.stamp)) {
+      if (sameCatalogStamp(state.base.stamp, remote.stamp)) return state;
+      if (sameCatalogBody(state.body, remote.body))
+        return { kind: 'ready', ...working(state), base: remote, localRevision: nextRevision(state) };
+    }
+    return { kind: 'conflict', ...working(state), base: state.base, remote, localRevision: nextRevision(state) };
+  }
   if (state.kind === 'conflict') {
     checkSnapshotOrder(state.remote, remote);
     if (sameCatalogStamp(state.remote.stamp, remote.stamp)) return state;
@@ -75,15 +84,17 @@ export function beginCatalogSync(state: CatalogReplica, expectedLocalRevision: n
   readonly state: CatalogReplica; readonly request: CatalogSyncRequest | null;
 } {
   expectRevision(state, expectedLocalRevision);
-  if (state.kind !== 'ready') throw new Error('Catalog synchronization requires a linked, resolved working copy');
-  if (sameCatalogBody(state.body, state.base.body)) return { state, request: null };
+  if (state.kind !== 'ready' && state.kind !== 'uncertain') throw new Error('Catalog synchronization requires a linked, resolved working copy');
+  if (state.kind === 'ready' && sameCatalogBody(state.body, state.base.body)) return { state, request: null };
   const localRevision = nextRevision(state);
-  const request: CatalogSyncRequest = { attemptId: localRevision, base: structuredClone(state.base.stamp), body: structuredClone(state.body) };
+  const request: CatalogSyncRequest = { attemptId: localRevision,
+    base: structuredClone(state.kind === 'uncertain' ? state.request.base : state.base.stamp),
+    body: structuredClone(state.kind === 'uncertain' ? state.request.body : state.body) };
   return { state: { kind: 'sending', ...working(state), base: state.base, localRevision, request }, request: structuredClone(request) };
 }
 
 export function completeCatalogSync(state: CatalogReplica, attemptId: number, result: CatalogSaveResult): CatalogReplica {
-  if (state.kind !== 'sending' || state.request.attemptId !== attemptId) return state;
+  if ((state.kind !== 'sending' && state.kind !== 'uncertain') || state.request.attemptId !== attemptId) return state;
   const snapshot = structuredClone(result.kind === 'current' ? result.snapshot : result.current);
   checkSnapshotOrder(state.base, snapshot);
   if (result.kind === 'conflict' || !sameGeneration(state.base.stamp, snapshot.stamp)) {
@@ -95,7 +106,7 @@ export function completeCatalogSync(state: CatalogReplica, attemptId: number, re
 
 export function failCatalogSync(state: CatalogReplica, attemptId: number): CatalogReplica {
   if (state.kind !== 'sending' || state.request.attemptId !== attemptId) return state;
-  return { kind: 'ready', ...working(state), base: state.base, localRevision: nextRevision(state) };
+  return { kind: 'uncertain', ...working(state), base: state.base, request: state.request, localRevision: nextRevision(state) };
 }
 
 export function resolveCatalogConflict(state: CatalogReplica, expectedLocalRevision: number, input: unknown): CatalogReplica {
@@ -104,11 +115,12 @@ export function resolveCatalogConflict(state: CatalogReplica, expectedLocalRevis
   return { kind: 'ready', ...working(state), base: structuredClone(state.remote), body: parseCatalogBody(input), localRevision: nextRevision(state) };
 }
 
-export function catalogReplicaStatus(state: CatalogReplica): 'local-only' | 'synced' | 'pending' | 'sending' | 'conflict' {
+export function catalogReplicaStatus(state: CatalogReplica): 'local-only' | 'synced' | 'pending' | 'sending' | 'uncertain' | 'conflict' {
   switch (state.kind) {
     case 'unlinked': return 'local-only';
     case 'ready': return sameCatalogBody(state.body, state.base.body) ? 'synced' : 'pending';
     case 'sending': return 'sending';
+    case 'uncertain': return 'uncertain';
     case 'conflict': return 'conflict';
     default: { const exhaustive: never = state; return exhaustive; }
   }

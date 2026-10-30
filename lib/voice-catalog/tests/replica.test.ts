@@ -139,7 +139,7 @@ test('stale acknowledgments do nothing and network failure leaves edits retryabl
   assert.equal(completeCatalogSync(sending.state, sending.request.attemptId - 1, { kind: 'current', snapshot: await snapshot() }), sending.state);
   assert.equal(failCatalogSync(sending.state, sending.request.attemptId - 1), sending.state);
   const failed = failCatalogSync(sending.state, sending.request.attemptId);
-  assert.equal(catalogReplicaStatus(failed), 'pending');
+  assert.equal(catalogReplicaStatus(failed), 'uncertain');
   assert.equal(failed.localRevision, sending.state.localRevision + 1);
   assert.deepEqual(failed.body, body('Uncertain write'));
   const retry = beginCatalogSync(failed, failed.localRevision);
@@ -193,4 +193,69 @@ test('unchanged operations do not advance tokens and exhaustion never wraps loca
   const exhausted: CatalogReplica = { ...initial, localRevision: Number.MAX_SAFE_INTEGER };
   assert.throws(() => saveCatalogReplica(exhausted, exhausted.localRevision, body('New edit')), /exhausted/);
   assert.equal(exhausted.localRevision, Number.MAX_SAFE_INTEGER);
+});
+
+async function undoDuringSave() {
+  const initial = await linked();
+  const edited = saveCatalogReplica(initial, initial.localRevision, body('Sent edit'));
+  const sending = beginCatalogSync(edited, edited.localRevision);
+  const request = sending.request;
+  assert(request);
+  const undone = saveCatalogReplica(sending.state, sending.state.localRevision, body());
+  return { sending, request, failed: failCatalogSync(undone, request.attemptId) };
+}
+
+test('lost acknowledgment preserves an undo whether the save committed, did not commit, or another editor wrote later', async () => {
+  for (const remote of [await snapshot(), await snapshot('Sent edit', 2), await snapshot('Other editor', 3)]) {
+    const { failed } = await undoDuringSave();
+    assert.notEqual(catalogReplicaStatus(failed), 'synced', 'equal-to-old-base content does not prove an uncertain save failed');
+    const refreshed = receiveCatalogSnapshot(failed, failed.localRevision, remote);
+    assert.deepEqual(refreshed.body, body(), 'refresh must retain the later undo');
+    assert.notEqual(catalogReplicaStatus(refreshed), 'synced', 'the undo is not yet confirmed against the uncertain save');
+    assert.equal(catalogReplicaStatus(refreshed), remote.stamp.revision === 1 ? 'uncertain' : 'conflict');
+    assert.equal((await freezeCatalogReplica(refreshed)).source.kind, 'local');
+  }
+});
+
+test('an uncertain save retries its original body before publishing an undo or a later edit', async () => {
+  for (const laterName of ['Cowbell', 'Later draft']) {
+    const { request: originalRequest, failed } = await undoDuringSave();
+    const later = saveCatalogReplica(failed, failed.localRevision, body(laterName));
+    const retry = beginCatalogSync(later, later.localRevision);
+    assert(retry.request);
+    assert(retry.request.attemptId > originalRequest.attemptId);
+    assert.deepEqual(retry.request.body, body('Sent edit'), 'unknown earlier work must be settled before another body is sent');
+    assert.equal(retry.request.base.revision, 1);
+    const acknowledged = completeCatalogSync(retry.state, retry.request.attemptId, { kind: 'current', snapshot: await snapshot('Sent edit', 2) });
+    assert.deepEqual(acknowledged.body, body(laterName));
+    assert.equal(catalogReplicaStatus(acknowledged), 'pending');
+    const next = beginCatalogSync(acknowledged, acknowledged.localRevision);
+    assert(next.request);
+    assert.deepEqual(next.request.body, body(laterName));
+    assert.equal(next.request.base.revision, 2);
+    const saved = completeCatalogSync(next.state, next.request.attemptId, { kind: 'current', snapshot: await snapshot(laterName, 3) });
+    assert.equal(catalogReplicaStatus(saved), 'synced');
+  }
+});
+
+test('a late matching acknowledgment reconciles an uncertain save without losing the undo', async () => {
+  const { sending, failed } = await undoDuringSave();
+  assert(sending.request);
+  const unchanged = receiveCatalogSnapshot(failed, failed.localRevision, await snapshot());
+  assert.equal(unchanged, failed, 'reading the old base does not cancel a write that may still arrive');
+  assert.equal(failCatalogSync(unchanged, sending.request.attemptId), unchanged);
+  const acknowledged = completeCatalogSync(unchanged, sending.request.attemptId, { kind: 'current', snapshot: await snapshot('Sent edit', 2) });
+  assert.deepEqual(acknowledged.body, body());
+  assert.equal(catalogReplicaStatus(acknowledged), 'pending');
+  const { failed: unresolved } = await undoDuringSave();
+  const fenced = receiveCatalogSnapshot(unresolved, unresolved.localRevision, await snapshot('Cowbell', 3));
+  assert.equal(catalogReplicaStatus(fenced), 'synced', 'a newer matching canonical state fences the old-base request');
+});
+
+test('a restored generation fences an uncertain write without silently adopting its matching content', async () => {
+  const { request, failed } = await undoDuringSave();
+  const conflict = receiveCatalogSnapshot(failed, failed.localRevision, await snapshot('Cowbell', 1, 'restored-generation'));
+  assert.equal(catalogReplicaStatus(conflict), 'conflict');
+  assert.deepEqual(conflict.body, body());
+  assert.equal(completeCatalogSync(conflict, request.attemptId, { kind: 'current', snapshot: await snapshot('Sent edit', 2) }), conflict);
 });

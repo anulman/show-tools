@@ -20,9 +20,11 @@ These functions operate on supplied bytes. They do not install a filesystem auth
 
 `authority-model.ts` defines catalog bodies, authority stamps and schema-v3 snapshots. A stamp identifies catalog, generation and canonical revision. The SHA-256 content digest is deterministic across object-key and voice-list ordering while retaining effect order. Parsing a snapshot verifies its digest against validated content.
 
-`replica.ts` supplies pure transitions for an unlinked working copy, a linked copy, an in-flight save and a conflict. It performs no IO. Each real transition advances a browser-local envelope revision. Canonical revision never replaces this local concurrency token.
+`replica.ts` supplies pure transitions for an unlinked working copy, a linked copy, an in-flight save, an uncertain save and a conflict. It performs no IO. Each real transition advances a browser-local envelope revision. Canonical revision never replaces this local concurrency token.
 
-Local saves preserve pending data. A refresh cannot discard a local change or silently choose among differing initial libraries. A sent request retains its exact base and content while later edits stay in the working copy. A matching acknowledgment advances the canonical base without deleting later edits. A stale acknowledgment changes nothing. An outage leaves the working copy pending; a later canonical conflict preserves local, base and remote versions for explicit resolution.
+Local saves preserve pending data. A refresh cannot discard a local change or silently choose among differing initial libraries. A sent request retains its exact base and content while later edits stay in the working copy. A matching acknowledgment advances the canonical base without deleting later edits. A stale acknowledgment changes nothing.
+
+A lost response leaves the exact attempted write uncertain. Undoing back to the old base does not make that copy synced, because the attempted write may still commit. A read of the same base cannot clear uncertainty. Retry settles the original base and content before publishing a later edit. A newer canonical revision fences the old request: matching local content can become synced, while different local content remains in conflict. A restored generation always requires explicit resolution.
 
 Changed or foreign generations require conflict resolution. A restored catalog cannot accept an old base merely because its revision number repeats. The future IO adapter must capture the local envelope revision when requesting a refresh and commit the entire transition atomically across tabs. The pure revision checks do not themselves provide an IndexedDB lock or a network owner.
 
@@ -39,7 +41,7 @@ npm run typecheck
 
 The migration fixtures cover v1/v2 conversion, export/reopen, malformed metadata/schema, invalid effects and links, unknown character preservation, source-byte preservation and generation-changing restore. A temporary native SQLite database produces a consistent backup that a fresh process reopens. The test compares the complete expected catalog after reopening it through sql.js and restoring its generation. The native fixture uses Node's built-in `node:sqlite`; it is a test dependency, not a selected production host driver.
 
-Replica tests cover stale local saves, independent local/canonical revisions, initial-library conflicts, reordered and conflicting snapshots, edits made during a request, stale or mismatched acknowledgments, outage retries, restored generations, explicit resolution and immutable effective views.
+Replica tests cover stale local saves, independent local/canonical revisions, initial-library conflicts, reordered and conflicting snapshots, edits made during a request, stale or mismatched acknowledgments, outage retries, undo after a lost acknowledgment with committed or uncommitted writes, restored generations, explicit resolution and immutable effective views.
 
 These tests do not establish real cross-tab synchronization, filesystem crash durability, endpoint authentication, actual offline Start integration or off-machine backup. No physical devices or operator browser libraries are opened.
 
