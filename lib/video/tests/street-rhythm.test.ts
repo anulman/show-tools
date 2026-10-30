@@ -14,6 +14,8 @@ test('all actual compact notation families classify with literal max emphasis', 
   assert.equal(parseStreetCell('-4!', 4).emphasis, 'special');
   assert.deepEqual(parseStreetCell('-', 4), { active: true, emphasis: 'normal', sampled: false, accents: [], anchor: null });
   assert.equal(parseStreetCell('', 4).active, false);
+  for (const text of ["-'", "1'", "-'!", "4'", "(4)&a'"]) assert.equal(parseStreetCell(text, 4, true).sampled, true, text);
+  for (const text of ["We've got to… '", "Don't you want me to wake up...'", "We've got to… -'"]) assert.equal(parseStreetCell(text, 4, true).sampled, true, text);
 });
 test('forward earliest subdivisions retain every accent', () => {
   for (const [text, expected] of [ ['&e3a&', [.5, 1.25, 2, 2.75, 3.5]], ['&e3a&a', [.5, 1.25, 2, 2.75, 3.5, 3.75]], ['&e3e', [.5, 1.25, 2, 2.25]], ['(4)&a', [3.5, 3.75]], ['1&a', [0, .5, .75]], ['1 3', [0, 2]] ] satisfies Array<[string, number[]]>) assert.deepEqual(parseStreetCell(text, 4).accents, expected);
@@ -25,6 +27,11 @@ test('every nonblank cell of all eight current DYC rows is classified', async ()
   const rows = discoverSheetVoices(compiled, source);
   assert.equal(rows.length, 8); assert.equal(compiled.chart.bars.length, 218); assert.equal(compiled.diagnostics.length, 0);
   for (const row of rows) for (const cue of row.cues) assert.doesNotThrow(() => parseStreetCell(cue.text, 4, compiled.parts.find(part => part.id === row.partId)?.role.kind === 'default-live'), `${cue.cell}: ${cue.text}`);
+  const main = rows.find(row => compiled.parts.find(part => part.id === row.partId)?.role.kind === 'default-live');
+  assert(main);
+  const contractions = main.cues.filter(cue => /[A-Za-z]'[A-Za-z]/.test(cue.text));
+  assert.deepEqual(contractions.map(cue => cue.cell), ['CI8', 'CQ8', 'CY8', 'EY8', 'FW8']);
+  for (const cue of contractions) assert.equal(parseStreetCell(cue.text, 4, true).sampled, false, `${cue.cell}: ${cue.text}`);
 });
 
 

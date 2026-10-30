@@ -15,7 +15,8 @@ export function parseStreetCell(text: string, beatsPerBar: number, lyric = false
   if (lyric && words && !/^[ea]$/i.test(value)) {
     const beat = words[1] === undefined ? null : Number(words[1]);
     if (beat !== null && beat > beatsPerBar) throw new Error('Overflowing lyric pickup');
-    return { ...result, accents: beat === null ? [] : [beat - 1], anchor: beat === null ? null : beat - 1 };
+    const sampled = value.replace(/(?<=[A-Za-z])'(?=[A-Za-z])/g, '').includes("'");
+    return { ...result, sampled, accents: beat === null ? [] : [beat - 1], anchor: beat === null ? null : beat - 1 };
   }
   const accents: number[] = [];
   let position = -1;

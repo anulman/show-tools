@@ -108,11 +108,19 @@ test('coincident tier, anchor, and natural deadline emit entry once then honor i
   assert.deepEqual(keys.slice(0, 3).map(key => [key.at, key.clip, key.pose]), [[0, 1, 0], [.5, 2, 0], [1, 2, 1]]);
 });
 
-test('special action repetition requires a closing drawing hash, otherwise authored cycle remains', async () => {
+test('special action repetition requires matching closing pixels and pivot, otherwise authored cycle remains', async () => {
   const { streetClipPlayback } = await import('../street-score.js');
   const clip = actor('instrument').clips[2];
   const closed = { ...clip, keys: [{ atQuarter: 0, pose: 0 }, { atQuarter: .5, pose: 1 }, { atQuarter: 1, pose: 0 }, { atQuarter: 2, pose: 0 }] };
   assert.equal(streetClipPlayback(closed).durationQuarters, 1);
+  assert.equal(streetClipPlayback(closed).actionClosureVerified, true);
+  for (const pivot of [{ x: 42, y: 77 }, { x: 32, y: 87 }]) {
+    const shifted = { ...closed, drawings: closed.drawings.map((drawing, i) => ({ ...drawing, pivot: i === 2 ? pivot : { x: 32, y: 77 } })), keys: [{ atQuarter: 0, pose: 0 }, { atQuarter: .5, pose: 1 }, { atQuarter: 1, pose: 2 }, { atQuarter: 2, pose: 0 }] };
+    const playback = streetClipPlayback(shifted);
+    assert.equal(playback.durationQuarters, 2);
+    assert.equal(playback.actionClosureVerified, false);
+    assert(playback.keys.some(key => key.atQuarter === 1));
+  }
   const open = { ...closed, drawings: closed.drawings.map((drawing, i) => ({ ...drawing, sha256: String(i).repeat(64) })), keys: [{ atQuarter: 0, pose: 0 }, { atQuarter: .5, pose: 1 }, { atQuarter: 1, pose: 2 }, { atQuarter: 2, pose: 0 }] };
   assert.equal(streetClipPlayback(open).durationQuarters, 2);
   assert.equal(streetClipPlayback(open).actionClosureVerified, false);

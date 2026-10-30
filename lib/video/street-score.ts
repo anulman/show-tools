@@ -84,13 +84,14 @@ function tick(count: number): number {
   return value;
 }
 
-/** Action-only repetition is permitted only with a verified closing drawing. */
+/** Action-only repetition requires matching closing pixels and registration. */
 export function streetClipPlayback(clip: StreetClip) {
   const action = clip.actionQuarters;
   const closure = action === null ? undefined : clip.keys.find(key => key.atQuarter === action);
   const entry = clip.drawings[clip.keys[0].pose];
   const closing = closure === undefined ? undefined : clip.drawings[closure.pose];
-  const closed = closing !== undefined && closing.sha256 === entry.sha256;
+  const closed = closing !== undefined && closing.sha256 === entry.sha256
+    && closing.pivot.x === entry.pivot.x && closing.pivot.y === entry.pivot.y;
   const duration = (clip.tier === 'special' || clip.tier === 'ultra') && action !== null && closed ? action : clip.cycleQuarters;
   return { durationQuarters: duration, actionClosureVerified: closed, keys: clip.keys.filter(key => key.atQuarter < duration) };
 }
