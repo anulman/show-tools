@@ -3,6 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { compileStreetScore, parseStreetScene, type PreparedStreetScene, type StreetActor, type StreetWindow } from '../street-score.js';
 import { createStreetSampler } from '../street-sampler.js';
+import { parseStreetCell } from '../street-rhythm.js';
 import { grayscaleRgba } from '../presentation.js';
 
 function actor(role: StreetActor['role'], ultra = true): StreetActor {
@@ -20,7 +21,7 @@ function state(start: number, end: number, patch: Partial<StreetWindow> = {}): S
 }
 function input(actors: readonly StreetActor[] = [actor('instrument')]) {
   const scene: PreparedStreetScene = { version: 2, kind: 'authored-street-preview', width: 1280, height: 720, background: { path: 'street.png', sha256: '0'.repeat(64) }, previewCountsPerSecond: 2, durationCounts: 2, countedBeatUnit: 4, actors, tracks: [], provenance: { source: 'synthetic', assetsDigest: 'fixture', scoreDigest: 'fixture' } };
-  return { scene, opportunities: [0, .25, .5, .75, 1, 1.25, 1.5, 1.75], downbeats: [0], windows: actors.map((_, actor) => ({ actor, states: [state(0, 2)] })) };
+  return { scene, windows: actors.map((_, actor) => ({ actor, states: [state(0, 2)], accents: [0, .25, .5, .75, 1, 1.25, 1.5, 1.75], downbeats: [0] })) };
 }
 const bytes = await readFile(new URL('../../../ui/video/wasm/video-scene.wasm', import.meta.url));
 
@@ -32,7 +33,7 @@ test('half-count initial hold, quarter-count later transitions, direct seeks use
   const scene = compileStreetScore(input());
   const sampler = await createStreetSampler(bytes, scene);
   try {
-    for (const [position, pose] of [[.75, 3], [0, 0], [.499999, 0], [.5, 2], [.749999, 2]]) assert.equal(sampler.sample(position)[0].pose, pose);
+    for (const [position, pose] of [[.75, 2], [0, 0], [.499999, 0], [.5, 1], [.749999, 1]]) assert.equal(sampler.sample(position)[0].pose, pose);
     const direct = sampler.sample(.75);
     for (let i = 0; i < 1000; i++) sampler.sample(i % 2);
     assert.deepEqual(sampler.sample(.75), direct);
@@ -66,8 +67,9 @@ test('ultra fallback occurs only for an empty verified ultra set', () => {
   assert.throws(() => compileStreetScore(available), /missing requested ultra/);
 });
 
-test('reject overlapping anchors, missing vigorous, invalid direct input and incomplete state coverage', () => {
-  assert.throws(() => compileStreetScore({ ...input(), downbeats: [0, .25] }), /half-count hold/);
+test('overlapping anchors extend holds; reject missing vigorous and incomplete state coverage', () => {
+  const overlapping = input(); overlapping.windows[0].downbeats = [0, .25];
+  assert.equal(compileStreetScore(overlapping).tracks[0].keys[1].at, .75);
   const authored = input(); authored.windows[0].states = [state(0, 1)];
   assert.throws(() => compileStreetScore(authored), /complete preview/);
   const prepared = compileStreetScore(input());
@@ -78,4 +80,67 @@ test('grayscale preserves alpha exactly, native geometry and neutral channels', 
   const rgba = Uint8Array.from([255, 0, 0, 123, 0, 255, 0, 0, 17, 17, 17, 255]);
   grayscaleRgba(rgba);
   assert.deepEqual([...rgba], [54, 54, 54, 123, 182, 182, 182, 0, 17, 17, 17, 255]);
+});
+
+test('1&a advances successive source keys, while 1 3 keeps dancing between hits', () => {
+  const authored = input();
+  authored.windows[0].accents = [0, .5, .75];
+  const keys = compileStreetScore(authored).tracks[0].keys;
+  assert.deepEqual(keys.slice(0, 3).map(key => [key.at, key.pose]), [[0, 0], [.5, 1], [.75, 2]]);
+  authored.windows[0].accents = [0];
+  assert.deepEqual(compileStreetScore(authored).tracks[0].keys.slice(0, 3).map(key => [key.at, key.pose]), [[0, 0], [.5, 1], [.75, 2]]);
+});
+
+test('other actors accents and presentation boundaries do not advance this actor', () => {
+  const authored = input([actor('main-vocals'), actor('instrument')]);
+  authored.windows[0].accents = [0]; authored.windows[0].downbeats = [0];
+  const baseline = compileStreetScore(authored).tracks[0];
+  authored.windows[1].accents = [0, .75, 1.25]; authored.windows[1].downbeats = [.75];
+  authored.windows[1].states = [state(0, .25), state(.25, 2, { source: 'sampled', emphasis: 'special' })];
+  assert.deepEqual(compileStreetScore(authored).tracks[0], baseline);
+});
+
+test('coincident tier, anchor, and natural deadline emit entry once then honor its hold', () => {
+  const authored = input();
+  authored.windows[0].states = [state(0, .5), state(.5, 2, { emphasis: 'special' })];
+  authored.windows[0].downbeats = [0, .5];
+  const keys = compileStreetScore(authored).tracks[0].keys;
+  assert.deepEqual(keys.slice(0, 3).map(key => [key.at, key.clip, key.pose]), [[0, 1, 0], [.5, 2, 0], [1, 2, 1]]);
+});
+
+test('special action repetition requires matching closing pixels and pivot, otherwise authored cycle remains', async () => {
+  const { streetClipPlayback } = await import('../street-score.js');
+  const clip = actor('instrument').clips[2];
+  const closed = { ...clip, keys: [{ atQuarter: 0, pose: 0 }, { atQuarter: .5, pose: 1 }, { atQuarter: 1, pose: 0 }, { atQuarter: 2, pose: 0 }] };
+  assert.equal(streetClipPlayback(closed).durationQuarters, 1);
+  assert.equal(streetClipPlayback(closed).actionClosureVerified, true);
+  for (const pivot of [{ x: 42, y: 77 }, { x: 32, y: 87 }]) {
+    const shifted = { ...closed, drawings: closed.drawings.map((drawing, i) => ({ ...drawing, pivot: i === 2 ? pivot : { x: 32, y: 77 } })), keys: [{ atQuarter: 0, pose: 0 }, { atQuarter: .5, pose: 1 }, { atQuarter: 1, pose: 2 }, { atQuarter: 2, pose: 0 }] };
+    const playback = streetClipPlayback(shifted);
+    assert.equal(playback.durationQuarters, 2);
+    assert.equal(playback.actionClosureVerified, false);
+    assert(playback.keys.some(key => key.atQuarter === 1));
+  }
+  const open = { ...closed, drawings: closed.drawings.map((drawing, i) => ({ ...drawing, sha256: String(i).repeat(64) })), keys: [{ atQuarter: 0, pose: 0 }, { atQuarter: .5, pose: 1 }, { atQuarter: 1, pose: 2 }, { atQuarter: 2, pose: 0 }] };
+  assert.equal(streetClipPlayback(open).durationQuarters, 2);
+  assert.equal(streetClipPlayback(open).actionClosureVerified, false);
+});
+
+
+test('silent beat-4 anchor permits successive drawings on 4& and 4a', () => {
+  const authored = input();
+  const cell = parseStreetCell('(4)&a', 4);
+  authored.scene = { ...authored.scene, durationCounts: 4, actors: authored.scene.actors.map(actor => ({ ...actor, clips: actor.clips.map(clip => ({ ...clip, keys: [0, .5, 1, 1.5].map((atQuarter, pose) => ({ atQuarter, pose })) })) })) };
+  authored.windows[0].states = [state(0, 4)];
+  authored.windows[0].accents = [...cell.accents]; authored.windows[0].downbeats = [cell.anchor ?? 0];
+  assert.deepEqual(compileStreetScore(authored).tracks[0].keys.filter(key => key.at >= 3).map(key => [key.at, key.pose]), [[3, 2], [3.5, 3], [3.75, 0]]);
+});
+
+test('leading subdivision Cowbell anchors beat 1 and accents ongoing sequential drawings', () => {
+  const authored = input();
+  const cell = parseStreetCell('&e3a&', 4);
+  authored.scene = { ...authored.scene, durationCounts: 4, actors: authored.scene.actors.map(actor => ({ ...actor, clips: actor.clips.map(clip => ({ ...clip, keys: [0, .5, 1, 1.5].map((atQuarter, pose) => ({ atQuarter, pose })) })) })) };
+  authored.windows[0].states = [state(0, 4)];
+  authored.windows[0].accents = [...cell.accents]; authored.windows[0].downbeats = [cell.anchor ?? 0];
+  assert.deepEqual(compileStreetScore(authored).tracks[0].keys.map(key => [key.at, key.pose]), [[0, 0], [.5, 1], [1, 2], [1.25, 3], [1.75, 0], [2, 1], [2.5, 2], [2.75, 3], [3.25, 0], [3.5, 1]]);
 });

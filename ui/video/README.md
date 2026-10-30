@@ -24,13 +24,25 @@ The preparation command resolves the cast through `discoverSheetVoices` and `res
 
 Scene version 2 requires expected SHA-256 hashes for the background and every drawing. Browser loading and movie export verify the bytes before decoding them. Regenerate older prepared scenes through normalization and preparation; version 1 has no unchecked compatibility path.
 
+Motion catalog version 2 requires a separate identity approval for every included family. The approval locks the approved reference edition and Figma node, reference file hash, and complete ordered drawing/layer hashes. A source-RGBA export pass does not establish that a pose stayed on-model. Missing, pending, failed, or stale identity records block normalization. The compact inline certificates work offline without raw audit movies or reports.
+
+Artwork creation, new move-set poses, repainting, and corrections happen before promotion. Deterministic animation and rendering only read frozen assets, select and time poses, compose the scene, and apply requested presentation such as grayscale. They do not generate or redraw artwork, and do not repaint assets for each song.
+
 Serve `dist/` on an isolated port. Make the prepared scene and its referenced assets available to that server, then open `/ui/video/?scene=the-prepared-scene-URL`. Asset URLs in the prepared scene must resolve from the studio page. Missing packages produce an actionable error. The build does not invent a default cast or fall back to earlier artwork.
 
 Pause, restart, scrub, or fullscreen the scene. `window.videoStudio.renderAt(seconds)` pauses and draws an exact preview position. `renderCount(count)` samples counted-beat position directly. `snapshot()` returns the current actor frames; `capture()` returns a canvas PNG. `setPerformanceTime(sample)` validates an injected PE position and samples the authored score there. It does not subscribe to live voice activity.
 
-The preparation command authors a silent policy demonstration at the chart's tempo. Idle characters use simple dances; normal performance uses vigorous dances; `!` selects special; `!!` selects ultra, falling back to special only when ultra assets are absent. Sampled characters become grayscale. The main singer always stays colored and returns to simple dance during actual backup activity. The private receipt separately records main-vocal eligibility throughout sections starting with a lyric in the leftmost vocals cell. It retains the source cells and reports unknown marks as unresolved. Complete chart activity conversion remains separate from this explicit demonstration.
+The preview command authors a short silent policy demonstration at the chart's tempo. Prepare the complete planned song arrangement instead with the current matching source and mapping:
 
-Pose opportunities are supplied on a quarter-count grid. The first change after a downbeat waits at least half a counted beat. Later changes may occur a quarter beat apart. Renderers hold complete drawings between accepted changes. They apply PNG-canvas pivots once, preserve alpha during grayscale conversion, and use nearest-neighbor scaling.
+```sh
+node --import tsx scripts/prepare-street-song.ts /private/tmp/catalog.json songs/dance-yrself-clean.source.json songs/dance-yrself-clean.mapping.json /private/tmp/street-assets.json /private/tmp/street-song.json
+```
+
+The saved catalog supplies the cast. Use the current approved source and matching mapping rather than an older browser inspector snapshot. Preparation visits every bar and voice cell and blocks on source-located diagnostics. DYC contains 218 bars and 872 counts at 98 BPM, giving about 8 minutes 54 seconds without a count-in or added tail. The private `preparationReceipt` inside the scene records source classification, anchors, accent decisions, bindings, and source digests. Scene and receipt replace the output atomically; no sidecar is written. Output paths that alias any input, including filesystem aliases, are rejected. Keep this combined artifact private.
+
+Idle characters use simple dances; normal performance uses vigorous dances; `!` selects special; `!!` selects ultra, falling back to special only when ultra assets are absent. A blank selects idle and a dash selects normal performance without inheriting `!` or `!!`. Sampled characters become grayscale. The main singer always stays colored and performs throughout sections starting with a lyric in the leftmost vocals cell. Planned backup activity returns the main singer to simple dance. Backup activity combines its nonblank cells with the compiler's written phrase spans; it does not claim observed knob activation.
+
+Characters keep dancing between labeled hits. Each actor advances sequentially through its source keys, with natural drawing deadlines and written accents on a quarter-count grid. The first change after an anchoring beat waits at least half a counted beat. Later changes may occur a quarter beat apart. Forward subdivision notation `&e3a&` means 1&, 2e, 3, 3a, and 4&. Parenthesized beats establish silent anchors. Renderers hold complete drawings between accepted changes. They apply PNG-canvas pivots once, preserve alpha during grayscale conversion, and use nearest-neighbor scaling.
 
 Export a clean movie with the same sampler:
 
@@ -49,4 +61,4 @@ node --import tsx --test scripts/tests/export-street-preview.test.ts
 npm run build:video
 ```
 
-Inspect the actual browser scene and decoded movie frames. Automated fixtures establish deterministic seeking and presentation rules; they do not establish a live PE connection, full-song notation interpretation, physical CRT output, or audiovisual synchronization.
+Inspect the actual browser scene and decoded movie frames. Automated fixtures establish chart classification, deterministic seeking, and presentation rules. A finished render also requires an on-model artwork review. Export parity alone does not establish character identity. A chart-planned movie does not establish a live PE connection, physical CRT output, or audiovisual synchronization.

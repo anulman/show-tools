@@ -73,69 +73,97 @@ const Window = Schema.Struct({
 });
 const ScoreInput = Schema.Struct({
   scene: StreetScene,
-  windows: Schema.Array(Schema.Struct({ actor: integer, states: Schema.Array(Window) })),
-  opportunities: Schema.Array(nonnegative),
-  downbeats: Schema.Array(nonnegative),
+  windows: Schema.Array(Schema.Struct({ actor: integer, states: Schema.Array(Window), accents: Schema.Array(nonnegative), downbeats: Schema.Array(nonnegative) })),
 });
 export type StreetWindow = typeof Window.Type;
 export type StreetScoreInput = typeof ScoreInput.Type;
 
-function lastAt<T>(items: readonly T[], position: number, at: (value: T) => number): T | undefined {
-  let result: T | undefined;
-  for (const item of items) { if (at(item) > position) break; result = item; }
-  return result;
+function tick(count: number): number {
+  const value = count * 4;
+  if (!Number.isSafeInteger(value)) throw new Error('Pose positions must use integer quarter-count ticks');
+  return value;
 }
 
-export function compileStreetScore(input: unknown): PreparedStreetScene {
-  const { scene, windows, opportunities, downbeats } = Schema.decodeUnknownSync(ScoreInput)(input);
-  if (!opportunities.length || opportunities[0] !== 0 || !downbeats.length || downbeats[0] !== 0) throw new Error('Explicit pose opportunities and downbeat must begin at zero');
-  for (let i = 1; i < downbeats.length; i++) if (downbeats[i] - downbeats[i - 1] < .5) throw new Error('Downbeats cannot overlap the initial half-count hold');
-  for (const list of [opportunities, downbeats]) for (const [i, value] of list.entries()) {
-    if (value * 4 !== Math.floor(value * 4) || (i > 0 && value <= list[i - 1])) throw new Error('Pose positions must increase on the quarter-count grid');
-  }
+/** Action-only repetition requires matching closing pixels and registration. */
+export function streetClipPlayback(clip: StreetClip) {
+  const action = clip.actionQuarters;
+  const closure = action === null ? undefined : clip.keys.find(key => key.atQuarter === action);
+  const entry = clip.drawings[clip.keys[0].pose];
+  const closing = closure === undefined ? undefined : clip.drawings[closure.pose];
+  const closed = closing !== undefined && closing.sha256 === entry.sha256
+    && closing.pivot.x === entry.pivot.x && closing.pivot.y === entry.pivot.y;
+  const duration = (clip.tier === 'special' || clip.tier === 'ultra') && action !== null && closed ? action : clip.cycleQuarters;
+  return { durationQuarters: duration, actionClosureVerified: closed, keys: clip.keys.filter(key => key.atQuarter < duration) };
+}
+
+/** Finite visual authoring only. Runtime sampling remains a stateless native HOLD table. */
+export function prepareStreetScore(input: unknown) {
+  const accentDecisions: Array<{ actor: number; at: number; kind: 'entry' | 'advance' | 'held'; holdUntil: number }> = [];
+  const { scene, windows } = Schema.decodeUnknownSync(ScoreInput)(input);
+  parseStreetScene({ ...scene, tracks: scene.actors.map((_, actor) => ({ actor, keys: [{ at: 0, clip: 0, pose: 0, grayscale: false }] })) });
+  const end = tick(scene.durationCounts);
   if (windows.length !== scene.actors.length || new Set(windows.map(item => item.actor)).size !== windows.length) throw new Error('One explicit state track required per actor');
   for (let actor = 0; actor < scene.actors.length; actor++) {
-    const states = windows.find(item => item.actor === actor)?.states;
+    const track = windows.find(item => item.actor === actor);
+    if (!track) throw new Error('Missing actor track');
+    const states = track.states;
     if (!states?.length || states[0].start !== 0 || states[states.length - 1].end !== scene.durationCounts) throw new Error('State windows must cover the complete preview');
-    for (const [i, state] of states.entries()) if (state.end <= state.start || (i > 0 && states[i - 1].end !== state.start)) throw new Error('State windows must be contiguous');
-  }
-  const gates: number[] = [];
-  let previousAnchor = -1, previousGate = -Infinity;
-  for (const opportunity of opportunities) {
-    const anchor = lastAt(downbeats, opportunity, value => value);
-    if (anchor === undefined) throw new Error('Missing downbeat');
-    const first = anchor !== previousAnchor;
-    if (opportunity === anchor || (opportunity - anchor >= .5 && opportunity - previousGate >= (first ? .5 : .25))) {
-      gates.push(opportunity); previousAnchor = anchor; previousGate = opportunity;
+    for (const [i, state] of states.entries()) {
+      tick(state.start); tick(state.end);
+      if (state.end <= state.start || (i > 0 && states[i - 1].end !== state.start)) throw new Error('State windows must be contiguous');
+    }
+    for (const list of [track.accents, track.downbeats]) for (const [i, value] of list.entries()) {
+      tick(value);
+      if (value >= scene.durationCounts || (i > 0 && value <= list[i - 1])) throw new Error('Actor accents must increase inside the score');
     }
   }
-  const stateAt = (actor: number, count: number) => windows.find(item => item.actor === actor)?.states.find(state => state.start <= count && count < state.end);
+  const stateAt = (actor: number, at: number) => windows.find(item => item.actor === actor)?.states.find(state => tick(state.start) <= at && at < tick(state.end));
   const tracks = scene.actors.map((actor, actorIndex) => {
-    const boundaries = windows.flatMap(item => item.states.map(state => state.start));
-    const times = [...new Set([...gates, ...boundaries])].filter(at => at < scene.durationCounts).sort((a, b) => a - b);
-    let clipIndex = 0, pose = 0, origin = 0;
+    const authored = windows.find(item => item.actor === actorIndex);
+    if (!authored) throw new Error('Missing actor track');
+    const accents = new Set(authored.accents.map(tick)), anchors = new Set(authored.downbeats.map(tick));
+    const events = new Set([...accents, ...anchors, ...authored.states.map(state => tick(state.start))]);
+    if (actor.role === 'main-vocals') for (const other of windows) if (scene.actors[other.actor].role === 'backup-vocals') for (const state of other.states) events.add(tick(state.start));
+    const times = [...events].sort((a, b) => a - b);
+    let eventIndex = 0, clipIndex = -1, sourceKey = 0, natural = Infinity, allowed = 0;
     const keys: Array<typeof Key.Type> = [];
-    for (const at of times) {
+    for (let at = 0; at < end;) {
       const state = stateAt(actorIndex, at);
       if (!state) throw new Error('Missing actor state');
-      const backupActive = scene.actors.some((other, i) => other.role === 'backup-vocals' && stateAt(i, at)?.active);
-      const active = state.active && !(actor.role === 'main-vocals' && backupActive);
+      const backup = scene.actors.some((other, i) => other.role === 'backup-vocals' && stateAt(i, at)?.active);
+      const active = state.active && !(actor.role === 'main-vocals' && backup);
       const tier = !active ? 'simple' : state.emphasis === 'normal' ? 'vigorous' : state.emphasis;
-      if (gates.includes(at)) {
-        let choices = actor.clips.flatMap((clip, index) => clip.tier === tier ? [index] : []);
-        if (tier === 'ultra' && !choices.length) choices = actor.clips.flatMap((clip, index) => clip.tier === 'special' ? [index] : []);
-        const selected = choices[tier === 'ultra' && actor.clips.some(clip => clip.tier === 'ultra') ? state.ultraIndex : tier === 'special' || tier === 'ultra' ? state.specialIndex : 0];
-        if (selected === undefined) throw new Error(`${actor.characterId}: missing requested ${tier} move`);
-        if (!keys.length || selected !== clipIndex) { clipIndex = selected; origin = at; }
-        const clip = actor.clips[clipIndex];
-        const quarter = ((at - origin) * 4 / scene.countedBeatUnit) % clip.cycleQuarters;
-        const key = lastAt(clip.keys, quarter, item => item.atQuarter);
-        if (!key) throw new Error('Missing source HOLD key');
-        pose = key.pose;
-      }
-      keys.push({ at, clip: clipIndex, pose, grayscale: actor.role !== 'main-vocals' && state.source === 'sampled' });
+      let choices = actor.clips.flatMap((clip, index) => clip.tier === tier ? [index] : []);
+      const hasUltra = tier === 'ultra' && choices.length > 0;
+      if (tier === 'ultra' && !hasUltra) choices = actor.clips.flatMap((clip, index) => clip.tier === 'special' ? [index] : []);
+      const selected = choices[hasUltra ? state.ultraIndex : tier === 'special' || tier === 'ultra' ? state.specialIndex : 0];
+      if (selected === undefined) throw new Error(`${actor.characterId}: missing requested ${tier} move`);
+      const changed = selected !== clipIndex;
+      if (changed) { clipIndex = selected; sourceKey = 0; allowed = at + 2; }
+      const playback = streetClipPlayback(actor.clips[clipIndex]);
+      const sourceKeys = playback.keys;
+      const advanced = !changed && at >= allowed && (accents.has(at) || natural === at);
+      if (advanced) { sourceKey = (sourceKey + 1) % sourceKeys.length; allowed = at + 1; }
+      if (anchors.has(at)) allowed = Math.max(allowed, at + 2);
+      if (accents.has(at)) accentDecisions.push({ actor: actorIndex, at: at / 4, kind: changed ? 'entry' : advanced ? 'advance' : 'held', holdUntil: allowed / 4 });
+      if (changed || advanced) {
+        const current = sourceKeys[sourceKey], next = sourceKeys[sourceKey + 1];
+        const duration = (next?.atQuarter ?? playback.durationQuarters) - current.atQuarter;
+        natural = Math.max(allowed, at + tick(duration * scene.countedBeatUnit / 4));
+      } else if (natural < allowed) natural = allowed;
+      const frame = { at: at / 4, clip: clipIndex, pose: sourceKeys[sourceKey].pose, grayscale: actor.role !== 'main-vocals' && state.source === 'sampled' };
+      const previous = keys.at(-1);
+      if (!previous || previous.clip !== frame.clip || previous.pose !== frame.pose || previous.grayscale !== frame.grayscale) keys.push(frame);
+      while (eventIndex < times.length && times[eventIndex] <= at) eventIndex++;
+      const next = Math.min(times[eventIndex] ?? Infinity, natural);
+      if (next <= at) throw new Error('Non-advancing Street source cursor');
+      at = next;
     }
     return { actor: actorIndex, keys };
   });
-  return parseStreetScene({ ...scene, tracks });
+  return { scene: parseStreetScene({ ...scene, tracks }), accentDecisions };
+}
+
+export function compileStreetScore(input: unknown): PreparedStreetScene {
+  return prepareStreetScore(input).scene;
 }

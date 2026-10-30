@@ -12,7 +12,10 @@ const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest(
 function scene(backgroundHash = '0'.repeat(64), poseHash = '0'.repeat(64)) {
   const clips = ['simple', 'vigorous', 'special'].map(tier => ({
     id: tier, tier, cycleQuarters: 1, actionQuarters: null, nativeGrid: { width: 2, height: 2 }, sourceOffset: { x: 50, y: 50 },
-    keys: [{ atQuarter: 0, pose: 0 }], drawings: [{ path: '/pose.png', sha256: poseHash, pivot: { x: 1, y: 1 } }],
+    keys: [{ atQuarter: 0, pose: 0 }], drawings: [
+      { path: '/pose.png', sha256: poseHash, pivot: { x: 1, y: tier === 'vigorous' ? 0 : 1 } },
+      { path: '/pose.png', sha256: poseHash, pivot: { x: 0, y: 1 } },
+    ],
   }));
   return parseStreetScene({ version: 2, kind: 'authored-street-preview', width: 8, height: 4, background: { path: '/background.png', sha256: backgroundHash },
     previewCountsPerSecond: 2, durationCounts: 3, countedBeatUnit: 4,
@@ -50,6 +53,19 @@ test('real compositor keeps registered pivots, source color, grayscale and clipp
     assert.deepEqual(pixel(1, 1), [200, 100, 50, 255]);
     assert.deepEqual(pixel(5, 1), [118, 118, 118, 255]);
     assert.deepEqual(pixel(7, 1), [0, 0, 0, 255]);
+    for (const state of [
+      [{ actor: 0, clip: 0, pose: 0, grayscale: false }],
+      [{ actor: 1, clip: 0, pose: 0, grayscale: false }],
+      [{ actor: 1, clip: 1, pose: 0, grayscale: false }],
+      [{ actor: 1, clip: 1, pose: 1, grayscale: false }],
+      [{ actor: 1, clip: 1, pose: 1, grayscale: true }],
+      [],
+    ]) {
+      const fresh = await createStreetCompositor(prepared, directory);
+      const expected = await fresh.render(state);
+      assert.deepEqual(await compositor.render(state), expected);
+      assert.deepEqual(await compositor.render(state.map(actor => ({ ...actor }))), expected);
+    }
     const clippedScene = parseStreetScene({ ...prepared, actors: prepared.actors.map(actor => ({ ...actor, placement: { ...actor.placement, x: 0, y: 0 } })) });
     const clipped = await createStreetCompositor(clippedScene, directory);
     const output = await sharp(await clipped.render([{ actor: 0, clip: 0, pose: 0, grayscale: false }])).raw().toBuffer();

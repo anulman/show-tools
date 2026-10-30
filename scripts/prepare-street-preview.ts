@@ -42,7 +42,7 @@ const windows = actors.map((actor, index) => ({ actor: index, states: boundaries
   source: start === 8 ? 'sampled' : 'live', specialIndex: 0, ultraIndex: 0,
 })) }));
 const digest = (value: string) => createHash('sha256').update(value).digest('hex');
-const authored = { windows, opportunities: Array.from({ length: durationCounts * 4 }, (_, i) => i / 4), downbeats: boundaries.slice(0, -1) };
+const authored = { windows: windows.map(track => ({ ...track, accents: Array.from({ length: durationCounts * 4 }, (_, i) => i / 4), downbeats: boundaries.slice(0, -1) })) };
 const scene = compileStreetScore({ scene: { ...assets, actors, durationCounts, previewCountsPerSecond, countedBeatUnit,
   provenance: { source: 'explicit-policy-demonstration; art cast resolved from saved library; native loaded program unverified', assetsDigest: digest(assetsText), scoreDigest: digest(JSON.stringify(authored)) },
 }, ...authored });

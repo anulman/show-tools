@@ -33,11 +33,15 @@ export function deriveMainVocalSections({ compiled, source }: { readonly compile
   const rowMatch = /^[A-Z]+([1-9][0-9]*)$/.exec(main.source.a1);
   if (!rowMatch) throw new Error('Main-vocal source label needs a qualified cell');
   const row = Number(rowMatch[1]);
+  const origin = /^([A-Z]+)([1-9][0-9]*)/.exec(source.range);
+  if (!origin) throw new Error('Invalid source range');
+  const originRow = Number(origin[2]);
+  const originColumn = [...origin[1]].reduce((value, letter) => value * 26 + letter.charCodeAt(0) - 64, 0);
   return compiled.chart.sections.map(section => {
     const bar = compiled.chart.bars.find(bar => bar.bar === section.startBar);
     if (!bar) throw new Error(`Section ${section.id} has no compiled first bar`);
     const a1 = `${columnName(bar.column)}${row}`;
-    const text = source.values[row - 1]?.[bar.column - 1] ?? '';
+    const text = source.values[row - originRow]?.[bar.column - originColumn] ?? '';
     return {
       partId: main.id, sectionId: section.id, startBar: section.startBar, endBar: section.endBar,
       startCount: (section.startBar - 1) * compiled.chart.beatsPerBar,

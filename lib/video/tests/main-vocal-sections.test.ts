@@ -46,3 +46,8 @@ test('unsupported marks remain unresolved and known notation does not become a l
     assert.equal(deriveMainVocalSections({ compiled: changed, source: changedSource })[0].eligibility.kind, expected);
   }
 });
+
+test('main section lookup respects a snapshot range outside A1', () => {
+  const offsetSource = { ...source, range: 'C7:HL55', values: source.values.slice(6).map(row => row.slice(2)) };
+  assert.deepEqual(deriveMainVocalSections({ compiled, source: offsetSource }), deriveMainVocalSections({ compiled, source }));
+});
