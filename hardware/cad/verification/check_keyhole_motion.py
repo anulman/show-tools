@@ -16,7 +16,7 @@ parser.add_argument('--output',type=Path,required=True)
 args=parser.parse_args()
 if os.path.lexists(args.output):raise ValueError('Fresh output namespace required')
 raw=args.receipt.read_bytes()
-PIN='9b6aeaaa3141090dc496efe67b026c628aa4ce3d9fbf5cdbb55f7bd81c374169'
+PIN='d4803bc3556d72adc3f34dd6a804744d7deafc3faac9b6b9107221d9755f278d'
 if hashlib.sha256(raw).hexdigest()!=PIN:raise ValueError('Wrong frozen A receipt')
 d=json.loads(raw);files=final_review.integration.Artifacts()
 sources={str(final_review.source_path(n)):sha for n,sha in d['source_code_sha256'].items()}
@@ -56,12 +56,12 @@ for angle in m.ANGLES:
     for name,part in stages['inserted'].items():
         if name.endswith(str(angle)) and name.startswith(('axial M4','threaded M4')):
             contains(part,entry,name)
-    for radius,low,high,kind in ((2.1,-9.1,0.,'screw shaft'),(4.1,-7.8,-4.4,'nut')):
+    for radius,low,high,kind in ((2.1,-9.1,0.,'screw shaft'),(4.1,-7.9,-4.05,'nut, including 0.5 mm captured head float')):
         sweep=m.sector(38-radius,38+radius,low,high,angle,angle+35)
         for theta in (angle,angle+35):sweep+=cyl(radius,low,high,m.old.xy(38,theta))
         clear(sweep,'continuous35 turn '+str(angle)+' '+kind)
     # Full hex prism spans BOTH nut endpoints and all translation in between.
-    seat=m.old.radial(c.hexagon(7/math.sqrt(3),5.2,(38,0,-5.1)),angle+35)
+    seat=m.old.radial(c.hexagon(7/math.sqrt(3),5.3,(38,0,-5.15)),angle+35)
     clear(seat,'continuous hex seating '+str(angle))
     for stage in ('turned','nuts-seated','locked'):
         part=next(p for n,p in stages[stage].items() if n.startswith('threaded M4') and n.endswith(str(angle)))
