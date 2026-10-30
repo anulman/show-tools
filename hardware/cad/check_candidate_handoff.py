@@ -44,6 +44,9 @@ def main():
         args.output=root/'complete'
         package.run(args)
         manifest=json.loads((args.output/'validation.json').read_text())
+        original = next(r for r in manifest['files'] if r['category']=='06-original-bar-alternative')
+        assert not Path(original['source']).is_absolute(), 'Original export refers to expired staging'
+        assert package.digest(args.output/original['source'])==original['sha256']
         archive=args.output/'prototype-print-files.zip'
         assert package.digest(archive)==manifest['zip_sha256']
         with zipfile.ZipFile(archive) as z:

@@ -53,7 +53,8 @@ def build(args):
                     'STL bounds differ from CAD')
             require(len(mesh.split(only_watertight=False)) == len(shape.shells()), 'Boundary shell count differs')
         records.append(dict(file=str(target.relative_to(output)), sha256=digest(target),
-                            source=str(source), name=record['name'], quantity=1,
+                            source=(str(source.relative_to(output)) if source.is_relative_to(output)
+                                    else str(source)), name=record['name'], quantity=1,
                             category='cut-stock-reference' if material else folder))
         print('PASS', target.relative_to(output), flush=True)
 
