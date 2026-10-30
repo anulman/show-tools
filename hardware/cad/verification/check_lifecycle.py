@@ -2,7 +2,7 @@
 from copy import deepcopy
 from dataclasses import asdict
 import json
-from post_glue_lifecycle import verify, Violation
+from post_glue_lifecycle import verify, verify_evidence, Violation
 
 
 def fixture():
@@ -62,3 +62,19 @@ def unreachable_operation(m):
         requires={'unused':'never'},sets={'unused':'reachable'}))
 rejects(unreachable_operation, 'Unreachable claimed operations')
 print(json.dumps(asdict(result),indent=2))
+
+# Evidence binding must fail on a changed artifact; this is a checker fixture.
+import hashlib
+from pathlib import Path
+import tempfile
+with tempfile.TemporaryDirectory(prefix='post-glue-evidence-') as temporary:
+    root=Path(temporary); evidence=root/'motion.json'
+    evidence.write_text('fixture checker evidence\n')
+    model=fixture()
+    model['evidence']={'fixture':dict(path=evidence.name,sha256=hashlib.sha256(evidence.read_bytes()).hexdigest())}
+    verify_evidence(model,root)
+    evidence.write_text('changed evidence\n')
+    try: verify_evidence(model,root)
+    except Violation as error: assert 'Changed evidence' in str(error)
+    else: raise AssertionError('Changed geometric evidence admitted')
+print('PASS: exact motion evidence binding; changed evidence rejected')
