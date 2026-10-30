@@ -84,6 +84,40 @@ test('combined outgoing pixels outside the peak reject despite covered incoming 
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
+test('merged peak holds inspect intervening body poses and deduplicate shared key times', async () => {
+  const f = await fixture();
+  try {
+    assert(f.scene.staging.kind === 'poof');
+    const rgba = Buffer.alloc(30 * 20 * 4);
+    for (const x of [0, 29]) rgba.set([180, 90, 50, 255], x * 4);
+    const bytes = await sharp(rgba, { raw: { width: 30, height: 20, channels: 4 } }).png().toBuffer();
+    await writeFile(join(f.root, 'wide.png'), bytes);
+    const staging = { ...f.scene.staging, tracks: f.scene.staging.tracks.map(track => ({ ...track,
+      keys: [...track.keys, { at: 1.5, visible: true, poof: { effect: 0, pose: 2 } }].sort((a, b) => a.at - b.at),
+    })) };
+    const tracks = f.scene.tracks.map(track => ({ ...track, keys: [...track.keys,
+      { at: 1.5, clip: 1, pose: 2, grayscale: false }, { at: 1.75, clip: 1, pose: 1, grayscale: false },
+    ].sort((a, b) => a.at - b.at) }));
+    async function runWithPivot(x: number) {
+      const actors = f.scene.actors.map(actor => ({ ...actor, clips: actor.clips.map(clip => ({ ...clip,
+        drawings: [...clip.drawings, { path: '/wide.png', sha256: hash(bytes), pivot: { x, y: 1 } }],
+      })) }));
+      await writeFile(f.scenePath, JSON.stringify({ ...f.scene, actors, tracks, staging }));
+      return f.run();
+    }
+    const failed = await runWithPivot(15);
+    assert(failed.transitions.every(transition => transition.pass));
+    assert(failed.effectFits.every(fit => fit.pass));
+    assert.equal(failed.admission, false);
+    assert(failed.peakHolds.find(hold => hold.at === 1.5)?.uncoveredPixels);
+    assert.equal(failed.peakHolds.filter(hold => hold.at === 1.5).length, 1);
+    const passed = await runWithPivot(13);
+    assert.equal(passed.admission, true, JSON.stringify(passed.peakHolds));
+    assert(passed.peakHolds.every(hold => hold.pass));
+    assert.equal(passed.peakHolds.filter(hold => hold.at === 1.5).length, 1);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
 test('world-space effect offset fixes occupied edge clipping without moving character art', async () => {
   const f = await fixture({ scale: 1, anchorX: 6 });
   try {
@@ -189,5 +223,20 @@ test('CLI writes one exclusive report and exits nonzero for failed admission', a
     const second = spawnSync(process.execPath, args, { encoding: 'utf8' });
     assert.equal(second.status, 1); assert.match(second.stderr, /EEXIST/);
     assert.equal(await readFile(reportPath, 'utf8'), original);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('explicit pre-existing presence does not invent an entrance at song zero', async () => {
+  const f = await fixture({ initialVisible: true });
+  try {
+    assert(f.scene.staging.kind === 'poof');
+    const scene = { ...f.scene, staging: { ...f.scene.staging, tracks: f.scene.staging.tracks.map(track => ({ ...track,
+      initiallyPresent: true, keys: track.keys.map(key => key.at === 0 ? { ...key, poof: null } : key),
+    })) } };
+    await writeFile(f.scenePath, JSON.stringify(scene));
+    const report = await f.run();
+    assert.equal(report.admission, true);
+    assert(!report.transitions.some(transition => transition.at === 0));
+    assert(report.transitions.some(transition => transition.at === 2));
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });

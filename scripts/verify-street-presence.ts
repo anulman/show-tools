@@ -69,6 +69,18 @@ export async function verifyStreetPresence({ scenePath, assetRoot, wasmPath }: {
     const placement = streetPoofPlacement(actor, track);
     return { ...await mask(effect.drawings[pose], placement.scale), ...spritePlacement(placement, effect.pivot) };
   }
+  async function coveredBody(frame: ActorFrame, peak: PositionedMask | null) {
+    let occupiedPixels = 0, uncoveredPixels = 0;
+    const examples: Array<{ x: number; y: number }> = [];
+    occupied(await body(frame), (x, y) => {
+      occupiedPixels++;
+      if (peak === null || alphaAt(peak, x, y) !== 255) {
+        uncoveredPixels++;
+        if (examples.length < 8) examples.push({ x, y });
+      }
+    });
+    return { clip: frame.clip, pose: frame.pose, occupiedPixels, uncoveredPixels, examples, pass: uncoveredPixels === 0 };
+  }
   const effectFits = [];
   for (const track of staging.tracks) {
     const used = new Set(track.keys.flatMap(key => key.poof === null ? [] : [key.poof.effect]));
@@ -89,7 +101,7 @@ export async function verifyStreetPresence({ scenePath, assetRoot, wasmPath }: {
   try {
     const transitions = [];
     for (const track of staging.tracks) {
-      let previousVisible = false;
+      let previousVisible = track.initiallyPresent;
       for (const key of track.keys) {
         const at = sampler.sample(key.at), frame = at.find(frame => frame.actor === track.actor);
         if (!frame) throw new Error('Native sampler omitted actor');
@@ -100,16 +112,7 @@ export async function verifyStreetPresence({ scenePath, assetRoot, wasmPath }: {
         const peak = frame.poof === null ? null : await poof(track.actor, frame.poof.effect, frame.poof.pose);
         const coverage = [];
         for (const [side, count, sampled] of [['outgoing', beforeCount, before], ['incoming', key.at, frame]] satisfies Array<[string, number, ActorFrame]>) {
-          let occupiedPixels = 0, uncoveredPixels = 0;
-          const examples: Array<{ x: number; y: number }> = [];
-          occupied(await body(sampled), (x, y) => {
-            occupiedPixels++;
-            if (peak === null || alphaAt(peak, x, y) !== 255) {
-              uncoveredPixels++;
-              if (examples.length < 8) examples.push({ x, y });
-            }
-          });
-          coverage.push({ side, count, clip: sampled.clip, pose: sampled.pose, occupiedPixels, uncoveredPixels, examples, pass: uncoveredPixels === 0 });
+          coverage.push({ side, count, ...await coveredBody(sampled, peak) });
         }
         const neighborOcclusions = [];
         if (peak !== null) for (const neighbor of at) if (neighbor.actor !== track.actor && neighbor.visible) {
@@ -127,9 +130,24 @@ export async function verifyStreetPresence({ scenePath, assetRoot, wasmPath }: {
         previousVisible = frame.visible;
       }
     }
+    const peakHolds = [];
+    for (const track of staging.tracks) {
+      const bodyTrack = scene.tracks.find(bodyTrack => bodyTrack.actor === track.actor);
+      if (!bodyTrack) throw new Error('Missing body track');
+      const counts = new Set([...track.keys.map(key => key.at), ...bodyTrack.keys.map(key => key.at)]);
+      for (const count of [...counts].sort((a, b) => a - b)) {
+        const frame = sampler.sample(count).find(frame => frame.actor === track.actor);
+        if (!frame) throw new Error('Native sampler omitted actor');
+        if (frame.visible && frame.poof?.pose === 2) {
+          const peak = await poof(track.actor, frame.poof.effect, frame.poof.pose);
+          peakHolds.push({ actor: track.actor, characterId: scene.actors[track.actor].characterId, at: count,
+            sampledPoof: frame.poof, ...await coveredBody(frame, peak) });
+        }
+      }
+    }
     return { kind: 'actual-street-presence-admission', sceneSha256: sha256(sceneBytes), wasmSha256: sha256(wasmBytes),
-      admission: transitions.every(transition => transition.pass) && effectFits.every(fit => fit.pass),
-      transitions, effectFits, assets: Object.fromEntries([...verifiedAssets].sort(([a], [b]) => a.localeCompare(b))),
+      admission: transitions.every(transition => transition.pass) && effectFits.every(fit => fit.pass) && peakHolds.every(hold => hold.pass),
+      transitions, peakHolds, effectFits, assets: Object.fromEntries([...verifiedAssets].sort(([a], [b]) => a.localeCompare(b))),
       neighborOcclusionPolicy: 'Diagnostic geometric opaque overlaps with visible actors and occlusion under renderer depth/actor-index order; artistic intent is not inferred.' };
   } finally { sampler.dispose(); }
 }

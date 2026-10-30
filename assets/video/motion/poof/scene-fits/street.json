@@ -1,0 +1,354 @@
+{
+  "version": 1,
+  "kind": "poof-scene-fit-profile",
+  "fileKey": "QWreOYAnaje2LlywefJFiK",
+  "sceneNodeId": "39:603",
+  "templateNodeId": "39:501",
+  "actorsNodeId": "97:8444",
+  "width": 1280,
+  "height": 720,
+  "offsetUnits": "world-scene-pixels",
+  "bodyLayoutSha256": "7cade32c24dc7c1ecca7d11e06c7df0bd3f8df3d9e481912d6197c4f077b251c",
+  "poofCatalog": {
+    "path": "assets/video/motion/poof/catalog.json",
+    "sha256": "037c92b80899b11a06c4ba8b4ffac2be1ad576868133b6c3a5eae5c6c9d131e6"
+  },
+  "characterCatalog": {
+    "path": "assets/video/motion/dyc/catalog.json",
+    "sha256": "bf1fe49f79f62d16e76c43ccb9ea7c9785a8919f022b4c261bbb50c0763ae412"
+  },
+  "actors": [
+    {
+      "code": "B23",
+      "actorNodeId": "240:11678",
+      "actorRootId": "97:8444",
+      "bodyAnchor": {
+        "x": 92,
+        "y": 535
+      },
+      "bodyScale": 2,
+      "bodyFrame": {
+        "x": 28,
+        "y": 381,
+        "width": 128,
+        "height": 160
+      },
+      "offset": {
+        "x": 30,
+        "y": 0
+      },
+      "effectOccupiedBounds": {
+        "left": 0,
+        "right": 244,
+        "top": 327,
+        "bottom": 573
+      },
+      "scale": 2,
+      "allowedEffectIds": [
+        "soft",
+        "pixel",
+        "star"
+      ]
+    },
+    {
+      "code": "A02",
+      "actorNodeId": "240:11714",
+      "actorRootId": "97:8444",
+      "bodyAnchor": {
+        "x": 310,
+        "y": 510
+      },
+      "bodyScale": 2,
+      "bodyFrame": {
+        "x": 246,
+        "y": 356,
+        "width": 128,
+        "height": 160
+      },
+      "offset": {
+        "x": 0,
+        "y": 0
+      },
+      "effectOccupiedBounds": {
+        "left": 188,
+        "right": 432,
+        "top": 302,
+        "bottom": 548
+      },
+      "scale": 2,
+      "allowedEffectIds": [
+        "soft",
+        "pixel",
+        "star"
+      ]
+    },
+    {
+      "code": "A31",
+      "actorNodeId": "240:11733",
+      "actorRootId": "97:8444",
+      "bodyAnchor": {
+        "x": 530,
+        "y": 515
+      },
+      "bodyScale": 2,
+      "bodyFrame": {
+        "x": 466,
+        "y": 361,
+        "width": 128,
+        "height": 160
+      },
+      "offset": {
+        "x": 0,
+        "y": 0
+      },
+      "effectOccupiedBounds": {
+        "left": 408,
+        "right": 652,
+        "top": 307,
+        "bottom": 553
+      },
+      "scale": 2,
+      "allowedEffectIds": [
+        "soft",
+        "pixel",
+        "star"
+      ]
+    },
+    {
+      "code": "A07",
+      "actorNodeId": "240:12099",
+      "actorRootId": "97:8444",
+      "bodyAnchor": {
+        "x": 190,
+        "y": 655
+      },
+      "bodyScale": 3,
+      "bodyFrame": {
+        "x": 94,
+        "y": 421,
+        "width": 192,
+        "height": 240
+      },
+      "offset": {
+        "x": 0,
+        "y": 0
+      },
+      "effectOccupiedBounds": {
+        "left": 68,
+        "right": 312,
+        "top": 447,
+        "bottom": 693
+      },
+      "scale": 2,
+      "allowedEffectIds": [
+        "soft",
+        "pixel",
+        "star"
+      ]
+    },
+    {
+      "code": "A29",
+      "actorNodeId": "240:12122",
+      "actorRootId": "97:8444",
+      "bodyAnchor": {
+        "x": 415,
+        "y": 665
+      },
+      "bodyScale": 3,
+      "bodyFrame": {
+        "x": 319,
+        "y": 431,
+        "width": 192,
+        "height": 240
+      },
+      "offset": {
+        "x": 0,
+        "y": -16
+      },
+      "effectOccupiedBounds": {
+        "left": 293,
+        "right": 537,
+        "top": 441,
+        "bottom": 687
+      },
+      "scale": 2,
+      "allowedEffectIds": [
+        "soft",
+        "star"
+      ]
+    },
+    {
+      "code": "A04",
+      "actorNodeId": "240:12144",
+      "actorRootId": "97:8444",
+      "bodyAnchor": {
+        "x": 640,
+        "y": 655
+      },
+      "bodyScale": 3,
+      "bodyFrame": {
+        "x": 544,
+        "y": 424,
+        "width": 192,
+        "height": 240
+      },
+      "offset": {
+        "x": -2,
+        "y": -26
+      },
+      "effectOccupiedBounds": {
+        "left": 516,
+        "right": 760,
+        "top": 421,
+        "bottom": 667
+      },
+      "scale": 2,
+      "allowedEffectIds": [
+        "soft",
+        "pixel",
+        "star"
+      ]
+    },
+    {
+      "code": "A26",
+      "actorNodeId": "240:12083",
+      "actorRootId": "97:8444",
+      "bodyAnchor": {
+        "x": 865,
+        "y": 665
+      },
+      "bodyScale": 3,
+      "bodyFrame": {
+        "x": 769,
+        "y": 434,
+        "width": 192,
+        "height": 240
+      },
+      "offset": {
+        "x": 0,
+        "y": 0
+      },
+      "effectOccupiedBounds": {
+        "left": 743,
+        "right": 987,
+        "top": 457,
+        "bottom": 703
+      },
+      "scale": 2,
+      "allowedEffectIds": [
+        "soft",
+        "pixel",
+        "star"
+      ]
+    },
+    {
+      "code": "A10",
+      "actorNodeId": "240:12164",
+      "actorRootId": "97:8444",
+      "bodyAnchor": {
+        "x": 1090,
+        "y": 671
+      },
+      "bodyScale": 3,
+      "bodyFrame": {
+        "x": 994,
+        "y": 440,
+        "width": 192,
+        "height": 240
+      },
+      "offset": {
+        "x": 0,
+        "y": -6
+      },
+      "effectOccupiedBounds": {
+        "left": 968,
+        "right": 1212,
+        "top": 457,
+        "bottom": 703
+      },
+      "scale": 2,
+      "allowedEffectIds": [
+        "soft",
+        "pixel",
+        "star"
+      ]
+    }
+  ],
+  "scaleUnits": "world-pixels-per-native-effect-pixel",
+  "status": "approved-source-fit",
+  "geometrySha256": "ba7bde4c6d4bfc793e6baca10fef7625dc63c78dc0bec21c6d50a21e3900691f",
+  "verification": {
+    "date": "2026-10-30",
+    "scope": "Selected32 actual-transition source geometry and limited target-cloud peak composition; not a product presence or timing approval.",
+    "inputDraftSha256": "8b6d8436d8bf0638d00603a060f9697753167ae374457f82b310f90d83db761a",
+    "independentReviewSha256": "fd15f75a992ffc9cef3cf1bd100a66590875455e0c1506a5a4a6299d7b313ef6",
+    "nativeSamplerCommit": "1af261e",
+    "fixtureAlternatives": [
+      "singer-retained",
+      "singer-suppressed"
+    ],
+    "rawActivityEdgesPerFixture": 83,
+    "fixtureCount": 6,
+    "combinedSourceMaskChecks": 996,
+    "effectFrameBoundsChecks": 288,
+    "sourceMasks": "PASS",
+    "bounds": "PASS",
+    "admittedVariantsExercised": "PASS",
+    "liveFigmaBodyRegistration": "PASS",
+    "peakComposition": {
+      "verdict": "PASS-limited",
+      "evidence": [
+        {
+          "actor": "A07",
+          "count": 79
+        },
+        {
+          "actor": "A04",
+          "count": 640
+        },
+        {
+          "actor": "A07",
+          "count": 336
+        },
+        {
+          "actor": "A29",
+          "count": 640
+        }
+      ],
+      "observation": "Neighbor faces remain readable in the inspected target-only smoke peaks. Brief body overlap remains. Other variants, simultaneous clouds, complete transition timing and final video require resolved-scene review."
+    },
+    "reports": [
+      {
+        "sha256": "0d975383dab8da5d1d37167c859d057cf673ffb93b6fe4c2a84ea3f7eb4f4596",
+        "sceneSha256": "7f41d5ab39433b54771f0c0b069520fb8381784fdbe2037d3a91026ed16cc1e0"
+      },
+      {
+        "sha256": "3c2c356dec223f1e3397e972f580eecebada212b8720f378203f4bbe1d3fa5e5",
+        "sceneSha256": "068a823e24ace9c168af826aa999188789346ca45dbd8f4b36079e9b0ecc0a34"
+      },
+      {
+        "sha256": "3b2be8f92e5a3a2f940fb41d285537fc731d9709ba373b72749f8712defcda54",
+        "sceneSha256": "d734a0ad26e74eb0174775fcb9094f5f92d78c1cae6b69bd2302cff34814b18c"
+      },
+      {
+        "sha256": "92fc73c9c45e50957e3850e61fafdeb1fd7d0bb667b421a894e33fe08f40ac61",
+        "sceneSha256": "e3f17fa080f56e4ded9a0177e90f5d497a7208e3145c297db8fdc79d5622627b"
+      },
+      {
+        "sha256": "711bedc114f519445ce6576d415b05881963b4ee36e69e543239a52e57759dd0",
+        "sceneSha256": "671ce6fad104522c9a76069ac0e424d8e0e0ae067b0314ce8becde1a3a9a5930"
+      },
+      {
+        "sha256": "d2850299819298f9ad6dc63abf8eaca75cf30a6a89143426d260962c7b970dad",
+        "sceneSha256": "71a6923a000284559ce61f54ca567fa43bef29c6a975b0ae12156445d150086b"
+      }
+    ],
+    "limits": [
+      "Fit applies to the pinned selected32 poses at tested activity edges, not every flourish in the full library.",
+      "Tapir permits soft/star at this placement; other actors permit all three effects.",
+      "Product singer/backup presence and rapid-transition policy remain pending operator answers.",
+      "Future preparation must rerun actual outgoing/incoming masks and all used frame bounds for the resolved scene.",
+      "No browser/GPU or refreshed full-song movie certified."
+    ]
+  }
+}

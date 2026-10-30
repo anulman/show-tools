@@ -8,6 +8,8 @@ Prepared staging can add a second HOLD table per actor. It uses the same native 
 
 Each presence track may register the cloud with a static `offset` in scene pixels and a separate absolute `scale`. Decoding defaults the offset to zero and scale to `null`, meaning the character's scale. These fields affect only the poof; character placement, sprite pixels and native registration remain unchanged. `streetPoofPlacement()` supplies the same resolved cloud geometry to both renderers and the mask admission tool. Coverage and scene-fit checks use that geometry.
 
+`initiallyPresent` records whether an actor was already onstage before the scene begins; decoding defaults it to false. The always-present singer sets it true. This distinguishes an existing performer from an entrance at count zero, which still requires opaque-peak coverage.
+
 Simple, vigorous, special, and ultra clips retain their native grids, quarter-note HOLD keys, action duration, cycle duration, and registration metadata. Prepared drawing pivots use PNG-canvas coordinates and already include any source offset. Renderers apply that pivot once. `presentation.ts` supplies the grayscale conversion shared by Pixi texture preparation and offline composition.
 
 Build and run the native check:
