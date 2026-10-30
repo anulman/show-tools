@@ -6,11 +6,11 @@ import json
 import math
 from pathlib import Path
 import shutil
+import tempfile
 import zipfile
 
 import numpy as np
 import trimesh
-from build123d import import_step
 import comparison_review
 import disco_bar
 import box_mount
@@ -25,7 +25,7 @@ def require(ok, message):
         raise ValueError(message)
 
 
-def run(args):
+def build(args):
     selected = comparison_review.Comparison(args.selection)
     output = args.output.resolve()
     require(not output.exists(), 'Use a fresh output directory')
@@ -103,6 +103,20 @@ def run(args):
                     installed_print_count=19, optional_print_count=1, fit_test_count=5, alternative_count=1)
     (output/'validation.json').write_text(json.dumps(manifest,indent=2)+'\n')
     print('PASS 26 validated STL files; fabrication-only ZIP:',archive,flush=True)
+
+
+def run(args):
+    """Expose the output name only after the complete package passes validation."""
+    output = args.output.resolve()
+    require(not output.exists(), 'Use a fresh output directory')
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(prefix='.'+output.name+'-', dir=output.parent) as staging:
+        staged = argparse.Namespace(**vars(args))
+        staged.output = Path(staging)/'complete'
+        build(staged)
+        require(not output.exists(), 'Output appeared during packaging; refusing replacement')
+        staged.output.rename(output)
+    print('Published complete prototype handoff:', output, flush=True)
 
 
 if __name__ == '__main__':
