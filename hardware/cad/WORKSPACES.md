@@ -1,5 +1,7 @@
 # Work on box mounts and the disco bar
 
+The operator's next-publication instruction is to show only complete publication candidates after their dependent checks pass. Remove historical comparison assemblies from the visible scenes, but retain their source, exports and other old data. Do not substitute a fit coupon for a complete mount. Keep the current scene until a replacement is ready. The operator confirmed Darren's snug socket after superseding the larger diameter estimate; preserve that socket and complete the compact assembly checks before publication. This display choice does not authorize old-data cleanup or establish physical fit.
+
 The two long-lived CAD sessions own separate source files and output directories. Use the [CAD desk](../../ui/cad/README.md) at <http://127.0.0.1:3940/> to select a workstream yourself. The coordinator maintains this publisher and the embedded OCP Viewer on port 3939. Workers perform headless work and do not publish or restart the viewer.
 
 | Session | Codex thread | Source ownership |
