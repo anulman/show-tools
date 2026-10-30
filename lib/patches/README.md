@@ -1,6 +1,6 @@
 # Render live voice and replay processed takes
 
-This standalone C++17 module renders ordered, full-output effects. Slapback and Chorus are prepared effect types. A take stores the exact processed live PCM for playback and auxiliary original source PCM for evolving effect history. Cached audio never enters its baked effects stack again.
+This standalone C++17 module renders ordered, full-output effects. Slapback and Chorus are prepared effect types. The fixed [Tribulations guitar](TRIBULATIONS.md) factory preserves the approved Legato fuzz instrument without adding production voice bindings. A take stores the exact processed live PCM for playback and auxiliary original source PCM for evolving effect history. Cached audio never enters its baked effects stack again.
 
 The performance engine owns routing, effect activation, capture admission and recording boundaries. This module supplies prepared racks, capture storage and evolving playback; it does not select musical controls or schedule captures. The practice desk is the supported browser UI. Native/WASM fixtures do not establish physical device latency.
 
@@ -18,7 +18,7 @@ ctest --test-dir /tmp/show-tools-patches --output-on-failure
 
 `--fixture` writes deterministic, interleaved stereo float32 PCM with no header. `--demo` writes three seconds of synthetic dry and wet stereo PCM at 48 kHz to `PREFIX-dry.f32` and `PREFIX-wet.f32`. These are local verification artifacts, not recordings from a microphone. Keep them outside Git.
 
-Run `node --import tsx scripts/verify-patches.ts` to build both targets and compare their complete PCM fixtures. The test source also compiles with Emscripten. Use the same source and flags when comparing its emitted fixture to native output. Enable `NODERAWFS` for the test executable so its fixture reaches the host filesystem. The module itself has no filesystem or browser dependency.
+Run `node --import tsx scripts/verify-patches.ts` to build the native and WASM versions of both test executables and compare their complete PCM fixtures. The test source also compiles with Emscripten. Use the same source and flags when comparing its emitted fixture to native output. Enable `NODERAWFS` for the test executable so its fixture reaches the host filesystem. The module itself has no filesystem or browser dependency.
 
 ## Prepare the graph before audio processing
 
