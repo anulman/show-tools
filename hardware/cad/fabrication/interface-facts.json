@@ -83,10 +83,10 @@
     "original_bar_policy": "unchanged reference, optional printing after fabricator review",
     "preproduction_fit_trial": "printer checks actual standard hardware and fully processed mating latch before full run",
     "modified_C2_collar_bar_hold": {
-      "status": "held",
-      "reason": "Frozen C2 adds bar, receiver and purchased hardware material inside original debond channel voids",
-      "required_gate": "fresh candidate preserves both original voids with all carrier hardware clear; repeat structural, latch, tool and box checks before review",
-      "old_artifacts": "retain unchanged; do not fabricate old C2 collar/bar from the prior handoff"
+      "status": "rejected_for_fabrication_and_active_review",
+      "reason": "Every prior C2 assumes inaccessible pre-glue receiver/carrier/cap assembly. Restored debond channels do not fix post-glue reversibility.",
+      "required_gate": "Complete forward and reverse assembly from bare already-glued bar; every other component and hardware installed and removed through the root opening after glue.",
+      "old_artifacts": "Preserve unchanged; none of the previous collar/bar packages is approved."
     }
   },
   "ball_interface": {
@@ -114,10 +114,17 @@
     "at_least_one_complete_installation_order_required": true,
     "complete_installation_order_verified": false,
     "stationary_bearing_role_if_used": "passive support, not a separate retaining joint",
-    "factory_assembly_before_glue": "receiver/collar carrier screws and captive-lock cap assembly",
     "cup_grip_adjustment": "with ball/bar removed; side grip screws are exposed again after underside ball removal",
-    "glued_ball_attachment_and_removal": "underside collar quarter-turn and captive lock only; no lateral tools above root",
-    "receiver_repair_access": "not established after glue; internal carrier screws can require debonding",
-    "routine_tool_halfspace_check": "actual frozen C2 operating/staging envelopes stay at least 8.5 mm below root; geometric access only, not hand or physical fit verification"
+    "glued_ball_attachment_and_removal": "All operations reversible from root; lateral exterior above root inaccessible",
+    "receiver_repair_access": "Every removable receiver, cap, nut, screw and collar must be retrievable through root after glue",
+    "routine_tool_halfspace_check": "New candidates require actual axial staging and operating swept-volume checks",
+    "all_bar_baseplate_collar_attachments_after_glue": true,
+    "initial_condition": "Bare printed bar already glued inside ball; every other collar/baseplate component and loose fastener outside ball",
+    "final_service_condition": "Bare glued bar, all other coupling components and hardware removed without debonding",
+    "pre_glue_captive_hardware_allowed": false,
+    "integral_printed_bar_features_allowed": true,
+    "external_module_preassembly_after_glue_allowed": true,
+    "continuous_rotation_required": true,
+    "rotation_limit_allowed": false
   }
 }
