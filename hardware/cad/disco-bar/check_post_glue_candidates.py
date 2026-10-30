@@ -1,10 +1,12 @@
 """Export actual candidate geometry and endpoint evidence; continuous proof is separate."""
 from __future__ import annotations
-import argparse,hashlib,importlib,json,sys
+import argparse,hashlib,importlib,json,sys,math
 from pathlib import Path
 from build123d import Plane,Solid
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Cylinder
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]))
 import disco_bar
 m=importlib.import_module('disco-bar.post_glue_couplings');c=m.c
@@ -38,6 +40,45 @@ def check_parts(parts):
             c.assert_empty(hit-zone,'Non-thread metal collision')
 
 
+def accurate_mass(shape):
+    properties=GProp_GProps()
+    error=BRepGProp.VolumeProperties_s(shape.wrapped,properties,1e-10,True,False)
+    value=properties.Mass()
+    if not math.isfinite(value) or value<=0 or not math.isfinite(error) or error<0 or error>1e-8:
+        raise ValueError('Accurate closed-solid mass integration failed')
+    return value,error
+
+
+def export_piece(piece,folder):
+    folder.mkdir(parents=True,exist_ok=True)
+    stem=piece.name.replace(' / ','--').replace(' ','-').replace('+','plus')
+    step,stl=folder/(stem+'.step'),folder/(stem+'.stl')
+    if not piece.shape.is_valid or len(piece.shape.solids())!=1:raise ValueError('Invalid export input')
+    if not p.export_step(piece.shape,step) or not p.export_stl(piece.shape,stl,tolerance=.03):raise ValueError('Export failed')
+    restored=p.import_step(step)
+    if not restored.is_valid or len(restored.solids())!=1:raise ValueError('Invalid STEP roundtrip')
+    original_mass,original_error=accurate_mass(piece.shape)
+    restored_mass,restored_error=accurate_mass(restored)
+    if not p.np.isclose(original_mass,restored_mass,rtol=1e-6):raise ValueError('STEP accurate mass changed')
+    equivalence=[]
+    for left,right in ((piece.shape,restored),(restored,piece.shape)):
+        try:
+            cut=m.channels.channel_boolean(m.channels.BRepAlgoAPI_Cut,left.wrapped,right.wrapped)
+            amount=m.channels.channel_material_volume(cut)
+        except ValueError as error:
+            equivalence.append(dict(status='INCONCLUSIVE',reason=str(error)))
+            continue
+        if amount>1e-5:raise ValueError('STEP changed actual material')
+        equivalence.append(dict(status='PASS',material_difference_mm3=amount))
+    mesh=p.trimesh.load_mesh(stl)
+    if not mesh.is_watertight or not mesh.is_winding_consistent or mesh.volume<=0 or not p.np.isclose(mesh.volume,original_mass,rtol=.005):raise ValueError('Invalid STL')
+    return dict(name=piece.name,role=piece.role,step=str(step.resolve()),stl=str(stl.resolve()),
+        step_sha256=hashlib.sha256(step.read_bytes()).hexdigest(),stl_sha256=hashlib.sha256(stl.read_bytes()).hexdigest(),
+        step_roundtrip=True,stl_watertight=True,volume_mm3=original_mass,restored_volume_mm3=restored_mass,
+        mass_relative_error_estimates=[original_error,restored_error],mass_integration='native adaptive closed-volume Eps1e-10; original rtol1e-6 unchanged',
+        native_source_step_equivalence=equivalence,delivered_step_requires_independent_requirement_checks=True)
+
+
 def run(step,concept,output):
     output.mkdir(parents=True,exist_ok=True);(output/'receipt.json').unlink(missing_ok=True)
     path,reference=disco_bar.load_reference(step);disco_bar.verify_full_reference(path,reference)
@@ -52,21 +93,26 @@ def run(step,concept,output):
     c.assert_empty((reference-candidate.bar)-mask,'Protected original removed')
     c.assert_empty((candidate.bar-reference)-mask,'Protected original added')
     for label,record in candidate.channels.items():m.channels.equal(candidate.bar&record['envelope'],reference&record['envelope'],'Original channel '+label)
-    environment=p.export_piece(c.Piece('bare glued bar',candidate.bar,'single printed glued environment; no installed hardware'),output/'environment')
+    environment=export_piece(c.Piece('bare glued bar',candidate.bar,'single printed glued environment; no installed hardware'),output/'environment')
     stages={}
     for stage,pose in candidate.stages.items():
         parts=model.posed(candidate,stage)
         check_parts([c.Piece('bare glued bar',candidate.bar,'bar'),*parts])
         if stage=='outside' and any(q.shape.bounding_box().min.Z<0 for q in parts):raise ValueError('Not all actors outside')
-        records=[p.export_piece(q,output/'stages'/stage) for q in parts]
+        records=[export_piece(q,output/'stages'/stage) for q in parts]
         stages[stage]=dict(source_pose=pose,world_mouth_height_rule='nominal gap + shift, keeping knob/cup fixed in world',components=records,endpoint_rigid_clearance=True)
         unchanged()
         print('ENDPOINT',concept,stage,'PASS',flush=True)
+    torque={}
+    if concept=='C':
+        for direction,witness in model.torque_witnesses(candidate).items():
+            if c.volume(witness)<=1e-5:raise ValueError('Missing positive cup/bar drive '+direction)
+            torque[direction]=[export_piece(c.Piece('cup bar torque witness '+direction+' part '+str(i),solid,'penetration witness; NOT PRINT GEOMETRY'),output/'drive-witnesses') for i,solid in enumerate(witness.solids())]
     report=dict(schema=1,concept='post-glue '+concept,scope='ACTUAL GEOMETRY AND ENDPOINTS ONLY; NOT FORMALLY ADMITTED',
         geometry_review_pass=False,endpoint_geometry_pass=True,continuous_motion_verified=False,base_integration_verified=False,
         lifecycle_verified=False,physical_fit_verified=False,environment=environment,bar_already_glued=True,
         above_root_exterior_access=False,reference_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
-        stages=stages,source_frame='Z0 root; negative Z inside ball; positive Z root-side exterior',
+        stages=stages,positive_cup_bar_torque_witnesses=torque,source_frame='Z0 root; negative Z inside ball; positive Z root-side exterior',
         source_code_sha256={f.name:sha for f,sha in sources.items()})
     unchanged()
     (output/'receipt.json').write_text(json.dumps(report,indent=2)+'\n')
