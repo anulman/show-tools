@@ -1,5 +1,6 @@
 """Verify candidate-only scenes without publishing or deleting prior selections."""
 import argparse
+from copy import deepcopy
 import json
 import hashlib
 from pathlib import Path
@@ -25,6 +26,40 @@ with tempfile.TemporaryDirectory(prefix='candidate-review-') as directory:
     path.write_text(json.dumps(registry))
     candidate = review.Comparison(path)
     assert candidate.presentation == 'candidates'
+    assert candidate.compatibility == {
+        'collar_receipt_sha256': review.PINS['collar'],
+        'compact_receipt_sha256': review.PINS['rotor'],
+        'historical_collar_receipt_sha256': review.HISTORICAL_COLLAR_PIN,
+        'checked_root_heights_mm': [5, 7],
+    }
+    assert candidate.reports['rotor']['input_receipts']['collar']['sha256'] == review.HISTORICAL_COLLAR_PIN
+    def reject_compatibility(change, message):
+        reports = deepcopy(candidate.reports)
+        change(reports)
+        try: review.verify_compatibility(reports)
+        except ValueError as error: assert message in str(error)
+        else: raise AssertionError('Invalid collar/base compatibility accepted')
+    reject_compatibility(lambda r:r['collar'].pop('debond_checks'), 'proof missing')
+    reject_compatibility(lambda r:r['collar']['debond_checks'].__setitem__('compact_receipt_sha256', '0'*64), 'another compact base')
+    reject_compatibility(lambda r:r['collar']['debond_checks'].__setitem__('baseline_receipt_sha256', '0'*64), 'another historical baseline')
+    reject_compatibility(lambda r:r['rotor']['input_receipts']['collar'].__setitem__('sha256', review.PINS['collar']), 'historical collar pin changed')
+    reject_compatibility(lambda r:r['collar']['debond_checks']['compact_base'].pop('7'), 'Incomplete compact compatibility')
+    reject_compatibility(lambda r:r['collar']['debond_checks'].__setitem__('original_voids_clear_all_six_states', False), 'checked proof missing')
+    reject_compatibility(lambda r:r['collar']['debond_checks'].pop('connected_bottom_entry_cup_absent'), 'bottom-entry proof missing')
+    reject_compatibility(lambda r:r['collar'].__setitem__('source_commit', '0'*40), 'producer revision')
+    reject_compatibility(lambda r:r['collar'].__setitem__('schema_version', 999), 'proof schema')
+    # The proof's unseen state/tool exports remain byte-checked during selection.
+    state_record = deepcopy(candidate.reports['collar']['states_components']['released'][0])
+    changed_state = Path(directory)/'changed-state.step'
+    changed_state.write_bytes(Path(state_record['step']).read_bytes()+b'changed')
+    state_record['step'] = str(changed_state)
+    try: candidate.record_artifact_hashes([state_record])
+    except ValueError as error: assert 'artifact changed' in str(error)
+    else: raise AssertionError('Changed checked state artifact accepted')
+    for records in [*candidate.reports['collar']['states_components'].values(),
+                    candidate.reports['collar']['control_sweeps']]:
+        assert all(str(record[kind]) in candidate.files for record in records for kind in ('step','stl'))
+    print('PASS new-collar/base compatibility, unchanged historical pin, missing/wrong proof and changed state rejection',flush=True)
     for variant, count in [('all',13), ('arcade-inclined',5), ('rotor-level',8)]:
         scene = candidate.candidates('box-mount', variant=variant, explode=25)
         assert len(scene[0]) == count and len(set(scene[1])) == count

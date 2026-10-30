@@ -15,10 +15,70 @@ CURRENT = HERE / 'build' / 'comparison-review' / 'current.json'
 # These exact frozen receipts are selected by the independent prototype reviews.
 # Their pending physical-fit flags remain false; this permits human review only.
 PINS = {
-    'collar': '83886c072ce113015196fd621a74c663830b305d3989904e0873e9158d08251d',
+    'collar': 'cc535b9d49cdf9c12834ba56efc93d31fb30e1888712d9fbfd50c859f2b75b02',
     'rotor': '29b85bff87c061eba9569b15b297d6f2109babcf30c14b96ff5576974282801b',
     'arcade': 'fa2a4758e78568e396055f652add4088708fa2a2cea6d8da5aa298ae878745bb',
 }
+
+
+HISTORICAL_COLLAR_PIN = '83886c072ce113015196fd621a74c663830b305d3989904e0873e9158d08251d'
+COLLAR_SOURCE_COMMIT = 'daf7b6d1f349ce1ac5c241c5b954911fa2c74bcf'
+COLLAR_SOURCES = {'debond_collar.py', 'standard_collar.py', 'debond_checks.py', 'couplings.py',
+                  'baseplates_v2.py', 'baseplates.py', 'full_height.py', 'check_couplings.py',
+                  'disco_bar.py', 'check_debond_collar.py'}
+COLLAR_STATES = {'locked', 'screw-clear', 'screw-captive-stop', 'collar-midway', 'released', 'detached'}
+COLLAR_TOOLS = {'2.5 mm lock key operating envelope', '2.5 mm lock key full axial staging',
+                '4 mm collar key operating quarter arc', '4 mm collar key full axial staging'}
+
+
+def verify_compatibility(reports):
+    """Bind the new collar's proof to the unchanged base and its historical input."""
+    collar, base = reports['collar'], reports['rotor']
+    require = final_review.require
+    require(collar.get('schema_version') == 1
+            and collar.get('concept') == 'debond-preserving standard-hardware collar C2',
+            'Unsupported collar proof schema')
+    require(collar.get('source_commit') == COLLAR_SOURCE_COMMIT
+            and set(collar.get('source_code_sha256', {})) == COLLAR_SOURCES,
+            'Incomplete or different collar producer revision')
+    require(collar.get('installed_fit_verified') is False
+            and collar.get('physical_strength_verified') is False,
+            'Candidate must retain its unverified physical limits')
+    historical = base.get('input_receipts', {}).get('collar', {}).get('sha256')
+    require(historical == HISTORICAL_COLLAR_PIN, 'Compact base historical collar pin changed')
+    proof = collar.get('debond_checks')
+    require(isinstance(proof, dict), 'Collar compatibility proof missing')
+    require(proof.get('baseline_receipt_sha256') == historical,
+            'Collar compatibility proof uses another historical baseline')
+    require(proof.get('compact_receipt_sha256') == PINS['rotor'],
+            'Collar compatibility proof uses another compact base')
+    require(collar.get('checked_compact_root_heights_mm') == [5, 7],
+            'Collar compatibility proof omits a supported root height')
+    for name in ('original_voids_clear_all_six_states', 'actual_purchased_hardware_uncut',
+                 'blocked_channel_and_bottom_entry_controls_rejected', 'producer_narrowed_baseline_rejected',
+                 'channel_native_IsDone_and_validity_required', 'disconnected_actor_both_orders_rejected',
+                 'unchanged_components_and_tools_preserved'):
+        require(proof.get(name) is True, 'Collar checked proof missing: ' + name)
+    require(proof.get('channel_fuzzy_tolerance_mm') == 0,
+            'Collar proof changed its exact Boolean configuration')
+    entries = proof.get('connected_bottom_entry_cup_absent', {})
+    require(set(entries) == {'locked', 'released'}, 'Connected bottom-entry proof missing')
+    for state, channels in entries.items():
+        require(set(channels) == {'+', '-'}
+                and all(isinstance(record.get('connected_routes'), list) and record['connected_routes']
+                        for record in channels.values()),
+                'Incomplete connected bottom-entry proof: ' + state)
+    configurations = proof.get('compact_base', {})
+    require(set(configurations) == {'5', '7'}, 'Incomplete compact compatibility proof')
+    for height, count in (('5', 41), ('7', 42)):
+        checked = configurations[height]
+        require(checked.get('actual_fixed_solids') == count,
+                'Compact compatibility proof has another fixed assembly')
+        for name in ('all_six_states_clear', 'whole_tools_clear', 'rotation_invariant_bounds_pass',
+                     'continuous_positive_Z_withdrawal_clear', 'actual_bearing_material_unchanged'):
+            require(checked.get(name) is True, 'Compact compatibility proof missing: ' + height + '/' + name)
+    return dict(collar_receipt_sha256=PINS['collar'], compact_receipt_sha256=PINS['rotor'],
+                historical_collar_receipt_sha256=historical, checked_root_heights_mm=[5, 7])
 
 
 class Comparison:
@@ -61,12 +121,33 @@ class Comparison:
                              'Base geometry checks missing')
         final_review.require(self.reports['arcade']['independent_base_geometry_checks_pass'] is True,
                              'Arcade geometry checks missing')
-        final_review.require(self.reports['rotor']['input_receipts']['collar']['sha256'] == PINS['collar'],
-                             'The base was checked against a different collar')
+        self.compatibility = verify_compatibility(self.reports)
+        collar = self.reports['collar']
+        names = {record['name'] for record in collar['review_components']}
+        states = collar.get('states_components', {})
+        final_review.require(set(states) == COLLAR_STATES, 'Incomplete checked collar state inventory')
+        for state, records in states.items():
+            final_review.require(len(records) == 25 and {r['name'] for r in records} == names,
+                                 'Incomplete checked collar state: ' + state)
+            self.record_artifact_hashes(records)
+        tools = collar.get('control_sweeps', [])
+        final_review.require(len(tools) == 4 and {r['name'] for r in tools} == COLLAR_TOOLS,
+                             'Incomplete checked collar tool inventory')
+        self.record_artifact_hashes(tools)
         final_review.integration.source_revision(
             HERE.parents[1], self.reports['collar']['source_commit'],
             self.reports['collar']['source_code_sha256'])
         self.assert_current()
+
+    def record_artifact_hashes(self, records):
+        # These paired exports were validated by the pinned producer. Keep every
+        # state/tool byte bound to that proof even when it is not displayed.
+        for record in records:
+            for kind in ('step', 'stl'):
+                path, expected = record[kind], record[kind + '_sha256']
+                final_review.require(final_review.digest(path) == expected,
+                                     'Checked collar artifact changed: ' + record['name'])
+                self.files[str(path)] = expected
 
     def assert_current(self):
         for path, expected in self.files.items():
@@ -75,7 +156,7 @@ class Comparison:
 
     def provenance(self):
         return dict(registry_sha256=self.sha256, receipts=PINS,
-                    presentation=self.presentation,
+                    presentation=self.presentation, compatibility=self.compatibility,
                     physical_fit_verified=False, manufacturing_approved=False)
 
     def candidates(self, workspace, *, variant='all', explode=0, step_path=None):
