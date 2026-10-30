@@ -35,6 +35,8 @@ The ignored `build/workspace/current-view.json` records the last successful publ
 
 ## Continue the box mount
 
+For the operator-requested matching box for post-glue C, use the [bottom-off service mount](box-mount/access/C_PANEL_SERVICE_MOUNT.md). Its bottom has no dedicated latch openings: remove it for installed collar/tool work and refit it after both keys are withdrawn. Wiring and the sealed ballast stay retained to the stationary shell. It binds C `456665c`, tool evidence `94057a1`, and the composed 66-state panel/C protocol. The marked, ported-bottom candidate and historical C2 commands remain preserved history. The inclined arcade box and shared viewer remain unchanged by headless worker checks.
+
 The active variants are now `arcade-inclined`, `rotor-level`, and `mushroom-level`. The old flat Adafruit-button study is historical. Use `cad view box-mount --variant arcade-inclined` to inspect one variant, or omit `--variant` to compare all three.
 
 The inclined arcade mount must provide at least 2.5 inches, exactly 63.5 mm, from the counterbore floor along the tilted button's centre axis. The operator confirmed both the starting datum and direction. The low edge need not provide that full length. The current concept keeps a flat bottom and provides an unobstructed proposed corridor around the centre axis; it does not claim measured clearance for the actual harness. Its 17.5 mm recess and 5-degree inclination remain in place. The removable bottom extends outward below the interior floor.
