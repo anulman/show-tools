@@ -55,15 +55,15 @@ def key3_sweeps(angle,head_shift=0.):
     return {phase:shape.translate((0,0,head_shift)) for phase,shape in dict(entry=entry,operation=operation,withdrawal=entry).items()}
 
 
-def drive4_sweeps(start=225.,end=260.):
+def drive4_sweeps(start=225.,end=260.,tip=5.5):
     from build123d import Axis
     # Long4key stem sweep; handle is below every module part.
-    operation=m.sector(35.5,41.5,5.5,145.5,start,end)
-    for angle in (start,end):operation+=c.cyl(3.,140.,(*m.old.xy(38.5,angle),75.5))
-    operation+=m.old.ring(10.,67.,140.5,145.5)
-    entry=m.sector(35.5,41.5,5.5,240.,start,end)
-    for angle in (start,end):entry+=c.cyl(3.,234.5,(*m.old.xy(38.5,angle),122.75))
-    entry+=m.old.ring(10.,67.,140.5,240.)
+    operation=m.sector(35.5,41.5,tip,tip+140.,start,end)
+    for angle in (start,end):operation+=c.cyl(3.,140.,(*m.old.xy(38.5,angle),tip+70.))
+    operation+=m.old.ring(10.,67.,tip+135.,tip+140.)
+    entry=m.sector(35.5,41.5,tip,240.,start,end)
+    for angle in (start,end):entry+=c.cyl(3.,240.-tip,(*m.old.xy(38.5,angle),(tip+240.)/2))
+    entry+=m.old.ring(10.,67.,tip+135.,240.)
     return dict(entry=entry,operation=operation,withdrawal=entry)
 
 
@@ -205,6 +205,41 @@ def run(source,output):
             if name.endswith('B') and box.min.X< -1e-6:raise ValueError('C positive half crosses radial-separation plane')
             evidence(name+' external radial assembly and reverse',[name],[(name+' all-translation radial bound',half_bound)],{'fixed cup':cup},'Actual STEP half contained in disjoint R/Z bands. X<=0 half translates towardnegativeX and X>=0 half towardpositiveX; every point radius monotonically increases. 35mm separation stays withinR80. Bound clears both fixed race lips and fixed cup; mating half absent until zero-gap seam closure.')
 
+    if report['concept']=='post-glue C' and not any(n.startswith('external collar M2') for n in parts):
+        # Exact two-hand bench order: A+cover+M4+130/200, then B under the cover, then B screws.
+        a_group=['removable collar half A','external axial screw capture cover',* [n for n in parts if n.startswith(('axial M4x12','threaded M4'))],* [n for n in parts if n.startswith('external cover M3') and float(n.rsplit(' ',1)[1]) in (130.,200.)]]
+        b_group=['removable collar half B','external cover M3 nut 15.0','external cover M3 nut 310.0']
+        negative=c.box(100.,200.,100.,(-50.,0,0));positive=c.box(100.,200.,100.,(50.,0,0))
+        a_sweeps=[]
+        for name in a_group:
+            part=parts[name]
+            if name=='external axial screw capture cover':
+                low,high=part.bounding_box().min.Z,part.bounding_box().max.Z
+                bound=c.cyl(80.,high-low,(0,0,(high+low)/2))
+            elif name.startswith('removable collar half'):bound=half_bound
+            elif name.startswith('threaded M4'):
+                angle=float(name.rsplit(' ',1)[1]);point=m.old.xy(38.,angle);radius=7/math.sqrt(3)
+                vertices=[(point[0]+shift+radius*math.cos(math.radians(angle)+i*math.pi/3),point[1]+radius*math.sin(math.radians(angle)+i*math.pi/3)) for shift in (0.,-35.) for i in range(6)]
+                bound=extrude(Polygon(*hull(vertices),align=None),amount=3.7).translate((0,0,-6.8))
+            elif name.startswith('axial M4'):
+                bound=m.old.ring(36.,80.,-9.5,3.)+m.old.ring(34.5,80.,2.5,7.)
+            else:
+                low,high=part.bounding_box().min.Z,part.bounding_box().max.Z
+                bound=m.old.ring(33.5,80.,low,high)
+            contains(part,bound,'A group actual part outside radial sweep '+name);contains(part.translate((-35.,0,0)),bound,'A group outside endpoint '+name)
+            if name!='external axial screw capture cover':contains(part,negative,'A group must remain in negative X halfspace')
+            a_sweeps.append((name+' preassembled A group radial sweep',bound))
+        evidence('preassembled A cover M4 and A cover joints radial entry and reverse',a_group,a_sweeps,{'fixed cup':cup},'A group moves 35mm towardnegativeX from its assembled pose. Every non-cover actor has X<=0, so radius increases; full cover remains above fixed cup. M4 nut uses its exact translated hex hull. Ordinary root-up bench support; no inside-ball operation or extra fixture.')
+        b_sweeps=[];cover_low=parts['external axial screw capture cover'].bounding_box().min.Z
+        for name in b_group:
+            part=parts[name];contains(part,positive,'B group must remain in positive X halfspace')
+            if part.bounding_box().max.Z>cover_low+1e-6:raise ValueError('B group cannot slide beneath installed cover')
+            if name.startswith('removable collar half'):
+                bound=m.old.ring(33.5,80.,-9.5,-6.1)+m.old.ring(37.,80.,-6.1,1.)+m.old.ring(33.5,80.,1.,cover_low)
+            else:bound=m.old.ring(33.5,80.,part.bounding_box().min.Z-.4,part.bounding_box().max.Z)
+            contains(part,bound,'B group outside radial sweep '+name);contains(part.translate((35.,0,0)),bound,'B group outside endpoint '+name)
+            b_sweeps.append((name+' under installed A cover radial sweep',bound))
+        evidence('B half and preloaded nuts enter under preassembled A cover',b_group,b_sweeps,{'fixed cup':cup},'B actors have X>=0 and translate towardpositiveX away from assembly; all A actors except cover have X<=0. Every B actor remains at or below actual cover bottom Z7. Native actual halfspace/height certificates establish all continuous A/B/cover clearances. Fit15/310 cover screws afterwards using separately proved axial/tool paths. Reverse these two screws and B before removing A group.')
     operations=[]
     head_shift=-.7 if report['concept']=='post-glue C' else -.2
     locked={q['name']:load(q) for q in report['stages']['locked']['components']}
@@ -228,16 +263,23 @@ def run(source,output):
         operations.append(dict(id=name+' clamp and reverse',tool_name='3 mm hex key',tool_part='Wera 950 L 05021615001',AF_mm=3,socket_floor_contact_witnesses=floor_contact,axis_source=dict(point=[*m.old.xy(38.,angle),5.2+head_shift],direction=[0,0,-1]),coordinate_frame='cup-fixed source; pose at nominal base gap, NOT lifted bar mouth',bar_mouth_z_rule='nominal gap plus stage cup shift',phases=components,base_and_bar_tool_checks_pending=True))
     drive_start=260. if report['concept']=='post-glue C' else 225.
     drive=m.old.xy(38.5,drive_start)
-    drive_tool=c.hexagon(4/math.sqrt(3),6.5,(*drive,8.75))
-    drive_tool+=c.cyl(3.,133.5,(*drive,78.75))+c.cyl(2.5,25.,(drive[0]+12.5,drive[1],143.),'x')
-    drive_entry=c.hexagon(4/math.sqrt(3),106.5,(*drive,58.75))
-    drive_entry+=c.cyl(3.,233.5,(*drive,128.75))+c.cyl(28.,105.,(*drive,193.))
+    drive_tip=5. if report['concept']=='post-glue C' else 5.5
+    drive_tool=c.hexagon(4/math.sqrt(3),12.-drive_tip,(*drive,(drive_tip+12.)/2))
+    drive_tool+=c.cyl(3.,drive_tip+128.,(*drive,(drive_tip+152.)/2))+c.cyl(2.5,25.,(drive[0]+12.5,drive[1],drive_tip+137.5),'x')
+    drive_entry=c.hexagon(4/math.sqrt(3),112.-drive_tip,(*drive,(drive_tip+112.)/2))
+    drive_entry+=c.cyl(3.,drive_tip+228.,(*drive,(drive_tip+252.)/2))+c.cyl(28.,105.,(*drive,drive_tip+187.5))
     drive_tool=drive_tool.translate((0,0,delta));drive_entry=drive_entry.translate((0,0,delta))
     for obstacle,solid in parts.items():
         empty(drive_tool,solid,'Full4mmkey nominal fit blocked '+obstacle)
         empty(drive_entry,solid,'Full4mmkey axial approach blocked '+obstacle)
     empty(drive_entry,bar,'Full4mmkey axial approach blocked bar')
+    drive_floor=[]
     if report['concept']=='post-glue C':
+        for name,solid in parts.items():
+            if not name.startswith('removable collar half'):continue
+            raw=a.channel_boolean(a.BRepAlgoAPI_Common,drive_tool.translate((0,0,-.01)).wrapped,solid.wrapped)
+            if mass(raw)>1e-5:drive_floor.extend(p.export_piece(c.Piece(name+' 4mm driver floor witness '+str(i),piece,'axial overtravel witness only; not print geometry'),output/'contact-witnesses') for i,piece in enumerate(Compound(raw).solids()))
+        if not drive_floor:raise ValueError('Bottomed C4key has no positive socket floor contact')
         final_drive=drive_tool.rotate(Axis.Z,35.)
         for name in locked:
             if name.startswith('axial M4x12 socket screw '):
@@ -247,8 +289,15 @@ def run(source,output):
         for obstacle,solid in parts.items():
             if obstacle.startswith('removable collar') or obstacle.startswith('external') or obstacle.startswith('axial M4') or obstacle.startswith('threaded M4'):continue
             if solid.bounding_box().max.Z>=drive_tool.bounding_box().min.Z:raise ValueError('Fixed C cup can enter 4mm drive height during turn')
-    components={phase:[p.export_piece(c.Piece('4 mm cup drive full '+phase,shape.translate((0,0,delta)),'cup-fixed SOURCE tool bound'),output/'root-tools')] for phase,shape in drive4_sweeps(drive_start,drive_start+35.).items()}
-    operations.append(dict(id='35 degree drive and reverse',tool_name='4 mm hex key',tool_part='Wera 950 L 05021620001',AF_mm=4,coordinate_frame='cup-fixed source; pose at nominal gap',phases=components,base_and_bar_tool_checks_pending=True))
+    drive_bounds={phase:shape.translate((0,0,delta)) for phase,shape in drive4_sweeps(drive_start,drive_start+35.,drive_tip).items()}
+    for phase,bound in drive_bounds.items():
+        contains(drive_tool,bound,'Whole bottomed AF4 key outside '+phase+' bound')
+        contains(drive_tool.rotate(Axis.Z,35.),bound,'Whole turned AF4 key outside '+phase+' bound')
+        if phase!='operation':
+            retreat=240.-drive_tip-140.
+            contains(drive_tool.translate((0,0,retreat)),bound,'Whole withdrawn AF4 key outside '+phase+' bound')
+    components={phase:[p.export_piece(c.Piece('4 mm cup drive full '+phase,shape,'cup-fixed SOURCE tool bound'),output/'root-tools')] for phase,shape in drive_bounds.items()}
+    operations.append(dict(id='35 degree drive and reverse',tool_name='4 mm hex key',tool_part='Wera 950 L 05021620001',AF_mm=4,bottomed_socket_floor_witnesses=drive_floor,tip_source_z_mm=drive_tip+delta,axis_source=dict(point=[*drive,drive_tip+delta],direction=[0,0,-1]),drive_arc_source_deg=[drive_start,drive_start+35.],whole_actual_tool_contained_in_each_phase_bound=True,coordinate_frame='cup-fixed source; pose at nominal gap',phases=components,base_and_bar_tool_checks_pending=True))
     for file,sha in {**inputs,**sources}.items():
         if hashlib.sha256(Path(file).read_bytes()).hexdigest()!=sha:raise ValueError('Input changed during proof')
     result=dict(schema=1,scope='CONTINUOUS EXTERNAL GRIP/SERVICE BOUNDS AND ROOT TOOL BOUNDS ONLY',source_receipt_sha256=inputs[str(source.resolve())],source_receipt=str(source.resolve()),input_files=inputs,

@@ -91,7 +91,10 @@ def run(source,output):
     lug_half=math.degrees(math.atan2(3.,38.5));lug_outer=math.hypot(43.5,3.)
     for angle in (35.,50.,220.):half_turn+=m.sector(38.49,lug_outer+.01,-9.01,-6.99,angle-lug_half-.02,angle+35.+lug_half+.02)
     for angle in (90.,215.,275.):half_turn+=m.sector(36.99,39.51,-6.11,1.01,angle-3.02,angle+38.02)
-    fixed_host=c.cyl(33.,28.5,(0,0,-12.75))+m.old.ring(32.5,35.5,-11.,-9.5)+m.old.ring(32.5,35.5,-5.,-3.5)
+    fixed_host=c.cyl(33.001,28.511,(0,0,-12.7545))+m.old.ring(32.5,35.501,-11.,-9.5)+m.old.ring(32.5,35.501,-5.,-3.5)
+    fixed_all=fixed_host
+    for key_angle in (60.,240.):fixed_all+=m.old.radial(c.box(11.02,5.02,4.02,(37.5,0,-18.)),key_angle)
+    for fixed_name in fixed:contains(initial[fixed_name],fixed_all,'Fixed actual actor outside axisymmetric host and known separated keys')
     internal_rotation=[]
     for name,part in initial.items():
         if name in fixed:continue
@@ -105,12 +108,12 @@ def run(source,output):
             evidence(name+' full 35 degree turn and reverse',[name],bound,'Actual matched ring/lobe/lug/pad/stem profiles swept continuously through angular intervals enlarged by corner atan2 bounds.',{'glued bar':bar})
         elif name.startswith('threaded M4 full nut'):
             radius=7/math.sqrt(3);spread=math.degrees(math.atan2(radius,38.-radius))
-            bound=m.sector(38.-radius,38.+radius,-6.8,-3.6,ENTRY-spread,END+spread)
-            contains(part,bound,'Nut outside angular bound');contains(turned[name],bound,'Turned nut outside angular bound')
+            bound=m.sector(38.-radius,38.+radius,-6.8,-3.1,ENTRY-spread,END+spread)
+            contains(part,bound,'Nut outside angular bound');contains(turned[name],bound,'Turned nut outside angular bound');contains(part.translate((0,0,.5)),bound,'Floating initial nut outside angular bound');contains(turned[name].translate((0,0,.5)),bound,'Floating turned nut outside angular bound')
             evidence(name+' full 35 degree turn and reverse',[name],bound,'Circumradius and atan2 bound for every point of the rotating hex nut; fixed cup notch covers entire angular/height interval.',{'glued bar':bar,'actual fixed cup':initial['removable padded knob cup']})
         elif name.startswith('axial M4x12 socket screw'):
-            bound=arc_tube(38.,2.,-9.5,2.5,ENTRY,END)+m.sector(34.5,41.5,2.5,6.5,ENTRY-6,END+6)
-            contains(part,bound,'Screw outside angular tube');contains(turned[name],bound,'Turned screw outside angular tube')
+            bound=arc_tube(38.,2.,-9.5,3.,ENTRY,END)+m.sector(34.5,41.5,2.5,7.,ENTRY-6,END+6)
+            contains(part,bound,'Screw outside angular tube');contains(turned[name],bound,'Turned screw outside angular tube');contains(part.translate((0,0,.5)),bound,'Floating initial screw outside angular tube');contains(turned[name].translate((0,0,.5)),bound,'Floating turned screw outside angular tube')
             evidence(name+' full 35 degree turn and reverse',[name],bound,'Exact circular-shaft arc Minkowski tube plus conservative above-root head sector.',{'glued bar':bar})
         elif name.startswith('external collar M2'):
             # Radius/Z are invariant under rigid global Z rotation. Full race rings are stricter than actual notched cup.
@@ -141,7 +144,7 @@ def run(source,output):
     evidence('M4 nut relative module thread travel',[nut_name],nut_bound,'Nut 2.1mm translation relative module; matching M4 screw is the only licensed thread contact.',{name:part for name,part in turned.items() if name not in {nut_name,'axial M4x12 socket screw '+str(ENTRY)}})
     for file,sha in paths.items():
         if hashlib.sha256(file.read_bytes()).hexdigest()!=sha:raise ValueError('Input changed during root proof')
-    result=dict(schema=1,concept=data['concept'],actual_delivered_step_only=True,source_receipt=str(source.resolve()),source_receipt_sha256=paths[source.resolve()],input_files={str(f):sha for f,sha in paths.items()},evidence=records,internal_rotation_invariance=internal_rotation,bar_proof_outer_margin_mm=.01,continuous_root_geometry_verified=True,root_entry_and_reverse_mm=[0.,50.],collar_turn_and_reverse_deg=[0.,35.],seating_and_reverse_mm=[0.,2.1],RH_thread_turns=3,requires_upper_stop_delta_mm=-.5,requires_head_seated_before_turn=True,loose_state_turn_verified=False,base_tool_integration_verified=False,lifecycle_verified=False,physical_fit_verified=False)
+    result=dict(schema=1,concept=data['concept'],actual_delivered_step_only=True,source_receipt=str(source.resolve()),source_receipt_sha256=paths[source.resolve()],input_files={str(f):sha for f,sha in paths.items()},evidence=records,internal_rotation_invariance=internal_rotation,bar_proof_outer_margin_mm=.01,continuous_root_geometry_verified=True,root_entry_and_reverse_mm=[0.,50.],collar_turn_and_reverse_deg=[0.,35.],seating_and_reverse_mm=[0.,2.1],RH_thread_turns=3,requires_upper_stop_delta_mm=-.5,head_float_during_turn_source_mm=[0.,.5],requires_head_seated_before_seating_and_clamp=True,requires_bottomed_4mm_key_to_hold_upper_stop_during_turn=True,loose_state_turn_verified=False,base_tool_integration_verified=False,lifecycle_verified=False,physical_fit_verified=False)
     (output/'receipt.json').write_text(json.dumps(result,indent=2)+'\n');print('ACTUAL C CONTINUOUS ROOT MOTION PASS',flush=True)
 
 

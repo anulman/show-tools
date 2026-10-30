@@ -44,6 +44,10 @@ def run(source,output):
         axis=Axis((*m.old.xy(38.,entry+35.),0),(0,0,1));empty(nut,bar,'seated nut/bar')
         record['nut_axial_floor_seat']=witness(nut_name+' axial floor seat',nut.translate((0,0,.01)),bar)
         record['nut_anti_rotation']={str(angle):witness(nut_name+' hex pocket '+str(angle),nut.rotate(axis,angle),bar) for angle in (-10.,10.)}
+        if data['concept']=='post-glue A':
+            lagged=nut.translate((0,0,-1.2));empty(lagged,bar,'Worst-case A transient nut nominal')
+            record['worst_transient_nut_register_loss_mm']=1.2
+            record['worst_transient_nut_anti_rotation']={str(turn):witness(nut_name+' worst transient hex pocket '+str(turn),lagged.rotate(axis,turn),bar) for turn in (-10.,10.)}
         record['shaft_bearings']={}
         for direction in (-2.,2.):
             bearings=[]

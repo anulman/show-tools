@@ -52,10 +52,10 @@ def run(source,output):
                 contains(part,initial.rotate(Axis.Z,angle),'Collar outside matched R/Z decomposition')
                 bound=moving.rotate(Axis.Z,angle)
             elif name.startswith('threaded M4 full nut'):
-                point=m.old.xy(38.,20.+angle)
-                bound=m.old.radial(c.hexagon(7/math.sqrt(3),4.8,(38.,0,-4.4)),20.+angle)
+                entry=float(name.rsplit(' ',1)[1]);point=m.old.xy(38.,entry+angle)
+                bound=m.old.radial(c.hexagon(7/math.sqrt(3),4.8,(38.,0,-4.4)),entry+angle)
             elif name.startswith('axial M4x12 socket screw'):
-                point=m.old.xy(38.,20.+angle)
+                entry=float(name.rsplit(' ',1)[1]);point=m.old.xy(38.,entry+angle)
                 bound=c.cyl(2.,13.6,(*point,-2.7))+c.cyl(3.5,5.6,(*point,5.3))
             elif name.startswith('external collar M2'):
                 joint=float(name.rsplit(' ',1)[1])+angle
