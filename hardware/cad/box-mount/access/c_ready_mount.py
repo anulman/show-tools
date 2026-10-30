@@ -245,10 +245,11 @@ def verify_bearing(data,candidate):
         if abs(box.min.Z)<1e-7 and abs(box.max.Z)<1e-7:patches.extend((face&band).faces())
     area=sum(patch.area for patch in patches);require(area>0,'Actual C bar has no passive bearing patch')
     for patch in patches:
-        witness=gate.audit.pose(extrude(patch,amount=.1,dir=(0,0,1)),candidate['gap'],INDEX)
+        witness=gate.audit.pose(extrude(deepcopy(patch),amount=.1,dir=(0,0,1)),candidate['gap'],INDEX)
         require(gate.outside_volume(witness,candidate['parts']['buffer'])<1e-6,'C bar patch escapes PTFE')
         require(gate.outside_volume(witness.translate((0,0,-1)),candidate['parts']['spacer'])<1e-6,
                 'C bar patch lacks rigid backing')
+    require(bar.is_valid and len(bar.solids())==1,'Temporary bearing witness mutated actual C bar')
     return dict(actual_C_planar_patch_area_mm2=area,selected_radii_mm=[44,45.5],
                 selected_patches_fully_backed_by_PTFE_and_support=True,passive_support_only=True,
                 no_rotor_to_box_joint=True,physical_drag_and_load_capacity_verified=False)
