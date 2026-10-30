@@ -121,6 +121,27 @@ test('all six drawings of a used variant are checked, including an unsampled cli
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
+test('mask admission uses independent cloud scale while preserving the body geometry', async () => {
+  const f = await fixture({ scale: 3 });
+  try {
+    assert(f.scene.staging.kind === 'poof');
+    const originalBodies = JSON.stringify(f.scene.actors);
+    const smaller = { ...f.scene, staging: { ...f.scene.staging,
+      tracks: f.scene.staging.tracks.map(track => ({ ...track, scale: 1 })) } };
+    await writeFile(f.scenePath, JSON.stringify(smaller));
+    const passed = await f.run();
+    assert.equal(passed.admission, true);
+    const bounds = passed.effectFits[0].bounds;
+    assert(bounds);
+    assert.equal(bounds.right - bounds.left, 31);
+    assert.equal(passed.transitions[0].coverage[0].occupiedPixels, 9);
+    assert.equal(JSON.stringify(smaller.actors), originalBodies);
+    await writeFile(f.scenePath, JSON.stringify({ ...smaller, staging: { ...smaller.staging,
+      tracks: smaller.staging.tracks.map(track => ({ ...track, scale: .1 })) } }));
+    assert.equal((await f.run()).admission, false);
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
 test('wrong PNG bytes reject before decoding and a nonpeak switch cannot pass on opaque pixels alone', async () => {
   const f = await fixture({ wrongPeak: true });
   try {

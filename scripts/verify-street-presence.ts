@@ -6,6 +6,7 @@ import sharp from 'sharp';
 import { verifyStreetAsset, type StreetAsset } from '../lib/video/street-assets.js';
 import { parseStreetScene, type ActorFrame } from '../lib/video/street-score.js';
 import { createStreetSampler } from '../lib/video/street-sampler.js';
+import { streetPoofPlacement } from '../lib/video/presentation.js';
 import { spritePlacement } from './export-street-preview.js';
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -65,7 +66,7 @@ export async function verifyStreetPresence({ scenePath, assetRoot, wasmPath }: {
     const actor = scene.actors[actorIndex], effect = staging.effects[effectIndex];
     const track = staging.tracks.find(track => track.actor === actorIndex);
     if (!track) throw new Error('Missing presence track');
-    const placement = { ...actor.placement, x: actor.placement.x + track.offset.x, y: actor.placement.y + track.offset.y };
+    const placement = streetPoofPlacement(actor, track);
     return { ...await mask(effect.drawings[pose], placement.scale), ...spritePlacement(placement, effect.pivot) };
   }
   const effectFits = [];

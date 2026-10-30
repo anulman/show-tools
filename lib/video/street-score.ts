@@ -35,6 +35,7 @@ const Staging = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('poof'), effects: Schema.Array(PoofEffect),
     tracks: Schema.Array(Schema.Struct({ actor: integer,
       offset: Point.pipe(Schema.withDecodingDefaultKey(Effect.succeed({ x: 0, y: 0 }))),
+      scale: Schema.NullOr(positive).pipe(Schema.withDecodingDefaultKey(Effect.succeed(null))),
       keys: Schema.Array(PresenceKey) })) }),
 ]);
 const allPresent = { kind: 'all-present' } satisfies typeof Staging.Type;

@@ -1,7 +1,7 @@
 import { Container, Sprite, Texture, WebGLRenderer } from 'pixi.js';
 import type { PreparedStreetScene, StreetPoofEffect } from '../../lib/video/street-score.js';
 import type { StreetSampler } from '../../lib/video/street-sampler.js';
-import { grayscaleRgba } from '../../lib/video/presentation.js';
+import { grayscaleRgba, streetPoofPlacement } from '../../lib/video/presentation.js';
 import { fetchStreetAsset, type StreetAsset } from '../../lib/video/street-assets.js';
 import { StreetResources } from './resources.js';
 
@@ -71,7 +71,7 @@ export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scen
       effects.push({ pivot: effect.pivot, drawings });
     }
     const figures: Array<{ sprite: Sprite; poof: Sprite; clips: PreparedDrawing[][] }> = [];
-    const offsets = scene.staging.kind === 'poof' ? new Map(scene.staging.tracks.map(track => [track.actor, track.offset])) : null;
+    const poofPlacements = scene.staging.kind === 'poof' ? new Map(scene.staging.tracks.map(track => [track.actor, streetPoofPlacement(scene.actors[track.actor], track)])) : null;
     for (const [actorIndex, actor] of scene.actors.entries()) {
       const clips = [];
       for (const clip of actor.clips) {
@@ -83,10 +83,11 @@ export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scen
       figure.position.set(actor.placement.x, actor.placement.y);
       figure.scale.set(actor.placement.scale); figure.zIndex = actor.placement.depth;
       const sprite = new Sprite(), poof = new Sprite();
-      if (offsets) {
-        const offset = offsets.get(actorIndex);
-        if (!offset) throw new Error('Missing actor poof offset');
-        poof.position.set(offset.x / actor.placement.scale, offset.y / actor.placement.scale);
+      if (poofPlacements) {
+        const placement = poofPlacements.get(actorIndex);
+        if (!placement) throw new Error('Missing actor poof placement');
+        poof.position.set((placement.x - actor.placement.x) / actor.placement.scale, (placement.y - actor.placement.y) / actor.placement.scale);
+        poof.scale.set(placement.scale / actor.placement.scale);
       }
       figure.addChild(sprite, poof); actors.addChild(figure);
       figures.push({ sprite, poof, clips });
