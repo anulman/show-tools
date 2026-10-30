@@ -26,25 +26,32 @@ def main():
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
-    module = importlib.import_module('disco_review' if args.workspace == 'disco-bar' else 'box_review')
+    comparison = importlib.import_module('comparison_review').load_optional()
+    candidate_only = comparison is not None and comparison.presentation == 'candidates'
+    module = importlib.import_module('comparison_review' if candidate_only else
+                                    'disco_review' if args.workspace == 'disco-bar' else 'box_review')
     try:
         selection = (importlib.import_module('final_review').load()
-                     if args.workspace == 'disco-bar' or args.variant in ('all', 'rotor-level') else None)
-        objects, names, colors, alphas = (
-            module.preview(step_path=args.step, selection=selection) if args.workspace == "disco-bar"
-            else module.preview(explode=args.explode, variant=args.variant, selection=selection)
-        )
+                     if not candidate_only and
+                     (args.workspace == 'disco-bar' or args.variant in ('all', 'rotor-level')) else None)
+        if candidate_only:
+            objects, names, colors, alphas = comparison.candidates(
+                args.workspace, variant=args.variant, explode=args.explode, step_path=args.step)
+        else:
+            objects, names, colors, alphas = (
+                module.preview(step_path=args.step, selection=selection) if args.workspace == "disco-bar"
+                else module.preview(explode=args.explode, variant=args.variant, selection=selection)
+            )
     except (ValueError, FileNotFoundError) as error:
         parser.error(str(error))
     if not objects or not len(objects) == len(names) == len(colors) == len(alphas):
         raise RuntimeError("Preview objects and labels must have matching nonzero lengths")
-    if args.workspace == "disco-bar":
+    if not candidate_only and args.workspace == "disco-bar":
         reference_path, _ = module.load_reference(args.step)
         module.verify_preview_scene(reference_path, (objects, names, colors, alphas), selection=selection)
-    else:
+    elif not candidate_only:
         module.verify_preview_scene((objects, names, colors, alphas), explode=args.explode, variant=args.variant, selection=selection)
-    comparison = importlib.import_module('comparison_review').load_optional()
-    if comparison is not None:
+    if comparison is not None and not candidate_only:
         objects, names, colors, alphas = comparison.extend(
             args.workspace, (objects, names, colors, alphas), variant=args.variant, explode=args.explode)
     if selection is not None:
@@ -56,6 +63,7 @@ def main():
     last_path = output / "current-view.json"
     previous = json.loads(last_path.read_text()) if last_path.exists() else {}
     reset = (args.reset_camera or previous.get("workspace") != args.workspace
+             or previous.get('presentation') != ('candidates' if candidate_only else 'comparison')
              or (args.workspace == "box-mount" and previous.get("variant") != args.variant))
     from ocp_viewer import Camera, show
     show(*objects, names=names, colors=colors, alphas=alphas,
@@ -64,12 +72,14 @@ def main():
          axes=True, grid=(True, False, False))
     sources = [Path(module.__file__), Path(__file__)]
     if args.workspace == "disco-bar":
+        sources.append(CAD_DIR / "disco_bar.py")
         sources.append(CAD_DIR / "disco-bar" / "full_height.py")
         sources.append(CAD_DIR / "disco-bar" / "latches.py")
     else:
         sources.append(CAD_DIR / 'box_mount.py')
     sources.append(CAD_DIR / 'final_review.py')
     receipt = dict(workspace=args.workspace, labels=names, units="mm", port=args.port,
+                   presentation='candidates' if candidate_only else 'comparison',
                    camera="iso" if reset else "keep", explode_mm=args.explode, physical_fit_verified=False,
                    source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in sources})
     if selection is not None:
