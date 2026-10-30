@@ -29,7 +29,9 @@
     "actual_stock_hex_thickness": null,
     "actual_knob_top_height_above_hex_top_face": null,
     "measurement_request_pending": true,
-    "mounting_hex_hardware": "reuse existing stock hex; no extra device retaining nut"
+    "mounting_hex_hardware": "reuse existing stock hex; no extra device retaining nut",
+    "operator_reports_hex_mounting_height_adjustable": true,
+    "actual_hex_adjustment_range": null
   },
   "fabrication": {
     "operator_process_expectation": "resin, not yet exact printer/resin confirmation",
@@ -50,5 +52,16 @@
     "added_external_geometry_policy": "outside original bar radial profile, remain below opening with chosen setback",
     "original_source_root_z": 0,
     "original_source_ball_inside_direction": "-z"
+  },
+  "mounting_workflow": {
+    "bar_permanently_glued_inside_ball": true,
+    "baseplate_grips_knob_before_bar_coupling": true,
+    "removable_joint": "baseplate to bar, operated from below",
+    "separate_bar_to_box_retaining_joint": false,
+    "accepted_order_A": "preset knob grip; lock baseplate into ball/bar; then seat and secure stock hex in box",
+    "accepted_order_B": "seat and secure stock hex in box, fitting knob/baseplate as access permits; then lock ball/bar to baseplate from below",
+    "at_least_one_complete_installation_order_required": true,
+    "complete_installation_order_verified": false,
+    "stationary_bearing_role_if_used": "passive support, not a separate retaining joint"
   }
 }
