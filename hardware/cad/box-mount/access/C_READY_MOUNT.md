@@ -1,5 +1,7 @@
 # Mounting box for post-glue C
 
+Historical candidate: the operator superseded this marked, ported bottom with [bottom-off service](C_PANEL_SERVICE_MOUNT.md). Preserve these sources and exports; use the newer recipe for the current mounting box.
+
 This C-specific review candidate uses the complete compact mounting box with final C geometry `456665c` and ordinary-tool evidence `94057a1`. The existing tool ports already clear C. The only material change is a 0.4 mm engraving of `C`, `3` and `4` on the removable bottom. Each stroke retains at least 2.55 mm of floor above it. No port, mounting seat, bearing surface, keeper or cable channel is moved.
 
 The `3` identifies the ordinary 3 mm hex key for the M4 lock. The `4` identifies the ordinary 4 mm hex key for the collar drive. These numbers identify key sizes, not mounting screw sizes. Read them from underneath with the box's +X to the right. The C mark sits on the opposite side from the drive slot.

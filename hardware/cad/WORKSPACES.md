@@ -35,7 +35,7 @@ The ignored `build/workspace/current-view.json` records the last successful publ
 
 ## Continue the box mount
 
-For the operator-requested matching box for the post-glue C mechanism, use the [C-specific compact mount](box-mount/access/C_READY_MOUNT.md). It binds final C `456665c` and tool evidence `94057a1`, retains the complete compact base interface, and adds underside tool-size identifiers to its removable bottom. Its headless recipe and checks leave the inclined arcade box and shared viewer unchanged. Historical C2 commands below remain historical sources, not the current post-glue coupling contract.
+For the operator-requested matching box for post-glue C, use the [bottom-off service mount](box-mount/access/C_PANEL_SERVICE_MOUNT.md). Its bottom has no dedicated latch openings: remove it for installed collar/tool work and refit it after both keys are withdrawn. Wiring and the sealed ballast stay retained to the stationary shell. It binds C `456665c`, tool evidence `94057a1`, and the composed 66-state panel/C protocol. The marked, ported-bottom candidate and historical C2 commands remain preserved history. The inclined arcade box and shared viewer remain unchanged by headless worker checks.
 
 The active variants are now `arcade-inclined`, `rotor-level`, and `mushroom-level`. The old flat Adafruit-button study is historical. Use `cad view box-mount --variant arcade-inclined` to inspect one variant, or omit `--variant` to compare all three.
 
