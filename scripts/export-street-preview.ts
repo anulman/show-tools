@@ -62,6 +62,7 @@ export async function createStreetCompositor(scene: PreparedStreetScene, assetRo
   const background = await sharp(backgroundBytes).toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   if (background.info.width !== scene.width || background.info.height !== scene.height) throw new Error('Street background dimensions differ from the authored scene');
   const cached = new Map<string, Promise<{ input: Buffer; width: number; height: number }>>();
+  let last: { frames: readonly ActorFrame[]; png: Buffer } | undefined;
   async function drawing(actorIndex: number, clipIndex: number, poseIndex: number, grayscale: boolean) {
     const actor = scene.actors[actorIndex], clip = actor?.clips[clipIndex], pose = clip?.drawings[poseIndex];
     if (!actor || !clip || !pose) throw new Error('Sampler returned an unknown Street drawing');
@@ -84,7 +85,13 @@ export async function createStreetCompositor(scene: PreparedStreetScene, assetRo
   return {
     assets,
     async render(frames: readonly ActorFrame[]): Promise<Buffer> {
-      const ordered = [...frames].sort((a, b) => scene.actors[a.actor].placement.depth - scene.actors[b.actor].placement.depth || a.actor - b.actor);
+      const previous = last;
+      if (previous && frames.length === previous.frames.length && frames.every((frame, index) => {
+        const prior = previous.frames[index];
+        return frame.actor === prior.actor && frame.clip === prior.clip && frame.pose === prior.pose && frame.grayscale === prior.grayscale;
+      })) return previous.png;
+      const snapshot = frames.map(frame => ({ ...frame }));
+      const ordered = [...snapshot].sort((a, b) => scene.actors[a.actor].placement.depth - scene.actors[b.actor].placement.depth || a.actor - b.actor);
       const layers: Parameters<ReturnType<typeof sharp>['composite']>[0] = [];
       for (const frame of ordered) {
         const actor = scene.actors[frame.actor], pose = actor.clips[frame.clip].drawings[frame.pose];
@@ -98,7 +105,9 @@ export async function createStreetCompositor(scene: PreparedStreetScene, assetRo
           : await sharp(sprite.input).extract({ left: x - left, top: y - top, width, height }).png().toBuffer();
         layers.push({ input, left: x, top: y });
       }
-      return sharp(background.data, { raw: { width: scene.width, height: scene.height, channels: 4 } }).composite(layers).png().toBuffer();
+      const png = await sharp(background.data, { raw: { width: scene.width, height: scene.height, channels: 4 } }).composite(layers).png().toBuffer();
+      last = { frames: snapshot, png };
+      return png;
     },
   };
 }
