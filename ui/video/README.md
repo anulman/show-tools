@@ -1,39 +1,50 @@
-# Gator and Tapir studio
+# Review the Street cast
 
-The studio shows eight models, each with three held poses and restrained upper-body mesh movement. It uses one PixiJS renderer and the shared C++ pose evaluator compiled to WASM. Feet remain anchored while upper vertices sway and breathe.
+The Street studio displays Figma-derived character drawings as rigid, held sprites. A prepared visual score supplies every actor, placement, drawing and state change. The C++ sampler evaluates that score through the same WASM module used by the offline exporter.
 
-Build without practice audio or its WASM artifact.
+Build without practice audio:
 
 ```sh
-npm ci
 npm run build:video
-python3 -m http.server 8087 --bind 127.0.0.1 --directory dist
 ```
 
-Open `http://127.0.0.1:8087/ui/video/`. All eight loops start together. Pause or scrub the four-second score. Choose a treatment to put both performers on a 4:3 stage. The gallery uses four columns on desktop and two on narrow screens. Fullscreen shows the current output.
+Normalize the Video Agent's verified motion index and Street layout. The package root supplies the referenced assets and a copy of the exported background:
 
-The studio preview maps one second to two quarter-note positions. It does not start audio, advance Performance Engine, estimate BPM, or send musical controls. The in-process `window.videoStudio.setPerformanceTime(sample)` boundary accepts validated observations with engineSessionId, runId, epoch, sourceSequence, loopIteration, sourceFrame, sampleRate, quarterPosition, beatUnit, and discontinuity. It draws the supplied position immediately. There is no live PE subscription or network delivery adapter in this milestone.
+```sh
+node --import tsx scripts/normalize-street-assets.ts /private/tmp/street-package assets/video/motion/dyc/catalog.json /private/tmp/street-layout.json street-background.png /private/tmp/street-assets.json
+```
 
-For deterministic inspection, `renderAt(seconds)` pauses and samples an exact preview time; `snapshot()` returns all eight poses; `capture()` returns the current canvas as a PNG data URL. `setView({kind:'gallery'})` restores the comparison. `setView({kind:'stage',treatment:'tex-avery'})` draws the pair. These controls never replay audio commands.
+The command checks export receipts, file hashes, native dimensions, background identity, and the authored pivot anchors. It rejects unverified families. Prepare a private scene with the saved catalog, frozen worksheet, current song mapping, and that asset package:
 
-## Sources and treatments
+```sh
+node --import tsx scripts/prepare-street-preview.ts /private/tmp/catalog.json /private/tmp/source.json /private/tmp/mapping.json /private/tmp/street-assets.json /private/tmp/street-scene.json
+```
 
-The [asset handoff](../../assets/video/README.md) links the editable Figma gallery and motion study. [Figma metadata](../../assets/video/figma.json) maps all eight models and 24 poses to their component and artwork node IDs.
+The preparation command resolves the cast through `discoverSheetVoices` and `resolveVoice`. It rejects missing assignments and mismatched asset casts. Keep its inputs, prepared scene, and binding receipt outside Git. The supplied asset package records character geometry and Figma-derived drawings; it does not replace saved voice bindings.
 
-The source references are A07 Gator Crooner on page 8 and A29 The Tapir Tenor on page 30 of `Old TV Character ideas-1.pdf`. The operator's PDFs remain untouched in Dropbox. Selected page renders are under `assets/video/references/`.
+Serve `dist/` on an isolated port. Make the prepared scene and its referenced assets available to that server, then open `/ui/video/?scene=the-prepared-scene-URL`. Asset URLs in the prepared scene must resolve from the studio page. Missing packages produce an actionable error. The build does not invent a default cast or fall back to earlier artwork.
 
-`assets/video/manifest.json` records publication clearance, PDF checksum, source pages, all eight built-in image-generation prompts, input-strip checksums, and production pose paths. The Original treatment is generated cleanup matching the source drawing, not a claim that generation preserved every source pixel. The 8-bit, 16-bit, and Tex Avery treatments are generated interpretations. No third-party character assets are used.
+Pause, restart, scrub, or fullscreen the scene. `window.videoStudio.renderAt(seconds)` pauses and draws an exact preview position. `renderCount(count)` samples counted-beat position directly. `snapshot()` returns the current actor frames; `capture()` returns a canvas PNG. `setPerformanceTime(sample)` validates an injected PE position and samples the authored score there. It does not subscribe to live voice activity.
 
-`scripts/prepare-video-assets.ts INPUTS.json` reproduces pose extraction from retained generated strips. Each input has id, character, treatment, path, and prompt. It identifies the three main connected figures, assigns detached accents, and exports isolated poses on a shared baseline without redrawing the artwork. Generated strips remain under `assets/video/source-strips/`.
+The preparation command authors a silent policy demonstration. Idle characters use simple dances; normal performance uses vigorous dances; `!` selects special; `!!` selects ultra, falling back to special only when ultra assets are absent. Sampled characters become grayscale. The main singer always stays colored and returns to simple dance during actual backup activity. The main-vocals chart rule enables it throughout a section starting with a lyric in the leftmost vocals cell. Complete chart activity conversion remains separate from this explicit demonstration.
 
-## Verification
+Pose opportunities are supplied on a quarter-count grid. The first change after a downbeat waits at least half a counted beat. Later changes may occur a quarter beat apart. Renderers hold complete drawings between accepted changes. They apply PNG-canvas pivots once, preserve alpha during grayscale conversion, and use nearest-neighbor scaling.
+
+Export a clean movie with the same sampler:
+
+```sh
+node --import tsx scripts/export-street-preview.ts --scene /private/tmp/street-scene.json --asset-root /private/tmp/street-package --output /private/tmp/street-review --fps 30
+```
+
+The output directory must be new. It receives a PNG sequence, `street-preview.mp4`, `contact-sheet.png`, and a receipt containing timing, sampled frames, asset hashes, and input provenance. Export uses a half-open time interval and includes no audio or review controls.
+
+Verify changed behavior:
 
 ```sh
 npm run typecheck
-npm run check:layout
 npm run test:video
-c++ -std=c++17 -Wall -Wextra -Werror -Ilib/video/include lib/video/src/video_pose.cpp lib/video/tests/video_pose_test.cpp -o /tmp/video-pose-tests
-/tmp/video-pose-tests
+node --import tsx --test scripts/tests/export-street-preview.test.ts
+npm run build:video
 ```
 
-Browser verification must observe all eight poses at multiple source positions, backward seek, pause/resume, gallery/stage selection, and narrow layouts. Source-frame export samples the same draw operation. Real CRT signal conversion, overscan, and audiovisual synchronization remain unverified.
+Inspect the actual browser scene and decoded movie frames. Automated fixtures establish deterministic seeking and presentation rules; they do not establish a live PE connection, full-song notation interpretation, physical CRT output, or audiovisual synchronization.

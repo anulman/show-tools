@@ -1,25 +1,23 @@
-# Sample a display pose
+# Sample a prepared visual score
 
-This utility samples an authored eight-quarter-note display loop. The caller supplies continuous quarter-note position. It owns no timer, BPM, transport, audio state, or musical command.
+`video_scene.cpp` samples immutable HOLD rows. Each row contains a counted-beat position, clip index, pose index, and grayscale flag. `vs_validate` checks the numeric table once; `vs_sample` finds the last row at or before the supplied position. A finite negative position holds the first row. Invalid arguments fail without changing output.
 
-`vp_pose(position, model)` returns held pose 0, 1, or 2. The holds are `[0,2)` pose 0, `[2,5)` pose 1, `[5,6)` pose 2, `[6,7)` pose 1, and `[7,8)` pose 0. Positions wrap in either direction.
+The utility owns no timer, tempo, audio, voice activation, or character policy. TypeScript preparation in `street-score.ts` selects clips and accepted pose opportunities from explicit visual state windows. The C++ sampler only evaluates the resulting tables. It compiles natively and to standalone WASM. `street-sampler.ts` packs those tables and exposes the same sampler to the browser and offline exporter.
 
-`vp_sway(position, model)` returns horizontal upper-body displacement as a fraction of figure height. `vp_breath(position, model)` returns a small positive upper-body expansion in the same units. A renderer keeps the feet anchored and applies the offsets to prepared parts or mesh vertices. Translating the whole figure is not equivalent to part motion.
+Simple, vigorous, special, and ultra clips retain their native grids, quarter-note HOLD keys, action duration, cycle duration, and registration metadata. Prepared drawing pivots use PNG-canvas coordinates and already include any source offset. Renderers apply that pivot once. `presentation.ts` supplies the grayscale conversion shared by Pixi texture preparation and offline composition.
 
-Model indices 0 through 3 identify Gator treatments. Indices 4 through 7 identify Tapir treatments. Treatment changes do not change pose phase. Tapir has less sway and more breath than Gator. Invalid model indices or nonfinite positions return neutral pose 0 and zero offsets. Validate external observations before calling the utility.
-
-Build the native check from the repository root:
+Build and run the native check:
 
 ```sh
-c++ -std=c++17 -O2 -Wall -Wextra -Werror -I lib/video/include lib/video/src/video_pose.cpp lib/video/tests/video_pose_test.cpp -o /tmp/video-pose-test
-/tmp/video-pose-test
+c++ -std=c++17 -O2 -Wall -Wextra -Werror -I lib/video/include lib/video/src/video_scene.cpp lib/video/tests/video_scene_test.cpp -o /private/tmp/video-scene-test
+/private/tmp/video-scene-test
 ```
 
-Build the standalone WASM module with Emscripten on PATH:
+Build the standalone WASM module and run the visual policy checks:
 
 ```sh
 node --import tsx scripts/build-video-motion.ts
-node --import tsx --test lib/video/tests/video_pose_wasm.test.ts
+npm run test:video
 ```
 
-The standalone module has no host imports. Its application exports are `vp_pose`, `vp_sway`, and `vp_breath`. The WASM output is generated under `ui/video/wasm/` and should not be committed.
+Generated WASM lives under `ui/video/wasm/` and stays outside Git. The [Street studio guide](../../ui/video/README.md) documents private cast preparation, deterministic seeking, and movie export.
