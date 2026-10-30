@@ -102,7 +102,10 @@
     "original_channels_purpose": "bottom-fed alcohol/debond-fluid passages, not lateral tool ports",
     "channel_preservation_baseline": "exact original empty channel geometry, not a selected minimum flow width",
     "channel_fluid_delivery_and_adhesive_release_verified": false,
-    "operator_access_clarification_source": "Scrawl scrawl-1793325809287-20a-15, frames 03\u201305 and 09\u201311"
+    "operator_access_clarification_source": "Scrawl scrawl-1793325809287-20a-15, frames 03\u201305 and 09\u201311",
+    "debond_fluid_access_scope": "Operator confirmed access after the detachable cup/collar module is removed is sufficient",
+    "debond_fluid_access_with_module_installed_required": false,
+    "debond_fluid_access_scope_operator_confirmed": true
   },
   "mounting_workflow": {
     "bar_permanently_glued_inside_ball": true,
