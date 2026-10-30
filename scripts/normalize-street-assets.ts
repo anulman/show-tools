@@ -85,7 +85,7 @@ for (const placement of placements) {
 const backgroundBytes = await readFile(assetPath(backgroundRelative)), metadata = await sharp(backgroundBytes).metadata();
 if (sha256(backgroundBytes) !== layout.background.sha256) throw new Error('Street background differs from the canonical Figma handoff');
 if (metadata.width !== layout.width || metadata.height !== layout.height || metadata.width !== layout.background.width || metadata.height !== layout.background.height) throw new Error('Street background dimensions differ from the canonical Figma handoff');
-const packageDigest = sha256(JSON.stringify({ catalog: sha256(catalogText), placements: sha256(placementsText), background: sha256(backgroundBytes), files: [...verified] }));
+const packageDigest = sha256(JSON.stringify({ catalog: sha256(catalogText), placements: sha256(placementsText), background: sha256(backgroundBytes), files: [...verified].sort(([a], [b]) => a.localeCompare(b)) }));
 const scene = Schema.decodeUnknownSync(StreetScene)({ version: 2, kind: 'authored-street-preview', width: metadata.width, height: metadata.height,
   background: { path: `/${backgroundRelative}`, sha256: layout.background.sha256 }, previewCountsPerSecond: 2, durationCounts: 32, countedBeatUnit: 4, actors, tracks: [],
   provenance: { source: `Figma ${catalog.fileKey} scene ${layout.sceneNodeId} world ${layout.worldNodeId}; canonical Street anchors/depth; saved voice binding remains separate`, assetsDigest: packageDigest, scoreDigest: 'not-prepared' },

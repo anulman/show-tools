@@ -84,3 +84,27 @@ test('normalization rejects a layout that confuses top-left and pivot anchor', a
     const result = run(); assert.notEqual(result.status, 0); assert.match(result.stderr, /Street anchor differs/);
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('asset digest sorts verified references independently of concurrent completion and repeats byte-for-byte', async () => {
+  const { root, run, families } = await fixture();
+  const hash = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
+  try {
+    for (const path of ['z-source.json', 'a-review.json', 'm-receipt.json']) await writeFile(join(root, path), '{}');
+    const ref = (path: string) => ({ path, sha256: hash('{}') });
+    await writeFile(join(root, 'catalog.json'), JSON.stringify({ fileKey: 'synthetic', codes: ['synthetic'], families: families.map(family => ({ ...family,
+      sourceRef: ref('z-source.json'), sourceReview: ref('a-review.json'), figma: { ...family.figma, exportReview: { kind: 'source-rgba-pass', receipt: ref('m-receipt.json') } },
+    })) }));
+    const png = await readFile(join(root, 'pose.png'));
+    const expected = hash(JSON.stringify({ catalog: hash(await readFile(join(root, 'catalog.json'))), placements: hash(await readFile(join(root, 'placements.json'))), background: hash(png),
+      files: [['a-review.json', hash('{}')], ['m-receipt.json', hash('{}')], ['pose.png', hash(png)], ['z-source.json', hash('{}')]],
+    }));
+    let previous: string | undefined;
+    for (let i = 0; i < 3; i++) {
+      const result = run(); assert.equal(result.status, 0, result.stderr);
+      const text = await readFile(join(root, 'assets.json'), 'utf8');
+      assert.equal(JSON.parse(text).provenance.assetsDigest, expected);
+      if (previous !== undefined) assert.equal(text, previous);
+      previous = text;
+    }
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
