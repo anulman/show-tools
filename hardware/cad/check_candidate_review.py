@@ -26,7 +26,7 @@ with tempfile.TemporaryDirectory(prefix='candidate-review-') as directory:
     assert not any('OLD' in name or 'ORIGINAL' in name or 'fit coupon' in name for name in scene[1])
     bar = next(shape for shape,name in zip(scene[0],scene[1]) if name.endswith('/ full-height bar'))
     bounds = bar.bounding_box()
-    gap = candidate.reports['rotor']['proposed_layout']['gap_mm']
+    gap = candidate.reports['rotor']['C2_source_to_box']['mouth_z_mm']
     assert abs(bounds.min.Z-gap) < 1e-5 and abs(bounds.size.Z-109.22) < 1e-5
     assert bounds.max.Z > gap+100, 'Installed bar must extend upward from its root'
     candidate.assert_current()

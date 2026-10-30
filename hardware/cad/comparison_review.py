@@ -16,7 +16,7 @@ CURRENT = HERE / 'build' / 'comparison-review' / 'current.json'
 # Their pending physical-fit flags remain false; this permits human review only.
 PINS = {
     'collar': '83886c072ce113015196fd621a74c663830b305d3989904e0873e9158d08251d',
-    'rotor': '0b482042d1f6fc1c64524180bd2d0d7e157311ac33ce2cb72bec7d6ed86ee865',
+    'rotor': '29b85bff87c061eba9569b15b297d6f2109babcf30c14b96ff5576974282801b',
     'arcade': 'fa2a4758e78568e396055f652add4088708fa2a2cea6d8da5aa298ae878745bb',
 }
 
@@ -45,7 +45,7 @@ class Comparison:
             report = json.loads(raw)
             self.reports[kind] = report
             records = report['review_components']
-            final_review.require(len(records) == {'collar': 25, 'rotor': 9, 'arcade': 4}[kind],
+            final_review.require(len(records) == {'collar': 25, 'rotor': 8, 'arcade': 4}[kind],
                                  'Comparison inventory changed')
             # The pinned receipt fixes all component names, roles, transforms and hashes.
             self.parts[kind] = [(r['name'], r['role'], self.artifacts.load(r)) for r in records
@@ -95,12 +95,12 @@ class Comparison:
         if workspace == 'disco-bar':
             # Show the installed orientation and the actual checked companion base.
             base_at(0)
-            layout = self.reports['rotor']['proposed_layout']
-            final_review.require(layout['source_to_box_rotation_x_degrees'] == 180,
+            layout = self.reports['rotor']['C2_source_to_box']
+            final_review.require(layout['rotation_x_degrees'] == 180,
                                  'Unsupported installed bar orientation')
             for name, role, shape in self.parts['collar']:
                 placed = final_review.integration.pose(
-                    shape, layout['gap_mm'], layout['service_index_degrees'])
+                    shape, layout['mouth_z_mm'], layout['rotation_z_degrees'])
                 color = '#e6a238' if role == 'pad' else '#8b65c1' if role == 'bar' else '#39bca7'
                 self.append(scene, placed, 'BAR / BASEPLATE CANDIDATE / ' + name,
                             color, .18 if role == 'bar' else .35 if role == 'body' else 1., (0, 0, 0))
