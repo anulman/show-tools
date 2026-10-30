@@ -19,8 +19,25 @@ bool number(const char* text, double& value) {
   char* end = nullptr; value = std::strtod(text, &end);
   return end != text && *end == '\0' && std::isfinite(value);
 }
+std::unique_ptr<patches::Effect> prepare(double rate, const char* patch) {
+  if (std::strcmp(patch, "tribulations-guitar") == 0) return patches::make_tribulations_guitar(rate);
+  if (std::strcmp(patch, "slapback") == 0) return patches::make_slapback(rate);
+  if (std::strcmp(patch, "chorus") == 0) return patches::make_chorus(rate);
+  return nullptr;
+}
+
 }
 int main(int argc, char** argv) {
+  if (argc == 4 && std::strcmp(argv[1], "--describe") == 0) {
+    double rate;
+    if (!number(argv[2], rate) || (rate != 44100 && rate != 48000)) return fail("Invalid descriptor sample rate.");
+    auto effect = prepare(rate, argv[3]);
+    if (!effect) return fail("Cannot prepare requested shared effect descriptor.");
+    const auto& descriptor = effect->descriptor();
+    std::printf("{\"type\":\"%s\",\"version\":%u,\"maximumTailFrames\":%llu}\n", descriptor.type, descriptor.version,
+      static_cast<unsigned long long>(descriptor.maximum_tail_frames));
+    return 0;
+  }
   // Input path or "synthetic", channels, rate, input gain, output gain, patch, three raw outputs.
   if (argc != 10) return fail("Expected source, channels, rate, gains, patch, source/dry/processed output paths.");
   double channels_value, rate, input_gain, output_gain;
@@ -30,11 +47,7 @@ int main(int argc, char** argv) {
     || !number(argv[5], output_gain) || output_gain < 0 || output_gain > 16)
     return fail("Invalid channel count, sample rate, or explicit gain.");
   unsigned channels = unsigned(channels_value);
-  std::unique_ptr<patches::Effect> effect;
-  if (std::strcmp(argv[6], "tribulations-guitar") == 0) effect = patches::make_tribulations_guitar(rate);
-  else if (std::strcmp(argv[6], "slapback") == 0) effect = patches::make_slapback(rate);
-  else if (std::strcmp(argv[6], "chorus") == 0) effect = patches::make_chorus(rate);
-  else return fail("Unknown patch. Choose tribulations-guitar, slapback, or chorus.");
+  auto effect = prepare(rate, argv[6]);
   if (!effect) return fail("Shared C++ effect preparation failed.");
   std::vector<float> input;
   if (std::strcmp(argv[1], "synthetic") == 0) {

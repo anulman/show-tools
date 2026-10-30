@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
@@ -6,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { audition, auditionFailure, AuditionError, decodeWave, encodeWave, parseArguments } from '../audition-patches.js';
+import { audition, auditionFailure, AuditionError, decodeWave, encodeWave, parseArguments, readRegularFile } from '../audition-patches.js';
 import { parseCommandFailure } from '../lib/command-diagnostics.js';
 
 function hash(bytes: Buffer) { return createHash('sha256').update(bytes).digest('hex'); }
@@ -87,7 +89,7 @@ test('input and render failures identify the cause and next step and leave no pu
   const dir = mkdtempSync(join(tmpdir(), 'audition-fail-'));
   try {
     const out = join(dir, 'result');
-    assert.throws(() => audition(parseArguments(['--input', join(dir, 'missing.wav'), '--patch', 'slapback', '--input-gain', '1', '--output-gain', '1', '--out', out])), error => error instanceof AuditionError && error.code === 'INPUT_UNAVAILABLE' && /No synthetic/.test(error.nextStep));
+    assert.throws(() => audition(parseArguments(['--input', join(dir, 'missing.wav'), '--patch', 'slapback', '--input-gain', '1', '--output-gain', '1', '--out', out])), error => error instanceof AuditionError && error.code === 'INPUT_UNAVAILABLE' && /No source/.test(error.nextStep));
     const overloaded = options(out); overloaded.outputGain = 16;
     assert.throws(() => audition(overloaded), error => error instanceof AuditionError && error.code === 'OUTPUT_OVERLOAD' && /full scale/.test(error.message) && /Lower/.test(error.nextStep));
     assert(!existsSync(out)); assert.deepEqual(readdirSync(dir), []);
@@ -130,4 +132,77 @@ test('successful CLI JSON points to a complete published pack', () => {
     assert.equal(result.stdout.trim().split('\n').length, 1);
     assert.deepEqual(readdirSync(out).sort(), ['A.wav', 'B.wav', 'C.wav', 'manifest.json', 'provenance.json', 'source.wav']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('source reader rejects FIFOs/devices promptly and detects regular-file growth or replacement', t => {
+  const dir = mkdtempSync(join(tmpdir(), 'audition-file-boundary-'));
+  try {
+    const fifo = join(dir, 'pipe.wav');
+    const created = spawnSync('mkfifo', [fifo], { encoding: 'utf8' });
+    assert.equal(created.status, 0, created.stderr);
+    const script = fileURLToPath(new URL('../audition-patches.ts', import.meta.url));
+    for (const input of [fifo, '/dev/zero']) {
+      const result = spawnSync(process.execPath, ['--import', 'tsx', script, '--input', input, '--patch', 'slapback', '--input-gain', '1', '--output-gain', '1', '--out', join(dir, 'pack'), '--json'], { encoding: 'utf8', timeout: 3000 });
+      assert.equal(result.error, undefined); assert.equal(result.status, 2);
+      assert.equal(parseCommandFailure(JSON.parse(result.stdout)).code, 'INPUT_UNAVAILABLE');
+      assert.match(result.stdout, /not a regular file/); assert(!existsSync(join(dir, 'pack')));
+    }
+    const source = join(dir, 'source.wav'), original = fs.readSync;
+    for (const mode of ['grow', 'replace']) {
+      writeFileSync(source, pcm16Stereo(48000));
+      let changed = false;
+      const replacement = t.mock.method(fs, 'readSync', (fd: number, buffer: NodeJS.ArrayBufferView, offset: number, length: number, position: number | null) => {
+        const count = original(fd, buffer, offset, length, position);
+        if (!changed) {
+          changed = true;
+          if (mode === 'grow') fs.appendFileSync(source, Buffer.alloc(1024));
+          else { fs.renameSync(source, source + '.original'); writeFileSync(source, pcm16Stereo(48000)); }
+        }
+        return count;
+      });
+      syncBuiltinESMExports();
+      try {
+        assert.throws(() => readRegularFile(source, 16 * 1024 * 1024, 'input'), error => error instanceof AuditionError && /changed or was replaced/.test(error.message));
+        assert(changed);
+      } finally { replacement.mock.restore(); syncBuiltinESMExports(); }
+    }
+    const tooLarge = join(dir, 'large.wav'); writeFileSync(tooLarge, Buffer.alloc(16 * 1024 * 1024 + 1));
+    assert.throws(() => readRegularFile(tooLarge, 16 * 1024 * 1024, 'input'), error => error instanceof AuditionError && /byte limit/.test(error.message));
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('short synthetic source or missing descriptor tail requests Chief repair without publishing a pack', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'audition-protocol-boundary-'));
+  const originalPath = process.env.PATH, originalProtocol = process.env.AUDITION_TEST_PROTOCOL;
+  try {
+    const renderer = join(dir, 'fake-renderer');
+    writeFileSync(renderer, `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === '--describe') process.stdout.write(JSON.stringify({type:'slapback',version:1,maximumTailFrames:4800}));
+else {
+  const sourceFrames = process.env.AUDITION_TEST_PROTOCOL === 'short-source' ? 1 : 96000;
+  fs.writeFileSync(args[6], Buffer.alloc(sourceFrames*4));
+  fs.writeFileSync(args[7], Buffer.alloc(sourceFrames*8));
+  fs.writeFileSync(args[8], Buffer.alloc(sourceFrames*8));
+}
+`, { mode: 0o755 });
+    writeFileSync(join(dir, 'c++'), `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] === '--version') process.stdout.write('Chief-approved compiler protocol fixture');
+else { const out = args[args.indexOf('-o')+1]; fs.copyFileSync(${JSON.stringify(renderer)}, out); fs.chmodSync(out, 0o755); }
+`, { mode: 0o755 });
+    process.env.PATH = dir;
+    for (const mode of ['short-source', 'missing-tail']) {
+      process.env.AUDITION_TEST_PROTOCOL = mode;
+      const out = join(dir, mode);
+      assert.throws(() => audition(options(out, 'slapback')), error => error instanceof AuditionError && error.status === 'needs-chief' && error.code === 'INVALID_RENDER' && /frame counts/.test(error.message));
+      assert(!existsSync(out)); assert(!readdirSync(dir).some(name => name.startsWith('.audition-')));
+    }
+  } finally {
+    if (originalPath === undefined) delete process.env.PATH; else process.env.PATH = originalPath;
+    if (originalProtocol === undefined) delete process.env.AUDITION_TEST_PROTOCOL; else process.env.AUDITION_TEST_PROTOCOL = originalProtocol;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

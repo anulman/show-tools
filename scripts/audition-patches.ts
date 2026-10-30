@@ -1,6 +1,8 @@
+import { Schema } from 'effect';
+import type { BigIntStats } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { endianness } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -58,6 +60,38 @@ export function parseArguments(args: readonly string[]): AuditionOptions {
 function invalidWave(cause: string): never {
   fail('INVALID_WAV', cause, 'Export a nonempty mono/stereo PCM16 or float32 RIFF WAV at 44100 or 48000 Hz, at most 30 seconds. No file was substituted.');
 }
+function sameFile(a: BigIntStats, b: BigIntStats): boolean {
+  return a.dev === b.dev && a.ino === b.ino && a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs;
+}
+export function readRegularFile(path: string, limit: number, kind: 'input' | 'renderer'): Buffer {
+  const reject = (cause: string): never => kind === 'input'
+    ? fail('INPUT_UNAVAILABLE', cause, 'Select a stable regular WAV file within 16 MiB. Check the input path and permissions, then rerun. No source was substituted.')
+    : fail('INVALID_RENDER', cause, 'The Chief must repair the renderer file protocol and rerun; no audition was published.', 'needs-chief');
+  let descriptor: number | undefined;
+  try {
+    descriptor = openSync(path, constants.O_RDONLY | constants.O_NONBLOCK);
+    const before = fstatSync(descriptor, { bigint: true });
+    if (!before.isFile()) reject('The selected path is not a regular file. FIFOs, devices, and directories are unsupported.');
+    if (before.size > BigInt(limit)) reject('The file exceeds its declared byte limit.');
+    const bytes = Buffer.alloc(Number(before.size) + 1);
+    let count = 0;
+    while (count < bytes.length) {
+      const read = readSync(descriptor, bytes, count, bytes.length - count, count);
+      if (read === 0) break;
+      count += read;
+    }
+    const after = fstatSync(descriptor, { bigint: true }), named = statSync(path, { bigint: true });
+    if (count !== Number(before.size) || !sameFile(before, after) || !sameFile(after, named))
+      reject('The file changed or was replaced while it was being read.');
+    return bytes.subarray(0, count);
+  } catch (error) {
+    if (error instanceof AuditionError) throw error;
+    return reject(`Cannot read the selected file: ${error instanceof Error ? error.message : String(error)}`);
+  } finally { if (descriptor !== undefined) closeSync(descriptor); }
+}
+const descriptorSchema = Schema.Struct({ type: Schema.Literals(['tribulations_guitar', 'slapback', 'chorus']),
+  version: Schema.Literal(1), maximumTailFrames: Schema.Int });
+const decodeDescriptor = Schema.decodeUnknownSync(descriptorSchema);
 export function decodeWave(bytes: Buffer) {
   if (bytes.length < 12 || bytes.toString('latin1', 0, 4) !== 'RIFF' || bytes.toString('latin1', 8, 12) !== 'WAVE'
     || bytes.readUInt32LE(4) + 8 !== bytes.length) invalidWave('The input is not a complete standard RIFF WAV.');
@@ -130,14 +164,7 @@ export function audition(options: AuditionOptions) {
   let decoded: ReturnType<typeof decodeWave> | undefined;
   let sourceIdentity: { kind: 'synthetic'; generator: string } | { kind: 'file'; sha256: string };
   if (options.source.kind === 'file') {
-    let bytes: Buffer;
-    try {
-      if (statSync(options.source.path).size > 16 * 1024 * 1024) invalidWave('Input file exceeds the sixteen-megabyte audition limit.');
-      bytes = readFileSync(options.source.path);
-    } catch (error) {
-      if (error instanceof AuditionError) throw error;
-      fail('INPUT_UNAVAILABLE', `Cannot read the explicitly selected source: ${error instanceof Error ? error.message : String(error)}`, 'Check --input, file permissions, and whether the file is locally available. No synthetic source was substituted.');
-    }
+    const bytes = readRegularFile(options.source.path, 16 * 1024 * 1024, 'input');
     decoded = decodeWave(bytes);
     sourceIdentity = { kind: 'file', sha256: sha(bytes) };
   } else sourceIdentity = { kind: 'synthetic', generator: 'harmonic-voice-v1' };
@@ -159,17 +186,27 @@ export function audition(options: AuditionOptions) {
     const compiler = run('c++', ['--version'], 'compiler inspection');
     const renderer = join(build, 'render');
     run('c++', [...flags, '-I', includes, ...sources, helper, '-o', renderer], 'compile');
+    let descriptor: typeof descriptorSchema.Type;
+    try { descriptor = decodeDescriptor(JSON.parse(run(renderer, ['--describe', String(rate), options.patch], 'describe'))); }
+    catch (error) {
+      if (error instanceof AuditionError) throw error;
+      fail('INVALID_RENDER', 'Renderer returned an invalid shared-effect descriptor.', 'The Chief must repair the renderer protocol and rerun; no audition was published.', 'needs-chief');
+    }
+    const expectedType = options.patch === 'tribulations-guitar' ? 'tribulations_guitar' : options.patch;
+    if (descriptor.type !== expectedType || descriptor.maximumTailFrames < 0 || descriptor.maximumTailFrames > rate * 12)
+      fail('INVALID_RENDER', 'Renderer descriptor does not match the requested patch or tail limit.', 'The Chief must repair the renderer protocol and rerun; no audition was published.', 'needs-chief');
+    const expectedSourceFrames = decoded?.frames ?? rate * 2;
+    const expectedFrames = expectedSourceFrames + descriptor.maximumTailFrames;
     const source = join(build, 'source.f32'), dry = join(build, 'dry.f32'), processed = join(build, 'processed.f32');
     const input = decoded ? join(build, 'input.f32') : 'synthetic';
     if (decoded) writeFileSync(input, decoded.pcm);
     run(renderer, [input, String(decoded?.channels ?? 1), String(rate), String(options.inputGain), String(options.outputGain), options.patch, source, dry, processed], 'render');
-    const mono = readFileSync(source), a = readFileSync(dry), b = readFileSync(processed);
-    if (a.length !== b.length || a.length % 8 !== 0 || mono.length % 4 !== 0)
-      fail('INVALID_RENDER', 'Renderer frame counts disagree.', 'The Chief must repair the renderer protocol and rerun; no audition was published.', 'needs-chief');
+    const mono = readRegularFile(source, expectedSourceFrames * 4, 'renderer');
+    const a = readRegularFile(dry, expectedFrames * 8, 'renderer'), b = readRegularFile(processed, expectedFrames * 8, 'renderer');
+    if (mono.length !== expectedSourceFrames * 4 || a.length !== expectedFrames * 8 || b.length !== expectedFrames * 8)
+      fail('INVALID_RENDER', 'Renderer frame counts do not match the selected source and shared-effect tail descriptor.', 'The Chief must repair the renderer protocol and rerun; no audition was published.', 'needs-chief');
     const sourceStats = summarize(mono), dryStats = summarize(a), wetStats = summarize(b);
-    const sourceFrames = mono.length / 4, frames = a.length / 8;
-    if (sourceFrames === 0 || sourceFrames > rate * maxSeconds || frames < sourceFrames || frames > sourceFrames + rate * 12)
-      fail('INVALID_RENDER', 'Renderer frame counts exceed the declared source or tail bounds.', 'The Chief must repair the renderer protocol and rerun; no audition was published.', 'needs-chief');
+    const sourceFrames = expectedSourceFrames, frames = expectedFrames;
     const rendered = [
       { label: 'A', role: 'dry', pcm: a, stats: dryStats },
       { label: 'B', role: 'processed', pcm: b, stats: wetStats },
@@ -185,7 +222,7 @@ export function audition(options: AuditionOptions) {
       schema: 1, tool: 'show-tools-patch-audition', source: { ...sourceIdentity, sampleRate: rate, channels: decoded?.channels ?? 1,
         encoding: decoded?.encoding ?? 'synthetic-float32', frames: sourceFrames, downmix: 'arithmetic-channel-mean',
         monoFile: 'source.wav', monoSha256: sha(wavSource), ...sourceStats },
-      patch: { type: options.patch, parameters: 'canonical-factory-defaults' },
+      patch: { type: options.patch, descriptor, parameters: 'canonical-factory-defaults' },
       gains: { input: options.inputGain, output: options.outputGain, units: 'linear', normalization: 'none', limiter: 'none' },
       renderer: { sourceSha256: sourceHash.digest('hex'), toolSha256: sha(readFileSync(fileURLToPath(import.meta.url))), flags },
       release: { frames: frames - sourceFrames, mode: 'zero-source-through-shared-effect-tail-bound' },
