@@ -68,10 +68,16 @@ def export_piece(piece,folder):
         except ValueError as error:
             equivalence.append(dict(status='INCONCLUSIVE',reason=str(error)))
             continue
-        if amount>1e-5:raise ValueError('STEP changed actual material')
-        equivalence.append(dict(status='PASS',material_difference_mm3=amount))
+        try:
+            common=m.channels.channel_boolean(m.channels.BRepAlgoAPI_Common,left.wrapped,right.wrapped)
+            common_amount=m.channels.channel_material_volume(common)
+        except ValueError as error:
+            common_amount=None
+        equivalence.append(dict(status='PASS' if amount<=1e-5 else 'INCONCLUSIVE',material_difference_mm3=amount,common_material_mm3=common_amount,reason=None if amount<=1e-5 else 'Positive native source/STEP difference retained; source identity not established. Actual delivered STEP requirements must pass independently.'))
     mesh=p.trimesh.load_mesh(stl)
     if not mesh.is_watertight or not mesh.is_winding_consistent or mesh.volume<=0 or not p.np.isclose(mesh.volume,original_mass,rtol=.005):raise ValueError('Invalid STL')
+    mesh_mass=restored_mass
+    if not p.np.isclose(mesh.volume,mesh_mass,rtol=.005):raise ValueError('STL differs from actual STEP')
     return dict(name=piece.name,role=piece.role,step=str(step.resolve()),stl=str(stl.resolve()),
         step_sha256=hashlib.sha256(step.read_bytes()).hexdigest(),stl_sha256=hashlib.sha256(stl.read_bytes()).hexdigest(),
         step_roundtrip=True,stl_watertight=True,volume_mm3=original_mass,restored_volume_mm3=restored_mass,
@@ -94,13 +100,16 @@ def run(step,concept,output):
     c.assert_empty((candidate.bar-reference)-mask,'Protected original added')
     for label,record in candidate.channels.items():m.channels.equal(candidate.bar&record['envelope'],reference&record['envelope'],'Original channel '+label)
     environment=export_piece(c.Piece('bare glued bar',candidate.bar,'single printed glued environment; no installed hardware'),output/'environment')
+    actual_bar=p.import_step(environment['step']).solids()[0]
     stages={}
     for stage,pose in candidate.stages.items():
         parts=model.posed(candidate,stage)
         check_parts([c.Piece('bare glued bar',candidate.bar,'bar'),*parts])
         if stage=='outside' and any(q.shape.bounding_box().min.Z<0 for q in parts):raise ValueError('Not all actors outside')
         records=[export_piece(q,output/'stages'/stage) for q in parts]
-        stages[stage]=dict(source_pose=pose,world_mouth_height_rule='nominal gap + shift, keeping knob/cup fixed in world',components=records,endpoint_rigid_clearance=True)
+        actual=[c.Piece(record['name'],p.import_step(record['step']).solids()[0],record['role']) for record in records]
+        check_parts([c.Piece('bare glued bar',actual_bar,'bar'),*actual])
+        stages[stage]=dict(delivered_step_endpoint_rigid_clearance=True,source_pose=pose,world_mouth_height_rule='nominal gap + shift, keeping knob/cup fixed in world',components=records,endpoint_rigid_clearance=True)
         unchanged()
         print('ENDPOINT',concept,stage,'PASS',flush=True)
     torque={}
@@ -109,7 +118,7 @@ def run(step,concept,output):
             if c.volume(witness)<=1e-5:raise ValueError('Missing positive cup/bar drive '+direction)
             torque[direction]=[export_piece(c.Piece('cup bar torque witness '+direction+' part '+str(i),solid,'penetration witness; NOT PRINT GEOMETRY'),output/'drive-witnesses') for i,solid in enumerate(witness.solids())]
     report=dict(schema=1,concept='post-glue '+concept,scope='ACTUAL GEOMETRY AND ENDPOINTS ONLY; NOT FORMALLY ADMITTED',
-        geometry_review_pass=False,endpoint_geometry_pass=True,continuous_motion_verified=False,base_integration_verified=False,
+        geometry_review_pass=False,endpoint_geometry_pass=True,delivered_step_endpoint_geometry_pass=True,source_step_identity_policy='INCONCLUSIVE observations retained; delivered STEP is authoritative and requires independent checks',continuous_motion_verified=False,base_integration_verified=False,
         lifecycle_verified=False,physical_fit_verified=False,environment=environment,bar_already_glued=True,
         above_root_exterior_access=False,reference_sha256=hashlib.sha256(path.read_bytes()).hexdigest(),
         stages=stages,positive_cup_bar_torque_witnesses=torque,source_frame='Z0 root; negative Z inside ball; positive Z root-side exterior',
