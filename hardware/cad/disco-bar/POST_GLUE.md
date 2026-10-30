@@ -4,13 +4,13 @@ These proposals assemble through the root after the bare one-piece bar has been 
 
 - A uses three M4 bolts with nuts that enter keyholes, turn 35 degrees and seat in integral hex pockets.
 - B uses three printed bayonet lugs and one M4 locking bolt.
-- C keeps the padded cup stationary while a removable two-piece collar turns 35 degrees. Its integral drive is at 170 degrees before turning. Two external M2 joints close the collar around the cup outside the ball.
+- C keeps the padded cup stationary while a removable two-piece collar turns 35 degrees. Its M4 lock enters at 110 degrees and seats at 145 degrees; its integral drive starts at 260 degrees before turning. Four ordinary M3 cover joints close the collar around the cup outside the ball, with two distinct stations on each half. The earlier M2 joints are removed.
 
 Each M4 clamp moves 2.1 mm over three turns at 0.7 mm pitch. Ordinary cap screws and a printed head-capture cover keep the released assembly together. The cover is functional retention hardware. Do not replace it with a reduced-neck screw or washer without a new capture and access proof.
 
 C has axial collar play from -0.5 to +0.6 mm relative to the cup. Normal exported operating poses explicitly hold the upper stop at -0.5 mm. Its 3 mm key must bottom on the socket floor at source Z4.5 to transmit axial force through the head seat to that stop. A floating key at Z4.7 does not establish that force path. The actual STEP race checker bounds the complete released 1.1 mm race travel and 0.5 mm threaded head float at fixed nut orientation, with positive upper/lower-stop, head-seat and cover-capture witnesses. Rotation still requires the upper stop and seated head; the bounds do not authorize free rotation or free nut spin. Operating contact conditions require lifecycle admission.
 
-C's M4 nut enters radially before the screw is inserted. An axial nut approach crosses the fixed upper race. All collar joints, cover hardware, grip hardware and final dismantling remain outside the ball. Normal ball removal leaves the M4 nuts threaded onto their screws.
+C's M4 nut enters radially before the screw is inserted. An axial nut approach crosses the fixed upper race. The cup capture races and collar have separate entry reliefs for the integral M4 seat. All cover hardware, grip hardware and final dismantling remain outside the ball. Normal ball removal leaves the M4 nuts threaded onto their screws.
 
 The original bare-bar profile outside the bounded mouth and both original fluid channels remain protected. Debond access is established after the removable module is withdrawn. Full straight extensions of those channels through the installed module are not guaranteed during actuation.
 

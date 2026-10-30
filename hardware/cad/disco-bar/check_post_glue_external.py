@@ -179,7 +179,7 @@ def run(source,output):
         for phase,bound in [('entry',entering),('operation',working),('withdrawal',entering)]:
             evidence(name+' full AF2 tool '+phase,[name],[(name+' AF2 complete '+phase,bound)],static,'Wera950L05021605001: AF2 long100mm short16mm; full revolving handle, exact nominal socket fit, and complete axial approach. https://www.wera.de/fileadmin/pdf/catalog/EN-Compact-Catalogue-2025.pdf')
     if report['concept']=='post-glue C':
-        for angle in (90.,270.):
+        for angle in (() if not any(n.startswith('external collar M2') for n in parts) else (90.,270.)):
             nut_name='external collar M2 nut '+str(angle)
             nut_bound=m.old.radial(c.hexagon(4/math.sqrt(3),17.3,(38.5,-10.15,-8.),'y'),angle)
             contains(parts[nut_name],nut_bound,'M2 nut outside load prism')
@@ -226,7 +226,7 @@ def run(source,output):
             empty(shape,bar,'Full3mmkey reaches bar')
         for phase,shape in bounds.items():components[phase]=[p.export_piece(c.Piece(name+' full '+phase,shape,'cup-fixed SOURCE tool bound'),output/'root-tools')]
         operations.append(dict(id=name+' clamp and reverse',tool_name='3 mm hex key',tool_part='Wera 950 L 05021615001',AF_mm=3,socket_floor_contact_witnesses=floor_contact,axis_source=dict(point=[*m.old.xy(38.,angle),5.2+head_shift],direction=[0,0,-1]),coordinate_frame='cup-fixed source; pose at nominal base gap, NOT lifted bar mouth',bar_mouth_z_rule='nominal gap plus stage cup shift',phases=components,base_and_bar_tool_checks_pending=True))
-    drive_start=170. if report['concept']=='post-glue C' else 225.
+    drive_start=260. if report['concept']=='post-glue C' else 225.
     drive=m.old.xy(38.5,drive_start)
     drive_tool=c.hexagon(4/math.sqrt(3),6.5,(*drive,8.75))
     drive_tool+=c.cyl(3.,133.5,(*drive,78.75))+c.cyl(2.5,25.,(drive[0]+12.5,drive[1],143.),'x')

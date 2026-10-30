@@ -6,10 +6,9 @@ from build123d import Axis,Keep,Plane
 from . import post_glue_couplings as core
 c,old=core.c,core.old
 LUG_ANGLES=(35.,50.,220.)
-JOINT_ANGLES=(90.,270.)
-COVER_ANGLES=(110.,200.,310.)
-LOCK_ENTRY=20.
-LOCK_END=55.
+COVER_ANGLES=(15.,130.,200.,310.)
+LOCK_ENTRY=110.
+LOCK_END=145.
 
 
 @dataclass
@@ -29,7 +28,7 @@ def build(reference):
     cup+=old.ring(32.5,35.5,-11.,-9.5)+old.ring(32.5,35.5,-5.,-3.5)
     # This fixed notch clears the integral bar's axial lock seat throughout lift.
     end=old.xy(38.,LOCK_END)
-    cup-=core.sector(33.,44.,-7.,-1.,10.,75.)
+    cup-=core.sector(33.,44.,-12.,-1.,100.,165.)
     for angle in (60.,240.):cup+=old.radial(c.box(11.,5.,4.,(37.5,0,-18.)),angle)
     parts=[q for q in donor_parts if not q.name.startswith('external')]
     bar=reference-c.cyl(45.9,30.,(0,0,-15))
@@ -61,34 +60,22 @@ def build(reference):
     for angle in (90.,215.,275.):collar+=old.radial(c.box(5.,4.,1.5,(37.,0,2.25)),angle)
     for angle in COVER_ANGLES:collar+=c.cyl(4.,1.5,(*old.xy(38.,angle),2.25))
     collar+=c.cyl(4.5,1.5,(*old.xy(38.,LOCK_ENTRY),2.25))
-    collar+=c.cyl(5.,1.5,(*old.xy(38.5,170.),2.25))
+    collar+=c.cyl(5.,1.5,(*old.xy(38.5,260.),2.25))
     # Reuse only outside-module cover/purchased hardware, attached to this collar.
     post_region=c.cyl(44.,4.5,(0,0,5.25))-c.cyl(33.,6.,(0,0,5.25))
     for post in (donor&post_region).solids():collar+=post
     cover=next(q.shape for q in donor_parts if q.name=='external axial screw capture cover')
     lock=old.xy(38.,LOCK_ENTRY)
     collar-=c.cyl(2.5,16.,(*lock,-1.))
-    collar-=c.cyl(4.7,11.6,(*lock,-9.2))
+    collar-=c.cyl(4.7,3.3,(*lock,-4.7))
     cover+=c.cyl(4.5,2.,(*lock,8.5))
     cover-=c.cyl(2.5,5.,(*lock,8.5))
-    drive=old.xy(38.5,170.)
+    drive=old.xy(38.5,260.)
     collar+=c.cyl(5.,9.,(*drive,7.5))
     collar-=c.hexagon(4.35/math.sqrt(3),7.5,(*drive,8.75))
     cover-=c.cyl(5.5,5.,(*drive,8.5))
     for angle in COVER_ANGLES:collar-=c.cyl(1.8,12.,(*old.xy(38.,angle),5.))
-    # Two ordinary radial M2 joints close the halves while the whole cup is outside.
-    joints=[]
-    for angle in JOINT_ANGLES:
-        collar+=old.radial(c.box(5.,10.,3.5,(38.5,0,-7.5)),angle)
-        collar-=old.radial(c.cyl(1.4,12.,(38.5,0,-7.5),'y'),angle)
-        collar-=old.radial(c.cyl(2.4,17.,(38.5,11.5,-7.5),'y'),angle)
-        print('C joint',angle,'after bore',collar._dim,collar.is_valid,len(collar.solids()),flush=True)
-        collar-=old.radial(c.hexagon(4.4/math.sqrt(3),16.5,(38.5,-9.75,-7.5),'y'),angle)
-        bolt=c.cyl(1.,8.,(38.5,-1.,-7.5),'y')+c.cyl(1.9,2.,(38.5,4.,-7.5),'y')
-        bolt-=c.hexagon(1.5/math.sqrt(3),1.5,(38.5,4.5,-7.5),'y')
-        nut=c.hexagon(4/math.sqrt(3),1.6,(38.5,-2.3,-7.5),'y')-c.cyl(.8,4.,(38.5,-2.3,-7.5),'y')
-        joints.extend([c.Piece(f'external collar M2x8 screw {angle}',old.radial(bolt,angle),'hardware'),
-                       c.Piece(f'external collar M2 nut {angle}',old.radial(nut,angle),'hardware')])
+    collar-=core.sector(33.4,44.,-12.,-1.,134.,156.)
     assert collar.is_valid and len(collar.solids())==1, "Collar before split "+str([(s.volume) for s in collar.solids()])
     collar=collar.solids()[0]
     halves=[]
@@ -100,7 +87,7 @@ def build(reference):
     cup=core.clear_inlets(cup,oracle)
     bar=core.protect(reference,bar,oracle)
     parts.insert(0,c.Piece('removable padded knob cup',cup,'print'))
-    moving=[*halves,c.Piece('external axial screw capture cover',cover,'print'),*joints,
+    moving=[*halves,c.Piece('external axial screw capture cover',cover,'print'),
             *[q for q in donor_parts if q.name.startswith('external cover')],
             c.Piece(f'axial M4x12 socket screw {LOCK_ENTRY}',core.axial_screw(lock),'hardware'),
             c.Piece(f'threaded M4 full nut {LOCK_ENTRY}',old.radial(core.nut((38,0),-4.7),LOCK_ENTRY),'hardware')]
