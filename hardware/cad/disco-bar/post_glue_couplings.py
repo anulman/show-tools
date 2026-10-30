@@ -46,7 +46,7 @@ def cup(reference):
         body-=c.cyl(1.8,10,(sign*31,0,-13),'x')
     body+=old.ring(30.,43.,0.,1.5)+old.ring(33.5,43.,1.5,3.)
     parts=[c.Piece(p.name,p.shape,p.role) for p in base.pieces if p.role!='body']
-    cover=old.ring(33.5,43.,7.5,9.5)
+    cover=old.ring(33.5,35.5,7.5,9.5)
     for angle in (15.,200.,310.):
         point=old.xy(38,angle)
         post=c.cyl(4.,4.5,(*point,5.25))
@@ -55,6 +55,7 @@ def cup(reference):
         post-=pocket+c.cyl(1.8,10,(*point,5))
         body+=post
         body-=c.cyl(1.8,12,(*point,5))
+        cover+=c.cyl(4.,2.,(*point,8.5))
         cover-=c.cyl(1.8,5,(*point,8.5))
         screw=c.cyl(1.5,8,(*point,5.5))+c.cyl(2.85,1.65,(*point,10.325))
         screw-=c.hexagon(2/math.sqrt(3),1.5,(*point,10.7))
@@ -98,6 +99,7 @@ def build(reference,concept):
         pocket=old.radial(c.hexagon(7.4/math.sqrt(3),1.6,(RADIUS,0,lip+.75)),angle+TURN)
         bar-=pocket
         body-=c.cyl(2.5,6,(*entry,1.5))
+        parts[0].shape+=c.cyl(4.5,2,(*entry,8.5))
         parts[0].shape-=c.cyl(2.5,4,(*entry,8.5))
         parts.extend([c.Piece(f'axial M4x12 socket screw {angle}',axial_screw(entry),'hardware'),
                       c.Piece(f'threaded M4 full nut {angle}',old.radial(nut((RADIUS,0),lip-2.1),angle),'hardware')])
