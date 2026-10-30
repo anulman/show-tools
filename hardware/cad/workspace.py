@@ -26,6 +26,10 @@ def main():
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
+    if args.workspace == 'disco-bar':
+        import post_glue_review
+        post_glue_review.publish_reference_hold(args.step, args.port, args.reset_camera)
+        return
     comparison = importlib.import_module('comparison_review').load_optional()
     candidate_only = comparison is not None and comparison.presentation == 'candidates'
     module = importlib.import_module('comparison_review' if candidate_only else
