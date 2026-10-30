@@ -1,5 +1,5 @@
-import { access, readFile } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
+import { access, lstat, readFile, realpath } from 'node:fs/promises';
+import { basename, dirname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Schema } from 'effect';
 import { verifyPublished } from './published.mjs';
@@ -24,15 +24,41 @@ function overlaps(first: string, second: string) {
   return a === b || a.startsWith(b + sep) || b.startsWith(a + sep);
 }
 
-export function expiryDecision(artifact: typeof Artifact.Type, context: {
+async function filesystemPath(input: string): Promise<string> {
+  if (input.split(sep).includes('..')) throw new Error('Parent path components require an explicit canonical path');
+  let current = resolve(input);
+  const suffix: string[] = [];
+  for (;;) {
+    try { return resolve(await realpath(current), ...suffix); }
+    catch (error) {
+      if (!(error instanceof Error) || !('code' in error) || error.code !== 'ENOENT') throw error;
+      const node = await lstat(current).catch(error => {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null;
+        throw error;
+      });
+      if (node?.isSymbolicLink()) throw new Error('Unresolved filesystem alias');
+      const parent = dirname(current);
+      if (parent === current) throw error;
+      suffix.unshift(basename(current)); current = parent;
+    }
+  }
+}
+
+export async function expiryDecision(artifact: typeof Artifact.Type, context: {
   promoted: ReadonlySet<string>;
   protectedPaths: ReadonlySet<string>;
   lessonsAvailable: boolean;
 }) {
   const reasons = [];
-  if (artifact.kind === 'runtime' || artifact.kind === 'code' || artifact.kind === 'regression-fixture' || overlaps(artifact.path, 'assets/video/published')) reasons.push('Retained runtime/code/meaningful regression artifact');
+  let candidate: string, published: string, protectedPaths: string[];
+  try {
+    [candidate, published, ...protectedPaths] = await Promise.all([artifact.path, 'assets/video/published', ...context.protectedPaths].map(filesystemPath));
+  } catch {
+    return { path: artifact.path, eligible: false, reasons: ['Filesystem paths could not be resolved safely'] };
+  }
+  if (artifact.kind === 'runtime' || artifact.kind === 'code' || artifact.kind === 'regression-fixture' || overlaps(candidate, published)) reasons.push('Retained runtime/code/meaningful regression artifact');
   if (artifact.state === 'active' || artifact.state === 'awaiting-promotion') reasons.push('Active or unpromoted work');
-  if (!artifact.referencesReviewed || artifact.requiredBy.length || [...context.protectedPaths].some(path => overlaps(artifact.path, path))) reasons.push('Still required by tooling or a pinned release, or dependencies not reviewed');
+  if (!artifact.referencesReviewed || artifact.requiredBy.length || protectedPaths.some(path => overlaps(candidate, path))) reasons.push('Still required by tooling or a pinned release, or dependencies not reviewed');
   if (!context.lessonsAvailable) reasons.push('Durable lesson not recorded');
   if (artifact.kind === 'process-evidence' && (!artifact.owners.length || artifact.owners.some(owner => !context.promoted.has(owner)))) reasons.push('Every selected owner needs a verified canonical handoff');
   if (artifact.kind === 'prototype' && artifact.state !== 'abandoned') reasons.push('Prototype has not been intentionally abandoned');

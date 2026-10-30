@@ -7,6 +7,7 @@ import { digest, normalizedPixels, verifyPublished, Published } from './publishe
 const Live = Schema.Struct({
   rootNodeId: Schema.String,
   duration: Schema.Number,
+  scene: Schema.Unknown,
   tracks: Schema.Array(Schema.Struct({
     componentId: Schema.String,
     track: Schema.Struct({ keyframes: Schema.Array(Schema.Struct({
@@ -29,6 +30,7 @@ export async function nativeFromCanonical(path: string, publication: typeof Publ
       const at = (sy * source.width + sx) * 4;
       source.data.copy(result, (y * width + x) * 4, at, at + 4);
     }
+    if (result[(y * width + x) * 4 + 3] && (x * matrix[0][0] + matrix[0][2] < 0 || y * matrix[1][1] + matrix[1][2] < 0 || (x + 1) * matrix[0][0] + matrix[0][2] > source.width || (y + 1) * matrix[1][1] + matrix[1][2] > source.height)) throw new Error('Occupied native pixel cell is clipped by the canonical canvas');
   }
   for (let y = 0; y < source.height; y++) for (let x = 0; x < source.width; x++) {
     const nx = Math.floor((x - matrix[0][2]) / matrix[0][0]);
@@ -44,6 +46,7 @@ export async function nativeFromCanonical(path: string, publication: typeof Publ
 
 export function verifyTiming(publication: typeof Published.Type, input: unknown) {
   const live = Schema.decodeUnknownSync(Live)(input);
+  if (digest(Buffer.from(JSON.stringify(live.scene))) !== publication.reexport.sceneSha256) throw new Error('Canonical visible scene contract changed');
   const { durationSeconds, referenceBpm, timingSamples } = publication.reexport;
   if (live.rootNodeId !== publication.canonical.timelineRootId || live.duration !== durationSeconds || live.tracks.length !== publication.drawings.length) throw new Error('Canonical timeline changed');
   const ids = new Set(live.tracks.map(track => track.componentId));
@@ -64,8 +67,8 @@ export function verifyTiming(publication: typeof Published.Type, input: unknown)
   }
   for (const time of samples) {
     const beat = time === durationSeconds ? 0 : time * referenceBpm / 60 % publication.cycleBeats;
-    const expected = [...publication.keyframes].reverse().find(key => key.atBeat <= beat + 1e-6);
-    const active = live.tracks.filter(({ track }) => [...track.keyframes].reverse().find(key => key.timelinePosition <= time + 1e-6)?.value.value === 1);
+    const expected = [...publication.keyframes].reverse().find(key => key.atBeat <= beat);
+    const active = live.tracks.filter(({ track }) => [...track.keyframes].reverse().find(key => key.timelinePosition <= time)?.value.value === 1);
     if (!expected || active.length !== 1 || active[0].componentId !== publication.drawings[expected.pose].nodeId) throw new Error('Canonical re-export HOLD timing failed');
   }
   return samples.size;
@@ -88,6 +91,30 @@ export async function checkCanonicalExport(packageDirectory: string, exportDirec
   return { status: 'PASS', motionId: publication.motionId, poses: publication.drawings.length, layers, timingSamples, rawApprovalDependencies: 0 };
 }
 
+export function motionReadScript(publication: typeof Published.Type) {
+  const ids = publication.drawings.map(drawing => drawing.nodeId);
+  const fields = ['x', 'y', 'width', 'height', 'visible', 'opacity', 'relativeTransform', 'clipsContent', 'isMask', 'maskType', 'blendMode', 'effects', 'fills', 'strokes', 'strokeWeight', 'strokeAlign', 'topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius', 'boundVariables', 'explicitVariableModes'];
+  return `const p=await figma.getNodeByIdAsync('54:1383');await figma.setCurrentPageAsync(p);
+const root=await figma.getNodeByIdAsync(${JSON.stringify(publication.canonical.timelineRootId)});if(root.parent.type!=='PAGE')throw Error('Canonical review must remain a top-level frame');const ids=${JSON.stringify(ids)};const fields=${JSON.stringify(fields)};const tracks=[],scene=[];
+async function visit(n,inPose){
+const master=n.type==='INSTANCE'?await n.getMainComponentAsync():null;const pose=master&&ids.includes(master.id);
+if(n.type==='INSTANCE'&&!pose)throw Error('Unexpected instance in canonical review scene');
+if(pose&&n.overrides.some(o=>o.overriddenFields.some(f=>!['name','boundVariables','opacity'].includes(f)||f==='opacity'&&o.id!==n.id)))throw Error('Canonical pose has a visual override');
+if((pose||inPose)&&Object.keys(n.boundVariables).length)throw Error('Canonical pose has variable overrides');
+const motion={...n.manualKeyframeTracks};if(pose){tracks.push({componentId:master.id,track:motion.OPACITY});delete motion.OPACITY;}
+const values=fields.map(f=>n===root&&['x','y','relativeTransform'].includes(f)?null:f in n?n[f]:null);
+const extra={motion,styles:n.animationStyles};if(Object.keys(n.boundVariables).length){extra.resolvedVariableModes=n.resolvedVariableModes;const aliases=new Set();function find(v){if(!v||typeof v!=='object')return;if(v.type==='VARIABLE_ALIAS')aliases.add(v.id);else for(const x of Object.values(v))find(x);}find(n.boundVariables);extra.resolvedBindings=await Promise.all([...aliases].sort().map(async id=>{const v=await figma.variables.getVariableByIdAsync(id);if(!v)throw Error('Canonical bound variable missing');return[id,v.resolveForConsumer(n)];}));}
+if(pose){extra.componentId=master.id;extra.overrides=n.overrides;extra.componentProperties=n.componentProperties;extra.scaleFactor=n.scaleFactor;}
+if(!pose&&!inPose){if('vectorPaths'in n)extra.vectorPaths=n.vectorPaths;if(n.type==='TEXT'){extra.characters=n.characters;extra.segments=n.getStyledTextSegments(['fontName','fontSize','fills','lineHeight','letterSpacing','textCase','textDecoration']);}}
+scene.push([n.id,n===root?null:n.parent.id,n.type,values,extra]);
+if('children'in n)for(const child of n.children)await visit(child,inPose||pose);
+}
+await visit(root,false);
+const counts=new Map();for(const row of scene)for(const value of [...row[3],row[4]])if(value&&typeof value==='object'){const s=JSON.stringify(value);if(s.length>24)counts.set(s,(counts.get(s)||0)+1);}
+const values=[],indices=new Map();function compact(v){if(!v||typeof v!=='object')return v;const s=JSON.stringify(v);if((counts.get(s)||0)<2)return v;if(!indices.has(s)){indices.set(s,values.length);values.push(v);}return{$:indices.get(s)};}
+return{rootNodeId:root.id,duration:root.timelines[0].duration,scene:{fields,values,nodes:scene.map(row=>[row[0],row[1],row[2],row[3].map(compact),compact(row[4])])},tracks};`;
+}
+
 async function reexportScripts(packageDirectory: string, outputDirectory: string) {
   const publication = await verifyPublished(join(packageDirectory, 'promotion.json'));
   await mkdir(outputDirectory, { recursive: true });
@@ -96,9 +123,7 @@ async function reexportScripts(packageDirectory: string, outputDirectory: string
     const code = `const p=await figma.getNodeByIdAsync('31:51');await figma.setCurrentPageAsync(p);const ids=${JSON.stringify(ids)};const out={};for(const [kind,id]of Object.entries(ids)){const n=await figma.getNodeByIdAsync(id);if(!n)throw Error('Canonical node missing');out[kind]=('children'in n&&n.children.length===0&&n.fills.every(f=>f.visible===false||f.opacity===0)&&n.strokes.every(s=>s.visible===false||s.opacity===0))?'<svg xmlns="http://www.w3.org/2000/svg" width="'+n.width+'" height="'+n.height+'"/>':await n.exportAsync({format:'SVG_STRING'});}return out;`;
     await writeFile(join(outputDirectory, `read-pose-${drawing.index}.txt`), code + '\n');
   }
-  const ids = publication.drawings.map(drawing => drawing.nodeId);
-  const code = `const p=await figma.getNodeByIdAsync('54:1383');await figma.setCurrentPageAsync(p);const root=await figma.getNodeByIdAsync('${publication.canonical.timelineRootId}');const ids=${JSON.stringify(ids)};const instances=root.findAllWithCriteria({types:['INSTANCE']});const masters=await Promise.all(instances.map(n=>n.getMainComponentAsync()));return{rootNodeId:root.id,duration:root.timelines[0].duration,tracks:instances.flatMap((n,i)=>masters[i]&&ids.includes(masters[i].id)?[{componentId:masters[i].id,track:n.manualKeyframeTracks.OPACITY}]:[])};`;
-  await writeFile(join(outputDirectory, 'read-motion.txt'), code + '\n');
+  await writeFile(join(outputDirectory, 'read-motion.txt'), motionReadScript(publication) + '\n');
   return { fileKey: publication.canonical.fileKey, outputDirectory, poses: publication.drawings.length };
 }
 

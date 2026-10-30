@@ -244,7 +244,9 @@
     "format": "Figma SVG_STRING, rasterized without filtering to native grid",
     "referenceBpm": 120,
     "timingSamples": 65,
-    "durationSeconds": 8
+    "durationSeconds": 8,
+    "sceneSha256": "7e57ce01a13bab8d2ebcaa0937b4433081147ec9028bd6697632db596eaa9a76",
+    "sceneContract": "Complete review subtree geometry, appearance, overrides and non-pose animation; pose OPACITY keys checked separately"
   },
   "retention": "Runtime package and compact certificate retained. Temporary exports, comparisons and raw approval reports are not dependencies of this package."
 }

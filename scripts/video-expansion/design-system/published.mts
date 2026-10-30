@@ -38,7 +38,7 @@ export const Published = Schema.Struct({
     pivot: Point,
     layers: Schema.Record(Schema.String, Layer),
   })),
-  reexport: Schema.Struct({ referenceBpm: Schema.Number, durationSeconds: Schema.Number, timingSamples: Schema.Int }),
+  reexport: Schema.Struct({ referenceBpm: Schema.Number, durationSeconds: Schema.Number, timingSamples: Schema.Int, sceneSha256: Hash }),
   approval: Schema.Struct({
     style: Schema.Literal('pass'),
     temporal: Schema.Literal('pass'),
