@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse,hashlib,json,shutil
 from pathlib import Path
 from candidate_protocol import write
-from publication_bundle import check_bound_paths,proof_requirements,load,REQUIRED_PROOFS,digest
+from publication_bundle import check_bound_paths,proof_requirements,load,REQUIRED_PROOFS,digest,rotor_graph
 
 CLAIMS=['post-glue assembly and complete reversal under the instructed protocol',
         'ordinary tools and root-only installed access',
@@ -37,7 +37,7 @@ def run(config_path,output):
         admission=dict(schema=1,concept=concept,human_review_candidate=True,manufacturing_approved=False,
             physical_fit_verified=False,candidate_receipt=record['candidate'],proofs=proofs,
             protocol=dict(path=str((folder/'protocol.json').relative_to(output)),sha256=digest(folder/'protocol.json')),
-            model_sha256=result.model_sha256,verified_requirements=CLAIMS,physical_checks_remaining=PHYSICAL_CHECKS)
+            model_sha256=result.model_sha256,rotation_graph=rotor_graph(concept),verified_requirements=CLAIMS,physical_checks_remaining=PHYSICAL_CHECKS)
         target=folder/'admission.json';target.write_text(json.dumps(admission,indent=2)+'\n')
         selector['candidates'].append(dict(concept=concept,path=str(target.relative_to(output)),sha256=digest(target)))
     path=output/'selector.json';path.write_text(json.dumps(selector,indent=2)+'\n')

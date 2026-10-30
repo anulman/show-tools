@@ -40,7 +40,7 @@ def build(concept,receipt,evidence):
         environment=['bare printed bar permanently glued to ball; no installed coupling hardware',
                      'box and stock hex secured before the detachable module is lowered over the knob',
                      'box may be supported180mm above table on ordinary bench blocks for underside tool access'],
-        scope='Exhaustive instructed protocol including all intermediate stops and reverse operations; physical force/fit excluded',
+        scope='Exhaustive instructed discrete operating protocol and reversal, including key-out indexing stops; continuous strokes proved separately; physical force/fit excluded',
         parts={n:dict(initial='outside',final='secured',role=q['role']) for n,q in inventory.items()},
         modules={'detachable module':actors},variables={},actions=[],evidence=evidence)
     def variable(name,domain,initial,final):
@@ -79,8 +79,12 @@ def build(concept,receipt,evidence):
     variable('grip',[False,True],False,True)
     variable('root phase',['outside','entered','turned','registered','locked'],'outside','locked')
     for i,(name,tool) in enumerate(steps):
+        checks=[name]
+        if name.startswith('external cover M3x8 screw '):
+            prefix=name.removesuffix(' axial installation and reverse')
+            checks += [prefix+' full AF2 tool '+phase for phase in ('entry','operation','withdrawal')]
         pair(name,{'outside assembly':i,'on OEM knob':False,'grip':False},
-             {'outside assembly':i+1},tool,'external',[name],external=True)
+             {'outside assembly':i+1},tool,'external',checks,external=True)
     pair('lower complete released module over knob',{'outside assembly':len(steps),'on OEM knob':False,'grip':False},
          {'on OEM knob':True},'hand','module',['continuous knob entry and box withdrawal'],external=True)
     pair('tighten two padded grip screws with ordinary AF1.5 key',
@@ -90,33 +94,50 @@ def build(concept,receipt,evidence):
     if concept=='C':
         c_root(actors,pair,variable)
         return model,inventory
-    entry={n:'outside' for n in actors}|{'outside assembly':len(steps),'on OEM knob':True,'grip':True,'root phase':'outside','root drive key':False,'M4 key':False,'completed screw turns':0}
+    entry={n:'outside' for n in actors}|{'outside assembly':len(steps),'on OEM knob':True,'grip':True,'root phase':'outside','root drive key':False,'M4 key':False,'completed screw turns':0,'service index':'drive'}
     pair('lower glued ball over fully outside assembled module',entry,
          {n:'inserted' for n in actors}|{'root phase':'entered'},'hand','root',['complete axial insertion and identical reverse'])
     variable('root drive key',[False,True],False,False)
     variable('M4 key',[False,True],False,False)
-    pair('engage ordinary AF4 drive key from underside',{'root phase':'entered','root drive key':False,'M4 key':False,'completed screw turns':0},
+    pair('engage ordinary AF4 drive key from underside',{'root phase':'entered','root drive key':False,'M4 key':False,'completed screw turns':0,'service index':'drive'},
          {'root drive key':True},'4 mm hex key','tools',['entry','withdrawal'])
-    pair('turn detachable coupling35 degrees with ball held in other hand',{'root phase':'entered','root drive key':True,'M4 key':False,'completed screw turns':0},
+    pair('turn detachable coupling35 degrees with ball held in other hand',{'root phase':'entered','root drive key':True,'M4 key':False,'completed screw turns':0,'service index':'drive'},
          {'root phase':'turned'},'4 mm hex key','root',['continuous35 degree turn; reverse identical'])
-    pair('seat full nuts in positive hex registers with axial ball lift',{'root phase':'turned','root drive key':True,'M4 key':False,'completed screw turns':0},
+    pair('seat full nuts in positive hex registers with axial ball lift',{'root phase':'turned','root drive key':True,'M4 key':False,'completed screw turns':0,'service index':'drive'},
          {'root phase':'registered'},'hand','root',['continuous2.1mm register stroke; reverse identical'])
-    pair('remove AF4 key after positive nut registration',{'root phase':'registered','root drive key':True,'M4 key':False,'completed screw turns':0},
+    pair('remove AF4 key after positive nut registration',{'root phase':'registered','root drive key':True,'M4 key':False,'completed screw turns':0,'service index':'drive'},
          {'root drive key':False},'4 mm hex key','tools',['entry','withdrawal'])
-    pair('engage ordinary AF3 screw key after drive key withdrawal',{'root phase':'registered','root drive key':False,'M4 key':False,'completed screw turns':0},
-         {'M4 key':True},'3 mm hex key','tools',['entry','operation','withdrawal'])
-    # Exactly one turn per bolt per round bounds A's nut-height mismatch to
-    #0.7mm <1.5mm hex registration. The whole assembly is indexed only with
-    #both tools removed; each operation includes that staged ordinary-key cycle.
+    # Every key-out/index/re-entry stop is an explicit reversible state. The
+    #operator supports the ball with one hand whenever the clamp is not secure.
+    slots=3 if concept=='A' else 1
+    variable('service index',['drive']+[f'bolt{i}' for i in range(slots)],'drive',f'bolt{slots-1}')
     count=9 if concept=='A' else 3
     variable('completed screw turns',list(range(count+1)),0,count)
+    pair('index whole rotor with both tools removed and ball hand-supported for first screw',
+         {'root phase':'registered','root drive key':False,'M4 key':False,'completed screw turns':0,'service index':'drive'},
+         {'service index':'bolt0'},'hand','base',['every-angle whole rotor clearance'])
+    pair('engage ordinary AF3 screw key with ball hand-supported',
+         {'root phase':'registered','root drive key':False,'M4 key':False,'completed screw turns':0,'service index':'bolt0'},
+         {'M4 key':True},'3 mm hex key','tools',['entry','operation','withdrawal'])
     for i in range(count):
-        pair(f'round{i//3+1} bolt{i%3+1} full turn and hand-supported ball during key withdrawal/index/re-entry' if concept=='A' else f'lock screw full turn{i+1}',
-             {'root phase':'registered','root drive key':False,'M4 key':True,'completed screw turns':i},
+        current=f'bolt{i%slots}';following=f'bolt{(i+1)%slots}'
+        guard={'root phase':'registered','root drive key':False,'M4 key':True,
+               'completed screw turns':i,'service index':current}
+        pair(f'round{i//slots+1} {current} full screw turn; other hand supports ball',guard,
              {'completed screw turns':i+1},'3 mm hex key','tools',
-             ['whole key entry operation withdrawal; tools out for indexing','positive nut register and head capture'])
+             ['whole key operation','positive nut register and head capture'])
+        if i+1<count and concept=='A':
+            pair(f'withdraw AF3 after screw turn{i+1} while other hand supports ball',
+                 guard|{'completed screw turns':i+1},{'M4 key':False},'3 mm hex key','tools',['withdrawal'])
+            pair(f'index whole rotor for next bolt after screw turn{i+1}, both keys out',
+                 guard|{'completed screw turns':i+1,'M4 key':False},{'service index':following},
+                 'hand','base',['every-angle whole rotor clearance; maximum nut mismatch0.7 plus float0.5'])
+            pair(f're-engage AF3 for next bolt after screw turn{i+1}, ball supported',
+                 guard|{'completed screw turns':i+1,'M4 key':False,'service index':following},{'M4 key':True},
+                 '3 mm hex key','tools',['entry'])
     pair('withdraw screw key and accept fully locked rotor',
-         {'root phase':'registered','root drive key':False,'M4 key':True,'completed screw turns':count}|{n:'inserted' for n in actors},
+         {'root phase':'registered','root drive key':False,'M4 key':True,'completed screw turns':count,
+          'service index':f'bolt{slots-1}'}|{n:'inserted' for n in actors},
          {'M4 key':False,'root phase':'locked'}|{n:'secured' for n in actors},'3 mm hex key','tools',['withdrawal'])
     # Reverse actions are the instructed inverse. No installed side access,
     #complete unthreading inside the bar, or glue-removal action exists.

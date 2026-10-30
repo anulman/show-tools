@@ -7,6 +7,7 @@ from __future__ import annotations
 import hashlib,json
 from pathlib import Path
 from candidate_protocol import expected_inventory,negative_controls
+import rotation_connectivity
 from post_glue_lifecycle import verify_inventory,verify_evidence,Violation,require
 
 REQUIRED_PROOFS={'external','root','module','preservation','contacts','base','tools'}
@@ -78,6 +79,22 @@ def proof_requirements(name,report,concept):
                 'Every-angle base clearance not proved')
     elif name=='tools':require(report.get('all_root_tools_base_clear') is True,'Whole root tools do not clear base')
 
+
+def rotor_graph(concept):
+    nodes={'bar':'rotor','cup':'rotor','knob':'rotor','box':'stationary'}
+    joints=[dict(id='actual positive bar cup drive',actors=['bar','cup'],kind='positive-drive',
+                 geometry_evidence='contacts',angular_limit_degrees=None),
+            dict(id='cut stock pad grip',actors=['cup','knob'],kind='pad-grip',
+                 geometry_evidence='external + module',angular_limit_degrees=None,physical_slip_resistance_verified=False),
+            dict(id='passive PTFE support',actors=['bar','box'],kind='unlimited-bearing',
+                 geometry_evidence='base',angular_limit_degrees=None)]
+    if concept=='C':
+        nodes['collar']='rotor'
+        joints.append(dict(id='captured collar M4 register',actors=['collar','bar'],kind='positive-drive',
+                           geometry_evidence='contacts',angular_limit_degrees=None))
+    return dict(nodes=nodes,joints=joints)
+
+
 def candidate(record,root):
     concept=record['concept'];require(concept in ('A','B','C'),'Unexpected candidate')
     admission=pinned(root/record['path'],record['sha256'])
@@ -92,15 +109,23 @@ def candidate(record,root):
     require(receipt['reference_sha256']=='f0a21384179b69eff79205032dad536bfa1350e358c25ed0fe01de4189f2e003',
             'Original source reference differs')
     check_bound_paths(receipt)
+    reports={}
     for name,proof in admission['proofs'].items():
         report=pinned(root/proof['path'],proof['sha256']);check_bound_paths(report)
         proof_requirements(name,report,concept)
+        reports[name]=report
         sha=report.get('candidate_receipt_sha256',report.get('source_receipt_sha256'))
         if sha is None:
             sha=report['gate_provenance']['input_receipts']['candidate']['sha256']
         require(sha==admission['candidate_receipt']['sha256'],'Proof for different candidate: '+name)
+    require(admission.get('rotation_graph')==rotor_graph(concept),'Kinematic ownership changed')
+    rotation_connectivity.verify(**admission['rotation_graph'])
     model=pinned(root/admission['protocol']['path'],admission['protocol']['sha256'])
     require(model['concept']==concept,'Protocol identity differs')
+    external_ids={q['id'] for q in reports['external']['evidence']}
+    for action in model['actions']:
+        if action['geometry_evidence']=='external':
+            require(set(action['evidence_checks'])<=external_ids,'Unproved exterior action: '+action['id'])
     require(not model.get('pending_C_force_transfer_refinement'),'Incomplete force-transfer protocol')
     result=verify_inventory(model,expected_inventory(concept));verify_evidence(model,root)
     negative_controls(model,expected_inventory(concept))
