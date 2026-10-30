@@ -12,6 +12,8 @@ from post_glue_lifecycle import verify_inventory,verify_evidence,Violation,requi
 
 REQUIRED_PROOFS={'external','root','module','preservation','contacts','base','tools'}
 
+def required_proofs(concept):return REQUIRED_PROOFS|({'race'} if concept=='C' else set())
+
 
 def digest(path):return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
@@ -46,9 +48,18 @@ def proof_requirements(name,report,concept):
         require(report.get(key) is True,'Continuous motion proof did not pass')
         if concept!='C':require(report.get('connected_fin_control_rejected') is True,'Missing real collision negative control')
         else:
-            require(report.get('requires_upper_stop_delta_mm')==-.5 and report.get('requires_head_seated_before_turn') is True,
+            require(report.get('requires_upper_stop_delta_mm')==-.5 and report.get('requires_head_seated_before_seating_and_clamp') is True
+                    and report.get('requires_bottomed_4mm_key_to_hold_upper_stop_during_turn') is True
+                    and report.get('head_float_during_turn_source_mm')==[0.,.5],
                     'C load/stop assumptions changed')
     elif name=='external':
+        if concept=='C':
+            ids={q['id'] for q in report.get('evidence',[])}
+            require({'preassembled A cover M4 and A cover joints radial entry and reverse',
+                     'B half and preloaded nuts enter under preassembled A cover'}<=ids,'Missing C partial external assembly group paths')
+            drive=report['root_tool_operations'][-1]
+            require(drive.get('tip_source_z_mm')==4.5 and drive.get('bottomed_socket_floor_witnesses'),
+                    'C AF4 key does not establish upper-stop push')
         require(len(report.get('evidence',[]))>=25 and len(report.get('root_tool_operations',[]))>=2,
                 'Incomplete exterior assembly/tool evidence')
         for row in report['evidence']:
@@ -68,6 +79,8 @@ def proof_requirements(name,report,concept):
         require(report.get('actual_delivered_step_only') is True,'Contacts are not actual delivered geometry')
         require(len(report['fastener_contacts'])==(3 if concept=='A' else 1),'Missing M4 contact chain')
         for row in report['fastener_contacts']:
+            if concept=='A':require(row.get('worst_transient_nut_register_loss_mm')==1.2
+                                    and row.get('worst_transient_nut_anti_rotation'),'Missing transient A nut registration')
             require(row.get('nut_axial_floor_seat'),'Missing positive axial floor reaction')
             require(row.get('nut_anti_rotation') and row.get('shaft_bearings') and row.get('head_seats') and row.get('cover_capture'),
                     'Missing positive nut/head/shaft capture')
@@ -77,6 +90,11 @@ def proof_requirements(name,report,concept):
     elif name=='base':
         require(report.get('all_provided_stages_base_rotary_clear') is True and report.get('angular_samples_used')==0,
                 'Every-angle base clearance not proved')
+    elif name=='race':
+        require(report.get('actual_delivered_step_only') is True and report.get('head_float_motion_verified') is True
+                and report.get('collar_delta_source_range_mm')==[-.5,.6]
+                and report.get('head_float_source_range_mm')==[0.,.5]
+                and report.get('contacts'),'Missing collar axial stops and recovery range')
     elif name=='tools':require(report.get('all_root_tools_base_clear') is True,'Whole root tools do not clear base')
 
 
@@ -102,7 +120,7 @@ def candidate(record,root):
     require(admission.get('human_review_candidate') is True and admission.get('manufacturing_approved') is False,
             'Publication is not an unapproved human-review candidate')
     require(admission.get('physical_fit_verified') is False,'Physical fit cannot be certified by CAD')
-    require(set(admission['proofs'])==REQUIRED_PROOFS,'Missing or extra mandatory proof category')
+    require(set(admission['proofs'])==required_proofs(concept),'Missing or extra mandatory proof category')
     receipt=pinned(admission['candidate_receipt']['path'],admission['candidate_receipt']['sha256'])
     require(receipt['concept']=='post-glue '+concept and receipt['bar_already_glued'] is True
             and receipt['above_root_exterior_access'] is False,'Wrong candidate environment')

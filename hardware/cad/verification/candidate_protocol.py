@@ -66,7 +66,14 @@ def build(concept,receipt,evidence):
                       (sign+' grip nut entry and reverse','hand'),
                       (sign+' preset set-screw envelope external thread-on and reverse','1.5 mm hex key')])
     if concept=='C':
-        steps.append(('split collar and common cover assembly outside ball','2 mm hex key'))
+        for angle in (130.,200.,15.,310.):steps.append((f'cover nut {angle} entry and reverse','hand'))
+        steps.extend([('threaded M4 full nut 110.0 external thread-on and reverse','hand'),
+                      ('axial M4x12 socket screw 110.0 external axial entry and reverse','hand'),
+                      ('capture cover axial installation and reverse','hand')])
+        for angle in (130.,200.):steps.append((f'external cover M3x8 screw {angle} axial installation and reverse','2 mm hex key'))
+        steps.extend([('preassembled A cover M4 and A cover joints radial entry and reverse','hand'),
+                      ('B half and preloaded nuts enter under preassembled A cover','hand')])
+        for angle in (15.,310.):steps.append((f'external cover M3x8 screw {angle} axial installation and reverse','2 mm hex key'))
     else:
         for angle in ({'A':(45.,110.,260.),'B':(95.,)}[concept]):
             steps.extend([(f'axial M4x12 socket screw {angle} external axial entry and reverse','hand'),
@@ -166,6 +173,12 @@ def c_root(actors,pair,variable):
          {'root phase':'entered','root drive key':True,'M4 key':False,'collar support':'AF4 push','completed screw turns':0},
          {'root phase':'turned'},'4 mm hex key','root',
          ['continuous35 degree turn at delta=-0.5 including captured head float0..0.5'])
+    for phase in ('entered','turned'):
+        pair('relax AF4 push at '+phase+' with ball supported; restore stop before proceeding',
+             {'root phase':phase,'root drive key':True,'M4 key':False,'collar support':'AF4 push',
+              'head condition':'captured float permitted','completed screw turns':0},
+             {'collar support':'loose'},'4 mm hex key','race',
+             ['continuous collar race and captured head float; recover upper stop by bottomed key'])
     pair('rest ball on PTFE and engage AF3 key to seat screw head',
          {'root phase':'turned','root drive key':True,'M4 key':False,'collar support':'AF4 push',
           'head condition':'captured float permitted','completed screw turns':0},

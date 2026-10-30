@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse,hashlib,json,shutil
 from pathlib import Path
 from candidate_protocol import write
-from publication_bundle import check_bound_paths,proof_requirements,load,REQUIRED_PROOFS,digest,rotor_graph
+from publication_bundle import check_bound_paths,proof_requirements,load,required_proofs,digest,rotor_graph
 
 CLAIMS=['post-glue assembly and complete reversal under the instructed protocol',
         'ordinary tools and root-only installed access',
@@ -24,7 +24,7 @@ def run(config_path,output):
         record=config[concept];receipt=Path(record['candidate']['path'])
         if digest(receipt)!=record['candidate']['sha256']:raise ValueError('Unexpected candidate freeze')
         candidate=json.loads(receipt.read_text());check_bound_paths(candidate)
-        if set(record['proofs'])!=REQUIRED_PROOFS:raise ValueError('Incomplete evidence categories')
+        if set(record['proofs'])!=required_proofs(concept):raise ValueError('Incomplete evidence categories')
         folder=output/concept;folder.mkdir();evidence={};proofs={}
         for name,pin in record['proofs'].items():
             source=Path(pin['path'])
