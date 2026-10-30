@@ -16,7 +16,7 @@ parser.add_argument('--output',type=Path,required=True)
 args=parser.parse_args()
 if os.path.lexists(args.output):raise ValueError('Fresh output namespace required')
 raw=args.receipt.read_bytes()
-PIN='e0ee14c9b22df06a1aace16bb5621e8902e9e7e333baaf51203b7a278ff28b7b'
+PIN='9b6aeaaa3141090dc496efe67b026c628aa4ce3d9fbf5cdbb55f7bd81c374169'
 if hashlib.sha256(raw).hexdigest()!=PIN:raise ValueError('Wrong frozen A receipt')
 d=json.loads(raw);files=final_review.integration.Artifacts()
 sources={str(final_review.source_path(n)):sha for n,sha in d['source_code_sha256'].items()}
