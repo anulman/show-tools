@@ -35,6 +35,8 @@ The ignored `build/workspace/current-view.json` records the last successful publ
 
 ## Continue the box mount
 
+For the operator-requested matching box for the post-glue C mechanism, use the [C-specific compact mount](box-mount/access/C_READY_MOUNT.md). It binds final C `456665c` and tool evidence `94057a1`, retains the complete compact base interface, and adds underside tool-size identifiers to its removable bottom. Its headless recipe and checks leave the inclined arcade box and shared viewer unchanged. Historical C2 commands below remain historical sources, not the current post-glue coupling contract.
+
 The active variants are now `arcade-inclined`, `rotor-level`, and `mushroom-level`. The old flat Adafruit-button study is historical. Use `cad view box-mount --variant arcade-inclined` to inspect one variant, or omit `--variant` to compare all three.
 
 The inclined arcade mount must provide at least 2.5 inches, exactly 63.5 mm, from the counterbore floor along the tilted button's centre axis. The operator confirmed both the starting datum and direction. The low edge need not provide that full length. The current concept keeps a flat bottom and provides an unobstructed proposed corridor around the centre axis; it does not claim measured clearance for the actual harness. Its 17.5 mm recess and 5-degree inclination remain in place. The removable bottom extends outward below the interior floor.
