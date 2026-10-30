@@ -4,13 +4,14 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSy
 import { basename, dirname, join, resolve } from 'node:path';
 import { endianness } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { chiefHandoff, commandFailureExitCode, formatCommandFailure, productFailure } from './lib/command-diagnostics.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const maxSeconds = 30;
 export class AuditionError extends Error {
-  constructor(readonly code: string, cause: string, readonly nextStep: string) { super(cause); }
+  constructor(readonly code: string, cause: string, readonly nextStep: string, readonly status: 'blocked' | 'needs-chief' = 'blocked') { super(cause); }
 }
-function fail(code: string, cause: string, nextStep: string): never { throw new AuditionError(code, cause, nextStep); }
+function fail(code: string, cause: string, nextStep: string, status: 'blocked' | 'needs-chief' = 'blocked'): never { throw new AuditionError(code, cause, nextStep, status); }
 type Patch = 'tribulations-guitar' | 'slapback' | 'chorus';
 type Rate = 44100 | 48000;
 type Source = { kind: 'synthetic'; rate: Rate } | { kind: 'file'; path: string };
@@ -18,7 +19,7 @@ export interface AuditionOptions { source: Source; patch: Patch; inputGain: numb
 const help = `Usage: node --import tsx scripts/audition-patches.ts
   --source synthetic --rate 44100|48000 | --input INPUT.wav
   --patch tribulations-guitar|slapback|chorus
-  --input-gain NUMBER --output-gain NUMBER --out NEW_DIRECTORY
+  --input-gain NUMBER --output-gain NUMBER --out NEW_DIRECTORY [--json]
 
 Produces source.wav, A.wav (dry), B.wav (patch), C.wav (exact B duplicate), and manifest.json.
 Input WAV: mono/stereo PCM16 or float32, 44.1/48 kHz, nonempty, at most 30 seconds.
@@ -58,13 +59,13 @@ function invalidWave(cause: string): never {
   fail('INVALID_WAV', cause, 'Export a nonempty mono/stereo PCM16 or float32 RIFF WAV at 44100 or 48000 Hz, at most 30 seconds. No file was substituted.');
 }
 export function decodeWave(bytes: Buffer) {
-  if (bytes.length < 12 || bytes.toString('ascii', 0, 4) !== 'RIFF' || bytes.toString('ascii', 8, 12) !== 'WAVE'
+  if (bytes.length < 12 || bytes.toString('latin1', 0, 4) !== 'RIFF' || bytes.toString('latin1', 8, 12) !== 'WAVE'
     || bytes.readUInt32LE(4) + 8 !== bytes.length) invalidWave('The input is not a complete standard RIFF WAV.');
   let format: { encoding: number; channels: 1 | 2; rate: Rate; bits: number; align: number } | undefined;
   let data: Buffer | undefined;
   for (let offset = 12; offset < bytes.length;) {
     if (offset + 8 > bytes.length) invalidWave('Truncated WAV chunk header.');
-    const kind = bytes.toString('ascii', offset, offset + 4), size = bytes.readUInt32LE(offset + 4), start = offset + 8;
+    const kind = bytes.toString('latin1', offset, offset + 4), size = bytes.readUInt32LE(offset + 4), start = offset + 8;
     const end = start + size, next = end + (size % 2);
     if (next > bytes.length) invalidWave('Truncated WAV chunk data or alignment padding.');
     if (kind === 'fmt ') {
@@ -106,24 +107,25 @@ function run(command: string, args: readonly string[], phase: string): string {
   const result = spawnSync(command, args, { cwd: root, encoding: 'utf8', timeout: 120000, maxBuffer: 1024 * 1024 });
   if (result.error || result.status !== 0) {
     const detail = result.error?.message ?? result.stderr.trim() ?? `Exit ${result.status}`;
+    if (phase === 'render' && detail.includes('Rendered peak exceeds full scale.'))
+      fail('OUTPUT_OVERLOAD', detail, 'Lower --input-gain or --output-gain and rerun into a new output directory. No limiter or normalization was applied.');
     fail(phase === 'render' ? 'RENDER_FAILED' : 'BUILD_FAILED', `${phase} failed: ${detail || `exit ${result.status}`}`,
-      phase === 'render' ? 'Check the source and gains. For peaks above full scale, lower --input-gain or --output-gain. Rerun into a new output directory.'
-        : 'Install a C++17 compiler available as c++, then fix any reported compilation error and rerun. The renderer was not replaced.');
+      'The Chief must repair the renderer or its C++17 toolchain, then rerun this command. Keep the audition blocked until that check passes.', 'needs-chief');
   }
   return result.stdout.trim();
 }
 function summarize(pcm: Buffer) {
   let peak = 0, squared = 0;
-  if (pcm.length === 0 || pcm.length % 4 !== 0) fail('INVALID_RENDER', 'Renderer output is empty or truncated.', 'Report this tool failure to the maintainer with the command; no audition was published.');
+  if (pcm.length === 0 || pcm.length % 4 !== 0) fail('INVALID_RENDER', 'Renderer output is empty or truncated.', 'The Chief must repair the renderer and rerun; no audition was published.', 'needs-chief');
   for (let i = 0; i < pcm.length; i += 4) {
     const value = pcm.readFloatLE(i);
-    if (!Number.isFinite(value) || Math.abs(value) > 1) fail('INVALID_RENDER', 'Renderer output is nonfinite or above full scale.', 'Report this tool failure to the maintainer; no audition was published.');
+    if (!Number.isFinite(value) || Math.abs(value) > 1) fail('INVALID_RENDER', 'Renderer output is nonfinite or above full scale.', 'The Chief must repair output validation and rerun; no audition was published.', 'needs-chief');
     peak = Math.max(peak, Math.abs(value)); squared += value * value;
   }
   return { peak, rms: Math.sqrt(squared / (pcm.length / 4)) };
 }
 export function audition(options: AuditionOptions) {
-  if (endianness() !== 'LE') fail('UNSUPPORTED_HOST', 'The native PCM adapter requires a little-endian host.', 'Run on a supported little-endian Mac or Linux host. No byte-order fallback was applied.');
+  if (endianness() !== 'LE') fail('UNSUPPORTED_HOST', 'The native PCM adapter requires a little-endian host.', 'The Chief must select a supported little-endian render host. No byte-order fallback was applied.', 'needs-chief');
   if (existsSync(options.out)) fail('OUTPUT_EXISTS', 'The output path already exists. Existing auditions are not overwritten.', 'Choose a new --out directory, or explicitly remove an obsolete audition before rerunning.');
   let decoded: ReturnType<typeof decodeWave> | undefined;
   let sourceIdentity: { kind: 'synthetic'; generator: string } | { kind: 'file'; sha256: string };
@@ -163,11 +165,11 @@ export function audition(options: AuditionOptions) {
     run(renderer, [input, String(decoded?.channels ?? 1), String(rate), String(options.inputGain), String(options.outputGain), options.patch, source, dry, processed], 'render');
     const mono = readFileSync(source), a = readFileSync(dry), b = readFileSync(processed);
     if (a.length !== b.length || a.length % 8 !== 0 || mono.length % 4 !== 0)
-      fail('INVALID_RENDER', 'Renderer frame counts disagree.', 'Report this tool failure to the maintainer; no audition was published.');
+      fail('INVALID_RENDER', 'Renderer frame counts disagree.', 'The Chief must repair the renderer protocol and rerun; no audition was published.', 'needs-chief');
     const sourceStats = summarize(mono), dryStats = summarize(a), wetStats = summarize(b);
     const sourceFrames = mono.length / 4, frames = a.length / 8;
     if (sourceFrames === 0 || sourceFrames > rate * maxSeconds || frames < sourceFrames || frames > sourceFrames + rate * 12)
-      fail('INVALID_RENDER', 'Renderer frame counts exceed the declared source or tail bounds.', 'Report this tool failure to the maintainer; no audition was published.');
+      fail('INVALID_RENDER', 'Renderer frame counts exceed the declared source or tail bounds.', 'The Chief must repair the renderer protocol and rerun; no audition was published.', 'needs-chief');
     const rendered = [
       { label: 'A', role: 'dry', pcm: a, stats: dryStats },
       { label: 'B', role: 'processed', pcm: b, stats: wetStats },
@@ -197,13 +199,30 @@ export function audition(options: AuditionOptions) {
     return manifest;
   } finally { rmSync(staging, { recursive: true, force: true }); }
 }
+export function auditionFailure(error: unknown) {
+  if (error instanceof AuditionError) {
+    const details = { code: error.code, message: error.message, nextSteps: [error.nextStep] satisfies [string], locations: ['scripts/audition-patches.ts'] };
+    return error.status === 'blocked' ? productFailure(details) : chiefHandoff(details);
+  }
+  const message = (error instanceof Error ? error.message : String(error)).trim() || 'Unexpected audition tool failure.';
+  return chiefHandoff({ code: 'AUDITION_TOOL_FAILED', message,
+    nextSteps: ['The Chief must inspect and repair the audition tool, then rerun. Do not publish a fallback or waive validation.'], locations: ['scripts/audition-patches.ts'] });
+}
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const raw = process.argv.slice(2), json = raw.includes('--json');
   try {
-    if (process.argv.slice(2).length === 1 && process.argv[2] === '--help') process.stdout.write(help);
-    else { const options = parseArguments(process.argv.slice(2)); audition(options); process.stdout.write(`Audition ready: ${options.out}\nA: dry · B: ${options.patch} · C: exact B duplicate\n`); }
+    if (raw.filter(arg => arg === '--json').length > 1) fail('INVALID_ARGUMENTS', '--json was supplied more than once.', 'Supply --json at most once.');
+    const args = raw.filter(arg => arg !== '--json');
+    if (args.length === 1 && args[0] === '--help') process.stdout.write(help);
+    else {
+      const options = parseArguments(args), manifest = audition(options);
+      process.stdout.write(json ? JSON.stringify({ schemaVersion: 1, status: 'ready', directory: options.out, manifest }) + '\n'
+        : `Audition ready: ${options.out}\nA: dry · B: ${options.patch} · C: exact B duplicate\n`);
+    }
   } catch (error) {
-    if (error instanceof AuditionError) process.stderr.write(`${error.code}: ${error.message}\nNext: ${error.nextStep}\n`);
-    else process.stderr.write(`AUDITION_FAILED: ${error instanceof Error ? error.message : String(error)}\nNext: Check input/output access and report unresolved tool errors to the maintainer. No fallback audition was created.\n`);
-    process.exitCode = 1;
+    const failure = auditionFailure(error);
+    if (json) process.stdout.write(formatCommandFailure(failure, 'json'));
+    else process.stderr.write(formatCommandFailure(failure, 'human'));
+    process.exitCode = commandFailureExitCode(failure);
   }
 }

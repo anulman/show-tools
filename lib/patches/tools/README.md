@@ -31,4 +31,4 @@ Run the tests with:
 node --import tsx --test scripts/tests/audition-patches.test.ts
 ```
 
-The tests render actual C++ effects, compare repeated packs at both supported rates, check exact duplicate controls, and independently verify a stereo impulse's arithmetic mean, gains, and Slapback repeat. Negative cases cover corrupt audio, missing tools, invalid arguments, full-scale overload, existing outputs, and cleanup. Test audio is synthetic. Packs are temporary working data under the project's retention policy.
+The tests render actual C++ effects, compare repeated packs at both supported rates, check exact duplicate controls, and independently verify a stereo impulse's arithmetic mean, gains, and Slapback repeat. Negative cases cover corrupt audio, missing tools, invalid arguments, full-scale overload, existing outputs, and cleanup. Product blocks exit 2 with a cause and next step. Missing tools and unexpected renderer failures exit 3 for Chief repair. `--json` emits one structured failure object to stdout; human diagnostics go to stderr. Test audio is synthetic. Packs are temporary working data under the project's retention policy.

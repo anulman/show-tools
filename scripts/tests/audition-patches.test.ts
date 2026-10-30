@@ -6,7 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { audition, AuditionError, decodeWave, encodeWave, parseArguments } from '../audition-patches.js';
+import { audition, auditionFailure, AuditionError, decodeWave, encodeWave, parseArguments } from '../audition-patches.js';
+import { parseCommandFailure } from '../lib/command-diagnostics.js';
 
 function hash(bytes: Buffer) { return createHash('sha256').update(bytes).digest('hex'); }
 function pcm16Stereo(rate: number) {
@@ -29,11 +30,12 @@ test('CLI requires explicit source, gains, supported patch and unambiguous optio
 });
 test('WAV decoder rejects corrupt, truncated, unsupported and nonfinite audio instead of substituting it', () => {
   const valid = pcm16Stereo(44100);
+  const badSignature = Buffer.from(valid); badSignature[0] |= 0x80;
   const wrongAlign = Buffer.from(valid); wrongAlign.writeUInt16LE(8, 32);
   const unsupported = Buffer.from(valid); unsupported.writeUInt16LE(6, 20);
   const tooLong = Buffer.alloc(44 + 44100 * 31 * 4); valid.copy(tooLong, 0, 0, 44); tooLong.writeUInt32LE(tooLong.length - 8, 4); tooLong.writeUInt32LE(tooLong.length - 44, 40);
   const badFloat = Buffer.alloc(4); badFloat.writeFloatLE(NaN);
-  for (const bytes of [Buffer.from('not audio'), valid.subarray(0, valid.length - 1), wrongAlign, unsupported, tooLong, encodeWave(badFloat, 44100, 1)]) {
+  for (const bytes of [Buffer.from('not audio'), badSignature, valid.subarray(0, valid.length - 1), wrongAlign, unsupported, tooLong, encodeWave(badFloat, 44100, 1)]) {
     assert.throws(() => decodeWave(bytes), error => error instanceof AuditionError && error.code === 'INVALID_WAV');
   }
   const decoded = decodeWave(valid);
@@ -87,11 +89,45 @@ test('input and render failures identify the cause and next step and leave no pu
     const out = join(dir, 'result');
     assert.throws(() => audition(parseArguments(['--input', join(dir, 'missing.wav'), '--patch', 'slapback', '--input-gain', '1', '--output-gain', '1', '--out', out])), error => error instanceof AuditionError && error.code === 'INPUT_UNAVAILABLE' && /No synthetic/.test(error.nextStep));
     const overloaded = options(out); overloaded.outputGain = 16;
-    assert.throws(() => audition(overloaded), error => error instanceof AuditionError && error.code === 'RENDER_FAILED' && /full scale/.test(error.message) && /lower/.test(error.nextStep));
+    assert.throws(() => audition(overloaded), error => error instanceof AuditionError && error.code === 'OUTPUT_OVERLOAD' && /full scale/.test(error.message) && /Lower/.test(error.nextStep));
     assert(!existsSync(out)); assert.deepEqual(readdirSync(dir), []);
     const script = fileURLToPath(new URL('../audition-patches.ts', import.meta.url));
     const missingCompiler = spawnSync(process.execPath, ['--import', 'tsx', script, '--source', 'synthetic', '--rate', '48000', '--patch', 'chorus', '--input-gain', '1', '--output-gain', '1', '--out', out], { encoding: 'utf8', env: { ...process.env, PATH: '' } });
-    assert.equal(missingCompiler.status, 1); assert.match(missingCompiler.stderr, /BUILD_FAILED/); assert.match(missingCompiler.stderr, /Next: Install a C\+\+17 compiler/);
+    assert.equal(missingCompiler.status, 3); assert.match(missingCompiler.stderr, /Chief handoff required \[BUILD_FAILED\]/); assert.match(missingCompiler.stderr, /C\+\+17 toolchain/);
     assert(!existsSync(out)); assert.deepEqual(readdirSync(dir), []);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('shared diagnostics distinguish operator blocks from Chief tool failures and JSON emits one object', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'audition-diagnostics-'));
+  try {
+    const script = fileURLToPath(new URL('../audition-patches.ts', import.meta.url));
+    const args = ['--import', 'tsx', script, '--input', join(dir, 'missing.wav'), '--patch', 'slapback', '--input-gain', '1', '--output-gain', '1', '--out', join(dir, 'out'), '--json'];
+    const product = spawnSync(process.execPath, args, { encoding: 'utf8' });
+    assert.equal(product.status, 2); assert.equal(product.stderr, '');
+    const failure = parseCommandFailure(JSON.parse(product.stdout));
+    assert.equal(failure.status, 'blocked'); assert.equal(failure.code, 'INPUT_UNAVAILABLE');
+    assert(failure.nextSteps.length > 0); assert.equal(product.stdout.trim().split('\n').length, 1);
+    const compiler = spawnSync(process.execPath, ['--import', 'tsx', script, '--source', 'synthetic', '--rate', '48000', '--patch', 'chorus', '--input-gain', '1', '--output-gain', '1', '--out', join(dir, 'out'), '--json'], { encoding: 'utf8', env: { ...process.env, PATH: '' } });
+    assert.equal(compiler.status, 3); assert.equal(compiler.stderr, '');
+    assert.equal(parseCommandFailure(JSON.parse(compiler.stdout)).status, 'needs-chief');
+    assert.equal(auditionFailure(new Error('Unexpected renderer protocol failure')).status, 'needs-chief');
+    assert.equal(auditionFailure(new Error('')).status, 'needs-chief');
+    assert.deepEqual(readdirSync(dir), []);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('successful CLI JSON points to a complete published pack', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'audition-cli-ready-'));
+  try {
+    const script = fileURLToPath(new URL('../audition-patches.ts', import.meta.url)), out = join(dir, 'pack');
+    const result = spawnSync(process.execPath, ['--import', 'tsx', script, '--source', 'synthetic', '--rate', '48000', '--patch', 'tribulations-guitar', '--input-gain', '1', '--output-gain', '1', '--out', out, '--json'], { encoding: 'utf8' });
+    assert.equal(result.status, 0, result.stderr); assert.equal(result.stderr, '');
+    const ready: unknown = JSON.parse(result.stdout);
+    assert(ready && typeof ready === 'object' && 'status' in ready && 'manifest' in ready);
+    assert.equal(ready.status, 'ready');
+    assert.deepEqual(ready.manifest, JSON.parse(readFileSync(join(out, 'manifest.json'), 'utf8')));
+    assert.equal(result.stdout.trim().split('\n').length, 1);
+    assert.deepEqual(readdirSync(out).sort(), ['A.wav', 'B.wav', 'C.wav', 'manifest.json', 'provenance.json', 'source.wav']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
