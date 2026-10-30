@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
-import { BufferImageSource, Container, Texture, WebGLRenderer } from 'pixi.js';
-import { parseStreetScene } from '../../../lib/video/street-score.js';
+import { BufferImageSource, Container, Sprite, Texture, WebGLRenderer, type RenderOptions } from 'pixi.js';
+import { parseStreetScene, type ActorFrame } from '../../../lib/video/street-score.js';
 import { fetchStreetAsset } from '../../../lib/video/street-assets.js';
 import { createStreetStudio, type StreetPlatform } from '../renderer.js';
 import { StreetResources } from '../resources.js';
@@ -20,6 +20,12 @@ function scene() {
     }], tracks: [{ actor: 0, keys: [{ at: 0, clip: 0, pose: 0, grayscale: false }] }],
     provenance: { source: 'synthetic', assetsDigest: 'fixture', scoreDigest: 'fixture' },
   });
+}
+function poofScene() {
+  return parseStreetScene({ ...scene(), staging: { kind: 'poof', effects: [{ id: 'fixture-poof',
+    nativeGrid: { width: 128, height: 128 }, pivot: { x: 64, y: 106 },
+    drawings: Array.from({ length: 6 }, (_, index) => ({ path: `/poof-${index}.png`, sha256 })),
+  }], tracks: [{ actor: 0, keys: [{ at: 0, visible: false, poof: { effect: 0, pose: 2 } }] }] } });
 }
 function fixture(renderer: WebGLRenderer, fetcher: typeof fetch = async () => new Response(bytes)) {
   let samplerDisposals = 0;
@@ -55,6 +61,45 @@ class FailedInitialization extends WebGLRenderer {
   }
 }
 
+class CapturedPresentation extends WebGLRenderer {
+  stage: Container | undefined;
+  override async init(..._options: Parameters<WebGLRenderer['init']>): Promise<void> {
+    Object.defineProperty(this, 'canvas', { value: { remove() {}, setAttribute() {} } });
+  }
+  override render(options: Container | RenderOptions): void {
+    this.stage = options instanceof Container ? options : options.container;
+  }
+}
+
+test('Pixi presentation restores body and cloud visibility on reverse seeks and keeps cloud color independent', async () => {
+  const app = new CapturedPresentation(), resources = fixture(app);
+  const body: ActorFrame = { actor: 0, clip: 0, pose: 0, grayscale: false, visible: true, poof: null };
+  const sampler = { sample(count: number): ActorFrame[] {
+    return count === 0 ? [body] : [{ ...body, grayscale: count >= 2, visible: count >= 2, poof: { effect: 0, pose: 1 } }];
+  }, dispose() {} };
+  const studio = await createStreetStudio({ append() {} }, poofScene(), sampler, resources.platform);
+  try {
+    studio.draw(0);
+    assert(app.stage);
+    const actors = app.stage.children[1], figure = actors.children[0];
+    assert(figure instanceof Container);
+    const sprite = figure.children[0], cloud = figure.children[1];
+    assert(sprite instanceof Sprite); assert(cloud instanceof Sprite);
+    assert.equal(sprite.visible, true); assert.equal(cloud.visible, false);
+    studio.draw(1);
+    assert.equal(sprite.visible, false); assert.equal(cloud.visible, true);
+    assert.deepEqual([cloud.pivot.x, cloud.pivot.y], [64, 106]);
+    const colorCloud = cloud.texture, colorBody = sprite.texture;
+    studio.draw(2);
+    assert.equal(sprite.visible, true); assert.equal(cloud.visible, true);
+    assert.equal(cloud.texture, colorCloud);
+    assert.notEqual(sprite.texture, colorBody);
+    studio.draw(0);
+    assert.equal(sprite.visible, true); assert.equal(cloud.visible, false);
+    assert.equal(sprite.texture, colorBody);
+  } finally { studio.dispose(); }
+});
+
 test('renderer initialization failure releases partial renderer, sampler and all preloaded texture sources', async () => {
   const app = new FailedInitialization();
   const resources = fixture(app);
@@ -77,6 +122,26 @@ test('later asset load failure releases already loaded and never displayed textu
   assert.equal(app.destroyCalls, 1);
   assert.equal(resources.samplerDisposals(), 1);
   assert.equal(resources.created.length, 4);
+  assert(resources.created.every(({ texture, source }) => texture.destroyed && source.destroyed));
+});
+
+test('poof preload failure rejects changed bytes and releases earlier effect textures', async () => {
+  const app = new FailedInitialization();
+  const resources = fixture(app, async input => new Response(String(input) === '/poof-5.png' ? 'changed effect' : bytes));
+  await assert.rejects(createStreetStudio({ append() { assert.fail('Effect failure must not attach a canvas'); } }, poofScene(), resources.sampler, resources.platform), /Asset hash mismatch/);
+  assert.equal(app.initCalls, 0);
+  assert.equal(app.destroyCalls, 1);
+  assert.equal(resources.samplerDisposals(), 1);
+  assert.equal(resources.created.length, 12);
+  assert(resources.created.every(({ texture, source }) => texture.destroyed && source.destroyed));
+});
+
+test('renderer initialization failure releases unused and displayed-candidate poof textures', async () => {
+  const app = new FailedInitialization();
+  const resources = fixture(app);
+  await assert.rejects(createStreetStudio({ append() { assert.fail('Failed initialization must not attach a canvas'); } }, poofScene(), resources.sampler, resources.platform), /Renderer initialization failed/);
+  assert.equal(resources.created.length, 18);
+  assert.equal(resources.samplerDisposals(), 1);
   assert(resources.created.every(({ texture, source }) => texture.destroyed && source.destroyed));
 });
 

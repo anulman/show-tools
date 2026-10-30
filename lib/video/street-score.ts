@@ -1,4 +1,4 @@
-import { Schema } from 'effect';
+import { Effect, Schema } from 'effect';
 import { StreetAsset } from './street-assets.js';
 
 const finite = Schema.Number.check(Schema.isFinite());
@@ -22,6 +22,20 @@ const Actor = Schema.Struct({
   clips: Schema.Array(Clip),
 });
 const Key = Schema.Struct({ at: nonnegative, clip: integer, pose: integer, grayscale: Schema.Boolean });
+const PoofSelection = Schema.NullOr(Schema.Struct({ effect: integer, pose: integer }));
+const PresenceKey = Schema.Struct({ at: nonnegative, visible: Schema.Boolean, poof: PoofSelection });
+export const PoofEffect = Schema.Struct({
+  id: Schema.NonEmptyString,
+  nativeGrid: Schema.Struct({ width: Schema.Literal(128), height: Schema.Literal(128) }),
+  pivot: Schema.Struct({ x: Schema.Literal(64), y: Schema.Literal(106) }),
+  drawings: Schema.Array(StreetAsset),
+});
+const Staging = Schema.Union([
+  Schema.Struct({ kind: Schema.Literal('all-present') }),
+  Schema.Struct({ kind: Schema.Literal('poof'), effects: Schema.Array(PoofEffect),
+    tracks: Schema.Array(Schema.Struct({ actor: integer, keys: Schema.Array(PresenceKey) })) }),
+]);
+const allPresent = { kind: 'all-present' } satisfies typeof Staging.Type;
 export const StreetScene = Schema.Struct({
   version: Schema.Literal(2), kind: Schema.Literal('authored-street-preview'),
   width: positive, height: positive, background: StreetAsset,
@@ -29,12 +43,16 @@ export const StreetScene = Schema.Struct({
   countedBeatUnit: Schema.Literals([4, 8]),
   actors: Schema.Array(Actor),
   tracks: Schema.Array(Schema.Struct({ actor: integer, keys: Schema.Array(Key) })),
+  staging: Staging.pipe(Schema.withDecodingDefaultKey(Effect.succeed(allPresent))),
   provenance: Schema.Struct({ source: Schema.NonEmptyString, assetsDigest: Schema.NonEmptyString, scoreDigest: Schema.NonEmptyString }),
 });
 export type PreparedStreetScene = typeof StreetScene.Type;
 export type StreetActor = typeof Actor.Type;
 export type StreetClip = typeof Clip.Type;
-export type ActorFrame = { readonly actor: number; readonly clip: number; readonly pose: number; readonly grayscale: boolean };
+export type StreetPoofEffect = typeof PoofEffect.Type;
+export type StreetStaging = typeof Staging.Type;
+export type ActorFrame = { readonly actor: number; readonly clip: number; readonly pose: number; readonly grayscale: boolean;
+  readonly visible: boolean; readonly poof: typeof PoofSelection.Type };
 const decodeScene = Schema.decodeUnknownSync(StreetScene);
 
 /** Drawing pivots are in PNG canvas coordinates, already including sourceOffset.
@@ -60,6 +78,19 @@ export function parseStreetScene(input: unknown): PreparedStreetScene {
       const clip = actor.clips[key.clip];
       if (!clip || key.pose >= clip.drawings.length || (i > 0 && key.at <= track.keys[i - 1].at)) throw new Error('Invalid actor key');
       if (actor.role === 'main-vocals' && key.grayscale) throw new Error('Main singer must remain in color');
+    }
+  }
+  if (scene.staging.kind === 'poof') {
+    const { effects, tracks } = scene.staging;
+    if (!effects.length || new Set(effects.map(effect => effect.id)).size !== effects.length) throw new Error('Unique poof effects required');
+    for (const effect of effects) if (effect.drawings.length !== 6) throw new Error('Poofs require six approved drawings');
+    if (tracks.length !== scene.actors.length || new Set(tracks.map(track => track.actor)).size !== tracks.length) throw new Error('One presence track per actor required');
+    for (const track of tracks) {
+      if (track.actor >= scene.actors.length || !track.keys.length || track.keys[0].at !== 0) throw new Error('Presence tracks must start at zero for a known actor');
+      for (const [i, key] of track.keys.entries()) {
+        if (key.at >= scene.durationCounts || (i > 0 && key.at <= track.keys[i - 1].at)) throw new Error('Presence keys must increase inside the scene');
+        if (key.poof && !effects[key.poof.effect]?.drawings[key.poof.pose]) throw new Error('Unknown poof drawing');
+      }
     }
   }
   return scene;

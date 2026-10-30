@@ -182,6 +182,8 @@ Use `npm run build:video` to build the C++ held-frame sampler to WASM and bundle
 
 Use `scripts/prepare-street-song.ts` for the complete chart-planned score. It shares the fixture's actor-local visual policy and native sampler. Pair the current frozen source with its matching mapping, and use the private saved catalog only for qualified cast bindings. Scene and private `preparationReceipt` publish together as one atomic JSON file; output must not alias any input. Test forward subdivision parsing, blank/dash intensity rules, independent actor cadence, main/backup section boundaries, and publication failure preservation. Keep source-located diagnostics strict. Verify the actual movie with corrected identity-approved artwork before calling the art finished.
 
+Presence/effect staging uses an independent native HOLD lane alongside each actor's original dance track. Check direct and reverse seeks, effect-only composition-cache changes, colored effects over gray bodies, and partial effect-resource cleanup. `scripts/video-expansion/poof-release.mts` owns admission of the pinned approved Figma poof catalog and exact18 PNGs; run its focused tests separately. Opaque-peak coverage must use actual transition drawings and their recorded pivots, including padded special/ultra canvases.
+
 ## Prepare the arrived I-PAC harness
 
 Start a returning bench session with [Resume the Mac bench test](guides/ipac-mac/resume-bench.md). Read the [installed state](hardware-inventory.md#installed-bench-state) before assigning inputs or changing wiring. The [bench verification record](guides/ipac-mac/bench-verification.md) separates physical observations, packaged diagnostics, and remaining work.

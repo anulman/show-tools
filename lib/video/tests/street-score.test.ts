@@ -20,13 +20,48 @@ function state(start: number, end: number, patch: Partial<StreetWindow> = {}): S
   return { start, end, active: true, emphasis: 'normal', source: 'live', specialIndex: 0, ultraIndex: 0, ...patch };
 }
 function input(actors: readonly StreetActor[] = [actor('instrument')]) {
-  const scene: PreparedStreetScene = { version: 2, kind: 'authored-street-preview', width: 1280, height: 720, background: { path: 'street.png', sha256: '0'.repeat(64) }, previewCountsPerSecond: 2, durationCounts: 2, countedBeatUnit: 4, actors, tracks: [], provenance: { source: 'synthetic', assetsDigest: 'fixture', scoreDigest: 'fixture' } };
+  const scene: PreparedStreetScene = { version: 2, kind: 'authored-street-preview', staging: { kind: 'all-present' }, width: 1280, height: 720, background: { path: 'street.png', sha256: '0'.repeat(64) }, previewCountsPerSecond: 2, durationCounts: 2, countedBeatUnit: 4, actors, tracks: [], provenance: { source: 'synthetic', assetsDigest: 'fixture', scoreDigest: 'fixture' } };
   return { scene, windows: actors.map((_, actor) => ({ actor, states: [state(0, 2)], accents: [0, .25, .5, .75, 1, 1.25, 1.5, 1.75], downbeats: [0] })) };
 }
 const bytes = await readFile(new URL('../../../ui/video/wasm/video-scene.wasm', import.meta.url));
 
 test('Street sampler is standalone with no host imports', async () => {
   assert.deepEqual(WebAssembly.Module.imports(await WebAssembly.compile(bytes)), []);
+});
+
+test('native presence and effect HOLD lane seeks independently of frozen body poses', async () => {
+  const body = compileStreetScore(input());
+  const scene = parseStreetScene({ ...body, staging: { kind: 'poof', effects: [{ id: 'synthetic',
+    nativeGrid: { width: 128, height: 128 }, pivot: { x: 64, y: 106 },
+    drawings: Array.from({ length: 6 }, (_, index) => ({ path: `effect-${index}.png`, sha256: '0'.repeat(64) })) }],
+  tracks: [{ actor: 0, keys: [
+    { at: 0, visible: false, poof: null },
+    { at: .25, visible: false, poof: { effect: 0, pose: 0 } },
+    { at: .5, visible: true, poof: { effect: 0, pose: 2 } },
+    { at: .75, visible: true, poof: { effect: 0, pose: 3 } },
+    { at: 1, visible: false, poof: { effect: 0, pose: 2 } },
+    { at: 1.5, visible: false, poof: null },
+  ] }] } });
+  const sampler = await createStreetSampler(bytes, scene), original = await createStreetSampler(bytes, body);
+  try {
+    const at = [-1, 0, .24999, .25, .49999, .5, .75, .99999, 1, 1.5, 1.99];
+    const forward = at.map(count => sampler.sample(count));
+    for (const index of [10, 5, 0, 8, 3, 1, 9, 2, 7, 6, 4]) {
+      const frame = sampler.sample(at[index])[0];
+      assert.deepEqual([frame], forward[index]);
+      const old = original.sample(at[index])[0];
+      assert.deepEqual([frame.clip, frame.pose, frame.grayscale], [old.clip, old.pose, old.grayscale]);
+    }
+    assert.deepEqual(forward[3][0].poof, { effect: 0, pose: 0 });
+    assert.equal(forward[4][0].visible, false);
+    assert.equal(forward[5][0].visible, true);
+    assert.equal(forward[8][0].visible, false);
+    assert.deepEqual(forward[8][0].poof, { effect: 0, pose: 2 });
+    assert.equal(forward[9][0].poof, null);
+    assert.throws(() => parseStreetScene({ ...scene, staging: { ...scene.staging, tracks: [] } }), /presence track/);
+    const { staging, ...legacy } = body;
+    assert.deepEqual(parseStreetScene(legacy).staging, { kind: 'all-present' });
+  } finally { sampler.dispose(); original.dispose(); }
 });
 
 test('half-count initial hold, quarter-count later transitions, direct seeks use the shared C++ WASM table', async () => {
@@ -45,7 +80,7 @@ test('source presentation changes independently inside a pose hold', async () =>
   const authored = input();
   authored.windows[0].states = [state(0, .25), state(.25, 2, { source: 'sampled' })];
   const sampler = await createStreetSampler(bytes, compileStreetScore(authored));
-  try { assert.deepEqual(sampler.sample(.25)[0], { actor: 0, clip: 1, pose: 0, grayscale: true }); } finally { sampler.dispose(); }
+  try { assert.deepEqual(sampler.sample(.25)[0], { actor: 0, clip: 1, pose: 0, grayscale: true, visible: true, poof: null }); } finally { sampler.dispose(); }
 });
 
 test('main singer stays color and returns to simple while actual backup activity is supplied', async () => {

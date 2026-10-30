@@ -1,5 +1,5 @@
 import { Container, Sprite, Texture, WebGLRenderer } from 'pixi.js';
-import type { PreparedStreetScene } from '../../lib/video/street-score.js';
+import type { PreparedStreetScene, StreetPoofEffect } from '../../lib/video/street-score.js';
 import type { StreetSampler } from '../../lib/video/street-sampler.js';
 import { grayscaleRgba } from '../../lib/video/presentation.js';
 import { fetchStreetAsset, type StreetAsset } from '../../lib/video/street-assets.js';
@@ -64,7 +64,13 @@ export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scen
     background.width = scene.width; background.height = scene.height;
     stage.addChild(background);
     const actors = new Container(); actors.sortableChildren = true; stage.addChild(actors);
-    const figures: Array<{ sprite: Sprite; clips: PreparedDrawing[][] }> = [];
+    const effects: Array<{ pivot: StreetPoofEffect['pivot']; drawings: TexturePair[] }> = [];
+    if (scene.staging.kind === 'poof') for (const effect of scene.staging.effects) {
+      const drawings = [];
+      for (const drawing of effect.drawings) drawings.push(await textures(drawing));
+      effects.push({ pivot: effect.pivot, drawings });
+    }
+    const figures: Array<{ sprite: Sprite; poof: Sprite; clips: PreparedDrawing[][] }> = [];
     for (const actor of scene.actors) {
       const clips = [];
       for (const clip of actor.clips) {
@@ -72,11 +78,12 @@ export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scen
         for (const drawing of clip.drawings) drawings.push({ ...drawing, ...await textures(drawing) });
         clips.push(drawings);
       }
-      const sprite = new Sprite();
-      sprite.position.set(actor.placement.x, actor.placement.y);
-      sprite.scale.set(actor.placement.scale); sprite.zIndex = actor.placement.depth;
-      actors.addChild(sprite);
-      figures.push({ sprite, clips });
+      const figure = new Container();
+      figure.position.set(actor.placement.x, actor.placement.y);
+      figure.scale.set(actor.placement.scale); figure.zIndex = actor.placement.depth;
+      const sprite = new Sprite(), poof = new Sprite();
+      figure.addChild(sprite, poof); actors.addChild(figure);
+      figures.push({ sprite, poof, clips });
     }
     await renderer.init({ width: scene.width, height: scene.height, backgroundAlpha: 0, antialias: false, resolution: 1, preserveDrawingBuffer: true });
     const canvas = renderer.canvas;
@@ -90,6 +97,13 @@ export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scen
         const figure = figures[frame.actor], drawing = figure.clips[frame.clip][frame.pose];
         figure.sprite.texture = frame.grayscale ? drawing.gray : drawing.color;
         figure.sprite.pivot.set(drawing.pivot.x, drawing.pivot.y);
+        figure.sprite.visible = frame.visible;
+        figure.poof.visible = frame.poof !== null;
+        if (frame.poof) {
+          const effect = effects[frame.poof.effect];
+          figure.poof.texture = effect.drawings[frame.poof.pose].color;
+          figure.poof.pivot.set(effect.pivot.x, effect.pivot.y);
+        }
       }
       renderer.render({ container: stage }); return state;
     }

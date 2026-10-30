@@ -63,17 +63,14 @@ export async function createStreetCompositor(scene: PreparedStreetScene, assetRo
   if (background.info.width !== scene.width || background.info.height !== scene.height) throw new Error('Street background dimensions differ from the authored scene');
   const cached = new Map<string, Promise<{ input: Buffer; width: number; height: number }>>();
   let last: { frames: readonly ActorFrame[]; png: Buffer } | undefined;
-  async function drawing(actorIndex: number, clipIndex: number, poseIndex: number, grayscale: boolean) {
-    const actor = scene.actors[actorIndex], clip = actor?.clips[clipIndex], pose = clip?.drawings[poseIndex];
-    if (!actor || !clip || !pose) throw new Error('Sampler returned an unknown Street drawing');
-    const cacheKey = `${actorIndex}:${clipIndex}:${poseIndex}:${Number(grayscale)}`;
+  async function drawing(cacheKey: string, asset: StreetAsset, scale: number, grayscale: boolean) {
     let prepared = cached.get(cacheKey);
     if (!prepared) {
       prepared = (async () => {
-        const { data, info } = await sharp(await load(pose)).toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        const { data, info } = await sharp(await load(asset)).toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
         if (grayscale) grayscaleRgba(data);
-        const width = Math.max(1, Math.round(info.width * actor.placement.scale));
-        const height = Math.max(1, Math.round(info.height * actor.placement.scale));
+        const width = Math.max(1, Math.round(info.width * scale));
+        const height = Math.max(1, Math.round(info.height * scale));
         const input = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
           .resize(width, height, { kernel: 'nearest' }).png().toBuffer();
         return { input, width, height };
@@ -88,22 +85,36 @@ export async function createStreetCompositor(scene: PreparedStreetScene, assetRo
       const previous = last;
       if (previous && frames.length === previous.frames.length && frames.every((frame, index) => {
         const prior = previous.frames[index];
-        return frame.actor === prior.actor && frame.clip === prior.clip && frame.pose === prior.pose && frame.grayscale === prior.grayscale;
+        return frame.actor === prior.actor && frame.clip === prior.clip && frame.pose === prior.pose && frame.grayscale === prior.grayscale
+          && frame.visible === prior.visible && frame.poof?.effect === prior.poof?.effect && frame.poof?.pose === prior.poof?.pose;
       })) return previous.png;
-      const snapshot = frames.map(frame => ({ ...frame }));
+      const snapshot = frames.map(frame => ({ ...frame, poof: frame.poof === null ? null : { ...frame.poof } }));
       const ordered = [...snapshot].sort((a, b) => scene.actors[a.actor].placement.depth - scene.actors[b.actor].placement.depth || a.actor - b.actor);
       const layers: Parameters<ReturnType<typeof sharp>['composite']>[0] = [];
-      for (const frame of ordered) {
-        const actor = scene.actors[frame.actor], pose = actor.clips[frame.clip].drawings[frame.pose];
-        const sprite = await drawing(frame.actor, frame.clip, frame.pose, frame.grayscale);
-        const { left, top } = spritePlacement(actor.placement, pose.pivot);
+      async function addLayer(sprite: Awaited<ReturnType<typeof drawing>>, placement: PreparedStreetScene['actors'][number]['placement'], pivot: { readonly x: number; readonly y: number }) {
+        const { left, top } = spritePlacement(placement, pivot);
         const x = Math.max(0, left), y = Math.max(0, top);
         const width = Math.min(scene.width, left + sprite.width) - x;
         const height = Math.min(scene.height, top + sprite.height) - y;
-        if (width <= 0 || height <= 0) continue;
+        if (width <= 0 || height <= 0) return;
         const input = width === sprite.width && height === sprite.height ? sprite.input
           : await sharp(sprite.input).extract({ left: x - left, top: y - top, width, height }).png().toBuffer();
         layers.push({ input, left: x, top: y });
+      }
+      for (const frame of ordered) {
+        const actor = scene.actors[frame.actor], pose = actor?.clips[frame.clip]?.drawings[frame.pose];
+        if (!actor || !pose) throw new Error('Sampler returned an unknown Street drawing');
+        if (frame.visible) {
+          const sprite = await drawing(`body:${frame.actor}:${frame.clip}:${frame.pose}:${Number(frame.grayscale)}`, pose, actor.placement.scale, frame.grayscale);
+          await addLayer(sprite, actor.placement, pose.pivot);
+        }
+        if (frame.poof) {
+          const effect = scene.staging.kind === 'poof' ? scene.staging.effects[frame.poof.effect] : undefined;
+          const asset = effect?.drawings[frame.poof.pose];
+          if (!effect || !asset) throw new Error('Sampler returned an unknown poof drawing');
+          const sprite = await drawing(`poof:${frame.actor}:${frame.poof.effect}:${frame.poof.pose}`, asset, actor.placement.scale, false);
+          await addLayer(sprite, actor.placement, effect.pivot);
+        }
       }
       const png = await sharp(background.data, { raw: { width: scene.width, height: scene.height, channels: 4 } }).composite(layers).png().toBuffer();
       last = { frames: snapshot, png };
