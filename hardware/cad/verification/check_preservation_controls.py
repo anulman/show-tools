@@ -22,7 +22,7 @@ def run(source,reference,output):
     oracle=a.source_channels(p.disco_bar.load_reference(reference)[1]);first=next(iter(oracle.values()))
     xy=first['center_xy_mm'];radius=first['radius_mm']
     mutations=[('shortened bar',bar-c.cyl(100.,2.,(0,0,-109.22)), 'Protected profile removed','environment'),
-               ('blocked original channel',bar+c.cyl(radius+.5,1.,(*xy,-10.)), 'Original channel void obstructed','environment'),
+               ('blocked original channel',bar+(c.cyl(radius+.5,1.,(*xy,-10.)) & c.cyl(46.,1.,(0,0,-10.))), 'Original channel void obstructed','environment'),
                ('obstructed original socket',cup+c.cyl(2.,3.,(0,0,original['stages']['outside']['source_pose']['shift']-25.)),
                 'Delivered cup obstructs original socket','cup')]
     results={}
