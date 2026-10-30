@@ -85,8 +85,8 @@ def publish_candidates(selector,port=3939,reset=False):
     """Render only admitted actual exports, without regeneration or old collar imports."""
     from build123d import Axis
     from ocp_viewer import Camera,show
-    from geometry_artifacts import Artifacts
     candidates=publication_data(selector)
+    from geometry_artifacts import Artifacts
     artifacts=Artifacts();shapes=[];names=[];colors=[];alphas=[];groups=[]
     titles={'A':'Three captured screw keyholes','B':'Direct bayonet with one lock screw',
             'C':'Independent removable rotary collar'}
