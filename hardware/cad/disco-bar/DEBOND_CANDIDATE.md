@@ -12,7 +12,7 @@ Within each source-derived analytic channel envelope, the new bar is `(bar − e
 
 The validation oracle independently derives the original inner cylindrical faces, root plane, outer cylinder and lumen depth. The producer's claimed voids must match that oracle. Narrowed-baseline, connected blocked-channel and blocked-bottom-entry controls must fail. Disconnected extra material is rejected in both component orders before selecting a sole solid. The old design is rejected using actual receiver counterexamples in both passages; this is not a complete inventory of old intrusions.
 
-Occupancy is the actual Boolean material difference `(part ∩ channel envelope ∩ profile) − original`. Native Common and Cut operations must complete and return valid geometry; fuzzy tolerance is zero. All 25 actual parts in all six states must leave the original voids empty. Boolean errors fail validation. No generic exception is interpreted as zero volume, and no fuzzy tolerance or minimum flow width is introduced.
+Occupancy is the actual Boolean material difference `(part ∩ channel envelope ∩ profile) − original`. Native Common and Cut operations must complete and return valid, non-null geometry; fuzzy tolerance is zero. Missing inputs, null or invalid results, and nonfinite or negative material mass fail validation. A completed valid empty compound has zero volume. All 25 actual parts in all six states must leave the original voids empty. Boolean errors fail validation. No generic exception is interpreted as zero volume, and no fuzzy tolerance or minimum flow width is introduced.
 
 After normal ball removal, the cup stays on the knob. With the cup absent from the bar, actual original root-entry faces are extended below all remaining bar-side hardware and that hardware is subtracted. A connected residual must reach both the original root and the free bottom plane, in locked and released states. This establishes geometric entry, not solvent flow rate, hot-glue compatibility or a successful physical debond.
 
@@ -39,6 +39,7 @@ Commit the source before export. The exporter verifies source bytes against the 
   --compact-receipt /absolute/path/to/compact-mount-v4/receipt.json \
   --output /private/tmp/new-debond-collar-review
 ~/.local/share/show-tools/cad/venv/bin/python hardware/cad/disco-bar/check_debond_boundaries.py
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/disco-bar/check_debond_kernel.py
 ```
 
 The normal export command runs the passage and installed-access gates before exporting STEP/STL files or writing a success receipt. It requires the pinned baseline and compact receipts; these checks cannot be omitted. Each STEP export is compared to its source material in both directions, and each STL is checked for watertight topology, winding and volume. The receipt names the immutable source revision and all verified input and output hashes. It does not publish a scene or release files for printing.

@@ -92,7 +92,8 @@ def validate_channel_baseline(reference,claimed):
 
 def channel_boolean(kind,left,right):
     """Only a completed, valid native Boolean may establish empty material."""
-    if left is None or right is None:return None
+    if left is None or right is None:raise ValueError("Missing channel Boolean input")
+    if left.IsNull() or right.IsNull():raise ValueError("Null channel Boolean input")
     arguments=List_TopoDS_Shape();arguments.Append(left)
     tools=List_TopoDS_Shape();tools.Append(right)
     operation=kind();operation.SetArguments(arguments);operation.SetTools(tools)
@@ -100,15 +101,22 @@ def channel_boolean(kind,left,right):
     operation.Build()
     if not operation.IsDone():raise ValueError('Channel Boolean kernel failure: '+kind.__name__)
     result=operation.Shape()
-    if result.IsNull():return None
+    if result.IsNull():raise ValueError("Null channel Boolean result")
     if not BRepCheck_Analyzer(result).IsValid():raise ValueError('Invalid channel Boolean result')
     return result
 
 
+def checked_channel_mass(properties):
+    value=properties.Mass()
+    if not math.isfinite(value) or value<0:raise ValueError('Invalid channel material mass')
+    return value
+
+
 def channel_material_volume(shape):
-    if shape is None:return 0.
+    if shape is None or shape.IsNull():raise ValueError('Missing channel volume shape')
+    if not BRepCheck_Analyzer(shape).IsValid():raise ValueError('Invalid channel volume shape')
     properties=GProp_GProps();BRepGProp.VolumeProperties_s(shape,properties)
-    return properties.Mass()
+    return checked_channel_mass(properties)
 
 
 def channel_hits(parts,oracle,reference,shift=0):
