@@ -1,0 +1,688 @@
+{
+  "version": 1,
+  "fileKey": "QWreOYAnaje2LlywefJFiK",
+  "status": "approved-effect-library",
+  "canonical": "Figma",
+  "selectedCandidate": null,
+  "note": "All three existing effect artworks are approved interchangeably. Character pixels and frozen DYC source releases remain unchanged. Activity-driven integration requires its own verification.",
+  "candidates": [
+    {
+      "id": "soft",
+      "name": "Soft smoke",
+      "status": "approved",
+      "nativeGrid": {
+        "width": 128,
+        "height": 128
+      },
+      "anchor": {
+        "x": 64,
+        "y": 106
+      },
+      "componentSetId": "284:23568",
+      "palette": [
+        "#645574",
+        "#fff0d9",
+        "#e5d0d9",
+        "#b9a5c5"
+      ],
+      "keyframes": [
+        {
+          "atBeat": 0,
+          "pose": 0
+        },
+        {
+          "atBeat": 0.25,
+          "pose": 1
+        },
+        {
+          "atBeat": 0.5,
+          "pose": 2
+        },
+        {
+          "atBeat": 0.75,
+          "pose": 3
+        },
+        {
+          "atBeat": 1,
+          "pose": 4
+        },
+        {
+          "atBeat": 1.25,
+          "pose": 5
+        },
+        {
+          "atBeat": 1.5,
+          "pose": null
+        }
+      ],
+      "actionBeats": 1.5,
+      "beatUnit": "quarter-note",
+      "interpolation": "hold",
+      "characterSwitchAtBeat": 0.5,
+      "drawings": [
+        {
+          "index": 0,
+          "meaning": "seed",
+          "native": {
+            "path": "assets/video/motion/poof/soft/frame-0.png",
+            "sha256": "e3b627a5ee4371fa9f384911738d50e5a201105b1c077dd64879c44703f4c54f",
+            "rgbaSha256": "79b84edcabbefe4ca6e6e3b572eaae52e5bef437d9c661eaf6e6046a87c6636e"
+          },
+          "figma": {
+            "nodeId": "284:23532",
+            "effectsNodeIds": [
+              "284:23534",
+              "284:23535",
+              "284:23536",
+              "284:23537"
+            ],
+            "exportRgbaSha256": "79b84edcabbefe4ca6e6e3b572eaae52e5bef437d9c661eaf6e6046a87c6636e"
+          }
+        },
+        {
+          "index": 1,
+          "meaning": "expansion",
+          "native": {
+            "path": "assets/video/motion/poof/soft/frame-1.png",
+            "sha256": "5e26cbb05faa460cf8b137f31a80453e62c6dec62aa034ea6540282b7d857424",
+            "rgbaSha256": "8da23e6d179806157f48e6e712725619afd19755ae0d77d74b404f7ff1d3ebb2"
+          },
+          "figma": {
+            "nodeId": "284:23538",
+            "effectsNodeIds": [
+              "284:23540",
+              "284:23541",
+              "284:23542",
+              "284:23543"
+            ],
+            "exportRgbaSha256": "8da23e6d179806157f48e6e712725619afd19755ae0d77d74b404f7ff1d3ebb2"
+          }
+        },
+        {
+          "index": 2,
+          "meaning": "opaque peak",
+          "native": {
+            "path": "assets/video/motion/poof/soft/frame-2.png",
+            "sha256": "4c55a9f7811466fbed5e6469b4740ae90df44622b7a7f16bf2286a348c223a7c",
+            "rgbaSha256": "785e5be167f437e9c38a19adaf3fcbb9fe8a3ab9daea5cf5be057fe9085535db"
+          },
+          "figma": {
+            "nodeId": "284:23544",
+            "effectsNodeIds": [
+              "284:23546",
+              "284:23547",
+              "284:23548",
+              "284:23549"
+            ],
+            "exportRgbaSha256": "785e5be167f437e9c38a19adaf3fcbb9fe8a3ab9daea5cf5be057fe9085535db"
+          }
+        },
+        {
+          "index": 3,
+          "meaning": "opening",
+          "native": {
+            "path": "assets/video/motion/poof/soft/frame-3.png",
+            "sha256": "84c1fd2367b6a2fb18ba25a0be0e7c97c08d05295332f040f3a0527207be5485",
+            "rgbaSha256": "be9f084c675c039dae090e7342451c7f1d3f316ae57cefb53460d5c991350d30"
+          },
+          "figma": {
+            "nodeId": "284:23550",
+            "effectsNodeIds": [
+              "284:23552",
+              "284:23553",
+              "284:23554",
+              "284:23555"
+            ],
+            "exportRgbaSha256": "be9f084c675c039dae090e7342451c7f1d3f316ae57cefb53460d5c991350d30"
+          }
+        },
+        {
+          "index": 4,
+          "meaning": "drift",
+          "native": {
+            "path": "assets/video/motion/poof/soft/frame-4.png",
+            "sha256": "8fca23fd8e95ec56f8fbd11477a4388230f3c0caaf1554d363225ccbe4343718",
+            "rgbaSha256": "2c603ed4b2d3b83e5e7e5ea367642da78e398ad1af31226198d8fa3da0b0cfd3"
+          },
+          "figma": {
+            "nodeId": "284:23556",
+            "effectsNodeIds": [
+              "284:23558",
+              "284:23559",
+              "284:23560",
+              "284:23561"
+            ],
+            "exportRgbaSha256": "2c603ed4b2d3b83e5e7e5ea367642da78e398ad1af31226198d8fa3da0b0cfd3"
+          }
+        },
+        {
+          "index": 5,
+          "meaning": "flecks",
+          "native": {
+            "path": "assets/video/motion/poof/soft/frame-5.png",
+            "sha256": "be8f3f7990e8d133adb780d19cf01d051faf676d7eb76c1948c102867d1d047a",
+            "rgbaSha256": "ebe2e234757da27e12f678e1f60ea7f5a7e6e94a5dd5dfb03e6764c2fb52d23b"
+          },
+          "figma": {
+            "nodeId": "284:23562",
+            "effectsNodeIds": [
+              "284:23564",
+              "284:23565",
+              "284:23566",
+              "284:23567"
+            ],
+            "exportRgbaSha256": "ebe2e234757da27e12f678e1f60ea7f5a7e6e94a5dd5dfb03e6764c2fb52d23b"
+          }
+        }
+      ],
+      "review": {
+        "styleQuestion": "Is this the work of a mid-res 8-bit pixel artist?",
+        "styleVerdict": "pass",
+        "styleEvidence": "Deliberate stepped cloud lobes with warm ivory centers and restrained lilac contour/shadow ramps. Rounded forms remain pixel clusters without soft alpha or painted haze.",
+        "temporalQuestion": "Does this look like intentional movement of the same pixel model, rather than texture crawl or distortion?",
+        "temporalVerdict": "pass",
+        "temporalEvidence": "Floor-level seed grows upward into the occluding cloud, opens into a smoke ring, then shrinks into tracked detached lobes and flecks. The opening gives the character a readable reveal rather than a dissolve.",
+        "reviewer": "/root/poof_star",
+        "scope": "Ordered native effect drawings and contact sheets only. No character redraw, promotion, Figma timeline or final encoded-video approval.",
+        "sourceRgba": "pass"
+      },
+      "preview": {
+        "frameId": "285:222707",
+        "headerId": "285:222708",
+        "character": "A29",
+        "characterFamilyId": "A29-simple-01",
+        "characterSourceSetId": "86:10495",
+        "sourceCatalogSha256": "3c0ffc972cbd0778334d4b2d910255c073f86d49d66d130237d2772a4179ae7c",
+        "characterNativeHashes": [
+          "aae37257ff84d29b52aa8f7b6b4e3d9fcd1708d00778fd6ded2b950fdb148f24",
+          "fbb878d5100eb35410bbbb3161c3dde8de78dec091610778eab136726e085857",
+          "69e200b15e3cb99d61bd53e969295c724f7fd2adaaa38f5bb0423635c1697deb",
+          "da61b37f41b5c594387e7737e7fe6fbeb0f97134fe6dea8f40a1dbd80bdc8d96"
+        ],
+        "durationSeconds": 5,
+        "fps": 8,
+        "bpm": 120,
+        "inSeconds": 0.5,
+        "outSeconds": 3.5,
+        "scale": 3,
+        "width": 640,
+        "height": 480,
+        "anchor": {
+          "x": 320,
+          "y": 402
+        },
+        "review": {
+          "kind": "pass-for-concept-comparison",
+          "reviewer": "/root/poof_soft",
+          "movieSha256": "2e6f9a3439c86fe203c33edf85efbf73c168140703f0dbe118ebc94e53f19b6e",
+          "frames": 41,
+          "styleVerdict": "pass",
+          "temporalVerdict": "pass",
+          "bodyIntegrityVerdict": "pass",
+          "clearanceVerdict": "pass",
+          "evidence": "All41 actual exported movie frames compared against the frozen character/effect pixels and captured HOLD keys; sequence sheets and full-size detail visually reviewed.",
+          "receiptSha256": "193341b2dd360ab098ed863c05c3082c668d69d80f59bdd67bc1285c64e88f0b"
+        }
+      }
+    },
+    {
+      "id": "pixel",
+      "name": "Pixel pop",
+      "status": "approved",
+      "nativeGrid": {
+        "width": 128,
+        "height": 128
+      },
+      "anchor": {
+        "x": 64,
+        "y": 106
+      },
+      "componentSetId": "284:23604",
+      "palette": [
+        "#4b455c",
+        "#e5dce8",
+        "#b3a4c5",
+        "#fff2d5"
+      ],
+      "keyframes": [
+        {
+          "atBeat": 0,
+          "pose": 0
+        },
+        {
+          "atBeat": 0.25,
+          "pose": 1
+        },
+        {
+          "atBeat": 0.5,
+          "pose": 2
+        },
+        {
+          "atBeat": 0.75,
+          "pose": 3
+        },
+        {
+          "atBeat": 1,
+          "pose": 4
+        },
+        {
+          "atBeat": 1.25,
+          "pose": 5
+        },
+        {
+          "atBeat": 1.5,
+          "pose": null
+        }
+      ],
+      "actionBeats": 1.5,
+      "beatUnit": "quarter-note",
+      "interpolation": "hold",
+      "characterSwitchAtBeat": 0.5,
+      "drawings": [
+        {
+          "index": 0,
+          "meaning": "seed",
+          "native": {
+            "path": "assets/video/motion/poof/pixel/frame-0.png",
+            "sha256": "d77caff0e2e674780d903758d66dbd848924630ebc1f283f78a95848a5b7f8d8",
+            "rgbaSha256": "0e842b262d541adc846405d6b382be97aa64dfa8650139a453e0a6dbdb1f51fa"
+          },
+          "figma": {
+            "nodeId": "284:23569",
+            "effectsNodeIds": [
+              "284:23571",
+              "284:23572",
+              "284:23573",
+              "284:23574"
+            ],
+            "exportRgbaSha256": "0e842b262d541adc846405d6b382be97aa64dfa8650139a453e0a6dbdb1f51fa"
+          }
+        },
+        {
+          "index": 1,
+          "meaning": "expansion",
+          "native": {
+            "path": "assets/video/motion/poof/pixel/frame-1.png",
+            "sha256": "6770daaa614e5fad243d93255962792f91548ffc51e73bedf0b8171913f6914a",
+            "rgbaSha256": "227fd900bb5399695ede749262d3bb25304c5620e768aa18fdb9d00ed6fbd083"
+          },
+          "figma": {
+            "nodeId": "284:23575",
+            "effectsNodeIds": [
+              "284:23577",
+              "284:23578",
+              "284:23579",
+              "284:23580"
+            ],
+            "exportRgbaSha256": "227fd900bb5399695ede749262d3bb25304c5620e768aa18fdb9d00ed6fbd083"
+          }
+        },
+        {
+          "index": 2,
+          "meaning": "opaque peak",
+          "native": {
+            "path": "assets/video/motion/poof/pixel/frame-2.png",
+            "sha256": "b8490a650cbc1149a714fd9a4c631772081e59b5edc9277291bb8cd8f1d45954",
+            "rgbaSha256": "2edbfb63f3088fdbf173b193d52b7592f5aa0b025994b829ebc37478543d345c"
+          },
+          "figma": {
+            "nodeId": "284:23581",
+            "effectsNodeIds": [
+              "284:23583",
+              "284:23584",
+              "284:23585",
+              "284:23586"
+            ],
+            "exportRgbaSha256": "2edbfb63f3088fdbf173b193d52b7592f5aa0b025994b829ebc37478543d345c"
+          }
+        },
+        {
+          "index": 3,
+          "meaning": "opening",
+          "native": {
+            "path": "assets/video/motion/poof/pixel/frame-3.png",
+            "sha256": "8e7dc94ec482fc3e8cda89d94760f1b4abbc90f7ea5259184dc67737695d67d4",
+            "rgbaSha256": "6e76f0f6be91909de4fed55207bed438b4a337aca66c887e9499af7918cd4bfc"
+          },
+          "figma": {
+            "nodeId": "284:23587",
+            "effectsNodeIds": [
+              "284:23589",
+              "284:23590",
+              "284:23591",
+              "284:23592"
+            ],
+            "exportRgbaSha256": "6e76f0f6be91909de4fed55207bed438b4a337aca66c887e9499af7918cd4bfc"
+          }
+        },
+        {
+          "index": 4,
+          "meaning": "drift",
+          "native": {
+            "path": "assets/video/motion/poof/pixel/frame-4.png",
+            "sha256": "b4723dec401688b75ae14a191bf46933a220888840c3e1715b33c3e8468d34ef",
+            "rgbaSha256": "23733b2a0b01443226c6c15ceeafa7bac494964d09f8f8cafd3a04d70dc36475"
+          },
+          "figma": {
+            "nodeId": "284:23593",
+            "effectsNodeIds": [
+              "284:23595",
+              "284:23596",
+              "284:23597",
+              "284:23598"
+            ],
+            "exportRgbaSha256": "23733b2a0b01443226c6c15ceeafa7bac494964d09f8f8cafd3a04d70dc36475"
+          }
+        },
+        {
+          "index": 5,
+          "meaning": "flecks",
+          "native": {
+            "path": "assets/video/motion/poof/pixel/frame-5.png",
+            "sha256": "9a235f94988d7426af5f287dc2290f34e0f49e2dbe25c8623fec41f0f687b1c6",
+            "rgbaSha256": "692ed4fee2dffc0770d867d5e6b32dcd98341c9b24b50a7bc0154ca85872c5f8"
+          },
+          "figma": {
+            "nodeId": "284:23599",
+            "effectsNodeIds": [
+              "284:23601",
+              "284:23602",
+              "284:23603"
+            ],
+            "exportRgbaSha256": "692ed4fee2dffc0770d867d5e6b32dcd98341c9b24b50a7bc0154ca85872c5f8"
+          }
+        }
+      ],
+      "review": {
+        "styleQuestion": "Is this the work of a mid-res 8-bit pixel artist?",
+        "styleVerdict": "pass",
+        "styleEvidence": "Squared lobes, consistent dark pixel contour and flat stepped highlight/shadow edges read as intentional pixel smoke. The few interior L-shaped creases support the chunky treatment.",
+        "temporalQuestion": "Does this look like intentional movement of the same pixel model, rather than texture crawl or distortion?",
+        "temporalVerdict": "pass",
+        "temporalEvidence": "The central stepped puff expands into a full peak, then splits into four corner chunks that shrink and travel outward. The later small crumbs follow the same outward breakup rather than changing randomly.",
+        "reviewer": "/root/poof_star",
+        "scope": "Ordered native effect drawings and contact sheets only. No character redraw, promotion, Figma timeline or final encoded-video approval.",
+        "sourceRgba": "pass"
+      },
+      "preview": {
+        "frameId": "285:222904",
+        "headerId": "285:222905",
+        "character": "A07",
+        "characterFamilyId": "A07-simple-01",
+        "characterSourceSetId": "77:10481",
+        "sourceCatalogSha256": "3c0ffc972cbd0778334d4b2d910255c073f86d49d66d130237d2772a4179ae7c",
+        "characterNativeHashes": [
+          "c889f9228dff360f3926a81ed9f428004ca37f4f7caadbd274e20ee79290a58a",
+          "86cf87725ee84823df701227720981dee9c7fe8006efdf4efeea1e6a49b6b031",
+          "0d693826f07834f0bfa2214d23ebd188d8f225be36c55408884e159fa521163c",
+          "4addc7194018aa79c2df1270c6f6dac19d3e05e4e4315047d0684a268b726f3f"
+        ],
+        "durationSeconds": 5,
+        "fps": 8,
+        "bpm": 120,
+        "inSeconds": 0.5,
+        "outSeconds": 3.5,
+        "scale": 3,
+        "width": 640,
+        "height": 480,
+        "anchor": {
+          "x": 320,
+          "y": 402
+        },
+        "review": {
+          "kind": "pass-for-concept-comparison",
+          "reviewer": "/root/poof_soft",
+          "movieSha256": "025da5d08ebd24014b393740bdce774c15e9a83877d729061781cdd1cba755dd",
+          "frames": 41,
+          "styleVerdict": "pass",
+          "temporalVerdict": "pass",
+          "bodyIntegrityVerdict": "pass",
+          "clearanceVerdict": "pass",
+          "evidence": "All41 actual exported movie frames compared against the frozen character/effect pixels and captured HOLD keys; sequence sheets and full-size detail visually reviewed.",
+          "receiptSha256": "193341b2dd360ab098ed863c05c3082c668d69d80f59bdd67bc1285c64e88f0b"
+        }
+      }
+    },
+    {
+      "id": "star",
+      "name": "Star dust",
+      "status": "approved",
+      "nativeGrid": {
+        "width": 128,
+        "height": 128
+      },
+      "anchor": {
+        "x": 64,
+        "y": 106
+      },
+      "componentSetId": "284:23647",
+      "palette": [
+        "#443b5c",
+        "#fff1c8",
+        "#e8bd66",
+        "#ece4f3",
+        "#9585b1",
+        "#c8b9dd"
+      ],
+      "keyframes": [
+        {
+          "atBeat": 0,
+          "pose": 0
+        },
+        {
+          "atBeat": 0.25,
+          "pose": 1
+        },
+        {
+          "atBeat": 0.5,
+          "pose": 2
+        },
+        {
+          "atBeat": 0.75,
+          "pose": 3
+        },
+        {
+          "atBeat": 1,
+          "pose": 4
+        },
+        {
+          "atBeat": 1.25,
+          "pose": 5
+        },
+        {
+          "atBeat": 1.5,
+          "pose": null
+        }
+      ],
+      "actionBeats": 1.5,
+      "beatUnit": "quarter-note",
+      "interpolation": "hold",
+      "characterSwitchAtBeat": 0.5,
+      "drawings": [
+        {
+          "index": 0,
+          "meaning": "seed",
+          "native": {
+            "path": "assets/video/motion/poof/star/frame-0.png",
+            "sha256": "f97d7670b034c9b235698fd1743f741197a681fed5ec3598e03ae84d9bbddff6",
+            "rgbaSha256": "a4f3f3418e29f2d20ed3bd3390d0fe24df4fbff65eea5769413bb66d1dda30c4"
+          },
+          "figma": {
+            "nodeId": "284:23605",
+            "effectsNodeIds": [
+              "284:23607",
+              "284:23608",
+              "284:23609"
+            ],
+            "exportRgbaSha256": "a4f3f3418e29f2d20ed3bd3390d0fe24df4fbff65eea5769413bb66d1dda30c4"
+          }
+        },
+        {
+          "index": 1,
+          "meaning": "expansion",
+          "native": {
+            "path": "assets/video/motion/poof/star/frame-1.png",
+            "sha256": "d0600cb1f124f4cf599ae0a6932266cc49a901a6f65d6ddc82619b6e0b3efb1c",
+            "rgbaSha256": "12a649a4da3da37807e2780c3b96783f783e8f98d13ad3174f98dfff7f37b6bd"
+          },
+          "figma": {
+            "nodeId": "284:23610",
+            "effectsNodeIds": [
+              "284:23612",
+              "284:23613",
+              "284:23614",
+              "284:23615",
+              "284:23616",
+              "284:23617"
+            ],
+            "exportRgbaSha256": "12a649a4da3da37807e2780c3b96783f783e8f98d13ad3174f98dfff7f37b6bd"
+          }
+        },
+        {
+          "index": 2,
+          "meaning": "opaque peak",
+          "native": {
+            "path": "assets/video/motion/poof/star/frame-2.png",
+            "sha256": "02a15292236f788a69e8ef32c731da9548fefdc02a3be2c8a5de80a5547b8376",
+            "rgbaSha256": "c57d08edeb7102cd6092bd149410755178cbc0dbbe75eeeb849fcd540c0b3789"
+          },
+          "figma": {
+            "nodeId": "284:23618",
+            "effectsNodeIds": [
+              "284:23620",
+              "284:23621",
+              "284:23622",
+              "284:23623",
+              "284:23624",
+              "284:23625"
+            ],
+            "exportRgbaSha256": "c57d08edeb7102cd6092bd149410755178cbc0dbbe75eeeb849fcd540c0b3789"
+          }
+        },
+        {
+          "index": 3,
+          "meaning": "opening",
+          "native": {
+            "path": "assets/video/motion/poof/star/frame-3.png",
+            "sha256": "b8d97b74eb443f595d3ba490c0da62f67701e36ac64e64ed8601f3e9e593737c",
+            "rgbaSha256": "d64dc9d4e54f482962ae019bd3e2eaa7e53cb617e891207a2a012ba1f0b60a8e"
+          },
+          "figma": {
+            "nodeId": "284:23626",
+            "effectsNodeIds": [
+              "284:23628",
+              "284:23629",
+              "284:23630",
+              "284:23631",
+              "284:23632",
+              "284:23633"
+            ],
+            "exportRgbaSha256": "d64dc9d4e54f482962ae019bd3e2eaa7e53cb617e891207a2a012ba1f0b60a8e"
+          }
+        },
+        {
+          "index": 4,
+          "meaning": "drift",
+          "native": {
+            "path": "assets/video/motion/poof/star/frame-4.png",
+            "sha256": "1693d6e4c0c5f5604c021c33bf50fef81d621a7953b7f3f8f1bb7d703383d86d",
+            "rgbaSha256": "b7fecab93ee2eb8e24db11f713cfc7481bf717d8f8520666f6bc1110cbf004d4"
+          },
+          "figma": {
+            "nodeId": "284:23634",
+            "effectsNodeIds": [
+              "284:23636",
+              "284:23637",
+              "284:23638",
+              "284:23639",
+              "284:23640",
+              "284:23641"
+            ],
+            "exportRgbaSha256": "b7fecab93ee2eb8e24db11f713cfc7481bf717d8f8520666f6bc1110cbf004d4"
+          }
+        },
+        {
+          "index": 5,
+          "meaning": "flecks",
+          "native": {
+            "path": "assets/video/motion/poof/star/frame-5.png",
+            "sha256": "6b8cb4fc477d0d12827061663218a5465d693b9369ccb3e66e2ab11453b2eba4",
+            "rgbaSha256": "9e4e52039cb3e634106c2a062c6601197d664aea6fe8e7a43ce7d84c133cdfd1"
+          },
+          "figma": {
+            "nodeId": "284:23642",
+            "effectsNodeIds": [
+              "284:23644",
+              "284:23645",
+              "284:23646"
+            ],
+            "exportRgbaSha256": "9e4e52039cb3e634106c2a062c6601197d664aea6fe8e7a43ce7d84c133cdfd1"
+          }
+        }
+      ],
+      "review": {
+        "styleQuestion": "Is this the work of a mid-res 8-bit pixel artist?",
+        "styleVerdict": "pass",
+        "styleEvidence": "Lilac scalloped veil, one-pixel contour and sparse gold four-point glints read cleanly at native size and integer enlargement. Highlight marks are bounded accents rather than material shimmer.",
+        "temporalQuestion": "Does this look like intentional movement of the same pixel model, rather than texture crawl or distortion?",
+        "temporalVerdict": "pass",
+        "temporalEvidence": "Compact flash grows into a broad veil; the veil opens into a few lobes, leaving two progressively smaller glints. The effect changes phase deliberately without blending or texture crawl.",
+        "reviewer": "/root/poof_star",
+        "scope": "Ordered native effect drawings and contact sheets only. No character redraw, promotion, Figma timeline or final encoded-video approval.",
+        "sourceRgba": "pass"
+      },
+      "preview": {
+        "frameId": "285:223111",
+        "headerId": "285:223112",
+        "character": "A02",
+        "characterFamilyId": "A02-simple-01",
+        "characterSourceSetId": "94:10535",
+        "sourceCatalogSha256": "3c0ffc972cbd0778334d4b2d910255c073f86d49d66d130237d2772a4179ae7c",
+        "characterNativeHashes": [
+          "ce0b06cc98b60779be5c4a4c2b2118e49b84b92e2b28be34745690d4cbd89ca9",
+          "941541757fb0ed55ba084aa427b6b54b3ec3d2f71764820e5a16c944410ee3d7",
+          "6bfe9fcac785e882efdd04975ba0179face301677e2682c147bc87748139f75b",
+          "0d3b91d94102372077686e781cf9918dbaa2b9e6f016f971f6b1faebae78f082"
+        ],
+        "durationSeconds": 5,
+        "fps": 8,
+        "bpm": 120,
+        "inSeconds": 0.5,
+        "outSeconds": 3.5,
+        "scale": 3,
+        "width": 640,
+        "height": 480,
+        "anchor": {
+          "x": 320,
+          "y": 402
+        },
+        "review": {
+          "kind": "pass-for-concept-comparison",
+          "reviewer": "/root/poof_soft",
+          "movieSha256": "51f32d776a0441158c512aaef9ebec364a8446105f0a692e569e9f7824b4e541",
+          "frames": 41,
+          "styleVerdict": "pass",
+          "temporalVerdict": "pass",
+          "bodyIntegrityVerdict": "pass",
+          "clearanceVerdict": "pass",
+          "evidence": "All41 actual exported movie frames compared against the frozen character/effect pixels and captured HOLD keys; sequence sheets and full-size detail visually reviewed.",
+          "receiptSha256": "193341b2dd360ab098ed863c05c3082c668d69d80f59bdd67bc1285c64e88f0b"
+        }
+      }
+    }
+  ],
+  "comparison": {
+    "movieSha256": "e667aee068c0450ad737aee3573baf17f7894765d0efcb093ff97dcd9645a24d",
+    "frames": 41,
+    "width": 1920,
+    "height": 480,
+    "fps": 8,
+    "scope": "All123 side-by-side candidate-frame crops passed the same frozen-pixel and visual checks. Selection and universal runtime promotion remain pending."
+  },
+  "selectionPolicy": "interchangeable",
+  "operatorApproval": {
+    "date": "2026-10-30",
+    "quote": "I like them all. We can use them interchangeably for now.",
+    "scope": "All three existing poof effects for character entrances and exits; runtime integration verified separately."
+  }
+}

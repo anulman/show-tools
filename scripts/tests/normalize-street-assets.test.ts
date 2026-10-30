@@ -69,7 +69,7 @@ test('normalized scene rejects valid replacement PNGs at export loading', async 
       await writeFile(join(root, path), changed);
       await assert.rejects(async () => {
         const compositor = await createStreetCompositor(scene, root);
-        await compositor.render([{ actor: 0, clip: 0, pose: 0, grayscale: false }]);
+        await compositor.render([{ actor: 0, clip: 0, pose: 0, grayscale: false, visible: true, poof: null }]);
       }, /Asset hash mismatch/);
     } finally { await rm(root, { recursive: true, force: true }); }
   }

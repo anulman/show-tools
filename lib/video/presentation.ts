@@ -1,3 +1,10 @@
+import type { StreetActor, StreetStaging } from './street-score.js';
+
+export function streetPoofPlacement(actor: StreetActor, track: Extract<StreetStaging, { kind: 'poof' }>['tracks'][number]) {
+  return { ...actor.placement, x: actor.placement.x + track.offset.x, y: actor.placement.y + track.offset.y,
+    scale: track.scale ?? actor.placement.scale };
+}
+
 /** BT.709 display luminance in encoded RGB; alpha and pixel geometry unchanged. */
 export function grayscaleRgba(pixels: Uint8Array | Uint8ClampedArray): void {
   if (pixels.length % 4 !== 0) throw new Error('RGBA pixels require complete four-channel tuples');

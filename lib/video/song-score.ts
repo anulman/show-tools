@@ -9,11 +9,13 @@ import { resolveVoice } from '../voice-catalog/session.js';
 import { deriveMainVocalSections } from './main-vocal-sections.js';
 import { parseStreetCell } from './street-rhythm.js';
 import { prepareStreetScore, StreetScene, streetClipPlayback, type StreetActor, type StreetWindow } from './street-score.js';
+import { prepareStreetPresence, type StreetPresenceAssets } from './street-presence.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export interface SourceDiagnostic { readonly cell: string; readonly text: string; readonly message: string }
 
-export async function prepareStreetSong(input: { readonly catalog: unknown; readonly source: unknown; readonly mapping: unknown; readonly assets: unknown }) {
+export async function prepareStreetSong(input: { readonly catalog: unknown; readonly source: unknown; readonly mapping: unknown; readonly assets: unknown;
+  readonly presence?: StreetPresenceAssets }) {
   const catalog = parseCatalogDocument(input.catalog), source = parseSongSource(input.source);
   const compiled = await compileSong(source, input.mapping);
   const diagnostics: SourceDiagnostic[] = compiled.diagnostics.map(item => ({ cell: item.source.a1, text: item.source.text, message: item.message }));
@@ -67,10 +69,16 @@ export async function prepareStreetSong(input: { readonly catalog: unknown; read
   if (countedBeatUnit !== 4 && countedBeatUnit !== 8) throw new Error('Street score supports quarter-note or eighth-note counts');
   const prepared = prepareStreetScore({ scene: { ...assets, actors, durationCounts, countedBeatUnit, previewCountsPerSecond: compiled.chart.bpm / 60,
     provenance: { source: 'full-song chart-planned activity; backup eligibility intersected with nonblank arrangement; native manual performance unobserved', assetsDigest: assets.provenance.assetsDigest, scoreDigest: digest(windows) } }, windows });
-  const scene = prepared.scene;
+  const presence = input.presence ? prepareStreetPresence({ scene: prepared.scene, windows,
+    sections: compiled.chart.sections.map(section => ({ start: (section.startBar - 1) * beats, end: section.endBar * beats })), assets: input.presence }) : null;
+  const scene = presence?.scene ?? prepared.scene;
   const receipt = { kind: 'private-chart-planned-street-song', durationCounts, bpm: compiled.chart.bpm, sourceDigest: compiled.source.digest, mappingDigest: compiled.mappingDigest,
     catalogSha256: digest(input.catalog), assetsSha256: digest(input.assets), mainVocalSections: sections, cells, windows, accentDecisions: prepared.accentDecisions.map(decision => ({ ...decision, cell: cells.find(cell => cell.actor === decision.actor && cell.bar === Math.floor(decision.at / beats) + 1)?.cell })),
     savedBindings: resolved.map(({ row, voice }) => ({ labelCell: row.labelCell, sourceLabel: row.sourceLabel, voiceId: voice.id, characterId: voice.characterId })),
-    clipPlayback: actors.flatMap(actor => actor.clips.map(clip => ({ characterId: actor.characterId, clipId: clip.id, authoredCycleQuarters: clip.cycleQuarters, actionQuarters: clip.actionQuarters, ...streetClipPlayback(clip) }))), nativeProgram: 'not-verified' };
+    clipPlayback: actors.flatMap(actor => actor.clips.map(clip => ({ characterId: actor.characterId, clipId: clip.id, authoredCycleQuarters: clip.cycleQuarters, actionQuarters: clip.actionQuarters, ...streetClipPlayback(clip) }))),
+    presence: presence && input.presence ? { policy: 'singer always present; backup first eligible cue through section end; overlapping poofs merge at opaque peak',
+      poofCatalogSha256: input.presence.poofCatalogSha256, fitProfileSha256: input.presence.fitProfileSha256,
+      ranges: presence.presenceRanges, transitions: presence.decisions, boundaryPolicy: 'half-open song duration; effect lead-ins and tails clip at song boundaries' } : null,
+    nativeProgram: 'not-verified' };
   return { kind: 'ready', scene, receipt } satisfies { kind: 'ready'; scene: typeof scene; receipt: typeof receipt };
 }
