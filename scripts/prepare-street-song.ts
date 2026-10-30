@@ -1,5 +1,6 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import { prepareStreetSong } from '../lib/video/song-score.js';
+import { publishPreparedArtifact } from '../lib/video/prepared-artifact.js';
 
 const [catalogPath, sourcePath, mappingPath, assetsPath, output] = process.argv.slice(2);
 if (!catalogPath || !sourcePath || !mappingPath || !assetsPath || !output) throw new Error('Usage: prepare-street-song.ts catalog.json source.json mapping.json assets-scene.json output.json (private inputs/output)');
@@ -9,7 +10,7 @@ if (result.kind === 'blocked') {
   process.stderr.write(`${JSON.stringify(result.diagnostics, null, 2)}\n`);
   process.exitCode = 1;
 } else {
-  await writeFile(output, `${JSON.stringify(result.scene, null, 2)}\n`);
-  await writeFile(`${output}.receipt.json`, `${JSON.stringify(result.receipt, null, 2)}\n`);
+  await publishPreparedArtifact({ output, inputs: [catalogPath, sourcePath, mappingPath, assetsPath],
+    artifact: { ...result.scene, preparationReceipt: result.receipt } });
   process.stdout.write(`Prepared ${result.scene.actors.length} actors, ${result.scene.durationCounts} counts, ${(result.scene.durationCounts / result.scene.previewCountsPerSecond).toFixed(6)} seconds.\n`);
 }

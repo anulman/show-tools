@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { readFile } from 'node:fs/promises';
+import { link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import sourceInput from '../../../songs/dance-yrself-clean.source.json';
 import mapping from '../../../songs/dance-yrself-clean.mapping.json';
 import { compileSong } from '../../performance/compiled-song.js';
@@ -9,6 +12,8 @@ import { discoverSheetVoices } from '../../voice-catalog/sheet-voices.js';
 import { reconcileCatalog } from '../../voice-catalog/session.js';
 import { prepareStreetSong } from '../song-score.js';
 import { createStreetSampler } from '../street-sampler.js';
+import { publishPreparedArtifact } from '../prepared-artifact.js';
+import { parseStreetScene } from '../street-score.js';
 import type { PreparedStreetScene, StreetActor } from '../street-score.js';
 
 const source = parseSongSource(sourceInput), compiled = await compileSong(source, mapping);
@@ -20,6 +25,60 @@ const assets: PreparedStreetScene = { version: 2, kind: 'authored-street-preview
   actors: catalog.voices.map(voice => ({ characterId: voice.characterId, role: 'instrument', placement: { x: 0, y: 0, depth: 0, scale: 1 }, clips: ['simple', 'vigorous', 'special', 'ultra'].map((tier, i) => ({ id: `${voice.id}-${tier}`, tier: i === 0 ? 'simple' : i === 1 ? 'vigorous' : i === 2 ? 'special' : 'ultra', cycleQuarters: 2, actionQuarters: null, nativeGrid: { width: 64, height: 64 }, sourceOffset: { x: 0, y: 0 }, keys: [0, .5, 1, 1.5].map((atQuarter, pose) => ({ atQuarter, pose })), drawings: [0, 1, 2, 3].map(i => ({ path: `/pose-${i}.png`, sha256: String(i).repeat(64), pivot: { x: 0, y: 0 } })) })) } satisfies StreetActor)) };
 const input = { catalog, source, mapping, assets };
 const bytes = await readFile(new URL('../../../ui/video/wasm/video-scene.wasm', import.meta.url));
+
+test('CLI publishes a complete scene and receipt together despite an unusable legacy sidecar', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'street-publication-'));
+  try {
+    const paths = ['catalog', 'source', 'mapping', 'assets'].map(name => join(root, `${name}.json`));
+    await Promise.all(paths.map((path, index) => writeFile(path, JSON.stringify([catalog, source, mapping, assets][index]))));
+    const output = join(root, 'scene.json');
+    await writeFile(output, 'previous scene');
+    await mkdir(`${output}.receipt.json`);
+    const command = new URL('../../../scripts/prepare-street-song.ts', import.meta.url);
+    const run = spawnSync(process.execPath, ['--import', 'tsx', command.pathname, ...paths, output], { encoding: 'utf8' });
+    assert.equal(run.status, 0, run.stderr);
+    const artifact = JSON.parse(await readFile(output, 'utf8'));
+    assert.equal(parseStreetScene(artifact).durationCounts, 872);
+    assert.equal(artifact.preparationReceipt.cells.length, 1744);
+    assert.equal(artifact.preparationReceipt.durationCounts, 872);
+    assert.deepEqual(await readdir(`${output}.receipt.json`), []);
+    const originalAssets = await readFile(paths[3], 'utf8');
+    const alias = spawnSync(process.execPath, ['--import', 'tsx', command.pathname, ...paths, paths[3]], { encoding: 'utf8' });
+    assert.notEqual(alias.status, 0);
+    assert.match(alias.stderr, /aliases an input/);
+    assert.equal(await readFile(paths[3], 'utf8'), originalAssets);
+    assert(!(await readdir(root)).some(name => name.startsWith('.prepared-scene-')));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('publication rejects every source alias and preserves old output on failure', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'street-publication-alias-'));
+  try {
+    const inputs = ['catalog', 'source', 'mapping', 'assets'].map(name => join(root, `${name}.json`));
+    await Promise.all(inputs.map(path => writeFile(path, 'original input')));
+    const parentAlias = `${root}-alias`;
+    await symlink(root, parentAlias);
+    try {
+      for (const [index, path] of inputs.entries()) {
+        const hard = join(root, `hard-${index}`), soft = join(root, `soft-${index}`);
+        await link(path, hard); await symlink(path, soft);
+        for (const output of [path, hard, soft, join(parentAlias, `${['catalog', 'source', 'mapping', 'assets'][index]}.json`)]) {
+          await assert.rejects(publishPreparedArtifact({ output, inputs, artifact: { replacement: true } }), /aliases an input/);
+          assert.equal(await readFile(path, 'utf8'), 'original input');
+        }
+      }
+    } finally { await rm(parentAlias); }
+    const output = join(root, 'previous.json');
+    await writeFile(output, 'previous complete artifact');
+    await assert.rejects(publishPreparedArtifact({ output, inputs, artifact: { unserializable: 1n } }), /BigInt/);
+    assert.equal(await readFile(output, 'utf8'), 'previous complete artifact');
+    const directory = join(root, 'directory.json');
+    await mkdir(directory); await writeFile(join(directory, 'previous'), 'preserved');
+    await assert.rejects(publishPreparedArtifact({ output: directory, inputs, artifact: {} }), /regular file/);
+    assert.equal(await readFile(join(directory, 'previous'), 'utf8'), 'preserved');
+    assert(!(await readdir(root)).some(name => name.startsWith('.prepared-scene-')));
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test('complete chart prepares all eight actors, all cells and exact duration; native reverse seeks agree', async () => {
   const result = await prepareStreetSong(input);
