@@ -24,20 +24,20 @@ def tagged_guards(model):
     """Preserve the real guards, tagging only failures they deliberately raise."""
     originals = []
 
-    def wrap(original):
+    def wrap(original, expected_exception):
         def checked(condition, message):
             try:
                 return original(condition, message)
-            except ValueError as error:
-                if condition or str(error) != str(message):
+            except expected_exception as error:
+                if type(error) is not expected_exception or condition or str(error) != str(message):
                     raise
                 raise ProductGateFailure(str(error)) from error
         return checked
 
     try:
-        for module in (model.audit, model.cad, model.cad.box_cad):
+        for module, expected in ((model.audit, ValueError), (model.cad, ValueError), (model.cad.box_cad, RuntimeError)):
             originals.append((module, module.require))
-            module.require = wrap(module.require)
+            module.require = wrap(module.require, expected)
         yield
     finally:
         for module, original in reversed(originals):
@@ -48,9 +48,10 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def check_receipt(output):
+def check_receipt(output, declared_root=None, receipt_name='receipt.json'):
     output = output.resolve()
-    path = output / 'receipt.json'
+    declared_root = output if declared_root is None else declared_root.resolve()
+    path = output / receipt_name
     raw = path.read_bytes()
     report = json.loads(raw)
     if (report.get('scope') != 'ISOLATED_FULL_HEX_ONE_KEEPER_FIT_COUPON_NOT_FULL_MOUNT'
@@ -63,18 +64,19 @@ def check_receipt(output):
     for part in records:
         for kind in ('step', 'stl'):
             expected = output / 'print' / f'measured-hex-{part["name"]}.{kind}'
-            if Path(part[kind]).resolve() != expected or digest(expected) != part[kind + '_sha256']:
+            declared = declared_root / 'print' / expected.name
+            if Path(part[kind]).resolve() != declared or digest(expected) != part[kind + '_sha256']:
                 raise ProductGateFailure('A checked fit-trial export is missing, relocated or changed.')
     assembly = output / 'nominal-one-keeper-assembly.step'
-    if (Path(report['assembly_step']).resolve() != assembly
+    if (Path(report['assembly_step']).resolve() != declared_root / assembly.name
             or digest(assembly) != report['assembly_step_sha256']):
         raise ProductGateFailure('The checked nominal assembly is missing, relocated or changed.')
     if path.read_bytes() != raw:
         raise ProductGateFailure('The receipt changed during the final export check.')
-    return dict(path=str(path), sha256=hashlib.sha256(raw).hexdigest())
+    return dict(path=str(declared_root / 'receipt.json'), sha256=hashlib.sha256(raw).hexdigest())
 
 
-def run(output):
+def run(output, staging):
     stage = 'input'
     owned = False
     try:
@@ -83,6 +85,10 @@ def run(output):
         if output.exists() or output.is_symlink():
             raise ProductGateFailure('The output already exists. Choose a new directory; existing work was not changed.')
         output = output.resolve()
+        staging = staging.resolve()
+        if not staging.is_dir() or any(staging.iterdir()):
+            raise ProductGateFailure('The internal staging directory must be empty.')
+        owned = True
         stage = 'runtime'
         sys.path.insert(0, str(HERE / 'box-mount' / 'access'))
         model = importlib.import_module('measured_hex_joint')
@@ -90,12 +96,18 @@ def run(output):
             stage = 'validation'
             runpy.run_path(str(HERE / 'box-mount' / 'access' / 'check_measured_hex_joint.py'), run_name='__main__')
             stage = 'export'
-            # Reserve a fresh destination only after the product gate passes.
-            output.mkdir(parents=True, exist_ok=False)
-            owned = True
-            model.export(model.build(), output)
+            model.export(model.build(), staging)
             stage = 'receipt'
-            receipt = check_receipt(output)
+            check_receipt(staging)
+            original_receipt = staging / 'receipt.json'
+            report = json.loads(original_receipt.read_bytes())
+            for part in report['review_components']:
+                for kind in ('step', 'stl'):
+                    part[kind] = str(output / 'print' / Path(part[kind]).name)
+            report['assembly_step'] = str(output / Path(report['assembly_step']).name)
+            original_receipt.unlink()
+            (staging / 'receipt.pending.json').write_text(json.dumps(report, indent=2)+'\n')
+            receipt = check_receipt(staging, output, 'receipt.pending.json')
         return dict(protocol=1, kind='validated', recipe=RECIPE, receipt=receipt)
     except ProductGateFailure as error:
         result = dict(protocol=1, kind='gate-failed', stage=stage, cause=str(error))
@@ -104,7 +116,8 @@ def run(output):
         result = dict(protocol=1, kind='execution-failed', stage=stage, cause=type(error).__name__)
     if owned:
         try:
-            (output / 'receipt.json').unlink(missing_ok=True)
+            for name in ('receipt.json', 'receipt.pending.json'):
+                (staging / name).unlink(missing_ok=True)
         except OSError:
             result = dict(protocol=1, kind='execution-failed', stage='cleanup', cause='ReceiptRemovalFailed')
     return result
@@ -114,10 +127,11 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('recipe', choices=(RECIPE,))
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--staging-root', type=Path, required=True)
     args = parser.parse_args()
     # The bridge protocol is one JSON object. Normal validator chatter is not a result.
     with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
-        result = run(args.output)
+        result = run(args.output, args.staging_root)
     print(json.dumps(result))
 
 
