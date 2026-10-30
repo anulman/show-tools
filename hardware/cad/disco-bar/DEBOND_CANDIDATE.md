@@ -1,6 +1,8 @@
 # Channel-preserving collar candidate
 
-This isolated candidate restores the two bottom-accessible alcohol/debond passages identified in the operator's October 29 Scrawl. It keeps the existing C2 underside collar and captive lock, full 109.22 mm bar, original outer profile and snug knob socket. It adds no height or purchased hardware. Existing producers, frozen exports and publication selections remain unchanged. The earlier C2 fabrication handoff remains on hold pending review of this candidate.
+**Current prototype files:** use the corrected bar and receiver from `channel-corrected-prototype-print-files.zip`. Digital checks passed; physical fit, strength, fluid delivery and solvent release remain unverified. The earlier modified C2 collar/bar handoff remains held.
+
+This isolated candidate restores the two bottom-accessible alcohol/debond passages identified in the operator's October 29 Scrawl. It keeps the existing C2 underside collar and captive lock, full 109.22 mm bar, original outer profile and snug knob socket. It adds no height or purchased hardware. The exporter leaves existing producers, frozen exports and publication selections unchanged.
 
 ## Construction and verification boundaries
 
