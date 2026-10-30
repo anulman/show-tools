@@ -6,6 +6,8 @@ The [four-workstream planning brief](workstreams.md) records the current priorit
 
 The [canonical-data and retention policy](data-retention.md) governs promotion and cleanup. Preserve completed designs and concise lessons rather than every experiment. Figma owns promoted animation. Git owns canonical effects and tools. Operator authoring data needs a database sidecar and independent backup; current browser SQLite storage does not yet satisfy that target. Review temporary material at milestone handoff and during periodic housekeeping, after verifying the canonical handoff.
 
+The [deterministic command plan](implementation/deterministic-pipelines.md) separates product validation from harness recovery. Product blocks require an operator-facing explanation and suggested next steps when driven by an agent. Harness failures hand control to Chief. Shared CLI diagnostics live in `scripts/lib/command-diagnostics.ts`; domain code owns the actual validation rules.
+
 ## Give each session its own checkout
 
 Create separate worktrees before running agents concurrently. This separates source edits, the Git index, dependencies, and generated `dist/` files.
