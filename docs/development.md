@@ -184,6 +184,8 @@ Use `scripts/prepare-street-song.ts` for the complete chart-planned score. It sh
 
 Presence/effect staging uses an independent native HOLD lane alongside each actor's original dance track. Check direct and reverse seeks, effect-only composition-cache changes, colored effects over gray bodies, and partial effect-resource cleanup. `scripts/video-expansion/poof-release.mts` owns admission of the pinned approved Figma poof catalog and exact18 PNGs; run its focused tests separately. Opaque-peak coverage must use actual transition drawings and their recorded pivots, including padded special/ultra canvases.
 
+Run `node --import tsx scripts/verify-street-presence.ts SCENE ASSET_ROOT WASM NEW_REPORT_JSON` on a prepared presence scene before movie export. It samples the real native tables at each visibility edge, checks outgoing and incoming combined sprite pixels against the opaque peak, and rejects occupied cloud clipping across all six drawings of every used variant. Neighbor overlap remains an explicit visual-review diagnostic. The report binds scene, WASM and loaded PNG hashes; its output path must be new.
+
 ## Prepare the arrived I-PAC harness
 
 Start a returning bench session with [Resume the Mac bench test](guides/ipac-mac/resume-bench.md). Read the [installed state](hardware-inventory.md#installed-bench-state) before assigning inputs or changing wiring. The [bench verification record](guides/ipac-mac/bench-verification.md) separates physical observations, packaged diagnostics, and remaining work.
