@@ -1,5 +1,7 @@
 # Prepare and publish the final review proposals
 
+For the operator's next publication, stage the checked complete candidates with `comparison_review.py --presentation candidates` and the three selected receipt paths. Activate this only after the replacement compact mount passes its dependent checks and the selected receipt pins are updated. Box mount then shows the selected arcade and rotor bases. Disco bar shows the selected bar/baseplate installed on its matching base, with the bar extending upward. Historical comparisons, the uncut mushroom blank and isolated fit trials are absent from these scenes. All earlier files remain intact. Omit `--presentation candidates` when deliberately restoring the historical comparison presentation.
+
 The optional comparison selection adds the PR 50 prototypes beside these older proposals. On Disco bar, the order is original, OLD C, NEW C2. On Box mount, it is old arcade, new arcade, old rotor, new rotor, then the unchanged mushroom blank. Display offsets do not change any fabrication file. New models are labeled `FIT PENDING`.
 
 After staging the existing pair below, select the independently reviewed comparison receipts in the same checkout:
