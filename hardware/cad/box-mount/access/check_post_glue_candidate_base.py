@@ -13,6 +13,22 @@ from build123d import Axis
 PRODUCER_SOURCES={'post_glue_couplings.py','check_post_glue_candidates.py','full_height.py',
                   'standard_collar.py','couplings.py','debond_checks.py','check_couplings.py','disco_bar.py'}
 REFERENCE_SHA='f0a21384179b69eff79205032dad536bfa1350e358c25ed0fe01de4189f2e003'
+CONCEPTS={
+    'post-glue A':(frozenset(PRODUCER_SOURCES),True),
+    'post-glue B':(frozenset(PRODUCER_SOURCES),True),
+    'post-glue C':(frozenset(PRODUCER_SOURCES|{'post_glue_cassette.py'}),False),
+}
+
+
+def concept_rules(concept):
+    gate.audit.require(concept in CONCEPTS,'Unsupported post-glue concept')
+    return CONCEPTS[concept]
+
+
+def cup_anchor(cup,pose,cup_rotates):
+    # A/B rotate the whole removable module; C rotates only its collar actors.
+    angle=pose['angle'] if cup_rotates else 0.
+    return cup.rotate(Axis.Z,-angle).translate((0,0,-pose['shift']))
 
 
 def run(base_receipt,candidate_receipt,worktree,output):
@@ -22,7 +38,8 @@ def run(base_receipt,candidate_receipt,worktree,output):
     manifest=gate.bind_input(data,'candidate',candidate_receipt)
     gate.audit.require(manifest['bar_already_glued'] is True and manifest['above_root_exterior_access'] is False,
                        'Candidate does not use bare-glued-bar access boundary')
-    gate.audit.require(set(manifest['source_code_sha256'])==PRODUCER_SOURCES,'Incomplete post-glue producer source inventory')
+    producer_sources,cup_rotates=concept_rules(manifest['concept'])
+    gate.audit.require(set(manifest['source_code_sha256'])==producer_sources,'Incomplete post-glue producer source inventory')
     commit=gate.audit.source_revision(worktree,manifest['source_commit'],manifest['source_code_sha256'])
     gate.audit.require(manifest['reference_sha256']==REFERENCE_SHA,'Wrong raw bar reference identity')
     bar=gate.load_records(data,[manifest['environment']],{manifest['environment']['name']})
@@ -35,8 +52,8 @@ def run(base_receipt,candidate_receipt,worktree,output):
     results={};anchor=None
     for stage,definition in stages.items():
         parts=gate.load_records(data,definition['components'],names)
-        pose=definition['source_pose'];shift=pose['shift'];angle=pose['angle']
-        cup=dict(parts)[expected_cup].rotate(Axis.Z,-angle).translate((0,0,-shift))
+        pose=definition['source_pose'];shift=pose['shift']
+        cup=cup_anchor(dict(parts)[expected_cup],pose,cup_rotates)
         if anchor is None:anchor=cup
         gate.audit.require(gate.outside_volume(cup,anchor)<1e-6 and gate.outside_volume(anchor,cup)<1e-6,
                            'Cup source shift/angle does not preserve fixed world anchor: '+stage)
@@ -57,6 +74,7 @@ def run(base_receipt,candidate_receipt,worktree,output):
     report=dict(scope='ACTUAL_POST_GLUE_STAGE_BASE_ROTARY_CHECK_ONLY',source_commit=commit,concept=manifest['concept'],
                 results=results,all_provided_stages_base_rotary_clear=passed,
                 cup_anchor_source_shift_cancelled_with_physical_mouth_height=True,
+                cup_rotates_with_declared_stage_angle=cup_rotates,
                 stage_inventory_names=sorted(names),environment_bar_name=bar[0][0],
                 lifecycle_registry_must_independently_establish_inventory_completeness=True,
                 mechanical_co_rotation_and_capture_require_independent_evidence=True,

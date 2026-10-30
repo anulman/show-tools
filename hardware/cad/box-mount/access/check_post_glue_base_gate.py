@@ -6,6 +6,7 @@ from pathlib import Path
 import sys
 sys.path.insert(0,str(Path(__file__).resolve().parent))
 import post_glue_base_gate as g
+import check_post_glue_candidate_base as candidate
 from build123d import Axis
 
 
@@ -22,6 +23,18 @@ args=parser.parse_args();data=g.load_base(args.base_receipt);report=g.reference_
 assert report['new_candidate_lifecycle_status']=='NOT_EVALUATED'
 assert report['old_C2_lifecycle_status'].startswith('REJECTED')
 fixture=g.r.block(1,1,1,(38,0,-10))
+# An asymmetric cup distinguishes whole-module A/B rotation from C's collar-only rotation.
+pose=dict(angle=35.,shift=2.)
+for concept in ('post-glue A','post-glue B','post-glue C'):
+    sources,rotates=candidate.concept_rules(concept)
+    assert len(sources)==(9 if concept=='post-glue C' else 8)
+    assert ('post_glue_cassette.py' in sources)==(concept=='post-glue C')
+    exported=fixture.rotate(Axis.Z,pose['angle'] if rotates else 0.).translate((0,0,pose['shift']))
+    restored=candidate.cup_anchor(exported,pose,rotates)
+    assert g.outside_volume(restored,fixture)<1e-6 and g.outside_volume(fixture,restored)<1e-6
+    wrong=candidate.cup_anchor(exported,pose,not rotates)
+    assert g.outside_volume(wrong,fixture)>.1
+reject(lambda:candidate.concept_rules('post-glue unknown'),'Unsupported post-glue concept')
 for gap in (5.,7.):g.check_rotor(data,[('annular all-angle fixture',fixture)],gap)
 # This fin clears at 0 and 180 degrees but hits the real keeper at 90 degrees.
 fin=g.r.block(1,1,.5,(31,0,.1));_,fixed=g.fixed_geometry(data,5.)
