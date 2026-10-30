@@ -95,7 +95,7 @@ for angle in LOCKS:
         part=next(p for n,p in stages[stage].items() if n.startswith('axial M4') and n.endswith(str(angle)))
         contains(part,shaft,'bolt endpoint '+stage+' '+str(angle))
 # Mutation of the actual frozen environment must be detected by the same native predicate.
-fin=c.box(2,2,2,(0,33,-2))
+fin=c.box(2,2,2,(-33,0,-2))
 mutant=bar+fin
 if not mutant.is_valid or len(mutant.solids())!=1:raise ValueError('Invalid connected-fin negative control')
 if amount(BRepAlgoAPI_Common,core,mutant)<=1e-5:raise ValueError('Connected collision fin was accepted')
