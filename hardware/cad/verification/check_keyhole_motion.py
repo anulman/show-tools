@@ -67,7 +67,7 @@ for angle in m.ANGLES:
         part=next(p for n,p in stages[stage].items() if n.startswith('threaded M4') and n.endswith(str(angle)))
         contains(part,seat,'nut sweep endpoint '+stage+' '+str(angle))
     shaft=cyl(2.1,-9.1,0,m.old.xy(38,angle+35))+outside
-    clear(shaft,'continuous bolt translation/turning '+str(angle))
+    clear(shaft,'continuous bolt translation and turning '+str(angle))
     for stage in ('turned','nuts-seated','locked'):
         part=next(p for n,p in stages[stage].items() if n.startswith('axial M4') and n.endswith(str(angle)))
         contains(part,shaft,'bolt endpoint '+stage+' '+str(angle))
