@@ -4,9 +4,14 @@ import hashlib
 import json
 from pathlib import Path
 import math
-from build123d import Axis, extrude, import_step
+from build123d import Axis, Compound, extrude, import_step
 from OCP.BRepAdaptor import BRepAdaptor_Surface
 from OCP.GeomAbs import GeomAbs_Cylinder, GeomAbs_Plane
+from OCP.BRepAlgoAPI import BRepAlgoAPI_Common, BRepAlgoAPI_Cut
+from OCP.BRepCheck import BRepCheck_Analyzer
+from OCP.BRepGProp import BRepGProp
+from OCP.GProp import GProp_GProps
+from OCP.collections import List_TopoDS_Shape
 from . import debond_collar as m
 
 c=m.c
@@ -85,28 +90,47 @@ def validate_channel_baseline(reference,claimed):
     return oracle
 
 
+def channel_boolean(kind,left,right):
+    """Only a completed, valid native Boolean may establish empty material."""
+    if left is None or right is None:return None
+    arguments=List_TopoDS_Shape();arguments.Append(left)
+    tools=List_TopoDS_Shape();tools.Append(right)
+    operation=kind();operation.SetArguments(arguments);operation.SetTools(tools)
+    operation.SetNonDestructive(True);operation.SetFuzzyValue(0.)
+    operation.Build()
+    if not operation.IsDone():raise ValueError('Channel Boolean kernel failure: '+kind.__name__)
+    result=operation.Shape()
+    if result.IsNull():return None
+    if not BRepCheck_Analyzer(result).IsValid():raise ValueError('Invalid channel Boolean result')
+    return result
+
+
+def channel_material_volume(shape):
+    if shape is None:return 0.
+    properties=GProp_GProps();BRepGProp.VolumeProperties_s(shape,properties)
+    return properties.Mass()
+
+
 def channel_hits(parts,oracle,reference,shift=0):
     """Equivalent to part intersection with the original empty lumen region.
 
     Intersect simple analytic cutters first, then measure material added to the
-    original solid by V(overlap)-V(overlap intersect original). This equals
-    intersection with its original void, without treating a failed kernel
-    operation as zero or constructing a coincident empty difference.
+    original solid by the exact clipped-material difference. Every actor must
+    contain exactly one valid solid; failed kernel operations are never empty.
     """
+    for name,part in parts.items():
+        if not part.is_valid or len(part.solids())!=1:
+            raise ValueError('Expected one valid solid per channel actor: '+name)
     hits=[]
     for label,record in oracle.items():
         for name,part in parts.items():
             local=part.solids()[0].translate((0,0,-shift))
             if disjoint(local,record['envelope']):continue
-            overlap=local&record['envelope']
-            if c.volume(overlap)<=1e-7:continue
-            overlap=overlap&record['profile']
-            if c.volume(overlap)<=1e-7:continue
-            covered=overlap&reference
-            if covered is not None and not covered.is_valid:
-                raise ValueError('Invalid original channel material intersection: '+name)
-            amount=c.volume(overlap)-c.volume(covered)
-            if amount < -1e-5:raise ValueError('Inconsistent channel intersection volume: '+name)
+            overlap=channel_boolean(BRepAlgoAPI_Common,local.wrapped,record['envelope'].wrapped)
+            overlap=channel_boolean(BRepAlgoAPI_Common,overlap,record['profile'].wrapped)
+            difference=channel_boolean(BRepAlgoAPI_Cut,overlap,reference.wrapped)
+            amount=channel_material_volume(difference)
+            if amount < -1e-5:raise ValueError('Negative channel Boolean material volume')
             if amount>1e-5:hits.append(dict(channel=label,part=name,volume_mm3=amount))
     return hits
 
@@ -256,7 +280,19 @@ def verify(reference,locked,pose,baseline_path,compact_path):
     baseline=pinned_receipt(baseline_path,BASELINE_SHA)
     compact=pinned_receipt(compact_path,COMPACT_SHA)
     oldparts=frozen_parts(baseline)
+    if len(locked.parts)!=25 or len({q.name for q in locked.parts})!=25:
+        raise ValueError('Incomplete candidate component inventory')
+    if any(not q.shape.is_valid or len(q.shape.solids())!=1 for q in locked.parts):
+        raise ValueError('Candidate actor is not one valid solid')
     pieces={q.name:q.shape.solids()[0] for q in locked.parts}
+    expected=set(oldparts)
+    for angle in (0,120,240):
+        expected.remove('M3x8 carrier button screw '+str(angle))
+        expected.remove('M3 carrier nut '+str(angle))
+    for angle in m.CARRIER_ANGLES:
+        expected.add('M3x8 carrier button screw '+str(angle))
+        expected.add('M3 carrier nut '+str(angle))
+    if set(pieces)!=expected:raise ValueError('Unexpected candidate component inventory')
     # Reconstructing the historical layout without restoration must reproduce
     # its actual exports, before any candidate layout is trusted.
     reproduced=m.build(reference,carrier_angles=(0,120,240),preserve_channels=False)
@@ -291,8 +327,19 @@ def verify(reference,locked,pose,baseline_path,compact_path):
         if 'No connected bottom entry' not in str(error):raise
     else:raise ValueError('Blocked bottom-entry control accepted')
     mutant=dict(pieces)
-    mutant['full-height bar']=pieces['full-height bar']+c.box(1,1,1,(-39,0,-4))
+    protrusion=c.box(3,1,1,(-37.8,0,-4))
+    mutant['full-height bar']=pieces['full-height bar']+protrusion
+    if not mutant['full-height bar'].is_valid or len(mutant['full-height bar'].solids())!=1:
+        raise ValueError('Channel mutation must be one connected valid solid')
     if not channel_hits(mutant,oracle,reference):raise ValueError('Blocked channel control accepted')
+    satellite=c.box(1,1,1,(-39,0,-4))
+    for children in ([pieces['full-height bar'],satellite],[satellite,pieces['full-height bar']]):
+        disconnected=dict(pieces)
+        disconnected['full-height bar']=Compound(children=children)
+        try:channel_hits(disconnected,oracle,reference)
+        except ValueError as error:
+            if 'Expected one valid solid per channel actor' not in str(error):raise
+        else:raise ValueError('Disconnected channel actor accepted')
     entry={state:bottom_entry(states[state],voids) for state in ('locked','released')}
     print('CONNECTED BOTTOM ENTRY AND NEGATIVE CONTROLS PASS',flush=True)
     for angle in m.CARRIER_ANGLES:
@@ -312,7 +359,7 @@ def verify(reference,locked,pose,baseline_path,compact_path):
     for name,tool in tools:c.assert_empty(tool&forbidden,'Routine tool requires above-lip access: '+name)
     return dict(original_void_volumes_mm3={k:v.volume for k,v in voids.items()},old_C2_receiver_counterexamples=oldhits,
                 original_voids_clear_all_six_states=True,actual_purchased_hardware_uncut=True,
-                connected_bottom_entry_cup_absent=entry,blocked_channel_and_bottom_entry_controls_rejected=True,producer_narrowed_baseline_rejected=True,
+                connected_bottom_entry_cup_absent=entry,blocked_channel_and_bottom_entry_controls_rejected=True,producer_narrowed_baseline_rejected=True,channel_native_IsDone_and_validity_required=True,channel_fuzzy_tolerance_mm=0.,disconnected_actor_both_orders_rejected=True,
                 unchanged_components_and_tools_preserved=True,carrier_reactions=carrier_reactions(pieces),
                 routine_tools_below_root_min_mm=min(t.bounding_box().min.Z for _,t in tools),
                 compact_base=compact_gate(compact,oldparts,states,tools,pieces['full-height bar']),
