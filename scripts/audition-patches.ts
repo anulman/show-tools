@@ -2,7 +2,7 @@ import { Schema } from 'effect';
 import type { BigIntStats } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { closeSync, constants, existsSync, fstatSync, mkdirSync, openSync, readSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { endianness } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -245,7 +245,8 @@ export function auditionFailure(error: unknown) {
   return chiefHandoff({ code: 'AUDITION_TOOL_FAILED', message,
     nextSteps: ['The Chief must inspect and repair the audition tool, then rerun. Do not publish a fallback or waive validation.'], locations: ['scripts/audition-patches.ts'] });
 }
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && existsSync(process.argv[1])
+  && realpathSync.native(process.argv[1]) === realpathSync.native(fileURLToPath(import.meta.url))) {
   const raw = process.argv.slice(2), json = raw.includes('--json');
   try {
     if (raw.filter(arg => arg === '--json').length > 1) fail('INVALID_ARGUMENTS', '--json was supplied more than once.', 'Supply --json at most once.');

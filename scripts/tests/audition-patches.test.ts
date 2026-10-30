@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -205,4 +205,16 @@ else { const out = args[args.indexOf('-o')+1]; fs.copyFileSync(${JSON.stringify(
     if (originalProtocol === undefined) delete process.env.AUDITION_TEST_PROTOCOL; else process.env.AUDITION_TEST_PROTOCOL = originalProtocol;
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('CLI entry through a physical-path alias still reports invalid arguments', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'audition-entry-alias-'));
+  try {
+    const alias = join(dir, 'audition-alias.ts');
+    symlinkSync(fileURLToPath(new URL('../audition-patches.ts', import.meta.url)), alias);
+    const result = spawnSync(process.execPath, ['--import', 'tsx', alias, '--not-a-real-option', 'value', '--json'], { encoding: 'utf8', timeout: 3000 });
+    assert.equal(result.error, undefined); assert.equal(result.status, 2); assert.equal(result.stderr, '');
+    const failure = parseCommandFailure(JSON.parse(result.stdout));
+    assert.equal(failure.code, 'INVALID_ARGUMENTS'); assert.equal(failure.status, 'blocked');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
