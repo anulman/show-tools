@@ -71,13 +71,19 @@ class CapturedPresentation extends WebGLRenderer {
   }
 }
 
-test('Pixi presentation restores body and cloud visibility on reverse seeks and keeps cloud color independent', async () => {
+test('Pixi presentation keeps world poof offsets separate from bodies through reverse seeks and grayscale changes', async () => {
   const app = new CapturedPresentation(), resources = fixture(app);
   const body: ActorFrame = { actor: 0, clip: 0, pose: 0, grayscale: false, visible: true, poof: null };
   const sampler = { sample(count: number): ActorFrame[] {
     return count === 0 ? [body] : [{ ...body, grayscale: count >= 2, visible: count >= 2, poof: { effect: 0, pose: 1 } }];
   }, dispose() {} };
-  const studio = await createStreetStudio({ append() {} }, poofScene(), sampler, resources.platform);
+  const initial = poofScene();
+  assert(initial.staging.kind === 'poof');
+  const prepared = parseStreetScene({ ...initial,
+    actors: initial.actors.map(actor => ({ ...actor, placement: { ...actor.placement, scale: 2 } })),
+    staging: { ...initial.staging, tracks: initial.staging.tracks.map(track => ({ ...track, offset: { x: 6, y: 4 } })) },
+  });
+  const studio = await createStreetStudio({ append() {} }, prepared, sampler, resources.platform);
   try {
     studio.draw(0);
     assert(app.stage);
@@ -85,6 +91,9 @@ test('Pixi presentation restores body and cloud visibility on reverse seeks and 
     assert(figure instanceof Container);
     const sprite = figure.children[0], cloud = figure.children[1];
     assert(sprite instanceof Sprite); assert(cloud instanceof Sprite);
+    assert.deepEqual([figure.position.x, figure.position.y, figure.scale.x], [0, 0, 2]);
+    assert.deepEqual([sprite.position.x, sprite.position.y], [0, 0]);
+    assert.deepEqual([cloud.position.x, cloud.position.y], [3, 2]);
     assert.equal(sprite.visible, true); assert.equal(cloud.visible, false);
     studio.draw(1);
     assert.equal(sprite.visible, false); assert.equal(cloud.visible, true);
@@ -97,6 +106,8 @@ test('Pixi presentation restores body and cloud visibility on reverse seeks and 
     studio.draw(0);
     assert.equal(sprite.visible, true); assert.equal(cloud.visible, false);
     assert.equal(sprite.texture, colorBody);
+    assert.deepEqual([sprite.position.x, sprite.position.y], [0, 0]);
+    assert.deepEqual([cloud.position.x, cloud.position.y], [3, 2]);
   } finally { studio.dispose(); }
 });
 

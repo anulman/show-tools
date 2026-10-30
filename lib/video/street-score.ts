@@ -33,7 +33,9 @@ export const PoofEffect = Schema.Struct({
 const Staging = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('all-present') }),
   Schema.Struct({ kind: Schema.Literal('poof'), effects: Schema.Array(PoofEffect),
-    tracks: Schema.Array(Schema.Struct({ actor: integer, keys: Schema.Array(PresenceKey) })) }),
+    tracks: Schema.Array(Schema.Struct({ actor: integer,
+      offset: Point.pipe(Schema.withDecodingDefaultKey(Effect.succeed({ x: 0, y: 0 }))),
+      keys: Schema.Array(PresenceKey) })) }),
 ]);
 const allPresent = { kind: 'all-present' } satisfies typeof Staging.Type;
 export const StreetScene = Schema.Struct({

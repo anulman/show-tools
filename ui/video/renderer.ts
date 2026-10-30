@@ -71,7 +71,8 @@ export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scen
       effects.push({ pivot: effect.pivot, drawings });
     }
     const figures: Array<{ sprite: Sprite; poof: Sprite; clips: PreparedDrawing[][] }> = [];
-    for (const actor of scene.actors) {
+    const offsets = scene.staging.kind === 'poof' ? new Map(scene.staging.tracks.map(track => [track.actor, track.offset])) : null;
+    for (const [actorIndex, actor] of scene.actors.entries()) {
       const clips = [];
       for (const clip of actor.clips) {
         const drawings = [];
@@ -82,6 +83,11 @@ export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scen
       figure.position.set(actor.placement.x, actor.placement.y);
       figure.scale.set(actor.placement.scale); figure.zIndex = actor.placement.depth;
       const sprite = new Sprite(), poof = new Sprite();
+      if (offsets) {
+        const offset = offsets.get(actorIndex);
+        if (!offset) throw new Error('Missing actor poof offset');
+        poof.position.set(offset.x / actor.placement.scale, offset.y / actor.placement.scale);
+      }
       figure.addChild(sprite, poof); actors.addChild(figure);
       figures.push({ sprite, poof, clips });
     }

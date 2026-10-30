@@ -119,6 +119,20 @@ test('real compositor hides bodies, retains colored exit clouds and invalidates 
     const depth = await createStreetCompositor(overlapped, directory);
     const depthPixels = await sharp(await depth.render([exit, { ...base, actor: 1 }])).raw().toBuffer();
     assert.deepEqual([...depthPixels.subarray((1 * 8 + 1) * 4, (1 * 8 + 2) * 4)], [118, 118, 118, 255]);
+    assert(prepared.staging.kind === 'poof');
+    const shifted = parseStreetScene({ ...prepared, staging: { ...prepared.staging,
+      tracks: prepared.staging.tracks.map(track => ({ ...track, offset: { x: 2, y: 1 } })),
+    } });
+    const shiftedCompositor = await createStreetCompositor(shifted, directory);
+    async function shiftedPixel(pose: number, x: number, y: number) {
+      const png = await shiftedCompositor.render([{ ...base, poof: { effect: 0, pose } }]);
+      const rgba = await sharp(png).raw().toBuffer();
+      return [...rgba.subarray((y * 8 + x) * 4, (y * 8 + x + 1) * 4)];
+    }
+    assert.deepEqual(await shiftedPixel(0, 1, 1), [118, 118, 118, 255]);
+    assert.deepEqual(await shiftedPixel(0, 3, 2), [255, 0, 0, 255]);
+    assert.deepEqual(await shiftedPixel(1, 3, 2), [0, 255, 0, 255]);
+    assert.deepEqual(await shiftedPixel(0, 3, 2), [255, 0, 0, 255]);
     await writeFile(join(directory, 'poof-0.png'), pose);
     const tampered = await createStreetCompositor(prepared, directory);
     await assert.rejects(tampered.render([exit]), /Asset hash mismatch/);

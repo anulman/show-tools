@@ -62,6 +62,10 @@ export async function createStreetCompositor(scene: PreparedStreetScene, assetRo
   const background = await sharp(backgroundBytes).toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   if (background.info.width !== scene.width || background.info.height !== scene.height) throw new Error('Street background dimensions differ from the authored scene');
   const cached = new Map<string, Promise<{ input: Buffer; width: number; height: number }>>();
+  const poofPlacements = new Map(scene.staging.kind === 'poof' ? scene.staging.tracks.map(track => {
+    const placement = scene.actors[track.actor].placement;
+    return [track.actor, { ...placement, x: placement.x + track.offset.x, y: placement.y + track.offset.y }];
+  }) : []);
   let last: { frames: readonly ActorFrame[]; png: Buffer } | undefined;
   async function drawing(cacheKey: string, asset: StreetAsset, scale: number, grayscale: boolean) {
     let prepared = cached.get(cacheKey);
@@ -111,9 +115,10 @@ export async function createStreetCompositor(scene: PreparedStreetScene, assetRo
         if (frame.poof) {
           const effect = scene.staging.kind === 'poof' ? scene.staging.effects[frame.poof.effect] : undefined;
           const asset = effect?.drawings[frame.poof.pose];
-          if (!effect || !asset) throw new Error('Sampler returned an unknown poof drawing');
+          const placement = poofPlacements.get(frame.actor);
+          if (!effect || !asset || !placement) throw new Error('Sampler returned an unknown poof drawing');
           const sprite = await drawing(`poof:${frame.actor}:${frame.poof.effect}:${frame.poof.pose}`, asset, actor.placement.scale, false);
-          await addLayer(sprite, actor.placement, effect.pivot);
+          await addLayer(sprite, placement, effect.pivot);
         }
       }
       const png = await sharp(background.data, { raw: { width: scene.width, height: scene.height, channels: 4 } }).composite(layers).png().toBuffer();

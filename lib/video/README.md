@@ -6,6 +6,8 @@ The utility owns no timer, tempo, audio, voice activation, or character policy. 
 
 Prepared staging can add a second HOLD table per actor. It uses the same native numeric contract for effect selector, effect drawing, and body visibility; the off selector remains private to the bridge. The complete sampled actor frame carries both the frozen body pose and nullable colored poof. Both renderers consume that result without calculating effect phase. Legacy scenes decode once to explicit `all-present` staging. The native ABI is unchanged.
 
+Each presence track may register the cloud with a static `offset` in scene pixels. Decoding defaults it to zero. The offset moves only the poof anchor; character placement, sprite pixels and native registration remain unchanged. Coverage and scene-fit checks must use the resulting effect placement.
+
 Simple, vigorous, special, and ultra clips retain their native grids, quarter-note HOLD keys, action duration, cycle duration, and registration metadata. Prepared drawing pivots use PNG-canvas coordinates and already include any source offset. Renderers apply that pivot once. `presentation.ts` supplies the grayscale conversion shared by Pixi texture preparation and offline composition.
 
 Build and run the native check:
