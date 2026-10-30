@@ -12,6 +12,8 @@ Follow `docs/data-retention.md` for canonical stores and cleanup. Figma owns pro
 
 Follow `docs/implementation/deterministic-pipelines.md` for deterministic commands. Product validation fails closed. When an agent drives an unexpected blocked product operation, present its cause and suggested next steps to the operator, and hold only dependent work. Harness failures return control to Chief for recovery instead of repeatedly interrupting the operator. Chief cannot waive product invariants. Expected negative tests do not trigger operator questions. Use temporary forks and isolated worktrees for delegated improvements without interrupting ongoing sessions.
 
+Treat the shared CAD viewer as operator-owned during interaction or recording. If operator activity interrupts automation, stop both native UI actions and background scene or camera API writes. Continue with saved captures and headless checks; resume live viewer changes only on an explicit operator request.
+
 The operator manages the Sheets helper and Chrome CDP lifecycle. Start or restart those processes only when explicitly requested. Practice audio does not require either process.
 
 Use `./show-tools sheets [song-slug-or-1-indexed-number] [--no-cdp] [--skip-open]` for combined Sheets following. Keep `npm run start:cdp` available for standalone browser management. Keep `.envrc` ignored; `.envrc.example` documents optional overrides. The Bash launcher supplies missing defaults and discovers an installed browser. The helper reads the same CDP port environment variable. Start processes only on explicit operator request.
