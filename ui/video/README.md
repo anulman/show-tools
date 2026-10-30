@@ -24,6 +24,10 @@ The preparation command resolves the cast through `discoverSheetVoices` and `res
 
 Scene version 2 requires expected SHA-256 hashes for the background and every drawing. Browser loading and movie export verify the bytes before decoding them. Regenerate older prepared scenes through normalization and preparation; version 1 has no unchecked compatibility path.
 
+Motion catalog version 2 requires a separate identity approval for every included family. The approval locks the approved reference edition and Figma node, reference file hash, and complete ordered drawing/layer hashes. A source-RGBA export pass does not establish that a pose stayed on-model. Missing, pending, failed, or stale identity records block normalization. The compact inline certificates work offline without raw audit movies or reports.
+
+Artwork creation, new move-set poses, repainting, and corrections happen before promotion. Deterministic animation and rendering only read frozen assets, select and time poses, compose the scene, and apply requested presentation such as grayscale. They do not generate or redraw artwork, and do not repaint assets for each song.
+
 Serve `dist/` on an isolated port. Make the prepared scene and its referenced assets available to that server, then open `/ui/video/?scene=the-prepared-scene-URL`. Asset URLs in the prepared scene must resolve from the studio page. Missing packages produce an actionable error. The build does not invent a default cast or fall back to earlier artwork.
 
 Pause, restart, scrub, or fullscreen the scene. `window.videoStudio.renderAt(seconds)` pauses and draws an exact preview position. `renderCount(count)` samples counted-beat position directly. `snapshot()` returns the current actor frames; `capture()` returns a canvas PNG. `setPerformanceTime(sample)` validates an injected PE position and samples the authored score there. It does not subscribe to live voice activity.
