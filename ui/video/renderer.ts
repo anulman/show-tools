@@ -1,51 +1,98 @@
-import { Application, Assets, Container, Sprite, Texture } from 'pixi.js';
+import { Container, Sprite, Texture, WebGLRenderer } from 'pixi.js';
 import type { PreparedStreetScene } from '../../lib/video/street-score.js';
 import type { StreetSampler } from '../../lib/video/street-sampler.js';
 import { grayscaleRgba } from '../../lib/video/presentation.js';
+import { fetchStreetAsset, type StreetAsset } from '../../lib/video/street-assets.js';
+import { StreetResources } from './resources.js';
 
-async function textures(path: string) {
-  const color = await Assets.load<Texture>(path);
-  color.source.scaleMode = 'nearest';
-  const image = new Image(); image.src = path; await image.decode();
-  const canvas = document.createElement('canvas');
-  canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
-  const context = canvas.getContext('2d');
-  if (!context) throw new Error('Sprite grayscale preparation requires Canvas2D');
-  context.drawImage(image, 0, 0);
-  const data = context.getImageData(0, 0, canvas.width, canvas.height);
-  grayscaleRgba(data.data); context.putImageData(data, 0, 0);
-  const gray = Texture.from(canvas); gray.source.scaleMode = 'nearest';
-  return { color, gray };
+export type TexturePair = { readonly color: Texture; readonly gray: Texture };
+type PreparedDrawing = PreparedStreetScene['actors'][number]['clips'][number]['drawings'][number] & TexturePair;
+export interface StreetPlatform {
+  readonly renderer: () => WebGLRenderer;
+  readonly fetch: typeof fetch;
+  readonly decode: (bytes: Uint8Array<ArrayBuffer>, resources: StreetResources) => Promise<TexturePair>;
 }
 
-export async function createStreetStudio(host: HTMLElement, scene: PreparedStreetScene, sampler: StreetSampler) {
-  const app = new Application();
-  await app.init({ width: scene.width, height: scene.height, backgroundAlpha: 0, autoStart: false, sharedTicker: false, antialias: false, preference: 'webgl', resolution: 1, preserveDrawingBuffer: true });
-  host.append(app.canvas);
-  app.canvas.setAttribute('aria-label', 'Song cast dancing on the 2.5D street');
-  const background = new Sprite(await Assets.load<Texture>(scene.background));
-  background.width = scene.width; background.height = scene.height;
-  app.stage.addChild(background);
-  const actors = new Container(); actors.sortableChildren = true; app.stage.addChild(actors);
-  const figures = await Promise.all(scene.actors.map(async actor => {
-    const sprite = new Sprite();
-    sprite.position.set(actor.placement.x, actor.placement.y);
-    sprite.scale.set(actor.placement.scale); sprite.zIndex = actor.placement.depth;
-    actors.addChild(sprite);
-    const clips = await Promise.all(actor.clips.map(async clip => Promise.all(clip.drawings.map(async drawing => ({ ...drawing, ...await textures(drawing.path) })))));
-    return { sprite, clips };
-  }));
-  let state = sampler.sample(0);
-  function draw(count: number) {
-    state = sampler.sample(count);
-    for (const frame of state) {
-      const figure = figures[frame.actor], drawing = figure.clips[frame.clip][frame.pose];
-      figure.sprite.texture = frame.grayscale ? drawing.gray : drawing.color;
-      figure.sprite.pivot.set(drawing.pivot.x, drawing.pivot.y);
+async function decodeTextures(bytes: Uint8Array<ArrayBuffer>, resources: StreetResources): Promise<TexturePair> {
+  const url = URL.createObjectURL(new Blob([bytes]));
+  const image = new Image();
+  try {
+    image.src = url; await image.decode();
+    const colorCanvas = document.createElement('canvas');
+    colorCanvas.width = image.naturalWidth; colorCanvas.height = image.naturalHeight;
+    const colorContext = colorCanvas.getContext('2d');
+    if (!colorContext) throw new Error('Sprite preparation requires Canvas2D');
+    colorContext.drawImage(image, 0, 0);
+    const color = Texture.from(colorCanvas, true);
+    resources.defer(() => color.destroy(true));
+    color.source.scaleMode = 'nearest';
+    const grayCanvas = document.createElement('canvas');
+    grayCanvas.width = image.naturalWidth; grayCanvas.height = image.naturalHeight;
+    const context = grayCanvas.getContext('2d');
+    if (!context) throw new Error('Sprite grayscale preparation requires Canvas2D');
+    const data = colorContext.getImageData(0, 0, grayCanvas.width, grayCanvas.height);
+    grayscaleRgba(data.data); context.putImageData(data, 0, 0);
+    const gray = Texture.from(grayCanvas, true);
+    resources.defer(() => gray.destroy(true));
+    gray.source.scaleMode = 'nearest';
+    return { color, gray };
+  } finally { image.src = ''; URL.revokeObjectURL(url); }
+}
+
+const browserPlatform: StreetPlatform = { renderer: () => new WebGLRenderer(), fetch: (...args) => fetch(...args), decode: decodeTextures };
+
+export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scene: PreparedStreetScene, sampler: StreetSampler, platform: StreetPlatform = browserPlatform) {
+  const resources = new StreetResources();
+  resources.defer(() => sampler.dispose());
+  try {
+    const renderer = platform.renderer();
+    resources.defer(() => renderer.destroy({ removeView: true }));
+    const stage = new Container();
+    resources.defer(() => stage.destroy({ children: true }));
+    const loaded = new Map<string, TexturePair>();
+    async function textures(asset: StreetAsset) {
+      const key = `${asset.path}:${asset.sha256}`;
+      const existing = loaded.get(key);
+      if (existing) return existing;
+      const bytes = await fetchStreetAsset(asset, platform.fetch);
+      const pair = await platform.decode(bytes, resources);
+      loaded.set(key, pair);
+      return pair;
     }
-    app.render(); return state;
-  }
-  return { draw, canvas: app.canvas, snapshot: () => state,
-    dispose() { sampler.dispose(); app.destroy(true, { children: true, texture: true }); },
-  };
+    const backgroundTexture = await textures(scene.background);
+    const background = new Sprite(backgroundTexture.color);
+    background.width = scene.width; background.height = scene.height;
+    stage.addChild(background);
+    const actors = new Container(); actors.sortableChildren = true; stage.addChild(actors);
+    const figures: Array<{ sprite: Sprite; clips: PreparedDrawing[][] }> = [];
+    for (const actor of scene.actors) {
+      const clips = [];
+      for (const clip of actor.clips) {
+        const drawings = [];
+        for (const drawing of clip.drawings) drawings.push({ ...drawing, ...await textures(drawing) });
+        clips.push(drawings);
+      }
+      const sprite = new Sprite();
+      sprite.position.set(actor.placement.x, actor.placement.y);
+      sprite.scale.set(actor.placement.scale); sprite.zIndex = actor.placement.depth;
+      actors.addChild(sprite);
+      figures.push({ sprite, clips });
+    }
+    await renderer.init({ width: scene.width, height: scene.height, backgroundAlpha: 0, antialias: false, resolution: 1, preserveDrawingBuffer: true });
+    const canvas = renderer.canvas;
+    resources.defer(() => canvas.remove());
+    host.append(canvas);
+    canvas.setAttribute('aria-label', 'Song cast dancing on the 2.5D street');
+    let state = sampler.sample(0);
+    function draw(count: number) {
+      state = sampler.sample(count);
+      for (const frame of state) {
+        const figure = figures[frame.actor], drawing = figure.clips[frame.clip][frame.pose];
+        figure.sprite.texture = frame.grayscale ? drawing.gray : drawing.color;
+        figure.sprite.pivot.set(drawing.pivot.x, drawing.pivot.y);
+      }
+      renderer.render({ container: stage }); return state;
+    }
+    return { draw, canvas, snapshot: () => state, dispose: () => resources.dispose() };
+  } catch (error) { return resources.fail(error); }
 }

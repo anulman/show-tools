@@ -1,4 +1,5 @@
 import { Schema } from 'effect';
+import { StreetAsset } from './street-assets.js';
 
 const finite = Schema.Number.check(Schema.isFinite());
 const nonnegative = finite.check(Schema.isGreaterThanOrEqualTo(0));
@@ -6,7 +7,7 @@ const positive = finite.check(Schema.isGreaterThan(0));
 const integer = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
 const Point = Schema.Struct({ x: finite, y: finite });
 const Tier = Schema.Literals(['simple', 'vigorous', 'special', 'ultra']);
-const Drawing = Schema.Struct({ path: Schema.NonEmptyString, pivot: Point });
+const Drawing = Schema.Struct({ ...StreetAsset.fields, pivot: Point });
 const Clip = Schema.Struct({
   id: Schema.NonEmptyString, tier: Tier, cycleQuarters: positive, actionQuarters: Schema.NullOr(positive),
   nativeGrid: Schema.Struct({ width: positive, height: positive }),
@@ -22,8 +23,8 @@ const Actor = Schema.Struct({
 });
 const Key = Schema.Struct({ at: nonnegative, clip: integer, pose: integer, grayscale: Schema.Boolean });
 export const StreetScene = Schema.Struct({
-  version: Schema.Literal(1), kind: Schema.Literal('authored-street-preview'),
-  width: positive, height: positive, background: Schema.NonEmptyString,
+  version: Schema.Literal(2), kind: Schema.Literal('authored-street-preview'),
+  width: positive, height: positive, background: StreetAsset,
   previewCountsPerSecond: positive, durationCounts: positive,
   countedBeatUnit: Schema.Literals([4, 8]),
   actors: Schema.Array(Actor),

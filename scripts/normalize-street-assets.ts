@@ -75,7 +75,7 @@ for (const placement of placements) {
       await verify(drawing.native);
       const metadata = await sharp(assetPath(drawing.native.path)).metadata();
       if (metadata.width !== family.nativeGrid.width || metadata.height !== family.nativeGrid.height) throw new Error(`${family.familyId}: PNG canvas differs from declared native grid`);
-      drawings.push({ path: `/${drawing.native.path}`, pivot: family.pivot });
+      drawings.push({ path: `/${drawing.native.path}`, sha256: drawing.native.sha256, pivot: family.pivot });
     }
     clips.push({ id: family.familyId, tier: family.tier, cycleQuarters: family.cycleBeats, actionQuarters: family.actionBeats,
       nativeGrid: family.nativeGrid, sourceOffset: family.sourceOffset, keys: family.keyframes.map(key => ({ atQuarter: key.atBeat, pose: key.pose })), drawings });
@@ -86,8 +86,8 @@ const backgroundBytes = await readFile(assetPath(backgroundRelative)), metadata 
 if (sha256(backgroundBytes) !== layout.background.sha256) throw new Error('Street background differs from the canonical Figma handoff');
 if (metadata.width !== layout.width || metadata.height !== layout.height || metadata.width !== layout.background.width || metadata.height !== layout.background.height) throw new Error('Street background dimensions differ from the canonical Figma handoff');
 const packageDigest = sha256(JSON.stringify({ catalog: sha256(catalogText), placements: sha256(placementsText), background: sha256(backgroundBytes), files: [...verified] }));
-const scene = Schema.decodeUnknownSync(StreetScene)({ version: 1, kind: 'authored-street-preview', width: metadata.width, height: metadata.height,
-  background: `/${backgroundRelative}`, previewCountsPerSecond: 2, durationCounts: 32, countedBeatUnit: 4, actors, tracks: [],
+const scene = Schema.decodeUnknownSync(StreetScene)({ version: 2, kind: 'authored-street-preview', width: metadata.width, height: metadata.height,
+  background: { path: `/${backgroundRelative}`, sha256: layout.background.sha256 }, previewCountsPerSecond: 2, durationCounts: 32, countedBeatUnit: 4, actors, tracks: [],
   provenance: { source: `Figma ${catalog.fileKey} scene ${layout.sceneNodeId} world ${layout.worldNodeId}; canonical Street anchors/depth; saved voice binding remains separate`, assetsDigest: packageDigest, scoreDigest: 'not-prepared' },
 });
 await writeFile(output, `${JSON.stringify(scene, null, 2)}\n`);

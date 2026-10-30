@@ -9,6 +9,7 @@ import sharp from 'sharp';
 import { grayscaleRgba } from '../lib/video/presentation.js';
 import { parseStreetScene, type PreparedStreetScene, type ActorFrame } from '../lib/video/street-score.js';
 import { createStreetSampler } from '../lib/video/street-sampler.js';
+import { verifyStreetAsset, type StreetAsset } from '../lib/video/street-assets.js';
 
 const ExportOptions = Schema.Struct({
   scene: Schema.NonEmptyString,
@@ -51,9 +52,10 @@ export function spritePlacement(placement: { readonly x: number; readonly y: num
 export async function createStreetCompositor(scene: PreparedStreetScene, assetRoot: string) {
   const root = resolve(assetRoot);
   const assets = new Map<string, string>();
-  async function load(path: string) {
-    const bytes = await readFile(assetPath(root, path));
-    assets.set(path, sha256(bytes));
+  async function load(asset: StreetAsset) {
+    const bytes = await readFile(assetPath(root, asset.path));
+    await verifyStreetAsset(asset, bytes);
+    assets.set(asset.path, asset.sha256);
     return bytes;
   }
   const backgroundBytes = await load(scene.background);
@@ -67,7 +69,7 @@ export async function createStreetCompositor(scene: PreparedStreetScene, assetRo
     let prepared = cached.get(cacheKey);
     if (!prepared) {
       prepared = (async () => {
-        const { data, info } = await sharp(await load(pose.path)).toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        const { data, info } = await sharp(await load(pose)).toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
         if (grayscale) grayscaleRgba(data);
         const width = Math.max(1, Math.round(info.width * actor.placement.scale));
         const height = Math.max(1, Math.round(info.height * actor.placement.scale));

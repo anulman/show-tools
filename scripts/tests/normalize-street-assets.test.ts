@@ -6,12 +6,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import sharp from 'sharp';
+import { parseStreetScene, StreetScene } from '../../lib/video/street-score.js';
+import { Schema } from 'effect';
+import { createStreetCompositor } from '../export-street-preview.js';
 
 const command = new URL('../normalize-street-assets.ts', import.meta.url);
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'street-normalization-'));
   const png = await sharp({ create: { width: 2, height: 2, channels: 4, background: '#f0c080' } }).png().toBuffer();
   await writeFile(join(root, 'pose.png'), png);
+  await writeFile(join(root, 'background.png'), png);
   await writeFile(join(root, 'receipt.json'), '{}');
   const sha256 = (bytes: Buffer | string) => createHash('sha256').update(bytes).digest('hex');
   const ref = { path: 'receipt.json', sha256: sha256('{}') };
@@ -23,10 +27,10 @@ async function fixture() {
   }));
   await writeFile(join(root, 'catalog.json'), JSON.stringify({ fileKey: 'synthetic', codes: ['synthetic'], families }));
   await writeFile(join(root, 'placements.json'), JSON.stringify({ schemaVersion: 1, fileKey: 'synthetic', sceneNodeId: '1:2', worldNodeId: '1:3', width: 2, height: 2,
-    background: { path: join(root, 'pose.png'), width: 2, height: 2, sha256: sha256(png) },
+    background: { path: join(root, 'background.png'), width: 2, height: 2, sha256: sha256(png) },
     placements: [{ code: 'synthetic', x: 1, y: 2, scale: 3, depth: 17, baseNativeGrid: { width: 2, height: 2 }, basePivot: { x: 1, y: 2 }, anchor: { x: 4, y: 8 }, figmaNodeId: '1:4' }],
   }));
-  const run = () => spawnSync(process.execPath, ['--import', 'tsx', command.pathname, root, 'catalog.json', join(root, 'placements.json'), 'pose.png', join(root, 'assets.json')], { encoding: 'utf8' });
+  const run = () => spawnSync(process.execPath, ['--import', 'tsx', command.pathname, root, 'catalog.json', join(root, 'placements.json'), 'background.png', join(root, 'assets.json')], { encoding: 'utf8' });
   return { root, run, families };
 }
 
@@ -40,7 +44,26 @@ test('normalization preserves padded registration and action/cycle lengths', asy
     assert.deepEqual(normalized.actors[0].placement, { x: 4, y: 8, scale: 3, depth: 17 });
     assert.equal(normalized.actors[0].clips[2].actionQuarters, 1);
     assert.equal(normalized.actors[0].clips[2].cycleQuarters, 2);
+    assert.equal(normalized.background.sha256, normalized.actors[0].clips[0].drawings[0].sha256);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test('normalized scene rejects valid replacement PNGs at export loading', async () => {
+  for (const path of ['pose.png', 'background.png']) {
+    const { root, run } = await fixture();
+    try {
+      const result = run(); assert.equal(result.status, 0, result.stderr);
+      const parsed: unknown = JSON.parse(await readFile(join(root, 'assets.json'), 'utf8'));
+      const normalized = Schema.decodeUnknownSync(StreetScene)(parsed);
+      const scene = parseStreetScene({ ...normalized, tracks: [{ actor: 0, keys: [{ at: 0, clip: 0, pose: 0, grayscale: false }] }] });
+      const changed = await sharp({ create: { width: 2, height: 2, channels: 4, background: '#0000ff' } }).png().toBuffer();
+      await writeFile(join(root, path), changed);
+      await assert.rejects(async () => {
+        const compositor = await createStreetCompositor(scene, root);
+        await compositor.render([{ actor: 0, clip: 0, pose: 0, grayscale: false }]);
+      }, /Asset hash mismatch/);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  }
 });
 
 test('normalization refuses changed PNG bytes even if approval metadata remains', async () => {

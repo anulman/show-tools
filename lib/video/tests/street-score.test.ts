@@ -11,7 +11,7 @@ function actor(role: StreetActor['role'], ultra = true): StreetActor {
       id: `${role}-${tier}`, tier: tier === 'simple' ? 'simple' : tier === 'vigorous' ? 'vigorous' : tier === 'special' ? 'special' : 'ultra',
       cycleQuarters: 2, actionQuarters: i > 1 ? 1 : null, nativeGrid: { width: 64, height: 80 }, sourceOffset: { x: 32, y: 24 },
       keys: [0, .25, .5, .75, 2].map((atQuarter, i) => ({ atQuarter, pose: i % 4 })),
-      drawings: [0, 1, 2, 3].map(pose => ({ path: `pose-${pose}.png`, pivot: { x: 64, y: 101 } })),
+      drawings: [0, 1, 2, 3].map(pose => ({ path: `pose-${pose}.png`, sha256: '0'.repeat(64), pivot: { x: 64, y: 101 } })),
     })),
   };
 }
@@ -19,7 +19,7 @@ function state(start: number, end: number, patch: Partial<StreetWindow> = {}): S
   return { start, end, active: true, emphasis: 'normal', source: 'live', specialIndex: 0, ultraIndex: 0, ...patch };
 }
 function input(actors: readonly StreetActor[] = [actor('instrument')]) {
-  const scene: PreparedStreetScene = { version: 1, kind: 'authored-street-preview', width: 1280, height: 720, background: 'street.png', previewCountsPerSecond: 2, durationCounts: 2, countedBeatUnit: 4, actors, tracks: [], provenance: { source: 'synthetic', assetsDigest: 'fixture', scoreDigest: 'fixture' } };
+  const scene: PreparedStreetScene = { version: 2, kind: 'authored-street-preview', width: 1280, height: 720, background: { path: 'street.png', sha256: '0'.repeat(64) }, previewCountsPerSecond: 2, durationCounts: 2, countedBeatUnit: 4, actors, tracks: [], provenance: { source: 'synthetic', assetsDigest: 'fixture', scoreDigest: 'fixture' } };
   return { scene, opportunities: [0, .25, .5, .75, 1, 1.25, 1.5, 1.75], downbeats: [0], windows: actors.map((_, actor) => ({ actor, states: [state(0, 2)] })) };
 }
 const bytes = await readFile(new URL('../../../ui/video/wasm/video-scene.wasm', import.meta.url));
