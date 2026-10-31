@@ -11,6 +11,40 @@ from pathlib import Path
 CAD_DIR = Path(__file__).parent
 
 
+def publish_simple_arcade(config_path, port, reset, explode):
+    """Publish the exact two-part arcade export selected for printer handoff."""
+    import sys
+    sys.path.insert(0, str(CAD_DIR / 'verification'))
+    from geometry_artifacts import Artifacts
+    from ocp_viewer import Camera, show
+    config = json.loads(config_path.read_text())
+    receipt_path = Path(config['path'])
+    if hashlib.sha256(receipt_path.read_bytes()).hexdigest() != config['sha256']:
+        raise ValueError('Changed simple arcade print selection')
+    receipt = json.loads(receipt_path.read_text())
+    records = receipt['review_components']
+    if (receipt.get('scope') != 'TWO_PART_ARCADE_BUTTON_BOX_WITHOUT_BALLAST'
+            or receipt['geometry_checks_pass'] is not True
+            or [r['name'] for r in records] != ['shell', 'bottom']):
+        raise ValueError('Expected the checked shell and bottom only')
+    artifacts = Artifacts()
+    shapes = [artifacts.load(record).translate(tuple(-value for value in record['source_to_print_translation_mm']))
+              for record in records]
+    ground = min(shape.bounding_box().min.Z for shape in shapes)
+    objects = [shape.translate((0, 0, -ground - (explode if index == 1 else 0)))
+               for index, shape in enumerate(shapes)]
+    artifacts.unchanged()
+    labels = ['Arcade button box - shell', 'Arcade button box - removable bottom']
+    show(*objects, names=labels, colors=['#d1b394', '#b69a7e'], alphas=[.55, 1.],
+         port=port, reset_camera=Camera.RESET if reset else Camera.KEEP,
+         ortho=True if reset else None, zoom=.85 if reset else None)
+    target = CAD_DIR / 'build/workspace/current-view.json'
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(dict(workspace='box-mount', presentation='simple-arcade-box',
+        labels=labels, receipt=config, actual_artifacts=artifacts.files,
+        canvas_delivery_verified=False), indent=2) + '\n')
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("workspace", choices=("box-mount", "disco-bar"))
@@ -26,6 +60,10 @@ def main():
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
+    simple_arcade = CAD_DIR / 'build/arcade-simple/current.json'
+    if args.workspace == 'box-mount' and args.variant in ('all', 'arcade-inclined') and simple_arcade.is_file():
+        publish_simple_arcade(simple_arcade, args.port, args.reset_camera, args.explode)
+        return
     import print_handoff
     if print_handoff.CONFIG.is_file() and args.variant == 'all' and args.explode == 0:
         print_handoff.publish_configured(args.port, args.reset_camera,
