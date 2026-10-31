@@ -1,6 +1,6 @@
 """Export the verified disco print packet in inch coordinates, without changing size."""
 from __future__ import annotations
-import argparse,hashlib,io,json,math,tempfile,zipfile
+import argparse,hashlib,io,json,math,shutil,tempfile,zipfile
 from pathlib import Path
 import numpy as np
 import trimesh
@@ -26,7 +26,11 @@ def check(output,archive=None,report=None):
     source.require(report['physical_fit_verified'] is False and report['manufacturing_approved'] is False,'Overstated physical scope')
     original=Path(report['source_validation']['path'])
     source.require(source.digest(original)==report['source_validation']['sha256'],'Changed source validation')
-    original_report=json.loads(original.read_text());source.load(original.parent/'selection.json')
+    # Validate the actual millimetre archive against the admitted CAD parts,
+    # rather than trusting a self-consistent but edited source report/ZIP.
+    check_source(original.parent)
+    source.require(source.digest(original)==report['source_validation']['sha256'],'Source changed during canonical validation')
+    original_report=json.loads(original.read_text())
     original_zip=Path(original_report['zip']['path'])
     source.require(source.digest(original_zip)==original_report['zip']['sha256'],'Changed original print ZIP')
     archive=Path(report['zip']['path']) if archive is None else archive
@@ -85,10 +89,12 @@ def export(original,output):
 
 def negative_controls(original,output,report):
     old=json.loads((original/'validation.json').read_text())
+    good_archive=Path(report['zip']['path'])
+    if not good_archive.exists():good_archive=Path(str(good_archive)+'.partial')
     with tempfile.TemporaryDirectory(prefix='inch-scale-controls-') as folder:
         for label,factor in [('unconverted millimetres',1.),('double inch conversion',1/MM_PER_INCH**2)]:
             changed=json.loads(json.dumps(report));target=Path(folder)/(label+'.zip')
-            with zipfile.ZipFile(old['zip']['path']) as before,zipfile.ZipFile(report['zip']['path']+'.partial') as good,zipfile.ZipFile(target,'x') as bad:
+            with zipfile.ZipFile(old['zip']['path']) as before,zipfile.ZipFile(good_archive) as good,zipfile.ZipFile(target,'x') as bad:
                 for index,row in enumerate(changed['files']):
                     data=good.read(row['file'])
                     if index==3:
@@ -100,7 +106,34 @@ def negative_controls(original,output,report):
             try:check(output,target,changed)
             except ValueError as error:source.require('physical size' in str(error),'Unexpected scale-control rejection')
             else:raise AssertionError('Wrong-size export admitted: '+label)
+        # A self-consistent edited pair must not become its own size authority.
+        # Preserve a valid CAD selection but double the shell in both archives,
+        # updating every affected hash, dimension and source-report binding.
+        directory=Path(folder)/'changed-source';directory.mkdir()
+        shutil.copyfile(original/'selection.json',directory/'selection.json')
+        changed_mm=json.loads(json.dumps(old));mm_zip=directory/'millimetres.zip'
+        changed_inch=json.loads(json.dumps(report));inch_zip=directory/'inches.zip'
+        for before_path,target,rows,is_inch in ((Path(old['zip']['path']),mm_zip,changed_mm['files'],False),
+                                               (good_archive,inch_zip,changed_inch['files'],True)):
+            with zipfile.ZipFile(before_path) as before,zipfile.ZipFile(target,'x') as after:
+                for index,row in enumerate(rows):
+                    data=before.read(row['file'])
+                    if index==0:
+                        wrong=mesh(data);wrong.apply_scale(2.)
+                        data=wrong.export(file_type='stl')
+                        if is_inch:data=HEADER.ljust(80,b'\0')+data[80:]
+                        row['sha256']=hashlib.sha256(data).hexdigest()
+                        if is_inch:row['dimensions_in']=mesh(data).extents.tolist()
+                    after.writestr(row['file'],data)
+        changed_mm['zip']=source.pin(mm_zip);changed_mm['selection']=source.pin(directory/'selection.json')
+        changed_source=directory/'validation.json';changed_source.write_text(json.dumps(changed_mm))
+        changed_inch['source_validation']=source.pin(changed_source);changed_inch['zip']=source.pin(inch_zip)
+        changed_receipt=directory/'inch-validation.json';changed_receipt.write_text(json.dumps(changed_inch))
+        try:check(output,inch_zip,json.loads(changed_receipt.read_text()))
+        except ValueError as error:source.require('Export changed checked geometry' in str(error),'Unexpected changed-source rejection')
+        else:raise AssertionError('Self-consistent altered source and inch exports admitted')
     print('PASS: actual8inch meshes round-trip; unchanged-mm and double-conversion exports rejected',flush=True)
+    print('PASS: rehashed doubled shell in both MM and inch archives rejected against admitted CAD',flush=True)
 
 
 if __name__=='__main__':
