@@ -32,6 +32,15 @@ python hardware/cad/check_air_gap_disco.py /absolute/path/to/new-handoff
 
 The ZIP contains eight STL files for ten physical prints. Print both filenames marked `PRINT-2` twice; print all other files once. The shell, bottom and two hex keepers form the four-piece box. The bar, cup, two shoes and two collar halves form the six-piece rotating assembly. No PTFE references or height caps belong in this package. Historical bearing-supported exports remain unchanged.
 
+For an inch-coordinate copy of an admitted millimetre packet:
+
+```sh
+python hardware/cad/disco_inches.py export /absolute/path/to/mm-handoff /absolute/path/to/new-inch-handoff
+python hardware/cad/disco_inches.py check /absolute/path/to/new-inch-handoff
+```
+
+Import filenames ending `-INCH.stl` as inches. STL does not carry a standard unit declaration; the filenames, binary header and separate import note identify the intended coordinate unit. The converter divides vertex coordinates by exactly 25.4 and verifies every delivered triangle after multiplying back, together with volume, topology and archive quantities. Wrong-unit and double-conversion controls must reject. The bar height remains 4.3 inches. Physical size and M3/M4 hardware specifications are unchanged. The inch archive contains only the same eight fabrication designs; the original packet remains available.
+
 Configure the selection in the checkout running the existing CAD desk:
 
 ```sh
