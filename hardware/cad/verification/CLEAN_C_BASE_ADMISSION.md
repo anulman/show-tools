@@ -20,6 +20,12 @@ and grip tools, module withdrawal, bounded race recovery, and bottom-panel
 service. The service model is freshly composed from the admitted reduced actor
 inventory and protocol, with unsafe protocol mutations required to fail.
 
+The combined checker copies actual faces before clipping or extrusion. Its
+native Boolean checks use detached operands, and the legacy structural checks
+receive a detached working base. Non-mesh BREP fingerprints compare the current
+delivered subjects with fresh STEP imports before and after verification.
+Historical construction shapes remain separate from those delivered subjects.
+
 `admission.json` pins that proof, the base receipt and reduced C configuration.
 `load(path)` checks their bytes, checker sources and artifact bindings, then
 recomputes the service model. Its result contains `base`, `candidate`,

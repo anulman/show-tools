@@ -7,6 +7,10 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import hashlib
+import io
+from copy import deepcopy
+from contextlib import contextmanager
 from pathlib import Path
 import sys
 
@@ -16,6 +20,9 @@ import c_mount_no_ballast as base_cad
 from candidate_protocol import negative_controls
 from publication_bundle import check_bound_paths
 import publication_bundle
+from build123d import extrude,import_step
+from OCP.BRepTools import BRepTools
+from OCP.TopTools import TopTools_FormatVersion
 
 g=base_cad.g
 common=base_cad.common
@@ -26,6 +33,85 @@ VARIANT='reduced-cover-B'
 CHECKS={'support_fusion','structure','rotors_with_blank_panel_closed',
         'root_tools_panel_off','module_and_grip_service','relaxed_C_recovery',
         'panel_removal_refit','panel_service_lifecycle'}
+
+
+@contextmanager
+def detached_booleans():
+    """Retain strict native checks while protecting actual operands from OCCT."""
+    native=g.native_boolean_volume;legacy=g.audit.intersection
+    def detached(first,second,kind):return native(deepcopy(first),deepcopy(second),kind)
+    g.native_boolean_volume=detached
+    g.audit.intersection=lambda first,second:detached(first,second,'common')
+    try:yield
+    finally:g.native_boolean_volume=native;g.audit.intersection=legacy
+
+
+def fingerprint(shape):
+    stream=io.BytesIO()
+    BRepTools.Write_s(shape.wrapped,stream,False,False,TopTools_FormatVersion.TopTools_FormatVersion_VERSION_3)
+    return hashlib.sha256(stream.getvalue()).hexdigest()
+
+
+def unchanged_subjects(data):
+    """Compare current delivered subjects with fresh imports, excluding meshes.
+
+    Historical source shapes used to construct the base are not delivered
+    subjects. Their recipe may change them while producing the new parts.
+    """
+    def records(value):
+        if isinstance(value,dict):
+            if {'step','step_sha256','stl','stl_sha256'}<=set(value):yield value
+            for child in value.values():yield from records(child)
+        elif isinstance(value,list):
+            for child in value:yield from records(child)
+    current=[]
+    if 'C' in data:current.extend(records(data['C']))
+    if 'four_print_base' in data.get('manifests',{}):
+        base=data['manifests']['four_print_base']
+        current.extend(base['review_components']+base['optional_components'])
+    current.extend(records(data.get('proofs',{})))
+    selected={record['step_sha256'] for record in current} if current else set(data['artifacts'].shapes)
+    paths={sha:path for path,sha in data['artifacts'].files.items() if Path(path).suffix.lower()=='.step'}
+    for sha,shape in data['artifacts'].shapes.items():
+        if sha not in selected:continue
+        require(sha in paths,'Cached actual solid has no pinned STEP')
+        fresh=import_step(paths[sha]).solids()[0]
+        require(shape.is_valid and fingerprint(shape)==fingerprint(fresh),'Actual subject mutated: '+paths[sha])
+
+
+def verify_bearing_detached(data,candidate):
+    """Clip detached faces so temporary bearing witnesses cannot alter the bar."""
+    bar=common.load_parts(data,[data['C']['environment']])[0][1];before=fingerprint(bar)
+    ring=g.cad.ring(44,45.5,1,-1)
+    band=next(face for face in ring.faces() if abs(face.bounding_box().min.Z)<1e-7 and abs(face.bounding_box().max.Z)<1e-7)
+    patches=[]
+    for face in bar.faces():
+        box=face.bounding_box()
+        if abs(box.min.Z)<1e-7 and abs(box.max.Z)<1e-7:patches.extend((deepcopy(face)&deepcopy(band)).faces())
+    area=sum(patch.area for patch in patches);require(area>0,'Actual reduced C bar has no passive bearing patch')
+    for patch in patches:
+        witness=g.audit.pose(extrude(deepcopy(patch),amount=.1,dir=(0,0,1)),candidate['gap'],panel.INDEX)
+        require(g.outside_volume(witness,candidate['parts']['buffer'])<1e-6,'Reduced C bar patch escapes PTFE')
+        require(g.outside_volume(witness.translate((0,0,-1)),candidate['parts']['spacer'])<1e-6,'Reduced C bar patch lacks rigid backing')
+    require(bar.is_valid and fingerprint(bar)==before,'Temporary bearing witness mutated actual reduced C bar')
+    return dict(actual_C_planar_patch_area_mm2=area,selected_radii_mm=[44,45.5],
+                selected_patches_fully_backed_by_PTFE_and_support=True,passive_support_only=True,
+                no_rotor_to_box_joint=True,physical_drag_and_load_capacity_verified=False)
+
+
+def verify_structure_detached(data):
+    # This process runs checks synchronously. Keep the frozen producer unchanged
+    # and restore its dependency even when native geometry raises an exception.
+    previous=common.verify_bearing
+    common.verify_bearing=verify_bearing_detached
+    try:return base_cad.verify_structure(detached_base_data(data))
+    finally:common.verify_bearing=previous
+
+
+def detached_base_data(data):
+    # Legacy structural checks also form unions with base parts. Their entire
+    # working base must be detached, not just operands passed to the native gate.
+    return dict(data,candidate=deepcopy(data['candidate']),shim=deepcopy(data['shim']))
 
 
 def source_modules(sources):
@@ -103,6 +189,7 @@ def verify_rotors(data,admitted):
     return rows
 
 
+@detached_booleans()
 def prepare_base(base_pin):
     report=read_pin(base_pin)
     require(base_pin['sha256']==BASE_SHA,'Expected frozen four-print base')
@@ -141,7 +228,9 @@ def prepare(base_pin,coupling_pin):
     return data,admitted,actual
 
 
+@detached_booleans()
 def verify(data,admitted):
+    unchanged_subjects(data)
     root=panel.verify_tools(data)
     root.pop('all_30_hardware_envelopes_retained_conservatively')
     root['all_20_hardware_envelopes_retained_conservatively']=True
@@ -149,19 +238,33 @@ def verify(data,admitted):
     service=panel.verify_panel_service(data)
     service.pop('stationary_cable_and_sealed_ballast_remain_in_place')
     service.update(stationary_cable_remains_in_place=True,no_ballast_present=True)
-    return dict(support_fusion=base_cad.verify_support_fusion(data),structure=base_cad.verify_structure(data),
+    checks=dict(support_fusion=base_cad.verify_support_fusion(detached_base_data(data)),structure=verify_structure_detached(data),
                 rotors_with_blank_panel_closed=verify_rotors(data,admitted),root_tools_panel_off=root,
                 module_and_grip_service=common.verify_service(data),relaxed_C_recovery=common.verify_race_base(data),
                 panel_removal_refit=service,panel_service_lifecycle=panel_lifecycle(admitted))
+    unchanged_subjects(data)
+    return checks
 
 
 def validate_checks(checks,base,admitted):
     """Require successful geometry results and exact coverage, beyond file pins."""
     require(set(checks)==CHECKS,'Incomplete combined base checks')
-    # These base-only checks use identical actual parts and paths. Their complete
-    # records must equal the independently frozen four-print base results.
+    def same_base_result(actual,expected):
+        if isinstance(expected,dict):
+            return isinstance(actual,dict) and set(actual)==set(expected) and all(same_base_result(actual[k],v) for k,v in expected.items())
+        if isinstance(expected,list):
+            return isinstance(actual,list) and len(actual)==len(expected) and all(same_base_result(a,b) for a,b in zip(actual,expected))
+        if isinstance(expected,bool):return actual is expected
+        if isinstance(expected,float) and isinstance(actual,float) and expected!=0:
+            # Detached native intersections change positive reaction volumes by
+            # ~1e-12 mm3. Compare their serialization with relative1e-12 only;
+            # zero residuals remain exact and native collision limits stay1e-6.
+            return math.isfinite(actual) and math.isclose(actual,expected,rel_tol=1e-12,abs_tol=0.)
+        return type(actual) is type(expected) and actual==expected
+    # These base-only checks use identical actual parts and paths. Require every
+    # recorded field, including positive reaction and backing witnesses.
     for name in ('support_fusion','structure','panel_removal_refit'):
-        require(checks[name]==base['checks'][name],'Changed or failed base check: '+name)
+        require(same_base_result(checks[name],base['checks'][name]),'Changed or failed base check: '+name)
     def clear(value):
         return isinstance(value,(int,float)) and not isinstance(value,bool) and math.isfinite(value) and 0<=value<1e-6
     manifest=admitted['candidate'];names=set(admitted['inventory'])|{manifest['environment']['name']}
