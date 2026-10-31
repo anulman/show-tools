@@ -23,6 +23,8 @@ Removal reverses these actions. Hold the ball before releasing the clamp. Unwind
 
 ## Prepare the print package
 
+The [FDM slicer preflight](SLICER_PREFLIGHT.md) records preliminary Bambu Studio checks after the supplied photo showed a filament build plate. Actual printer, nozzle and filament remain unknown. These reference slices do not approve manufacturing or replace the physical fit trial.
+
 Use the installed CAD Python and a fresh output directory:
 
 ```sh
