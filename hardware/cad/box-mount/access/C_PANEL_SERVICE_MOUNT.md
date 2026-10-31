@@ -1,5 +1,7 @@
 # C mounting box: remove the bottom for collar service
 
+Historical ballast-bearing candidate: the operator superseded it with the [four-print ballast-free C base](C_MOUNT_NO_BALLAST.md). Its sources and exports remain preserved.
+
 This is the current mounting-box candidate for final post-glue C `456665c`. It supersedes the marked, ported-bottom candidate. The dedicated lock hole and collar-drive arc are closed. No `3`/`4` access labels remain. The original wire exit and four cover-fastener features are preserved. Two small internal blind clearances accommodate the stationary ballast-retention screw heads; they leave at least 2.3 mm of bottom skin and create no external latch opening.
 
 Before any installed collar or root-tool operation, remove the four ordinary M3 cover screws and lower the bottom. The wiring stays attached to the stationary shell, and the sealed ballast cassette stays positively retained. No cable disconnection, cutting, cable-slack assumption, or ballast removal is required. After both C keys are withdrawn, refit the bottom and its four screws before normal rotation. The ball/bar and its glue bond remain untouched.
