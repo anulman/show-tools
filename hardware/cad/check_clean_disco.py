@@ -8,7 +8,34 @@ import trimesh
 import clean_disco as handoff
 
 
+def check_native_identity():
+    from build123d import Box,Face
+    from OCP.BRep import BRep_Builder
+    from OCP.TopoDS import TopoDS_Compound,TopoDS_Face,TopoDS_Shape
+    shape=Box(1,1,1)
+    handoff.identical_after_rotation(shape,shape)
+    invalid=TopoDS_Face();BRep_Builder().MakeFace(invalid)
+    face=Face.make_rect(1,1).wrapped
+    mixed=TopoDS_Compound();builder=BRep_Builder();builder.MakeCompound(mixed)
+    builder.Add(mixed,shape.wrapped);builder.Add(mixed,face)
+    class Result:
+        def __init__(self,value):self.value=value
+        def Build(self):pass
+        def IsDone(self):return True
+        def Shape(self):return self.value
+    for name,value in [('null',TopoDS_Shape()),('invalid face',invalid),('valid face',face),('mixed solid and face',mixed)]:
+        with patch('OCP.BRepAlgoAPI.BRepAlgoAPI_Cut',return_value=Result(value)):
+            try:handoff.identical_after_rotation(shape,shape)
+            except ValueError:pass
+            else:raise AssertionError('Native identity admitted '+name)
+    try:handoff.identical_after_rotation(shape,shape.translate((.1,0,0)))
+    except ValueError:pass
+    else:raise AssertionError('Native identity admitted different solids')
+    print('PASS: native identity accepts real empty difference and rejects null, invalid, non-solid and unequal results',flush=True)
+
+
 def check(output):
+    check_native_identity()
     report=json.loads((output/'validation.json').read_text());selection=handoff.load(output/'selection.json')
     require=handoff.require;rows=report['files'];archive=Path(report['zip']['path'])
     require(handoff.digest(archive)==report['zip']['sha256'],'Changed delivered ZIP')

@@ -43,12 +43,27 @@ def inputs(admission_path):
 
 def identical_after_rotation(first,second):
     # Native Boolean material equality, rather than matching bounding boxes.
+    from copy import deepcopy
     from OCP.BRepAlgoAPI import BRepAlgoAPI_Cut
+    from OCP.BRepCheck import BRepCheck_Analyzer
+    from OCP.TopAbs import TopAbs_COMPOUND,TopAbs_COMPSOLID,TopAbs_SOLID
+    from OCP.TopoDS import TopoDS_Iterator
     from build123d import Shape
+    def solid_leaves(native):
+        if native.ShapeType()==TopAbs_SOLID:return [Shape.cast(native)]
+        require(native.ShapeType() in (TopAbs_COMPOUND,TopAbs_COMPSOLID),'Non-solid native identity remainder')
+        children=TopoDS_Iterator(native);require(children.More(),'Nested empty native identity remainder')
+        solids=[]
+        while children.More():
+            solids.extend(solid_leaves(children.Value()));children.Next()
+        return solids
     for a,b in ((first,second),(second,first)):
-        op=BRepAlgoAPI_Cut(a.wrapped,b.wrapped);op.Build();require(op.IsDone(),'Native identity check failed')
-        remainder=Shape.cast(op.Shape())
-        volume=sum(adaptive_mass(solid)[0] for solid in remainder.solids())
+        op=BRepAlgoAPI_Cut(deepcopy(a).wrapped,deepcopy(b).wrapped);op.Build();require(op.IsDone(),'Native identity check failed')
+        result=op.Shape()
+        require(not result.IsNull() and BRepCheck_Analyzer(result).IsValid(),'Invalid native identity result')
+        if result.ShapeType()==TopAbs_COMPOUND and not TopoDS_Iterator(result).More():continue
+        solids=solid_leaves(result)
+        volume=sum(adaptive_mass(solid)[0] for solid in solids)
         require(volume<1e-6,'Repeated print parts are not identical')
 
 

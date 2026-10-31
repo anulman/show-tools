@@ -17,7 +17,7 @@ python hardware/cad/check_clean_disco.py /absolute/path/to/new-handoff
 
 The archive contains only eight default fabrication STL files. Cut-material STEP references and the optional height cap stay outside it. Each STL is translated to the bed without scaling or changing its triangles. The printer chooses orientation and supports. A late admission failure does not expose a final print archive or validation receipt.
 
-The two repeat parts are checked by native Boolean material equality after rotation. The archive checker reads the delivered meshes, checks geometry against their sources, checks quantities, and rejects an omitted actor. Formal lifecycle validation and continuous geometry checks remain separate obligations in the combined admission.
+The two repeat parts are checked by native Boolean material equality after rotation. The gate rejects null or invalid native results and non-solid remnants; only a genuinely empty compound counts as an empty difference. Regression controls include invalid and valid face results, mixed solid-and-face results, and unequal solids. The archive checker reads the delivered meshes, checks geometry against their sources, checks quantities, and rejects an omitted actor. Formal lifecycle validation and continuous geometry checks remain separate obligations in the combined admission.
 
 ## Select the CAD review
 
