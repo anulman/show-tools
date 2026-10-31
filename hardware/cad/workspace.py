@@ -35,10 +35,12 @@ def publish_simple_arcade(config_path, port, reset, explode):
                for index, shape in enumerate(shapes)]
     artifacts.unchanged()
     labels = ['Arcade button box - shell', 'Arcade button box - removable bottom']
+    target = CAD_DIR / 'build/workspace/current-view.json'
+    previous = json.loads(target.read_text()) if target.exists() else {}
+    reset = reset or previous.get('presentation') != 'simple-arcade-box'
     show(*objects, names=labels, colors=['#d1b394', '#b69a7e'], alphas=[.55, 1.],
          port=port, reset_camera=Camera.RESET if reset else Camera.KEEP,
          ortho=True if reset else None, zoom=.85 if reset else None)
-    target = CAD_DIR / 'build/workspace/current-view.json'
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(dict(workspace='box-mount', presentation='simple-arcade-box',
         labels=labels, receipt=config, actual_artifacts=artifacts.files,
