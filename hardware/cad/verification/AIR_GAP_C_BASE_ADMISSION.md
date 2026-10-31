@@ -23,6 +23,12 @@ envelope to every fixed obstacle, complete root tools, recovery travel, module
 withdrawal, grip adjustment, bounded race recovery, and bottom-panel service.
 Actual STEP fingerprints must remain unchanged throughout those operations.
 
+Panel changes require both keys out and the ball either off the module or fully
+clamped. A hand-supported ball cannot share a closed-panel state. The exact
+58-state, 156-transition product retains all 35 coupling states and every removal
+path. An independent Cartesian graph and transitive-closure oracle checks the
+result. Removing the hand guard exposes both entered and turned counterexamples.
+
 The default bar root is 5 mm above the roof. Its required nominal
 hex-to-knob-underside setting is 5.25 mm. The optional checked 7 mm placement
 uses the existing adjustment, with no printed adapter.

@@ -7,6 +7,7 @@ import json,math
 from pathlib import Path
 import sys
 import clean_c_base_admission as old
+import air_gap_panel_lifecycle as panel_protocol
 sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'box-mount/access'))
 import air_gap_c_mount as box
 from build123d import extrude
@@ -91,6 +92,8 @@ def prepare(base_pin,coupling_pin):
         require(data['snapshots']['air_gap_C_'+name].sha256==record['sha256'],'Changed air-gap evidence: '+name)
         old.check_relative_bindings(parsed,root)
     data['sources'][HERE.name]=(HERE,g.audit.digest(HERE))
+    panel_source=Path(panel_protocol.__file__).resolve()
+    data['sources'][panel_source.name]=(panel_source,g.audit.digest(panel_source))
     box.unchanged_subjects(data);old.unchanged_subjects(data)
     return data,base,admitted
 
@@ -162,7 +165,7 @@ def verify(data,admitted):
             for row in heights.values():row['certificate']['intended_contact']='None; positive base clearance required'
         checks=dict(rotors=rotors,positive_all_angle_clearance=positive_clearance(data),root_tools=root_tools(data),
                     module_and_grip_service=old.common.verify_service(data),bounded_race_recovery=old.common.verify_race_base(data),
-                    panel_service=panel_service(data),panel_lifecycle=old.panel_lifecycle(admitted))
+                    panel_service=panel_service(data),panel_lifecycle=panel_protocol.verify(admitted))
         box.unchanged_subjects(data);old.unchanged_subjects(data)
         return checks
 
@@ -217,7 +220,7 @@ def validate_checks(checks,admitted):
             require(all(r['continuous_downward_stroke_mm']==(1.6 if r['name'].startswith(('axial M4','threaded M4')) else 1.1) for r in rows),'Truncated race stroke')
     service=checks['panel_service'];require(len(service['cover_fasteners'])==4 and all(r['full_key_phases_clear'] is True and r['whole_screw_withdrawal_mm']==14 for r in service['cover_fasteners']) and service['continuous_panel_downward_removal_and_reverse_mm']==100 and service['wiring_stays_on_shell'] is True
             and service['panel_refit_requires_all_keys_withdrawn'] is True,'Failed panel path')
-    require(checks['panel_lifecycle']==old.panel_lifecycle(admitted),'Air-gap panel protocol differs')
+    require(checks['panel_lifecycle']==panel_protocol.verify(admitted),'Air-gap panel protocol differs')
 
 
 def load(path):

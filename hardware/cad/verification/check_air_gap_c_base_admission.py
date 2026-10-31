@@ -23,6 +23,8 @@ def mutants():
         ('failed panel path',lambda p:p['checks']['panel_service'].__setitem__('continuous_panel_downward_removal_and_reverse_mm',0.)),
         ('keys-present panel refit',lambda p:p['checks']['panel_service'].__setitem__('panel_refit_requires_all_keys_withdrawn',False)),
         ('empty panel graph',lambda p:p['checks'].__setitem__('panel_lifecycle',{})),
+        ('panel ball-hand guard removed',lambda p:p['checks']['panel_lifecycle'].__setitem__('panel_changes_require_ball_hand_free',False)),
+        ('closed hand-supported state',lambda p:next(s for s in p['checks']['panel_lifecycle']['reachable_state_summary'] if s['ball support']=='hand').__setitem__('bottom_present',True)),
         ('invented physical fit',lambda p:p.__setitem__('physical_fit_verified',True)),
         ('invented spindle load capacity',lambda p:p.__setitem__('physical_spindle_load_capacity_verified',True)),
         ('invented manufacturing approval',lambda p:p.__setitem__('manufacturing_approved',True)),
@@ -60,7 +62,7 @@ def check(path):
         except ValueError:pass
         else:raise AssertionError('Old simultaneous-key protocol admitted as air-gap service')
     c.load(path)
-    print('PASS: actual air-gap admission; nineteen altered/rehashed proofs, old bearing base and old simultaneous-key protocol rejected; original reload passed')
+    print(f'PASS: actual air-gap admission; {len(mutants())} altered/rehashed proofs, old bearing base and old simultaneous-key protocol rejected; original reload passed')
 
 
 if __name__=='__main__':
