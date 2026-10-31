@@ -138,6 +138,17 @@ def read_pin(record):
     return json.loads(path.read_bytes())
 
 
+def check_relative_bindings(value,root):
+    resolved=deepcopy(value)
+    def resolve(item):
+        if isinstance(item,dict):
+            if {'path','sha256'}<=set(item):item['path']=str((root/item['path']).resolve())
+            for child in item.values():resolve(child)
+        elif isinstance(item,list):
+            for child in item:resolve(child)
+    resolve(resolved);check_bound_paths(resolved)
+
+
 def coupling(record):
     from reduced_c_admission import load as load_c
     config=read_pin(record)
@@ -217,10 +228,11 @@ def prepare(base_pin,coupling_pin):
     data['C']=admitted['candidate'];data['proofs']=admitted['proofs']
     # Keep historical captured manifests immutable; new C gets separate bindings.
     config=g.bind_input(data,'reduced_C_admission',Path(coupling_pin['path']))
+    root=Path(coupling_pin['path']).parent
     for name,record in dict(candidate=config['candidate'],protocol=config['protocol'],**config['proofs']).items():
-        parsed=g.bind_input(data,'reduced_C_'+name,Path(record['path']))
+        parsed=g.bind_input(data,'reduced_C_'+name,(root/record['path']).resolve())
         require(data['snapshots']['reduced_C_'+name].sha256==record['sha256'],'Changed reduced C proof: '+name)
-        check_bound_paths(parsed)
+        check_relative_bindings(parsed,root)
     data['sources'][HERE.name]=(HERE,g.audit.digest(HERE))
     publication_source=Path(publication_bundle.__file__).resolve()
     data['sources'][publication_source.name]=(publication_source,g.audit.digest(publication_source))
