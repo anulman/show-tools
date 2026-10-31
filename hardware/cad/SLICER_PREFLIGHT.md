@@ -2,6 +2,8 @@
 
 Bambu Studio 02.08.02.61 is installed. The supplied photo shows a Bambu Cool Plate for filament printing. It does not identify the printer model, nozzle, filament or the final printing process. The operator authorized preliminary checks while those facts remain unknown.
 
+Bambu Studio is an external tool under the copyleft [GNU Affero General Public License, version 3](https://github.com/bambulab/BambuStudio/blob/master/LICENSE). Its source and binary are not vendored in this repository.
+
 Sixteen offline slices completed successfully: eight designs in their exported poses with supports off, then eight proposed printing poses with supports where indicated below. Six baseline slices reported floating cantilevers. None of the eight proposed slices reported that warning. This result establishes that the reference slicer can generate toolpaths, not that the parts are ready for fabrication.
 
 The reference settings are Bambu Lab X1 Carbon, 0.4 mm nozzle, Generic PLA and 0.20 mm Standard @BBL X1C. The preset uses two walls and 15% infill. These are comparison settings, not strength or material recommendations. No printer was connected and no print was submitted.
