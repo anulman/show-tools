@@ -191,6 +191,13 @@ def check_bound_gcode(project,gcode):
         if archive.read('Metadata/plate_1.gcode')!=gcode.read_bytes():raise ValueError('Standalone toolpath differs from bound project')
 
 
+def check_run_receipt(row,result,log):
+    if result!=row['result']:raise ValueError('Result differs from captured run receipt')
+    if pin(log)!=row['logs']:raise ValueError('Slicer log differs from captured run receipt')
+    if row['slice_completed'] is not True or row['timed_out'] is not False or row['exit_code']!=0 or result['return_code']!=0 or len(result['sliced_plates'])!=1:
+        raise ValueError('Slice failed')
+
+
 def negative_controls(project,models,wrong_slot):
     rejected=[]
     with tempfile.TemporaryDirectory(prefix='slicer-project-controls-') as directory:
@@ -287,8 +294,10 @@ def check(output):
         if any(row[k]!=model[m] for k,m in [('source_file','file'),('quantity','quantity'),('rotation','rotation'),('supports','supports')]):raise ValueError('Run slot differs from posed design')
         directory=output/'analysis-only'/row['variant']/str(row['index'])
         result=json.loads((directory/'result.json').read_text())
-        if row['exit_code']!=0 or result['return_code']!=0 or not result['sliced_plates']:
-            raise ValueError('Slice failed')
+        check_run_receipt(row,result,directory/'slicer.log')
+        objects=result['sliced_plates'][0]['objects']
+        if len(objects)!=1 or objects[0]['name']!=Path(model['model']['path']).name or objects[0]['triangle_count']!=len(disco_inches.mesh(Path(model['model']['path']).read_bytes()).faces):
+            raise ValueError('Result belongs to another design')
         expected_inventory={Path(model['model']['path']).name:1}
         project=inspect_project(directory/'REFERENCE-NOT-FOR-PRINT.3mf',1,models=output/'models'/row['variant'],expected_inventory=expected_inventory)
         if project['project']!=row['project']:raise ValueError('Changed sliced project')
@@ -305,10 +314,20 @@ def check(output):
     layout=inspect_project(output/'review/DISCO-PRELIMINARY-REVIEW-NOT-FOR-PRINT.3mf',10,unsliced=True,models=output/'models/candidate')
     quantities={Path(r['model']['path']).name:r['quantity'] for r in manifest['models'] if r['variant']=='candidate'}
     if layout['inventory']!=quantities:raise ValueError('Wrong layout quantities')
+    controls=negative_controls(Path(layout['project']['path']),output/'models/candidate',
+        (output/'analysis-only/candidate/2/REFERENCE-NOT-FOR-PRINT.3mf',
+         {Path(models['candidate',1]['model']['path']).name:1}))
+    baseline=next(r for r in runs if (r['variant'],r['index'])==('as-exported',1))
+    with tempfile.TemporaryDirectory(prefix='slicer-result-control-') as directory:
+        changed=json.loads(json.dumps(baseline['result']))
+        if not changed['sliced_plates'][0]['warning_message']:raise ValueError('Missing baseline warning for control')
+        changed['sliced_plates'][0]['warning_message']=''
+        target=Path(directory)/'result.json';target.write_text(json.dumps(changed))
+        try:check_run_receipt(baseline,json.loads(target.read_text()),Path(baseline['logs']['path']))
+        except ValueError:controls.append('altered-result-warning')
+        else:raise ValueError('Accepted a cleared warning in the captured result')
     report=dict(production_ready=False,geometry_unchanged=True,comparison=checks,review_layout=layout,
-                rejected_negative_controls=negative_controls(Path(layout['project']['path']),output/'models/candidate',
-                    (output/'analysis-only/candidate/2/REFERENCE-NOT-FOR-PRINT.3mf',
-                     {Path(models['candidate',1]['model']['path']).name:1})),
+                rejected_negative_controls=controls,
                 review_layout_scope='Orientation and quantity review only; global auto-support is enabled. Per-part comparison settings are in slicing-results.json.')
     (output/'verification.json').write_text(json.dumps(report,indent=2)+'\n')
     return report
