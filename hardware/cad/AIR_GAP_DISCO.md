@@ -17,7 +17,7 @@ The air-gap protocol holds the ball with one hand and exchanges the two ordinary
 3. Engage the 4 mm key from below and push the collar to its upper stop. With the other hand, lower the ball and its glued bar over the module. Make the 35-degree locking turn while maintaining the stop position.
 4. Keep holding the ball. Release the 4 mm key's push and withdraw that key completely. Insert the 3 mm key, seat it in the screw head, and push to seat the head and recover the collar's upper stop. The released collar is captured; do not turn it while loose.
 5. With the ball hand, lift the ball 2.1 mm into the nut register. Tighten the screw three full turns while following the ball's return stroke with that hand.
-6. Withdraw the key and release the holding hand only after the clamp is secured. Check unobstructed rotation and refit the bottom.
+6. Withdraw the key and release the holding hand only after the clamp is secured. Check unobstructed rotation and refit the bottom. Only remove or refit the bottom with the ball absent or fully clamped, with both collar keys withdrawn.
 
 Removal reverses these actions. Hold the ball before releasing the clamp. Unwind with the 3 mm key and reverse the register stroke; withdraw that key before introducing the 4 mm key. Recover the upper stop before reversing the 35-degree turn and lifting the ball away. The bar stays glued inside the ball throughout. Handling, actual key reach and load capacity remain physical checks.
 

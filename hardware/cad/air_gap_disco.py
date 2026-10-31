@@ -42,7 +42,8 @@ def admitted(admission_path):
         require(len(rows)==17 and {q['name']:q['role'] for q in rows}==expected,'Unexpected actual collar inventory')
     graph=result['panel_lifecycle'];count=result['lifecycle']['reachable_states']
     require(graph['C_projection_states']==count
-        and graph['every_reachable_state_returns_to_bare_glued_bar_and_closed_box'] is True,
+        and graph['every_reachable_state_returns_to_bare_glued_bar_and_closed_box'] is True
+        and graph['panel_changes_require_ball_hand_free'] is True,
         'Incomplete air-gap service lifecycle')
     require(base['physical_fit_verified'] is False and base['manufacturing_approved'] is False,'Prototype scope changed')
     placement=result['placement']
