@@ -4,6 +4,8 @@ The current arcade export contains only the inclined shell and removable bottom.
 
 The original 5° roof, 17.5 mm counterbore recess, 63.5 mm button-axis reserve, four cover joints, low/front and elevated/rear wire exits, and both tiedown routes remain. The bottom's physical geometry is unchanged. Both delivery STLs are translated to Z=0 without scaling; the receipt records the inverse assembly translations.
 
+The tall-side exit has two small closed tie eyes directly joined to the rear wall. Their centres are at Y55 mm, with 1 mm of wall overlap; there is no shelf or separate support pad. Full tie-loop/head clearance and nominal 3/8 mm cable gauges are checked through the unchanged rear outlet. Cable ties are optional strain relief for a used exit, not part of mounting the button.
+
 `arcade-button-box-STL.zip` contains exactly:
 
 - `arcade-box-shell.stl`
