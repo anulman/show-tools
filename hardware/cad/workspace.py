@@ -66,6 +66,10 @@ def main():
     if args.workspace == 'box-mount' and args.variant in ('all', 'arcade-inclined') and simple_arcade.is_file():
         publish_simple_arcade(simple_arcade, args.port, args.reset_camera, args.explode)
         return
+    import clean_disco
+    if args.workspace == 'disco-bar' and clean_disco.CONFIG.is_file():
+        clean_disco.publish_configured(args.port, args.reset_camera)
+        return
     import print_handoff
     if print_handoff.CONFIG.is_file() and args.variant == 'all' and args.explode == 0:
         print_handoff.publish_configured(args.port, args.reset_camera,
