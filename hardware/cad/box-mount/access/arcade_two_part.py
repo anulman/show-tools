@@ -14,6 +14,7 @@ from post_glue_base_gate import intersection,outside_volume
 from build123d import Axis,extrude
 r,cad,audit=dual.r,dual.cad,dual.audit
 PARENT_SHA='fa2a4758e78568e396055f652add4088708fa2a2cea6d8da5aa298ae878745bb'
+REAR_ANCHOR_SHIFT_Y=17.
 
 
 def require(value,message):audit.require(value,message)
@@ -42,12 +43,22 @@ def prepare(receipt):
     front=p.tray_y-p.tray_length/2;back=p.tilted_length/2-p.wall
     mask=r.block(p.tray_width,back-front,p.tray_height+p.tray_roof+.1,
                  (0,(front+back)/2,floor-.05))
-    shell=actual['shell']-mask
+    before=actual['shell']-mask
+    rear_region=r.block(46,28.1,8.2,(0,46.05,floor+21.9))
+    rear_cut=r.block(46,26,8.2,(0,45,floor+21.9))
+    # Each closed eye directly overlaps the existing rear wall by1mm. The
+    # removal stops at the inner wall plane; no shelf or support pad remains.
+    bare=before-rear_cut
+    rear_local=r.cable_tiedowns(bare.translate((0,-REAR_ANCHOR_SHIFT_Y,0)),floor+24,180)
+    anchors=(rear_local['eyes'][0]+rear_local['eyes'][1]).translate((0,REAR_ANCHOR_SHIFT_Y,0))
+    shell=rear_local['bottom'].translate((0,REAR_ANCHOR_SHIFT_Y,0))
     require(shell.is_valid and len(shell.solids())==1,'Tray removal disconnects arcade shell')
     candidate['parts']=dict(shell=shell,bottom=actual['bottom'])
     candidate['capsule']=dict(candidate['capsule'],pairs=[]);candidate['ballast_cubes']=[]
     candidate['ties']=dict(candidate['ties'],bottom=actual['bottom'])
-    data.update(dual_snapshot=snapshot,dual_manifest=manifest,original_dual_parts=actual,removal_mask=mask)
+    data.update(dual_snapshot=snapshot,dual_manifest=manifest,original_dual_parts=actual,removal_mask=mask,
+                before_rear_cleanup=before,rear_anchor_region=rear_region,rear_removal_cut=rear_cut,compact_rear_local=rear_local,
+                compact_rear_anchors=anchors)
     unchanged(data);return data
 
 
@@ -57,14 +68,46 @@ def fixed(data):
     return result
 
 
+def verify_rear_anchors(data):
+    candidate=data['candidate'];shell=candidate['parts']['shell'];floor=data['compact_rear_local']['floor']
+    # Work in the old anchor's local coordinates for its complete closed-eye,
+    # threading, loop and head checks, then check the actual assembly natively.
+    local=dict(data['compact_rear_local'],bottom=shell.translate((0,-REAR_ANCHOR_SHIFT_Y,0)))
+    anchors=r.verify_tiedowns(local,candidate['original']['floor_z'])
+    obstacles=fixed(data);rows=[]
+    for diameter in (3.,8.):
+        low=1.35;high=diameter+4.45;height=high-low
+        outer=r.Plane.XZ*r.RectangleRounded(33.2,height,1.5)
+        inner=r.Plane.XZ*r.RectangleRounded(30.6,height-2.6,.2)
+        loop=r.extrude(outer-inner,amount=1.25,both=True).translate((0,-38,floor+(low+high)/2))
+        head=r.block(4.8,4.7,3.7,(-18.5,-38,floor+1.25))
+        loop=(loop+head).rotate(Axis.Z,180).translate((0,REAR_ANCHOR_SHIFT_Y,0))
+        bundle=cad.cyl(diameter/2,48,-24).rotate(Axis.X,90).translate((0,43,floor+3+diameter/2))
+        for label,shape in (('tie loop and head',loop),('straight cable gauge',bundle)):
+            for name,part in obstacles.items():require(intersection(shape,part)<1e-6,'Compact rear '+label+' blocked: '+name)
+        rows.append(dict(nominal_bundle_diameter_mm=diameter,actual_loop_head_and_route_clear=True))
+    supports=[]
+    for x in (-11,11):
+        eye=next(part.translate((0,REAR_ANCHOR_SHIFT_Y,0)) for part in data['compact_rear_local']['eyes']
+                 if abs(part.bounding_box().center().X-x)<1e-6)
+        overlap=intersection(eye,data['before_rear_cleanup'])
+        require(overlap>=44.7,'Compact rear eye has no positive wall attachment')
+        supports.append(dict(anchor_x_mm=x,anchor_y_mm=55,eye_outer_dimensions_mm=[8,8,5.6],wall_overlap_mm3=overlap,
+                             shelf_or_support_pad=False))
+    return dict(closed_anchor_checks=anchors,whole_tie_and_cable_witnesses=rows,supports=supports,
+                one_tie_serves_both_eyes=True,actual_cable_bend_radius_and_pull_strength_verified=False)
+
+
 def verify(data):
     unchanged(data);candidate=data['candidate'];parts=candidate['parts'];p=candidate['box'];floor=p.floor_z
     require(set(parts)=={'shell','bottom'},'Expected exactly two printed parts')
     for name,part in parts.items():require(part.is_valid and len(part.solids())==1,'Invalid arcade part: '+name)
     require(intersection(parts['shell'],parts['bottom'])<1e-6,'Arcade shell and bottom overlap')
     equal(parts['bottom'],data['original_dual_parts']['bottom'],'Arcade bottom changed')
-    require(outside_volume(parts['shell'],data['original_dual_parts']['shell'])<1e-6,'Cleanup adds shell material')
-    equal(parts['shell'],data['original_dual_parts']['shell']-data['removal_mask'],'Cleanup changed material outside tray region')
+    expected=(data['before_rear_cleanup']-data['rear_removal_cut'])+data['compact_rear_anchors']
+    equal(parts['shell'],expected,'Cleanup changed material outside tray/rear-anchor regions')
+    equal(parts['shell']-data['rear_anchor_region'],data['before_rear_cleanup']-data['rear_anchor_region'],
+          'Material changed outside explicit rear-anchor region')
     require(intersection(parts['shell'],data['removal_mask'])<1e-6,'Internal ballast tray or ribs remain')
     removed=intersection(data['original_dual_parts']['shell'],data['removal_mask']);require(removed>1000,'Ballast removal is ineffective')
     roof=r.block(300,300,115,(0,0,-15))
@@ -80,9 +123,11 @@ def verify(data):
     for name,reserve in dict(front=candidate['original']['cable_envelope'],rear=data['rear_reserve']).items():
         for obstacle,part in obstacles.items():require(intersection(reserve,part)<1e-6,'Cable outlet blocked: '+name+'/'+obstacle)
         routes[name]=dict(actual_reserve_clear=True,width_height_mm=[reserve.bounding_box().size.X,reserve.bounding_box().size.Z])
-    require(outside_volume(data['rear_ties']['bottom'],parts['shell'])<1e-6,'Rear tie bridge or eyes changed')
+    require(outside_volume(data['compact_rear_anchors'],parts['shell'])<1e-6,'Compact rear anchors missing')
+    wall=r.block(50,5,12,(0,60.5,floor+21))
+    equal(parts['shell']&wall,data['before_rear_cleanup']&wall,'Rear enclosing wall or outlet changed')
     front_ties=r.verify_tiedowns(candidate['ties'],candidate['original']['underside_z'])
-    rear_ties=dual.rear_tie_witnesses(data)
+    rear_ties=verify_rear_anchors(data)
     joint_checks=r.check_joints(candidate['covers']['pairs'],parts['shell']+parts['bottom'])
     loading=r.verify_nut_loading(candidate['covers']['pairs'],parts['shell'])
     for item in r.joint_hardware(candidate['covers']['pairs']):
@@ -100,7 +145,10 @@ def verify(data):
         tools.append(dict(joint=joint.name,AF_mm=2,whole_key_entry_operation_withdrawal_clear=True))
     require(all(part.is_valid for part in parts.values()),'Temporary verification mutated actual parts')
     unchanged(data)
+    saved=intersection(data['before_rear_cleanup'],data['rear_anchor_region'])-intersection(parts['shell'],data['rear_anchor_region'])
+    require(saved>1800,'Rear shelf was not materially simplified')
     return dict(exactly_two_parts=True,removed_ballast_material_mm3=removed,no_ballast_parts_or_dedicated_hardware=True,
+        rear_shelf_replaced_by_two_compact_wall_anchors=True,net_rear_material_saved_mm3=saved,
         roof_counterbore_and_all_four_cover_interfaces_preserved=True,button_axis_reserve_mm=63.5,
         tilt_degrees=5.,counterbore_recess_mm=17.5,cable_routes=routes,front_tiedowns=front_ties,rear_tiedowns=rear_ties,
         cover_joints=joint_checks,cover_nut_loading=loading,cover_tools=tools,continuous_bottom_withdrawal_and_reverse_mm=100.)
