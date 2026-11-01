@@ -3,7 +3,7 @@ import { parseSongSource } from './song-source.js';
 import { discoverSheetVoices } from '../voice-catalog/sheet-voices.js';
 import { columnName } from './columns.js';
 
-export const MUSICXML_PROFILE = 'show-tools-sheet-study-v1';
+export const MUSICXML_PROFILE = 'show-tools-sheet-study-v2';
 const divisions = 960;
 const convention = 'Experimental rhythm guide: x notes mark attacks only; short glyph lengths are not authored durations. No pitch, MIDI or audio execution is specified. Text-only measures do not establish silence.';
 
@@ -26,6 +26,7 @@ export interface MusicXmlReport {
   meter: { numerator: number; denominator: number };
   bpmPerChartCount: number;
   measureCount: number;
+  selectedLabelCells: string[];
   nativeCompilationExecutable: boolean;
   compilerDiagnostics: Awaited<ReturnType<typeof compileSong>>['diagnostics'];
   conventions: string[];
@@ -122,7 +123,7 @@ function rhythm(cell: MusicXmlCell, countTicks: number, counts: number): string 
   return result + gap(duration - cursor, countTicks, false);
 }
 
-export async function importSheetMusicXml(options: { source: unknown; mapping: unknown }): Promise<{ xml: string; report: MusicXmlReport }> {
+export async function importSheetMusicXml(options: { source: unknown; mapping: unknown; selectedRows?: readonly number[] }): Promise<{ xml: string; report: MusicXmlReport }> {
   const source = parseSongSource(options.source), mapping = decodeSongMapping(options.mapping);
   if (!source.range.startsWith('A1:')) throw new Error('The MusicXML study requires an A1-origin source, as does the song compiler.');
   for (const [r, row] of source.values.entries()) for (const [c, text] of row.entries()) {
@@ -135,11 +136,14 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
   if (!song.executable) throw new Error('MusicXML study blocked by chart diagnostics:\n' + song.diagnostics.map(d => `${d.source.a1}: ${d.message}`).join('\n'));
   const sourceJson = stableMusicXmlJson(source), mappingJson = stableMusicXmlJson(mapping);
   const [sourceDigest, mappingDigest] = await Promise.all([sha256(sourceJson), sha256(mappingJson)]);
-  const rows = discoverSheetVoices(song, source);
-  if (!rows.length) throw new Error('The source has no discoverable arrangement voices.');
+  if (options.selectedRows?.some(row => !Number.isSafeInteger(row) || row < 1)) throw new Error('Selected row numbers must be positive safe integers.');
+  const rows = discoverSheetVoices(song, source).filter(row => options.selectedRows === undefined
+    || options.selectedRows.includes(Number(row.labelCell.replace(/^[A-Z]+/, ''))));
+  if (!rows.length) throw new Error('Select at least one voice or instrument row. Header and control rows are included automatically.');
   const report: MusicXmlReport = {
     profile: MUSICXML_PROFILE, title: song.title, sourceDigest, mappingDigest, meter: mapping.meter,
     bpmPerChartCount: song.chart.bpm, measureCount: song.chart.bars.length,
+    selectedLabelCells: rows.map(row => row.labelCell),
     nativeCompilationExecutable: song.executable, compilerDiagnostics: song.diagnostics,
     conventions: [convention, 'Rhythm rests show gaps between onset markers, not measured sound lengths.',
       'Apostrophe = sampled source notation; ! and !! remain visual markers, never musical dynamics.',
@@ -158,7 +162,8 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
       }) })),
   };
   const fields: [string, string][] = [['show-tools:profile', MUSICXML_PROFILE], ['show-tools:source-sha256', sourceDigest],
-    ['show-tools:mapping-sha256', mappingDigest], ['show-tools:source', sourceJson], ['show-tools:mapping', mappingJson]];
+    ['show-tools:mapping-sha256', mappingDigest], ['show-tools:selected-label-cells', stableMusicXmlJson(report.selectedLabelCells)],
+    ['show-tools:source', sourceJson], ['show-tools:mapping', mappingJson]];
   const countTicks = divisions * 4 / mapping.meter.denominator;
   const parts = report.parts.map((part, partIndex) => {
     const row = rows[partIndex];

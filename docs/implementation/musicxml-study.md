@@ -98,6 +98,8 @@ The DYC score also passed the official MusicXML 4.0 XSD and rendered through Ver
 That verifies this export's schema and rendering interoperability, not a full notation-editor round trip or a MusicXML-to-PE compiler.
 The format remains experimental until those adoption questions are reviewed.
 
+The optional [bound Sheets download dialog](sheets-musicxml.md) reuses this converter. Study profile v2 records selected voice label cells in `show-tools:selected-label-cells`; selecting a subset projects score parts while retaining the entire source and mapping. The earlier full-song review artifacts above use profile v1.
+
 Schema validation used `xmllint --nonet --noout --schema musicxml.xsd score.musicxml`, with the [tagged MusicXML 4.0 schema](https://github.com/w3c/musicxml/tree/v4.0/schema) and its `xml.xsd`/`xlink.xsd` imports resolved through a local XML catalog. XML well-formedness tests alone are not schema validation.
 
 The implementation is in [`sheet-musicxml.ts`](../../lib/performance/sheet-musicxml.ts).
