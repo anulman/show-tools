@@ -2,6 +2,7 @@ import { compileSong, decodeSongMapping } from './compiled-song.js';
 import { parseSongSource } from './song-source.js';
 import { discoverSheetVoices } from '../voice-catalog/sheet-voices.js';
 import { columnName } from './columns.js';
+import { scoreXmlText as xml } from './score-xml.js';
 
 export const MUSICXML_PROFILE = 'show-tools-sheet-study-v2';
 const divisions = 960;
@@ -31,7 +32,8 @@ export interface MusicXmlReport {
   compilerDiagnostics: Awaited<ReturnType<typeof compileSong>>['diagnostics'];
   conventions: string[];
   sections: Awaited<ReturnType<typeof compileSong>>['chart']['sections'];
-  parts: { id: string; name: string; labelCell: string; cells: MusicXmlCell[] }[];
+  vocalCues: { bar: number; cell: string; text: string }[];
+  parts: { id: string; name: string; labelCell: string; managed: boolean; cells: MusicXmlCell[] }[];
 }
 
 export function stableMusicXmlJson(value: unknown): string {
@@ -43,18 +45,6 @@ export function stableMusicXmlJson(value: unknown): string {
   if (Array.isArray(value)) return '[' + value.map(stableMusicXmlJson).join(',') + ']';
   return '{' + Object.entries(value).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)
     .map(([key, item]) => JSON.stringify(key) + ':' + stableMusicXmlJson(item)).join(',') + '}';
-}
-
-function xml(text: string): string {
-  for (const symbol of text) {
-    const code = symbol.codePointAt(0) ?? 0;
-    if (!(code === 9 || code === 10 || code === 13 || code >= 32 && code <= 0xd7ff
-      || code >= 0xe000 && code <= 0xfffd || code >= 0x10000 && code <= 0x10ffff)) {
-      throw new Error(`XML 1.0 cannot represent character U+${code.toString(16).toUpperCase()}.`);
-    }
-  }
-  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;').replaceAll("'", '&apos;').replaceAll('\r', '&#13;');
 }
 
 async function sha256(text: string): Promise<string> {
@@ -140,6 +130,8 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
   const rows = discoverSheetVoices(song, source).filter(row => options.selectedRows === undefined
     || options.selectedRows.includes(Number(row.labelCell.replace(/^[A-Z]+/, ''))));
   if (!rows.length) throw new Error('Select at least one voice or instrument row. Header and control rows are included automatically.');
+  const vocalPart = song.parts.find(part => part.role.kind === 'default-live');
+  const vocalRow = vocalPart ? Number(vocalPart.source.a1.replace(/^[A-Z]+/, '')) : null;
   const report: MusicXmlReport = {
     profile: MUSICXML_PROFILE, title: song.title, sourceDigest, mappingDigest, meter: mapping.meter,
     bpmPerChartCount: song.chart.bpm, measureCount: song.chart.bars.length,
@@ -151,7 +143,11 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
       'Implicit subdivisions advance to the earliest following occurrence: &e3a& = 1&, 2e, 3, 3a, 4&.',
       'Capture, layered takes, prefix views and rotary eligibility remain Show Tools metadata, not MusicXML playback instructions.'],
     sections: song.chart.sections,
-    parts: rows.map(row => ({ id: `P${row.labelCell}`, name: row.name, labelCell: row.labelCell,
+    vocalCues: vocalRow === null ? [] : song.chart.bars.flatMap(bar => {
+      const text = source.values[vocalRow - 1]?.[bar.column - 1] ?? '';
+      return text.trim() ? [{ bar: bar.bar, cell: `${columnName(bar.column)}${vocalRow}`, text }] : [];
+    }),
+    parts: rows.map(row => ({ id: `P${row.labelCell}`, name: row.name, labelCell: row.labelCell, managed: row.managed,
       cells: song.chart.bars.map(bar => {
         const cell = `${columnName(bar.column)}${Number(row.labelCell.replace(/^[A-Z]+/, ''))}`;
         const text = source.values[Number(row.labelCell.replace(/^[A-Z]+/, '')) - 1]?.[bar.column - 1] ?? '';

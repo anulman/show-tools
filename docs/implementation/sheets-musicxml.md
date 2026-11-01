@@ -4,7 +4,7 @@ The experimental bound Apps Script adds **Show Tools → Export selected voices�
 
 This first build supports the configured **01 Dance Yrself Clean** worksheet, gid 101, in its existing spreadsheet. It reads the approved `A1:HL30` chart extent and uses the same mapping and deterministic MusicXML converter as the offline CLI. Copies and other songs need explicit mapping support; their source identities are never silently substituted.
 
-Selection chooses voices, not a bar crop. Selecting any cells in Cowbell and Bing Bong produces those two score parts across all 218 mapped bars. Noncontiguous and overlapping selections work. Header/control rows do not become parts, and a selection with no voice rows fails clearly. Timing, control rows, cell notes and the **complete chart source, including unselected voices**, remain embedded in the file.
+Selection chooses voices, not a bar crop. Selecting any cells in Cowbell and Bing Bong produces those two score parts across all 218 mapped bars. Noncontiguous and overlapping selections work. Header/control rows do not become parts, and a selection with no voice rows fails clearly. Timing, control rows, cell notes and the **complete chart source, including unselected voices**, remain embedded in the file. Selected non-AF parts additionally get separate [musician sheets](musician-sheets.md): printable HTML with five blank staff lines, section/vocal cues, and matching MusicXML.
 
 ## Build and install
 
@@ -13,7 +13,7 @@ node --import tsx scripts/build-sheets-musicxml.ts \
   --out-dir /private/tmp/show-tools-sheets-musicxml-new
 ```
 
-The destination must not exist. The build produces `Code.gs`, `Export.html`, `appsscript.json`, `INSTALL.md`, and a ZIP of those four files. These generated deployment files stay outside Git. A review package is available at `/private/tmp/show-tools-sheets-musicxml-final/show-tools-musicxml.zip`.
+The destination must not exist. The build produces `Code.gs`, `Export.html`, `appsscript.json`, `INSTALL.md`, and a ZIP of those four files. These generated deployment files stay outside Git. The updated musician-sheet package is available at `output/sheets-musicxml/show-tools-musicxml.zip`.
 
 1. Open the configured spreadsheet and choose **Extensions → Apps Script**.
 2. For a new bound project, paste `Code.gs` into the script file. Create an HTML file named **Export** and paste `Export.html` into it.

@@ -45,6 +45,19 @@ test('empty/control-only/invalid selections and a stale source fail instead of e
   await assert.rejects(prepareSelectedMusicXml({ source: { ...input.source, values }, selection: [{ firstRow: 12, lastRow: 12 }] }), /CT11/);
 });
 
+test('selected reference musicians get separate writing sheets while AF voices stay managed', async () => {
+  const { source } = await inputs();
+  const selected = await prepareSelectedMusicXml({ source, selection: [{ firstRow: 14, lastRow: 15 }] });
+  assert.deepEqual(selected.musicianSheets.map(sheet => sheet.name), ['Bass', 'Drums']);
+  for (const sheet of selected.musicianSheets) {
+    assert.equal(sheet.pages.length, 8);
+    assert.match(sheet.xml, /<staff-lines>5<\/staff-lines>/);
+    assert.match(sheet.html, /Print \/ Save PDF/);
+  }
+  const mixed = await prepareSelectedMusicXml({ source, selection: [{ firstRow: 13, lastRow: 14 }] });
+  assert.deepEqual(mixed.musicianSheets.map(sheet => sheet.name), ['Bass']);
+});
+
 test('bound-script package is deterministic, exposes top-level functions and reads only configured chart data', async () => {
   const temporary = await mkdtemp(join(tmpdir(), 'sheets-musicxml-'));
   try {

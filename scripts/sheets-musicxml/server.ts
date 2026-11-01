@@ -29,7 +29,7 @@ export function onOpen(): void {
 }
 
 export function showMusicXmlExport(): void {
-  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutputFromFile('Export').setWidth(580).setHeight(560), 'Export MusicXML');
+  SpreadsheetApp.getUi().showModalDialog(HtmlService.createHtmlOutputFromFile('Export').setWidth(580).setHeight(680), 'Export MusicXML');
 }
 
 export function getMusicXmlSelection() {
