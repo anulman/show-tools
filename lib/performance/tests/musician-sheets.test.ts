@@ -20,7 +20,7 @@ const Direction = Schema.Struct({ 'direction-type': Schema.Struct({
 }) });
 const Measure = Schema.Struct({ number: Schema.String,
   direction: Schema.optionalKey(Schema.Array(Direction)),
-  note: Schema.Array(Schema.Struct({ 'print-object': Schema.String, duration: Schema.String })),
+  note: Schema.Array(Schema.Struct({ 'print-object': Schema.optionalKey(Schema.String), duration: Schema.String })),
 });
 const Document = Schema.Struct({ 'score-partwise': Schema.Struct({
   identification: Schema.Struct({ miscellaneous: Schema.Struct({ 'miscellaneous-field': Schema.Array(Field) }) }),
@@ -38,6 +38,17 @@ function attributes(svg: string, name: string): number[] {
   return [...svg.matchAll(new RegExp(`${name}="([0-9]+)"`, 'g'))].map(match => Number(match[1]));
 }
 
+function coveredBars(svg: string): number[] {
+  return [...svg.matchAll(/data-(bar|rest-start|reference-start)="([0-9]+)"(?: data-(rest-end|reference-end)="([0-9]+)")?/g)].flatMap(match => {
+    const start = Number(match[2]);
+    if (match[1] === 'bar') { assert.equal(match[3], undefined); return [start]; }
+    assert.equal(match[3], match[1].replace('-start', '-end'));
+    const end = Number(match[4]);
+    assert.ok(Number.isSafeInteger(end) && end >= start);
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  });
+}
+
 function cueLines(svg: string): string[] {
   return [...svg.matchAll(/<text[^>]*fill="#525252"[^>]*>(.*?)<\/text>/gs)].map(match => {
     const value: unknown = new XMLParser({ parseTagValue: false, trimValues: false }).parse(`<value>${match[1]}</value>`);
@@ -45,20 +56,38 @@ function cueLines(svg: string): string[] {
   });
 }
 
-test('DYC musician outputs contain only separate Bass and Drums sheets, all bars, full staff lines and room to write', async () => {
-  const sheets = await createMusicianSheets(await inputs());
+test('DYC musician outputs condense rests while preserving every bar, active writing space and page context', async () => {
+  const input = await inputs(), song = await compileSong(input.source, input.mapping);
+  const sheets = await createMusicianSheets(input);
   assert.deepEqual(sheets.map(sheet => [sheet.name, sheet.labelCell, sheet.stem]),
     [['Bass', 'A14', 'bass-a14'], ['Drums', 'A15', 'drums-a15']]);
+  assert.deepEqual(sheets.map(sheet => sheet.pages.length), [4, 5]);
   for (const sheet of sheets) {
-    assert.equal(sheet.pages.length, 8);
-    assert.deepEqual(sheet.pages.flatMap(page => attributes(page, 'data-bar')), Array.from({ length: 218 }, (_, i) => i + 1));
-    assert.deepEqual(sheet.pages.flatMap(page => attributes(page, 'data-system-start')), Array.from({ length: 55 }, (_, i) => i * 4 + 1));
+    assert.deepEqual(sheet.pages.flatMap(coveredBars), Array.from({ length: 218 }, (_, i) => i + 1));
+    const row = Number(sheet.labelCell.slice(1)) - 1;
+    const writtenBars = sheet.pages.flatMap(page => attributes(page, 'data-bar'));
+    for (const bar of song.chart.bars) {
+      if (input.source.values[row]?.[bar.column - 1]?.trim()) assert.ok(writtenBars.includes(bar.bar), `${sheet.name} active bar ${bar.bar} must retain writing space`);
+    }
+    assert.ok(sheet.condensation.rests.length > 0);
+    assert.deepEqual(sheet.condensation.references, []);
+    assert.ok(sheet.condensation.repeatCandidates.length > 0);
+    for (const rest of sheet.condensation.rests) for (const bar of song.chart.bars.filter(bar => bar.bar >= rest.startBar && bar.bar <= rest.endBar)) {
+      assert.equal((input.source.values[row]?.[bar.column - 1] ?? '').trim(), '', `Only blank cells may form a rest at ${bar.bar}`);
+    }
     for (const page of sheet.pages) {
       assert.equal(XMLValidator.validate(page), true);
       assert.match(page, /width="210mm" height="297mm"/);
-      const systems = attributes(page, 'data-system-start');
-      assert.ok(systems.length <= 7);
-      assert.deepEqual(attributes(page, 'data-staff-line'), systems.flatMap(() => [1, 2, 3, 4, 5]));
+      const staffCount = [...page.matchAll(/data-kind="staff"/g)].length;
+      assert.deepEqual(attributes(page, 'data-staff-line'), Array.from({ length: staffCount }, () => [1, 2, 3, 4, 5]).flat());
+      const staffLines = [...page.matchAll(/data-staff-line="([1-5])"[^>]*y1="([0-9.]+)"/g)];
+      for (let index = 0; index < staffLines.length; index += 5) assert.equal(Number(staffLines[index + 4][2]) - Number(staffLines[index][2]), 24);
+      const labels = [...page.matchAll(/data-section="([^"]+)"/g)].map(match => match[1]);
+      assert.equal(new Set(labels).size, labels.length, 'A section is labeled once per page');
+      const start = attributes(page, 'data-system-start')[0];
+      const section = song.chart.sections.find(section => start >= section.startBar && start <= section.endBar);
+      assert.equal(labels[0], section?.id, 'Page starts retain the current section context');
+      assert.doesNotMatch(page, /\(cont\.\)|Cont['’]d/);
       assert.doesNotMatch(page, /data-bar="(?:219|220)"/);
     }
     assert.match(sheet.html, /@page\{size:A4;margin:0\}/);
@@ -69,14 +98,10 @@ test('DYC musician outputs contain only separate Bass and Drums sheets, all bars
     assert.match(sheet.xml, /<staff-lines>5<\/staff-lines>/);
     assert.doesNotMatch(sheet.xml, /<(?:pitch|unpitched|notehead|dynamics)(?:>|\s)/);
     assert.doesNotMatch(sheet.xml, /id="(?:cue|lead)-/);
-    const last = sheet.pages.at(-1) ?? '';
-    const penultimate = Number(/data-bar="217"><text x="([0-9.]+)"/.exec(last)?.[1]);
-    const final = Number(/data-bar="218"><text x="([0-9.]+)"/.exec(last)?.[1]);
-    const ordinaryFirst = Number(/data-bar="213"><text x="([0-9.]+)"/.exec(last)?.[1]);
-    const ordinarySecond = Number(/data-bar="214"><text x="([0-9.]+)"/.exec(last)?.[1]);
-    assert.ok(Number.isFinite(penultimate) && Number.isFinite(final));
-    assert.ok(Math.abs((final - penultimate) - 2 * (ordinarySecond - ordinaryFirst)) < .001);
+    assert.match(sheet.pages.at(-1) ?? '', /data-rest-start="217" data-rest-end="218"/);
   }
+  const drumBars = sheets[1].pages.flatMap(page => attributes(page, 'data-bar'));
+  for (const pickup of [76, 160, 203, 204, 205]) assert.ok(drumBars.includes(pickup), `Drums pickup ${pickup} must not disappear into a rest`);
   assert.match(sheets[0].xml, /<clef><sign>F<\/sign><line>4<\/line><\/clef>/);
   assert.match(sheets[1].xml, /<clef><sign>percussion<\/sign><\/clef>/);
 });
@@ -90,12 +115,17 @@ test('focused parts preserve complete source metadata and bar durations with lit
     assert.deepEqual(doc.part[0].measure.map(measure => Number(measure.number)), Array.from({ length: 218 }, (_, i) => i + 1));
     for (const measure of doc.part[0].measure) {
       assert.equal(measure.note.reduce((sum, note) => sum + Number(note.duration), 0), 3840);
-      assert.ok(measure.note.every(note => note['print-object'] === 'no'));
+      const bar = song.chart.bars[Number(measure.number) - 1];
+      const raw = input.source.values[Number(sheet.labelCell.slice(1)) - 1]?.[bar.column - 1] ?? '';
+      assert.ok(measure.note.every(note => note['print-object'] === (raw.trim() ? 'no' : undefined)), 'Authored blank cells are visible rests; active cells reserve blank writing space');
     }
     const fields = new Map(doc.identification.miscellaneous['miscellaneous-field'].map(field => [field.name, field['#text']]));
     assert.deepEqual(JSON.parse(fields.get('show-tools:source') ?? ''), input.source);
     assert.deepEqual(JSON.parse(fields.get('show-tools:mapping') ?? ''), input.mapping);
     assert.deepEqual(JSON.parse(fields.get('show-tools:selected-label-cells') ?? ''), [sheet.labelCell]);
+    assert.deepEqual(JSON.parse(fields.get('show-tools:condensation') ?? ''), sheet.condensation);
+    assert.deepEqual([...sheet.xml.matchAll(/<multiple-rest use-symbols="no">([0-9]+)<\/multiple-rest>/g)].map(match => Number(match[1])),
+      sheet.condensation.rests.map(rest => rest.endBar - rest.startBar + 1));
     const words = doc.part[0].measure.flatMap(measure => (measure.direction ?? []).flatMap(direction => {
       const word = direction['direction-type'].words;
       return word ? [{ bar: Number(measure.number), ...word }] : [];
@@ -123,6 +153,19 @@ test('selection excludes AF rows without substituting unrelated musician parts',
   assert.deepEqual((await createMusicianSheets({ ...input, selectedRows: [15, 14] })).map(sheet => sheet.labelCell), ['A14', 'A15']);
 });
 
+test('confirmed section reuse keeps current bar coverage and an explicit source and resume point', async () => {
+  const input = await inputs(), [original] = await createMusicianSheets({ ...input, selectedRows: [14] });
+  const reuse = { sourceDigest: original.condensation.sourceDigest, mappingDigest: original.condensation.mappingDigest,
+    references: [{ partLabelCell: 'A14', sectionStartBar: 93, sourceSectionStartBar: 85, equivalence: 'musician-confirmed' }] };
+  const [sheet] = await createMusicianSheets({ ...input, selectedRows: [14], reuse });
+  assert.deepEqual(sheet.pages.flatMap(coveredBars), Array.from({ length: 218 }, (_, index) => index + 1));
+  assert.ok(sheet.pages.some(page => page.includes('data-reference-start="93" data-reference-end="100" data-reference-source="85"')));
+  assert.ok(sheet.pages.some(page => page.includes('As Verse B1, bars 85-92. 8 bars; continue at 101.')));
+  assert.equal(parsed(sheet.xml).part[0].measure.length, 218);
+  assert.deepEqual(sheet.condensation.references, [{ partLabelCell: 'A14', sectionStartBar: 93, sourceSectionStartBar: 85, equivalence: 'musician-confirmed' }]);
+  assert.doesNotMatch(sheet.xml, /<(?:coda|segno)(?:>|\s)|<sound[^>]*(?:dalsegno|tocoda|dacapo)=/);
+});
+
 test('musician XML, printable HTML and page SVGs are deterministic across input object ordering', async () => {
   const input = await inputs();
   const original = await createMusicianSheets(input);
@@ -143,7 +186,7 @@ test('long vocal text wraps into more cue lines while preserving the exact cue i
     assert.ok(lines.filter(line => line.includes('lyric') || line.includes('phrase')).length > 1);
     assert.ok(lines.every(line => [...line].length <= 60));
     for (let i = 0; i < 30; i++) assert.ok(lines.join(' ').includes(`lyric${i} phrase${i}`));
-    assert.deepEqual(sheet.pages.flatMap(page => attributes(page, 'data-bar')), Array.from({ length: 218 }, (_, i) => i + 1));
+    assert.deepEqual(sheet.pages.flatMap(coveredBars), Array.from({ length: 218 }, (_, i) => i + 1));
   }
 });
 

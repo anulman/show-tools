@@ -1,8 +1,8 @@
 # Focused musician sheets
 
-Musician sheets give each discovered part **not prefixed with `AF -`** a complete five-line staff for handwritten notes, with section and vocal cues for navigation. They complement the onset rhythm guide; they do not turn the arrangement chart into an inferred instrumental transcription.
+Musician sheets give every discovered non-`AF -` part a separate handout with writing staves, section labels and vocal cues. The generator now condenses inactive passages and redundant headings while retaining the complete chronological chart.
 
-For the current Dance Yrself Clean chart, the eligible parts are **Bass (A14)** and **Drums (A15)**. AF Drums & Claps remains a separate managed voice and does not become a Drums musician sheet.
+For Dance Yrself Clean, the current compact handouts are **Bass: four A4 pages** and **Drums: five A4 pages**, down from eight each. Both represent all 218 bars. The five-line writing staff remains the same physical size; savings come from counted rests and less repeated text.
 
 ## Generate and inspect
 
@@ -10,63 +10,60 @@ For the current Dance Yrself Clean chart, the eligible parts are **Bass (A14)** 
 node --import tsx scripts/build-musician-sheets.ts \
   --source songs/dance-yrself-clean.source.json \
   --mapping songs/dance-yrself-clean.mapping.json \
-  --out-dir output/pdf/dyc-musician-sheets \
+  --out-dir output/pdf/dyc-musician-sheets-terse \
   --pdf --python /private/tmp/musician-pdf/bin/python
 ```
 
-The output index links each focused part's printable HTML, editable MusicXML, and PDF when PDF generation is enabled. For the DYC preview, open:
+Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-terse/`; the earlier eight-page versions remain under `output/pdf/dyc-musician-sheets/` for comparison.
 
-- `output/pdf/dyc-musician-sheets/index.html`
-- `output/pdf/dyc-musician-sheets/bass-a14.pdf`
-- `output/pdf/dyc-musician-sheets/drums-a15.pdf`
-
-The destination directory must not exist. The corresponding `.html` and `.musicxml` files use the same stems. The HTML is self-contained, including its downloadable MusicXML; it does not need adjacent files to print or retrieve the score. PDF generation uses an optional Python environment with pinned ReportLab and svglib dependencies:
+PDF generation uses an optional isolated Python environment:
 
 ```sh
 python3 -m venv /private/tmp/musician-pdf
 /private/tmp/musician-pdf/bin/python -m pip install -r scripts/musician-pdf-requirements.txt
 ```
 
-Choose that interpreter with `--python`. Omit `--pdf` when only HTML/SVG and MusicXML are needed. The PDF helper embeds ReportLab's bundled Vera fonts and rejects missing glyphs instead of silently replacing source text. Generated output stays outside Git.
+Choose that interpreter with `--python`. Without `--pdf`, generation needs only the normal project dependencies. The PDF helper uses ReportLab and svglib, embeds bundled Vera fonts, and rejects missing glyphs. Generated artifacts are ignored by Git.
 
-## What the player sees
+## Condensation rules
 
-Each part has all 218 numbered bars, laid out as four bars per full-width staff and seven systems per A4 portrait page. That produces eight pages per DYC part. The final two-bar system contains only the actual remaining bars. Empty arrangement cells stay in the form; long gaps are not compressed into tacet spans.
+A section heading appears when the section changes or a page starts. It is not repeated on every continuation staff on the same page. A carried vocal cue appears only when needed to orient a new page; newly written vocal cues retain their exact bar positions.
 
-Every writing staff has five lines and remains clear of generated notes, rests, rhythm slashes, or placeholder patterns. The musician supplies the bass line, groove, or other annotation. The sheet's section and cue lanes provide context without occupying that writing space:
+Literal blank arrangement cells mean the musician is not playing. An entirely blank section becomes a counted rest, including a short outro. Within a mixed section, runs of at least four blank bars can condense. Rest groups stop at section changes and new vocal cues. `-`, `!`, `!!`, subdivision patterns and all other nonblank text never become rests.
 
-- Section labels and vocal cues appear above the staff. A carried section cue keeps continuation systems identifiable when there is no new cue.
-- Literal arrangement marks for the focused part appear below the staff, aligned with their source bar.
-- Bar numbers remain visible throughout the full form.
+Active material keeps up to four bars per full-size writing staff. Pickups remain visible even in a mostly inactive section: DYC Drums retains bars 76 and 160, and the marked entry at 203-205. The final two bars remain an explicit two-bar rest, not invented measures 219-220. The final page is rebalanced when an ending section would otherwise be split unnecessarily.
 
-Vocal fragments are navigation cues, not syllable-aligned notation. Their source positions are retained without inferring melody or exact sung timing. In particular, bar 201 retains its vocal cue even though the section is named Instrumental A4. Section names do not determine whether a vocal cue exists.
+Each condensed row retains the original cells. Expanding staff rows, counted-rest ranges and approved reference ranges must reconstruct every bar exactly once and in order. Source text, notes, mappings and original coordinates remain in the MusicXML metadata.
 
-Marks such as `-`, `!`, and `!!` remain chart text. They do not become sustained notes, accents, or musical dynamics. A blank writing staff is not an assertion that the audio is silent.
+## Confirmed section references
 
-## One source, distinct presentations
+The generator finds exact repeated chart-cue sequences and writes `repeat-candidates.json`. These are suggestions, not assertions that the played music repeats: identical activity marks can conceal different bass lines or drum parts.
 
-`lib/performance/musician-sheets.ts` owns `createMusicianSheets({ source, mapping, selectedRows })`. It uses the existing source/compiler boundary and filters the discovered report parts by their managed status. Eligible part identity is based on the source row, not a hardcoded Bass/Drums list.
+`reuse-template.json` starts with matching source/mapping hashes and an empty `references` array. To enable a musician-confirmed reference, add an entry with:
 
-The outputs share the same focused part, form, source cues, and provenance:
+| Field | Meaning |
+|---|---|
+| `partLabelCell` | The focused musician's source label cell. |
+| `sectionStartBar` | First bar of the later section to abbreviate. |
+| `sourceSectionStartBar` | First bar of the earlier, fully written section. |
+| `equivalence` | The literal `musician-confirmed`, after confirming the playing is equivalent. |
 
-- MusicXML provides editable five-line notation staves and text directions, retaining the application metadata.
-- Print-native SVG and HTML provide a fixed worksheet layout with predictable writing room.
-- Optional PDFs derive from the same SVG pages through ReportLab and svglib.
+Pass that file with `--reuse PATH.json`. References must cover complete equal-length sections of at least four bars, have identical nonempty chart-cue sequences, point backward, and target a section that remains fully written. Duplicate references, chains, changed cues and stale source/mapping hashes are rejected. Confirmed references are a distinct type from unapproved candidates.
 
-The printable worksheet is deliberately a presentation of the shared data. It is **not an independent engraving of the MusicXML file**. MusicXML schema validation and opening that file in a notation program remain separate checks from inspecting the worksheet's PDF or HTML.
+A reference prints “As [section], bars X-Y”, its duration, and the next bar to continue at. Destination lyric cues remain visible. It does not create D.S./D.C./coda traversal or change the song's playback order. No DYC musical-equivalence decisions are built in; the default output applies zero references. The operator's equivalence choice remains separate from automated chart matching.
 
-Source and mapping metadata preserve the complete chart, including unselected voices, under the same policy as the [MusicXML study](musicxml-study.md). Selection chooses focused output parts; it does not crop bars, renumber cells, or remove their control context.
+## Data and presentation
 
-## Sheets dialog
+`lib/performance/musician-sheet-plan.ts` owns rest/reference planning and validation. `musician-sheets.ts` paginates and renders the shared plan. It reuses the existing compiler/discovery report; it does not parse a second musical grammar or infer pitched notes, grooves or dynamics.
 
-The [bound Sheets export dialog](sheets-musicxml.md) can offer separate printable sheets and MusicXML for selected non-AF parts alongside its selected-voice export. It uses the same conversion boundary and does not install a second chart parser.
+MusicXML retains every chronological measure and represents counted rests with standard `multiple-rest` notation. The v2 musician-sheet profile adds `show-tools:condensation` metadata containing rest ranges, approved references and the candidate audit. Active writing bars use hidden engraving spacers, while literal blank source bars use visible measure rests. This notation describes the authored musician part; it is not an observation of PE playback and does not trigger Play or Stop.
 
-The local package and previews do not establish installation in the operator's spreadsheet. Actual Google authorization, menu execution, and downloads within the real Sheets dialog remain separate verification tasks.
+Print-native SVG/HTML and PDFs are worksheet presentations of that plan, not independent engravings of MusicXML. MusicXML validation and opening in another reader remain separate checks. Selection still projects focused non-AF parts while retaining the complete source archive, including unselected voices.
 
-## Verification boundaries
+The [Sheets dialog](sheets-musicxml.md) uses the compact default for selected non-AF parts. Its optional reuse configuration is currently a CLI workflow. No live Google installation, authorization or iframe-download verification follows from local package checks.
 
-For changes, check that each eligible part includes every bar exactly once, all source cues retain the correct bar and cell, AF rows are excluded, and no inferred notes or dynamics occupy the writing area. Include the lyric-bearing Instrumental A4 section and the last two-bar system in layout review.
+## Verification
 
-MusicXML, SVG, HTML, and selection ordering are deterministic for the same validated inputs. PDF output is intended for viewing and printing; byte-identical PDF metadata is not claimed. Inspect rendered pages for clipping, overlaps, cue readability, and usable handwriting space rather than treating a successful conversion as visual proof.
+Run musician-sheet and planner tests alongside the existing exporter, Sheets, compiler and source tests. Verify exact expanded coverage, unchanged staff dimensions, same-page heading suppression, counted-rest boundaries, pickup protection, vocal cues inside rests, explicit reference continuation points, and invalid-reference rejection. Render and inspect the PDFs as well as validating the XML.
 
-The combined importer, musician-sheet, Apps Script, compiler and source checks passed 53 tests, and TypeScript passed. Both MusicXML files passed the official MusicXML 4.0 XSD and opened in Verovio 5.6.0 as eight-page parts. The actual PDFs were reopened to verify eight A4 pages, lyric cues and the final section. PDF pages from the beginning, middle and end were rasterized and visually inspected; the full bar sequence is covered by tests.
+The combined checks passed 62 tests and TypeScript. Both compact MusicXML files validated against MusicXML 4.0 and independently rendered in Verovio 5.6.0 as four- and five-page parts. The PDFs were reopened to verify A4 geometry, page counts and lyric cues; beginning and ending pages were rasterized and visually inspected. Default reference lists remain empty.

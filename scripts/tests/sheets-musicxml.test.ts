@@ -49,8 +49,8 @@ test('selected reference musicians get separate writing sheets while AF voices s
   const { source } = await inputs();
   const selected = await prepareSelectedMusicXml({ source, selection: [{ firstRow: 14, lastRow: 15 }] });
   assert.deepEqual(selected.musicianSheets.map(sheet => sheet.name), ['Bass', 'Drums']);
+  assert.deepEqual(selected.musicianSheets.map(sheet => sheet.pages.length), [4, 5]);
   for (const sheet of selected.musicianSheets) {
-    assert.equal(sheet.pages.length, 8);
     assert.match(sheet.xml, /<staff-lines>5<\/staff-lines>/);
     assert.match(sheet.html, /Print \/ Save PDF/);
   }
