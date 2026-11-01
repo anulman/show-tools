@@ -174,6 +174,12 @@ Chrome verified the production adapter with synthetic microphone input. Four nat
 
 ## Keep the handoff current
 
+### Inspect an experimental MusicXML export
+
+Run `./show-tools chart musicxml --source SOURCE.json --mapping MAPPING.json --out-dir NEW_DIRECTORY` to create an offline rhythm guide, interpretation report and source comparison page. The directory must not exist. Existing compilation diagnostics still block stale or unresolved inputs. No MusicXML file is loaded into Practice or the native engine.
+
+Run `node --import tsx --test lib/performance/tests/sheet-musicxml.test.ts scripts/tests/chart-compiler.test.ts scripts/tests/song-source.test.ts` and `npm run typecheck` after exporter changes. Schema validation and independent engraving are separate checks; the [study guide](implementation/musicxml-study.md) describes their scope and the optional pinned renderer. Keep generated scores and renderer downloads outside Git.
+
 Update the practice contract when command or state behavior changes. Update the architecture explanation when ownership or audio routing changes. Keep the module README files current for their commands. Historical `PLAN.md` and `VERIFICATION.md` files describe earlier POCs and do not override current code or tests.
 
 Keep compiled output, recordings, and test artifacts out of commits. The `wasm-abi.ts` files under `lib/sampler/`, `lib/sequencer/`, and `lib/performance/` are checked-in generated source. Regenerate them alongside their C header changes. Increase the performance ABI version when changing its binary contract. A verified source change and its relevant documentation belong in the same milestone.

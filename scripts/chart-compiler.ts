@@ -13,6 +13,7 @@ export const CHART_HELP = `Usage:
   show-tools chart compile --source SOURCE.json --mapping MAPPING.json --out SONG.json [--draft]
   show-tools chart encode --song SONG.json --out SONG.pfp
   show-tools chart inspect SONG.json
+  show-tools chart musicxml --source SOURCE.json --mapping MAPPING.json --out-dir NEW_DIRECTORY
 
 Fetch reads public worksheet values and cell notes. Compile runs offline.
 Executable output requires resolved notation and explicit capture/cue policies.
@@ -83,6 +84,11 @@ export async function runChartCompiler(args: readonly string[], report = (messag
 async function executeChartCompiler(args: readonly string[], report: (message: string) => void): Promise<void> {
   if (!args.length || args.includes('--help') || args.includes('-h')) { report(CHART_HELP); return; }
   const command = args[0];
+  if (command === 'musicxml') {
+    const { runMusicXmlStudy } = await import('./import-sheet-musicxml.js');
+    await runMusicXmlStudy(args.slice(1));
+    return;
+  }
   if (command === 'inspect') {
     if (args.length !== 2) throw invalidArguments('Specify one compiled song JSON file to inspect.');
     report(inspectCompiledSong(await jsonFile(args[1], decodeCompiledSong)));
