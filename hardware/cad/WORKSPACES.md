@@ -84,3 +84,7 @@ A repeatable receipt must identify the exact parameters, source hashes, units, a
 | Mechanical function | Stability, ballast retention, screw cycling, slip, runout, and load-support tests appropriate to the selected design |
 
 Geometry predicates and dimensional constraints can be checked by code. They do not prove print strength, adhesive bonding, friction capacity, or encoder load capacity. A concept with missing measurements or printer settings remains unapproved for manufacturing even when its mesh is valid.
+
+## Current five-piece print proposal
+
+See [FIVE-PART-PRINT.md](FIVE-PART-PRINT.md) for the current four-file/five-piece export and offline reference checks. This separate admission path preserves the retired packet validators. The proposed bar print is tilted 45° with build-plate-only supports to avoid trapped material in its sealed cavity. The human ZIP includes fabrication STLs only; source pins and validation reports remain separate. This prepares a printer-review proposal and does not approve unknown equipment, printed fits or strength.
