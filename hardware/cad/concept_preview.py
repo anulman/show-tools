@@ -69,14 +69,22 @@ def publish_configured(port=3939, reset=False):
     for part, _ in parts:
         if digest(part.path) != part.sha256:
             raise ValueError('Display artifact changed during preparation')
+    import spinner_reference
+    objects=[shape for _, shape in parts]
+    names=[part.name for part, _ in parts]
+    colors=[part.color for part, _ in parts]
+    alphas=[part.alpha for part, _ in parts]
+    bar=next(part for part, _ in parts if part.name.startswith('STUDY ') and 'integral' in part.name)
+    extra, extra_names, extra_colors, extra_alphas, reference=spinner_reference.scene(
+        data['study_parameters']['roof_height_above_ground_mm'],bar.translation_mm[0],bar.translation_mm[1])
+    objects.extend(extra);names.extend(extra_names);colors.extend(extra_colors);alphas.extend(extra_alphas)
     receipt = json.dumps(dict(workspace='disco-bar', presentation=SCOPE,
-        selection=selection, labels=[part.name for part, _ in parts],
+        selection=selection, labels=names, spinner_reference=reference,
         pending_measurements=data['pending_measurements'], study_parameters=data['study_parameters'],
         actual_artifacts={str(part.path): part.sha256 for part, _ in parts},
         physical_fit_verified=False, manufacturing_approved=False,
         canvas_delivery_verified=False), indent=2) + '\n'
-    show(*[shape for _, shape in parts], names=[part.name for part, _ in parts],
-        colors=[part.color for part, _ in parts], alphas=[part.alpha for part, _ in parts],
+    show(*objects, names=names, colors=colors, alphas=alphas,
         port=port, reset_camera=Camera.RESET if reset else Camera.KEEP,
         ortho=True if reset else None, zoom=.85 if reset else None)
     target.parent.mkdir(parents=True, exist_ok=True)

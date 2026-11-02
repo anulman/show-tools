@@ -68,7 +68,17 @@
     ],
     "hex_adjustment_range_datum": "Upper hex face to red knob underside; not knob top",
     "remaining_measurement": null,
-    "installed_fit_verified": false
+    "installed_fit_verified": false,
+    "nominal_axial_dimensions_below_fixed_flange_mm": {
+      "threaded_body": 28,
+      "encoder_housing": 15,
+      "rear_shaft_extension": 16,
+      "total": 59,
+      "datum": "Fixed flange underside to furthest rear shaft tip",
+      "source": "https://www.ultimarc.com/trackballs-and-spinners/spinners/spintrak/images/1/spintrakdiag.gif",
+      "inspected_date": "2026-11-01",
+      "actual_hardware_verified": false
+    }
   },
   "fabrication": {
     "operator_process_expectation": "resin, not yet exact printer/resin confirmation",

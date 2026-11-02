@@ -16,7 +16,7 @@ HERE = Path(__file__).resolve().parent
 def compose(step_path):
     objects, names, colors, alphas, arcade = arcade_scene.load()
     objects = [s.translate((-120, 0, 0)) for s in objects]
-    _, selection, parts = concept_preview.load()
+    data, selection, parts = concept_preview.load()
     current = [(p, s) for p, s in parts if p.name.startswith('STUDY ')]
     bars = [(p, s) for p, s in current if 'integral' in p.name.lower() and 'bar' in p.name.lower()]
     if len(bars) != 1:
@@ -32,6 +32,11 @@ def compose(step_path):
         names.append(p.name)
         colors.append(p.color)
         alphas.append(p.alpha)
+    import spinner_reference
+    reference_objects, reference_names, reference_colors, reference_alphas, reference = spinner_reference.scene(
+        data['study_parameters']['roof_height_above_ground_mm'],120,0)
+    objects.extend(reference_objects);names.extend(reference_names)
+    colors.extend(reference_colors);alphas.extend(reference_alphas)
     # Equal illustrative sections use the original fitted maximum width, not the added flare.
     original_path = Path(step_path)
     original_sha = concept_preview.digest(original_path)
@@ -77,6 +82,7 @@ def compose(step_path):
             diameter_basis='Original maximum fitted bar width reused at both sections; shaped endpoint radii differ',
             transform=dict(rotation_x_degrees=bar.rotation_x_degrees,
                 translation_mm=[120, 0, bar.translation_mm[2]])),
+        spinner_reference=reference,
         original_bar=dict(path=str(original_path), sha256=original_sha),
         desk_heights_mm=dict(button_top=objects[2].bounding_box().max.Z,
             ball_top=surface.bounding_box().max.Z, disco_box_roof=roof_height),

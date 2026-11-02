@@ -14,11 +14,16 @@ def main():
     parser.add_argument('--step', required=True)
     args = parser.parse_args()
     objects, names, colors, alphas, receipt = compose(args.step)
-    assert len(objects) == len(names) == len(colors) == len(alphas) == 17
+    assert len(objects) == len(names) == len(colors) == len(alphas) == 21
     assert not any(name.startswith('HISTORICAL ') for name in names)
     assert receipt['manufacturing_approved'] is False
     assert receipt['arcade']['button_reference']['upstream_valid'] is False
     assert objects[1].bounding_box().min.Z == 0
+    reference=receipt['spinner_reference']
+    assert reference['axial_total_mm']==59 and reference['rear_shaft_is_axis_without_assumed_diameter'] is True
+    assert reference['display_only'] is True
+    roof=receipt['desk_heights_mm']['disco_box_roof']
+    assert math.isclose(roof-objects[-2].bounding_box().min.Z,59,abs_tol=1e-6)
     surface = objects[-1]
     assert not surface.solids() and len(surface.faces()) == 1
     adaptor = BRepAdaptor_Surface(surface.faces()[0].wrapped)
@@ -37,7 +42,7 @@ def main():
     assert math.isclose(objects[2].bounding_box().max.Z, 113.0343037697962, abs_tol=1e-6)
     print(json.dumps(dict(result='PASS', checks=['actual source pins', 'shared desk plane',
         'original mounted button pose', 'current assembly only', 'native spherical surface',
-        'equal sections at original bar planes', 'open bottom and upper dome'],
+        'equal sections at original bar planes', 'open bottom and upper dome', 'spinner reference full-depth axis'],
         desk_heights_inches={k: v / 25.4 for k, v in receipt['desk_heights_mm'].items()},
         physical_fit_verified=False), indent=2))
 
