@@ -15,8 +15,15 @@ def check(base_receipt,grip_receipt,key_receipt,output):
     g=box.g;p=box.previous.inherited
     base=read(base_receipt);grip=read(grip_receipt);keys=read(key_receipt)
     inputs={str(q.resolve()):box.digest(q) for q in (base_receipt,grip_receipt,key_receipt,Path(__file__))}
-    thickness=2.38125;exposure=22.;root=thickness+exposure
+    thickness=2.38125;exposure=22.;nominal_height=25.4
     measured=base.get('reported_measurements',{});parameters=grip['exploratory_parameters']
+    socket=parameters.get('nominal_knob_socket_source_z_mm',[])
+    g.audit.require(len(socket)==2 and all(isinstance(v,(float,int)) and math.isfinite(v) for v in socket)
+        and socket[1]==exposure and math.isclose(socket[1]-socket[0],nominal_height,rel_tol=0,abs_tol=1e-9)
+        and parameters.get('nominal_top_stop_source_z_mm')==socket[0],
+        'Nominal seated placement assumes a25.4mm knob height and matching top stop; actual height is unknown')
+    source_socket_height=socket[1]-socket[0]
+    root=thickness+exposure+(nominal_height-source_socket_height)
     g.audit.require(measured.get('fixed_flange_axial_thickness_mm')==thickness
         and measured.get('visible_knob_underside_to_flange_top_gap_mm')==0.,
         'Wrong box datum:3/32in is fixed flange thickness, not a knob gap')
@@ -94,13 +101,19 @@ def check(base_receipt,grip_receipt,key_receipt,output):
         input_files=inputs,corrected_interface=dict(fixed_flange_thickness_approx_mm=thickness,visible_gap_above_fixed_flange_mm=0.,
             roof_and_flange_bottom_z_mm=0.,flange_top_and_knob_underside_z_mm=thickness,
             bar_original_root_z_mm=root,exposed_grip_end_z_mm=thickness),
+        knob_height_assumption=dict(nominal_knob_height_mm=nominal_height,actual_knob_height_mm=None,
+            source_socket_stop_to_entry_mm=source_socket_height,
+            seated_bar_root_formula='T + E + (Hactual -25.4)',seated_grip_end_formula='T + (Hactual -25.4)',
+            nominal_positive_grip_end_requires_Hactual_gt_mm=nominal_height-thickness,
+            numeric_clearances_are_conditional_on_nominal_height=True),
         rotor=rotor_result,side_key_bounds=tool_result,actual_subjects_unchanged=True,
         printed_physical_count=5,stationary_print_count=2,rotating_print_count=3,
         identical_shoes_after_Z180_material_differences_mm3=shoe_differences,
         key_receipt_used_only_for_source_frame_tool_geometry=True,
-        physical_fit_verified=False,actual_spinner_nut_tool_verified=False,lifecycle_verified=False,
+        physical_fit_verified=False,actual_installed_clearance_verified=False,actual_spinner_nut_tool_verified=False,lifecycle_verified=False,
         strength_verified=False,manufacturing_approved=False,
         limitations=['Nominal drawing body28/flange34 only; actual shaft, flange and nut profiles unmeasured',
+            'Actual knob height is unknown;25.4mm is an assumed nominal. A shorter seated knob lowers the grip end by the same difference.',
             'Body radial envelope depth is conservative, not actual length or an interior fit check',
             'Source side-key bounds are checked against the base/envelopes only; intrinsic updated grip proof is separate',
             'No actual knob mesh or zero-gap contact model is invented; device internal rotation is outside this check'])

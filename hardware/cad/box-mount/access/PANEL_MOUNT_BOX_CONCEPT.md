@@ -52,9 +52,16 @@ The intended print count is five: the integral bar and grip, two identical shoes
 the box shell, and the bottom. No separate cup, collar, or keeper belongs in that
 count. CAD material boundaries do not prescribe slicer infill or wall settings.
 
-For the E22 concept, rotate its source geometry 180 degrees around X and place
-the original bar root at Z=24.38125 mm. The exposed grip ends at Z=2.38125 mm.
-Both values depend on the approximate flange-thickness datum above.
+For the E22 concept, rotate its source geometry 180 degrees around X. The checked
+nominal placement puts the original bar root at Z=24.38125 mm and the grip end at
+Z=2.38125 mm. Both values assume a 25.4 mm knob height as well as the approximate
+flange-thickness datum. Actual knob height is still unknown.
+
+With the knob top seated against the stop, bar-root height is
+`T + E + (Hactual - 25.4)` and grip-end height is `T + (Hactual - 25.4)`.
+A shorter knob lowers the grip by the same height difference. Using nominal
+T=2.38125 mm, the grip end is above the roof only when Hactual exceeds 23.01875 mm.
+This geometric condition is not a manufacturing allowance or actual fit proof.
 
 ```sh
 python hardware/cad/box-mount/access/check_panel_integral_nominal_clearance.py \
@@ -65,7 +72,8 @@ python hardware/cad/box-mount/access/check_panel_integral_nominal_clearance.py \
 ```
 
 The check requires corrected thickness and zero-visible-gap metadata. It rejects
-the earlier gap interpretation before geometry work. Continuous axisymmetric
+the earlier gap interpretation and an inconsistent nominal socket height before
+geometry work. Continuous axisymmetric
 windows contain all nine rotating solids and both complete side-key bounds.
 The nominal geometric bounds are 2.38125 mm for rotation and 0.5 mm for the key
 windows. No angle samples are used, and the two shoes must match after a
