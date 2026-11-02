@@ -24,7 +24,7 @@ google.script.run.withSuccessHandler((payload: unknown) => {
     const url = URL.createObjectURL(new Blob([result.xml], { type: 'application/vnd.recordare.musicxml+xml;charset=utf-8' }));
     urls.push(url);
     summary.textContent = `${result.report.parts.map(part => part.name).join(', ')} · ${result.report.measureCount} bars`;
-    status.textContent = 'Ready to download.';
+    status.textContent = 'Complete song ready. Selected musician sheets are listed below.';
     download.href = url;
     download.download = result.filename;
     download.hidden = false;

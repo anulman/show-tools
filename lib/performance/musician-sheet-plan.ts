@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import type { MusicXmlReport, MusicXmlCell } from './sheet-musicxml.js';
+import type { MusicXmlReport, MusicXmlCell } from './musicxml-model.js';
 
 export type MusicianPart = MusicXmlReport['parts'][number];
 type Section = MusicXmlReport['sections'][number];

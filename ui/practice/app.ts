@@ -1,3 +1,6 @@
+import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
+import { exportMusicXmlWithVoices } from '../../lib/performance/musicxml-authoring.js';
+import { musicXmlSourceView } from '../../lib/performance/musicxml-source-view.js';
 import { renderVoiceAvatar } from './voice-avatar.js';
 import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
@@ -675,7 +678,7 @@ for (const entry of SONGS) {
   elements['song-select'].append(option);
 }
 elements.start.disabled = true;
-async function switchSong(id: string, imported?: CompiledSong, source?: SongSource): Promise<void> {
+async function switchSong(id: string, imported?: CompiledSong, source?: SongSource, voiceMetadata?: CatalogDocument): Promise<void> {
   if (voiceCatalog.busy) throw new Error('Wait for the voice library save before switching songs.');
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
@@ -691,7 +694,7 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
     if (previousAudio) await previousAudio.dispose();
     if (preparing) await preparing.catch(() => {});
     const loaded: SongScript = imported ? {
-      id: imported.id, chart: imported.chart, program: { lengthBeats: imported.chart.beatsPerBar, events: [] }, compiled: imported, source,
+      id: imported.id, chart: imported.chart, program: { lengthBeats: imported.chart.beatsPerBar, events: [] }, compiled: imported, source, voiceMetadata,
       practice: { startBar: imported.chart.bars[0]?.bar || 1, endBar: imported.chart.annotatedThroughBar },
       description: 'Chart-compiled performance. Source cells and native instructions are available below.',
     } : await loadSong(id);
@@ -730,11 +733,13 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
 const chartPanel = installChartPanel(chartSource, {
   resolveMapping: (source, mapping) => voiceCatalog.cueMapping(source, mapping),
   isBusy: () => voiceCatalog.busy || isRunning() || starting || switching || effectsApplying || preparing !== null || outputCapture !== 'idle',
-  onLoad: async (input, source) => {
+  exportMusicXml: xml => exportMusicXmlWithVoices(xml, song?.compiled?.source.digest,
+    document => voiceCatalog.exportSongVoices(document.song, musicXmlSourceView(document))),
+  onLoad: async (input, source, voices) => {
     const compiled = decodeCompiledSong(input);
     if (!compiled.executable) throw new Error('Resolve the chart inspection errors before loading.');
     if (voiceCatalog.busy || isRunning() || starting || switching || preparing || effectsApplying || outputCapture !== 'idle') throw new Error('Stop practice and finish the recording before loading a chart.');
-    await switchSong(compiled.id, compiled, source);
+    await switchSong(compiled.id, compiled, source, voices ?? undefined);
   },
 });
 await act(() => switchSong('dance-yrself-clean'));

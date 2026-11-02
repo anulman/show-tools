@@ -1,4 +1,4 @@
-import type { MusicXmlReport } from './sheet-musicxml.js';
+import type { MusicXmlReport } from './musicxml-model.js';
 
 type Part = MusicXmlReport['parts'][number];
 export interface FeelRange { startBar: number; endBar: number; text: 'Funky' | 'Extra funky' }

@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileSong, decodeCompiledSong, inspectCompiledSong } from '../compiled-song.js';
+import { compileSheetsSong, decodeCompiledSong, inspectCompiledSong } from '../compiled-song.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { PF } from '../wasm-abi.js';
 import source from '../../../songs/dance-yrself-clean.source.json';
 import mapping from '../../../songs/dance-yrself-clean.mapping.json';
 
 test('DYC shortened Cowbells reuse one prefix view and restore the full take in adjacent bars', async () => {
-  const song = await compileSong(source, mapping);
+  const song = await compileSheetsSong(source, mapping);
   assert.equal(song.executable, true);
   const take = song.takes.find(take => song.cues.find(cue => cue.id === take.armCueId)?.source.a1 === 'CE19');
   assert(take);
@@ -39,19 +39,19 @@ test('retained-take reuses reject stale cells, wrong voices, unavailable sources
     ...[0, -1, 4, 4.5, 1 / 7].map(endCount => ({ reuse: { ...original, endCount }, code: 'variant-reuse-window' })),
   ];
   for (const { reuse, code } of cases) {
-    const song = await compileSong(source, { ...mapping, variantReuses: [reuse, mapping.variantReuses[1]] });
+    const song = await compileSheetsSong(source, { ...mapping, variantReuses: [reuse, mapping.variantReuses[1]] });
     assert.equal(song.executable, false, JSON.stringify(reuse));
     assert(song.diagnostics.some(diagnostic => diagnostic.code === code), JSON.stringify(song.diagnostics));
   }
-  const duplicate = await compileSong(source, { ...mapping, variantReuses: [...mapping.variantReuses, original] });
+  const duplicate = await compileSheetsSong(source, { ...mapping, variantReuses: [...mapping.variantReuses, original] });
   assert(duplicate.diagnostics.some(diagnostic => diagnostic.code === 'duplicate-variant-reuse'));
-  const early = await compileSong(source, { ...mapping, variantRules: mapping.variantRules.map(rule => ({ ...rule, fromBar: 1 })),
+  const early = await compileSheetsSong(source, { ...mapping, variantRules: mapping.variantRules.map(rule => ({ ...rule, fromBar: 1 })),
     variantReuses: [{ ...original, cell: 'V11', notation: source.values[10][21] }] });
   assert(early.diagnostics.some(diagnostic => diagnostic.code === 'variant-reuse-source'));
 });
 
 test('compiled imports require declared windows and reject forged prefix resources', async () => {
-  const song = await compileSong(source, mapping);
+  const song = await compileSheetsSong(source, mapping);
   const prefixIndex = song.selections.findIndex(selection => selection.window.kind === 'prefix');
   const selections = (window: unknown) => song.selections.map((selection, index) => index === prefixIndex ? { ...selection, window } : selection);
   for (const endCount of [0, -1, 4, 1 / 7, Infinity]) {
@@ -59,7 +59,7 @@ test('compiled imports require declared windows and reject forged prefix resourc
   }
   assert.throws(() => decodeCompiledSong({ ...song, selections: selections(undefined) }));
   assert.throws(() => decodeCompiledSong({ ...song, schemaVersion: 4 }));
-  await assert.rejects(() => compileSong(source, { ...mapping, mappingVersion: 4 }));
+  await assert.rejects(() => compileSheetsSong(source, { ...mapping, mappingVersion: 4 }));
   const prefix = song.selections[prefixIndex];
   const take = song.takes.find(take => take.id === prefix.takeIds[0]);
   assert(take);

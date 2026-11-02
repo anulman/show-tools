@@ -1,4 +1,6 @@
-# Sheets to MusicXML study
+# Historical Sheets to MusicXML study
+
+The [canonical MusicXML cutover](musicxml-cutover.md) supersedes this experiment. Current consumers read MusicXML. The historical rhythm-guide profile and commands below describe the pre-cutover study.
 
 This experiment converts a frozen Google Sheets chart and its matching mapping into MusicXML 4.0.
 It lets us inspect a complete song before choosing an official intermediate representation.

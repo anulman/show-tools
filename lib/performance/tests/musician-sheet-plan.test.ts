@@ -5,7 +5,7 @@ import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { parseSongSource } from '../song-source.js';
 import { decodeSongMapping } from '../compiled-song.js';
 import { musicianRepeatCandidates, parseMusicianReuse, planMusicianRows } from '../musician-sheet-plan.js';
-import type { MusicXmlReport } from '../sheet-musicxml.js';
+import type { MusicXmlReport } from '../musicxml-model.js';
 
 async function fixture() {
   const [source, mapping] = await Promise.all(['source', 'mapping'].map(async suffix =>
@@ -100,7 +100,7 @@ test('confirmed Bass section reuse retains destination bars, cues and chronology
   assert.deepEqual(report, before);
 });
 
-test('reuse rejects stale identity, unconfirmed equivalence, unknown/AF/unselected parts and unsafe ranges', async () => {
+test('reuse rejects stale identity, unconfirmed equivalence, unknown/AF parts and unsafe ranges', async () => {
   const { report } = await fixture();
   const flip = (digest: string) => (digest[0] === '0' ? '1' : '0') + digest.slice(1);
   assert.throws(() => parseMusicianReuse({ ...reuse(report, [confirmed()]), sourceDigest: flip(report.sourceDigest) }, report), /different source or mapping/);
@@ -115,7 +115,7 @@ test('reuse rejects stale identity, unconfirmed equivalence, unknown/AF/unselect
   ]) assert.throws(() => parseMusicianReuse(reuse(report, [reference]), report));
   const input = await fixture();
   const selected = (await importSheetMusicXml({ source: input.source, mapping: input.mapping, selectedRows: [15] })).report;
-  assert.throws(() => parseMusicianReuse(reuse(selected, [confirmed()]), selected), /selected musician part/);
+  assert.deepEqual(parseMusicianReuse(reuse(selected, [confirmed()]), selected), [confirmed()], 'Selection does not remove parts from a complete canonical document.');
 });
 
 test('references cannot duplicate a target or chain through another omitted section', async () => {

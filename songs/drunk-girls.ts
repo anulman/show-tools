@@ -1,9 +1,9 @@
-import source from './drunk-girls.chart.json';
-import { parseChart } from '../lib/performance/chart.js';
+import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
+import { readBundledMusicXml } from './load-musicxml.js';
 import { compileChartControls } from '../lib/performance/chart-controls.js';
 import type { SongScript } from '../lib/performance/model.js';
 
-const chart = parseChart(source);
+const { song: { chart } } = await readMusicXmlSong(await readBundledMusicXml('drunk-girls'));
 
 export default {
   id: 'drunk-girls',

@@ -1,3 +1,4 @@
+import type { CatalogDocument } from '../voice-catalog/model.js';
 import type { SongSource } from './song-source.js';
 import type { CompiledSong } from './compiled-song.js';
 
@@ -152,4 +153,5 @@ export interface SongScript {
   description: string;
   compiled?: CompiledSong;
   source?: SongSource;
+  voiceMetadata?: CatalogDocument;
 }

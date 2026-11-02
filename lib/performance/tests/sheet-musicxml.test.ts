@@ -8,7 +8,7 @@ import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { importSheetMusicXml, renderMusicXmlReview } from '../sheet-musicxml.js';
 import { parseSongSource } from '../song-source.js';
 import { decodeSongMapping } from '../compiled-song.js';
-import { runMusicXmlStudy } from '../../../scripts/import-sheet-musicxml.js';
+import { runSheetsMusicXmlImport } from '../../../scripts/import-sheet-musicxml.js';
 
 async function inputs() {
   const [source, mapping] = await Promise.all(['source', 'mapping'].map(async suffix =>
@@ -46,7 +46,7 @@ test('DYC exports 218 measures per eight parts, exact parsed source/mapping, and
   assert.equal(result.report.parts.find(p => p.labelCell === 'A8')?.cells.find(c => c.bar === 201)?.reading.kind, 'text');
   assert.equal(result.xml.includes('<pitch>'), false);
   assert.equal(result.xml.includes('<dynamics>'), false);
-  assert.match(result.xml, /Lead-in R1: rb/);
+  assert.match(result.xml, /command-L1|command-R1|pad-R1|cue-/);
 });
 
 test('export bytes do not depend on object key order, paths, dates or repeated execution', async () => {
@@ -59,7 +59,7 @@ test('export bytes do not depend on object key order, paths, dates or repeated e
   assert.equal((await importSheetMusicXml(input)).xml, first.xml);
 });
 
-test('6/8 uses eighth-note chart counts, 32nd attack glyphs and quarter-tempo conversion', async () => {
+test('6/8 uses eighth-note chart counts and exact onset offsets without invented durations', async () => {
   const input = await inputs();
   const mapping = { ...input.mapping, meter: { numerator: 6, denominator: 8 } };
   const result = await importSheetMusicXml({ source: input.source, mapping });
@@ -67,8 +67,8 @@ test('6/8 uses eighth-note chart counts, 32nd attack glyphs and quarter-tempo co
     assert.equal(measure.note.reduce((sum, n) => sum + Number(n.duration), 0), 2880);
   }
   assert.match(result.xml, /<beat-unit>eighth<\/beat-unit><per-minute>98/);
-  assert.match(result.xml, /<sound tempo="49"/);
-  assert.match(result.xml, /<type>32nd<\/type>/);
+  assert.doesNotMatch(result.xml, /<unpitched>|<pitch>|<type>32nd/);
+  assert.match(result.xml, /<other-direction[^>]*id="onset-/);
 });
 
 test('escaping preserves literal cell text, notes, Unicode, CR and whitespace; unparsed cells stay visible', async () => {
@@ -103,10 +103,12 @@ test('main-vocal lyrics a and e remain text rather than invented subdivision att
   assert.equal(result.xml.includes('id="hit-O8-0"'), false);
 });
 
-test('stale approved prefix notation blocks export and never weakens compilation diagnostics', async () => {
+test('stale approved prefix notation preserves blocking diagnostics in canonical drafts', async () => {
   const input = await inputs(), values = input.source.values.map(row => [...row]);
   values[10][97] = '';
-  await assert.rejects(importSheetMusicXml({ source: { ...input.source, values }, mapping: input.mapping }), /CT11/);
+  const draft = await importSheetMusicXml({ source: { ...input.source, values }, mapping: input.mapping });
+  assert.equal(draft.report.nativeCompilationExecutable, false);
+  assert.ok(draft.report.compilerDiagnostics.some(diagnostic => diagnostic.source.a1 === 'CT11'));
 });
 
 test('XML-illegal text fails clearly instead of emitting corrupted XML', async () => {
@@ -120,11 +122,11 @@ test('CLI emits the real study and refuses to overwrite an existing output direc
   try {
     const output = join(directory, 'new-study');
     const args = ['--source', 'songs/dance-yrself-clean.source.json', '--mapping', 'songs/dance-yrself-clean.mapping.json', '--out-dir', output];
-    await runMusicXmlStudy(args);
+    await runSheetsMusicXmlImport(args);
     const before = await readFile(join(output, 'score.musicxml'), 'utf8');
     assert.equal(parsed(before).part.length, 8);
-    await assert.rejects(runMusicXmlStudy(args), /EEXIST/);
+    await assert.rejects(runSheetsMusicXmlImport(args), /EEXIST/);
     assert.equal(await readFile(join(output, 'score.musicxml'), 'utf8'), before);
-    await assert.rejects(runMusicXmlStudy(['--source', 'a', '--source', 'b']), /Usage/);
+    await assert.rejects(runSheetsMusicXmlImport(['--source', 'a', '--source', 'b']), /Usage/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

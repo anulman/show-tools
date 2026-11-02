@@ -174,11 +174,11 @@ Chrome verified the production adapter with synthetic microphone input. Four nat
 
 ## Keep the handoff current
 
-### Inspect an experimental MusicXML export
+### Build from canonical MusicXML
 
-Run `./show-tools chart musicxml --source SOURCE.json --mapping MAPPING.json --out-dir NEW_DIRECTORY` to create an offline rhythm guide, interpretation report and source comparison page. The directory must not exist. Existing compilation diagnostics still block stale or unresolved inputs. No MusicXML file is loaded into Practice or the native engine.
+Read [the cutover guide](implementation/musicxml-cutover.md). `show-tools chart compile --musicxml SONG.musicxml --out SONG.json --native-out SONG.pfp` produces disposable compiled artifacts. `show-tools chart inspect SONG.musicxml` reads the canonical document. The Sheets `fetch`, workbook `import`, and `musicxml` commands are ingestion boundaries and require their mapping configuration.
 
-Run `node --import tsx --test lib/performance/tests/sheet-musicxml.test.ts scripts/tests/chart-compiler.test.ts scripts/tests/song-source.test.ts` and `npm run typecheck` after exporter changes. Schema validation and independent engraving are separate checks; the [study guide](implementation/musicxml-study.md) describes their scope and the optional pinned renderer. Keep generated scores and renderer downloads outside Git.
+Run `node --import tsx scripts/verify-musicxml-cutover.ts`, the `musicxml-song`, `musicxml-authoring`, `musicxml-cutover` and musician tests, and `npm run typecheck`. Run `npm run verify:dyc` for complete native/WASM conformance at 44.1 and 48 kHz. Do not restore JSON source/mapping fallbacks. MusicXML edits must invalidate semantic hashes, and removing audit archives must change no compiled or printed meaning.
 
 Build the optional bound-Sheets package with `node --import tsx scripts/build-sheets-musicxml.ts --out-dir NEW_DIRECTORY`. `scripts/sheets-musicxml/` owns the Google service adapter; `ui/sheets-musicxml/` owns the download dialog. Run `scripts/tests/sheets-musicxml.test.ts` alongside the exporter tests. The [installation guide](implementation/sheets-musicxml.md) distinguishes VM/browser fixture checks from actual Google authorization and installation. Keep generated Apps Script files and ZIPs outside Git.
 

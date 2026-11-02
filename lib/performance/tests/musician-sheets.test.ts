@@ -7,12 +7,13 @@ import { literalInstrumentCue, musicianFeelRanges, sectionFeelSummary } from '..
 import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { createMusicianSheets } from '../musician-sheets.js';
 import { parseSongSource } from '../song-source.js';
-import { compileSong, decodeSongMapping } from '../compiled-song.js';
+import { compileSheetsSong, decodeSongMapping } from '../compiled-song.js';
 
 async function inputs() {
   const [source, mapping] = await Promise.all(['source', 'mapping'].map(async suffix =>
     JSON.parse(await readFile(new URL(`../../../songs/dance-yrself-clean.${suffix}.json`, import.meta.url), 'utf8'))));
-  return { source: parseSongSource(source), mapping: decodeSongMapping(mapping) };
+  const input = { source: parseSongSource(source), mapping: decodeSongMapping(mapping) };
+  return { ...input, musicxml: (await importSheetMusicXml(input)).xml };
 }
 
 const Field = Schema.Struct({ name: Schema.String, '#text': Schema.String });
@@ -59,7 +60,7 @@ function cueLines(svg: string): string[] {
 }
 
 test('DYC musician outputs condense rests while preserving every bar, active writing space and page context', async () => {
-  const input = await inputs(), song = await compileSong(input.source, input.mapping);
+  const input = await inputs(), song = await compileSheetsSong(input.source, input.mapping);
   const sheets = await createMusicianSheets(input);
   assert.deepEqual(sheets.map(sheet => [sheet.name, sheet.labelCell, sheet.stem]),
     [['Bass', 'A14', 'bass-a14'], ['Drums', 'A15', 'drums-a15']]);
@@ -109,7 +110,7 @@ test('DYC musician outputs condense rests while preserving every bar, active wri
 });
 
 test('focused parts preserve complete source metadata and bar durations with readable arrangement and lyric cues', async () => {
-  const input = await inputs(), song = await compileSong(input.source, input.mapping);
+  const input = await inputs(), song = await compileSheetsSong(input.source, input.mapping);
   for (const sheet of await createMusicianSheets(input)) {
     const doc = parsed(sheet.xml);
     assert.equal(doc.part.length, 1);
@@ -171,8 +172,9 @@ test('confirmed section reuse keeps current bar coverage and an explicit source 
 test('musician XML, printable HTML and page SVGs are deterministic across input object ordering', async () => {
   const input = await inputs();
   const original = await createMusicianSheets(input);
-  const reordered = await createMusicianSheets({ source: { ...input.source, notes: Object.fromEntries(Object.entries(input.source.notes).reverse()) },
+  const reorderedXml = await importSheetMusicXml({ source: { ...input.source, notes: Object.fromEntries(Object.entries(input.source.notes).reverse()) },
     mapping: Object.fromEntries(Object.entries(input.mapping).reverse()) });
+  const reordered = await createMusicianSheets({ musicxml: reorderedXml.xml });
   assert.deepEqual(reordered, original);
   assert.deepEqual(await createMusicianSheets(input), original);
 });
@@ -181,7 +183,7 @@ test('long vocal text wraps into more cue lines while preserving the exact cue i
   const input = await inputs(), values = input.source.values.map(row => [...row]);
   const longCue = Array.from({ length: 30 }, (_, i) => `lyric${i} phrase${i}`).join(' ');
   values[7][14] = longCue;
-  const sheets = await createMusicianSheets({ source: { ...input.source, values }, mapping: input.mapping });
+  const sheets = await createMusicianSheets({ musicxml: (await importSheetMusicXml({ source: { ...input.source, values }, mapping: input.mapping })).xml });
   for (const sheet of sheets) {
     assert.match(sheet.xml, new RegExp(`Vocal cue: ${longCue}`));
     const lines = sheet.pages.flatMap(cueLines);
@@ -192,10 +194,10 @@ test('long vocal text wraps into more cue lines while preserving the exact cue i
   }
 });
 
-test('source resembling scripts is escaped in all printable outputs and stale capture mappings still block generation', async () => {
+test('source resembling scripts is escaped in all printable outputs and stale capture mappings remain diagnosed in inspectable drafts', async () => {
   const input = await inputs(), values = input.source.values.map(row => [...row]);
   values[7][14] = '<script>alert("cue")</script> & "friends"';
-  const sheets = await createMusicianSheets({ source: { ...input.source, values }, mapping: input.mapping });
+  const sheets = await createMusicianSheets({ musicxml: (await importSheetMusicXml({ source: { ...input.source, values }, mapping: input.mapping })).xml });
   for (const sheet of sheets) {
     assert.doesNotMatch(sheet.html, /<script>/);
     assert.doesNotMatch(sheet.xml, /<script>/);
@@ -203,7 +205,9 @@ test('source resembling scripts is escaped in all printable outputs and stale ca
     for (const page of sheet.pages) assert.equal(XMLValidator.validate(page), true);
   }
   values[10][97] = '';
-  await assert.rejects(createMusicianSheets({ source: { ...input.source, values }, mapping: input.mapping }), /CT11/);
+  const draft = await importSheetMusicXml({ source: { ...input.source, values }, mapping: input.mapping });
+  assert.equal(draft.report.nativeCompilationExecutable, false);
+  assert.ok(draft.report.compilerDiagnostics.some(diagnostic => diagnostic.source.a1 === 'CT11'));
 });
 
 

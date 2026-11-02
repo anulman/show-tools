@@ -1,3 +1,5 @@
+import { snapshotSongVoices, mergeSongVoices } from '../../lib/voice-catalog/song-snapshot.js';
+import type { CompiledSong } from '../../lib/performance/compiled-song.js';
 import { applyCatalogCueRows } from '../../lib/voice-catalog/cue-mapping.js';
 import type { SongMapping } from '../../lib/performance/compiled-song.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
@@ -27,6 +29,7 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   let current: Pick<PracticeState, 'bar' | 'voiceEffects'> = { bar: null };
   let pendingSave = false;
   let effectMode: 'compiled' | 'dry' = 'compiled';
+  let loadedDigest: string | undefined;
   function savedConfigurations(): readonly VoiceEffectConfiguration[] {
     return initialVoiceEffects(effectMode).map(configuration => {
       const row = rows.find(row => row.profile === configuration.profile);
@@ -112,19 +115,32 @@ export function installVoiceCatalog(root: HTMLElement, options: {
     get busy() { return pendingSave; },
     update,
     savedConfigurations,
+    async exportSongVoices(song: CompiledSong, source: SongSource) {
+      await ready;
+      const latest = loadedDigest === song.source.digest || !client ? document : await client.snapshot();
+      const defaults = new Map(initialVoiceEffects('compiled').map(item => [item.profile, item.effects]));
+      return snapshotSongVoices(latest, discoverSheetVoices(song, source), defaults);
+    },
     async load(song: SongScript) {
       await ready;
       effectMode = song.compiled ? 'compiled' : 'dry';
       rows = song.compiled ? discoverSheetVoices(song.compiled, song.source) : [];
       cueRows = song.compiled ? discoverCueRows(song.compiled, song.source) : [];
       commandRows = new Map(rows.map(row => [row.key, song.compiled && row.partId ? loadedCommandRows(song.compiled, row.partId) : []]));
-      if (client) {
-        document = await client.snapshot();
-        const defaults = new Map(initialVoiceEffects(song.compiled ? 'compiled' : 'dry').map(item => [item.profile, item.effects]));
-        const next = reconcileCatalog(document, rows, defaults, () => crypto.randomUUID());
-        if (next !== document) await persist(next);
-        loadDrafts();
-      }
+      loadedDigest = song.compiled?.source.digest;
+      if (client) document = await client.snapshot();
+      const defaults = new Map(initialVoiceEffects(song.compiled ? 'compiled' : 'dry').map(item => [item.profile, item.effects]));
+      let next = reconcileCatalog(document, rows, defaults, () => crypto.randomUUID());
+      if (song.voiceMetadata) next = mergeSongVoices(next, song.voiceMetadata, rows);
+      if (client && next !== document) {
+        try { await persist(next); }
+        catch (error) {
+          document = next;
+          availability = 'Song assignments are active for this session. The local library save failed.';
+          options.onError(error);
+        }
+      } else document = next;
+      loadDrafts();
       update(current);
     },
     cueMapping(source: SongSource, mapping: SongMapping) { return applyCatalogCueRows(document, source, mapping); },

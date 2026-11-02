@@ -8,13 +8,12 @@ For Dance Yrself Clean, the current compact handouts are **Bass: four A4 pages**
 
 ```sh
 node --import tsx scripts/build-musician-sheets.ts \
-  --source songs/dance-yrself-clean.source.json \
-  --mapping songs/dance-yrself-clean.mapping.json \
-  --out-dir output/pdf/dyc-musician-sheets-song-title \
+  --musicxml songs/dance-yrself-clean.musicxml \
+  --out-dir output/pdf/dyc-musician-sheets-musicxml \
   --pdf --python /private/tmp/show-tools-musician-pdf/bin/python
 ```
 
-Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-song-title/`; earlier versions remain available for comparison.
+Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-musicxml/`; earlier versions remain available for comparison.
 
 Every page repeats a vertically centered song/part heading: the song title uses the larger bold font, followed by an em dash and the smaller, lighter part name. Meter/tempo and the current bar range form a tightly spaced block at the upper right. Page numbering appears as “Page X of Y” at the bottom right. The printed template omits instructional header/footer sentences.
 
@@ -58,11 +57,11 @@ A reference prints “As [section], bars X-Y”, its duration, and the next bar 
 
 ## Data and presentation
 
-`lib/performance/musician-sheet-plan.ts` owns rest/reference planning and validation. `musician-annotations.ts` derives readable feel ranges and confirmed vocal annotations; `musician-sheets.ts` paginates and renders the shared plan. It reuses the existing compiler/discovery report; it does not infer pitched notes, grooves or musical dynamics.
+`lib/performance/musician-sheet-plan.ts` owns rest/reference planning and validation. `musician-annotations.ts` derives readable feel ranges and confirmed vocal annotations; `musician-sheets.ts` paginates and renders the shared plan. It reads the canonical MusicXML report; it does not infer pitched notes, grooves or musical dynamics.
 
-MusicXML retains every chronological measure and represents counted rests with standard `multiple-rest` notation. The v3 musician-sheet profile adds `show-tools:condensation` metadata containing rest ranges, approved references and the candidate audit. Active writing bars use hidden engraving spacers, while literal blank source bars use visible measure rests. This notation describes the authored musician part; it is not an observation of PE playback and does not trigger Play or Stop.
+MusicXML retains every chronological measure and represents counted rests with standard `multiple-rest` notation. The v4 musician-sheet projection profile adds `show-tools:condensation` metadata containing rest ranges, approved references and the candidate audit. Active writing bars use hidden engraving spacers, while literal blank source bars use visible measure rests. This notation describes the authored musician part; it is not an observation of PE playback and does not trigger Play or Stop.
 
-Print-native SVG/HTML and PDFs are worksheet presentations of that plan, not independent engravings of MusicXML. MusicXML validation and opening in another reader remain separate checks. Selection still projects focused non-AF parts while retaining the complete source archive, including unselected voices.
+Print-native SVG/HTML and PDFs are worksheet presentations of that plan, not independent engravings of MusicXML. MusicXML validation and opening in another reader remain separate checks. Handout MusicXML is explicitly marked as a part projection. It cannot replace a complete canonical song for runtime loading. The canonical document retains all voices; selection chooses the rendered handouts.
 
 The [Sheets dialog](sheets-musicxml.md) uses the compact default for selected non-AF parts. Its optional reuse configuration is currently a CLI workflow. No live Google installation, authorization or iframe-download verification follows from local package checks.
 

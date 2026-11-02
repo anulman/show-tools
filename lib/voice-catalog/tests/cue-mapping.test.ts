@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { applyCatalogCueRows } from '../cue-mapping.js';
-import { compileSong, decodeSongMapping } from '../../performance/compiled-song.js';
+import { compileSheetsSong, decodeSongMapping } from '../../performance/compiled-song.js';
 import { parseSongSource } from '../../performance/song-source.js';
 import { parseCatalogDocument } from '../model.js';
 import sourceInput from '../../../songs/dance-yrself-clean.source.json';
@@ -19,7 +19,7 @@ test('saved cue rows feed compiler input while retaining button, voice and captu
   assert.equal(next.controls.find(control => control.buttonId === 'R1')?.voiceId, 'drums-claps');
   assert.deepEqual(next.capturePolicies, mapping.capturePolicies);
   assert.equal(mapping.controls.find(control => control.buttonId === 'R1')?.cueRow, 18, 'existing mapping is immutable');
-  const compiled = await compileSong(source, next);
+  const compiled = await compileSheetsSong(source, next);
   assert(compiled.cues.filter(cue => cue.voiceId === 'drums-claps').every(cue => /19$/.test(cue.source.a1)));
   assert(compiled.cues.some(cue => cue.voiceId === 'drums-claps'), 'compiler consumes the selected command row');
   // Existing compiler inspection remains responsible for related layer/variant policy consistency.

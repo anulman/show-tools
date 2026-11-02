@@ -6,14 +6,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Schema } from 'effect';
-import { compileSong, canonicalSongJson, inspectCompiledSong } from '../lib/performance/compiled-song.js';
+import { canonicalSongJson, inspectCompiledSong } from '../lib/performance/compiled-song.js';
 import { compiledProgramBytes } from '../lib/performance/compiled-native.js';
 import { NativePerformance } from '../lib/performance/wasm-performance.js';
 import { CONTROL_IDS } from '../lib/performance/model.js';
 import type { LiveEffectDefinition } from '../lib/performance/model.js';
 import { PF } from '../lib/performance/wasm-abi.js';
-import source from '../songs/dance-yrself-clean.source.json';
-import mapping from '../songs/dance-yrself-clean.mapping.json';
+import { compileMusicXmlSong } from '../lib/performance/musicxml-song.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = await mkdtemp(join(tmpdir(), 'show-tools-dyc-'));
@@ -36,7 +35,7 @@ async function command(binary: string, args: string[]) {
     throw error;
   }
 }
-const song = await compileSong(source, mapping);
+const song = await compileMusicXmlSong(await readFile(new URL('../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8'));
 const expectedTempoHits = song.cues.filter(cue => cue.tempoBeatHint === 1).length;
 const expectedRotations = (song.rotation?.windows.length ?? 0) * 2;
 await writeFile(join(directory, 'dance-yrself-clean.json'), canonicalSongJson(song));

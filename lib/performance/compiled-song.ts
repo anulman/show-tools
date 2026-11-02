@@ -280,7 +280,7 @@ export function parseArrangementHits(text: string, beatsPerBar = 4): number[] | 
 }
 function normalizedPhrase(text: string): string { return text.trim().replace(/'/g, '').replace(/\s+/g, ' '); }
 
-export async function compileSong(sourceInput: unknown, mappingInput: unknown): Promise<CompiledSong> {
+export async function compileSheetsSong(sourceInput: unknown, mappingInput: unknown): Promise<CompiledSong> {
   const source = Schema.decodeUnknownSync(SongSourceSchema)(sourceInput);
   const mapping = decodeSongMapping(mappingInput);
   const diagnostics: SongDiagnostic[] = [];

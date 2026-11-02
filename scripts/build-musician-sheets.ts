@@ -9,7 +9,7 @@ const options = new Map<string, string>();
 const args = process.argv.slice(2);
 for (let i = 0; i < args.length; i++) {
   const key = args[i];
-  if (!['--source', '--mapping', '--out-dir', '--pdf', '--python', '--reuse'].includes(key) || options.has(key)) throw new Error(`Unknown or repeated option ${key}.`);
+  if (!['--musicxml', '--out-dir', '--pdf', '--python', '--reuse'].includes(key) || options.has(key)) throw new Error(`Unknown or repeated option ${key}.`);
   if (key === '--pdf') options.set(key, 'true');
   else {
     const value = args[++i];
@@ -22,11 +22,10 @@ const required = (key: string) => {
   if (!value) throw new Error(`Specify ${key}.`);
   return value;
 };
-const source: unknown = JSON.parse(await readFile(required('--source'), 'utf8'));
-const mapping: unknown = JSON.parse(await readFile(required('--mapping'), 'utf8'));
+const musicxml = await readFile(required('--musicxml'), 'utf8');
 const reuseFile = options.get('--reuse');
 const reuse: unknown = reuseFile ? JSON.parse(await readFile(reuseFile, 'utf8')) : undefined;
-const sheets = await createMusicianSheets({ source, mapping, reuse });
+const sheets = await createMusicianSheets({ musicxml, reuse });
 if (!sheets.length) throw new Error('This chart has no non-AF musician parts.');
 const python = options.get('--python') ?? 'python3';
 if (options.has('--pdf')) {

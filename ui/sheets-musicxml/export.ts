@@ -11,9 +11,7 @@ export async function prepareSelectedMusicXml(input: unknown) {
   const payload = Schema.decodeUnknownSync(Payload)(input);
   if (payload.selection.some(range => range.firstRow > range.lastRow)) throw new Error('Invalid selected row range.');
   const selectedRows = payload.source.values.flatMap((_, index) => payload.selection.some(range => index + 1 >= range.firstRow && index + 1 <= range.lastRow) ? [index + 1] : []);
-  const [result, musicianSheets] = await Promise.all([
-    importSheetMusicXml({ source: payload.source, mapping, selectedRows }),
-    createMusicianSheets({ source: payload.source, mapping, selectedRows }),
-  ]);
+  const result = await importSheetMusicXml({ source: payload.source, mapping, selectedRows });
+  const musicianSheets = await createMusicianSheets({ musicxml: result.xml, selectedRows });
   return { ...result, filename: `${mapping.songId}.musicxml`, musicianSheets };
 }

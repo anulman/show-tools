@@ -23,7 +23,7 @@ test('selected voices retain full-song context and identical selection yields id
   assert.deepEqual(selected.report.selectedLabelCells, ['A11', 'A12']);
   assert.equal(selected.report.measureCount, 218);
   assert.equal(selected.filename, 'dance-yrself-clean.musicxml');
-  assert.match(selected.xml, /show-tools:selected-label-cells[^>]*>\[&quot;A11&quot;,&quot;A12&quot;\]/);
+  assert.equal(selected.report.parts.length, 8, 'Selection does not truncate the canonical master song.');
   assert.equal(selected.xml, (await importSheetMusicXml({ ...input, selectedRows: [12, 11, 11] })).xml);
   assert.equal(selected.xml, (await prepareSelectedMusicXml({ source: input.source, selection: [
     { firstRow: 12, lastRow: 12 }, { firstRow: 11, lastRow: 12 }, { firstRow: 1, lastRow: 5 },
@@ -42,7 +42,9 @@ test('empty/control-only/invalid selections and a stale source fail instead of e
   await assert.rejects(prepareSelectedMusicXml({ source: input.source, selection: [{ firstRow: 12, lastRow: 11 }] }), /Invalid selected/);
   await assert.rejects(prepareSelectedMusicXml({ source: input.source, selection: [{ firstRow: .5, lastRow: 12 }] }));
   const values = input.source.values.map(row => [...row]); values[10][97] = '';
-  await assert.rejects(prepareSelectedMusicXml({ source: { ...input.source, values }, selection: [{ firstRow: 12, lastRow: 12 }] }), /CT11/);
+  const draft = await prepareSelectedMusicXml({ source: { ...input.source, values }, selection: [{ firstRow: 12, lastRow: 12 }] });
+  assert.equal(draft.report.nativeCompilationExecutable, false);
+  assert.ok(draft.report.compilerDiagnostics.some(diagnostic => diagnostic.source.a1 === 'CT11'));
 });
 
 test('selected reference musicians get separate writing sheets while AF voices stay managed', async () => {

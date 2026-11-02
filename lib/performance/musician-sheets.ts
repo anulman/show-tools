@@ -1,11 +1,10 @@
-import { importSheetMusicXml, stableMusicXmlJson, type MusicXmlReport } from './sheet-musicxml.js';
-import { parseSongSource } from './song-source.js';
-import { decodeSongMapping } from './compiled-song.js';
+import type { MusicXmlReport } from './musicxml-model.js';
+import { readMusicXmlSong } from './musicxml-song.js';
 import { musicianFeelRanges, sectionFeelSummary, vocalAnnotation, literalInstrumentCue, type VocalAnnotation } from './musician-annotations.js';
-import { scoreXmlText as xml } from './score-xml.js';
+import { scoreXmlText as xml, stableMusicXmlJson } from './score-xml.js';
 import { planMusicianRows, parseMusicianReuse, musicianRepeatCandidates, type MusicianRow, type SectionReference } from './musician-sheet-plan.js';
 
-const profile = 'show-tools-musician-sheet-v3';
+const profile = 'show-tools-musician-sheet-projection-v4';
 const width = 595.28, height = 841.89, margin = 38, top = 80, bottom = 795;
 const sectionHeadingHeight = 17;
 const staffStart = margin + 25, staffEnd = width - margin;
@@ -189,17 +188,18 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
     if (index === part.cells.length - 1) body += '<barline location="right"><bar-style>light-heavy</bar-style></barline>';
     return `<measure number="${cell.bar}">${body}</measure>`;
   }).join('\n');
-  const fields: [string, string][] = [['show-tools:profile', profile], ['show-tools:source-sha256', report.sourceDigest],
+  const fields: [string, string][] = [['show-tools:profile', profile], ['show-tools:document-kind', 'part-projection'], ['show-tools:source-sha256', report.sourceDigest],
     ['show-tools:mapping-sha256', report.mappingDigest], ['show-tools:selected-label-cells', stableMusicXmlJson([part.labelCell])],
     ['show-tools:source', source], ['show-tools:mapping', mapping], ['show-tools:condensation', stableMusicXmlJson(condensation)]];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="4.0"><work><work-title>${xml(report.title)} — ${xml(part.name)}</work-title></work><identification><encoding><software>${profile}</software><encoding-description>${xml(convention)} Blank chart cells are authored rests. Hidden rests are writing-area spacers, not performed note durations.</encoding-description></encoding><miscellaneous>${fields.map(([name, value]) => `<miscellaneous-field name="${name}">${xml(value)}</miscellaneous-field>`).join('')}</miscellaneous></identification><defaults><scaling><millimeters>7</millimeters><tenths>40</tenths></scaling><system-layout><system-distance>120</system-distance></system-layout></defaults><part-list><score-part id="${part.id}"><part-name>${xml(part.name)}</part-name><part-abbreviation>${xml(part.name)}</part-abbreviation></score-part></part-list><part id="${part.id}">${measures}</part></score-partwise>\n`;
 }
 
-export async function createMusicianSheets(options: Parameters<typeof importSheetMusicXml>[0] & { reuse?: unknown }): Promise<MusicianSheet[]> {
-  const { report } = await importSheetMusicXml(options);
+export async function createMusicianSheets(options: { musicxml: string; selectedRows?: readonly number[]; reuse?: unknown }): Promise<MusicianSheet[]> {
+  const document = await readMusicXmlSong(options.musicxml);
+  const report = document.report;
   const references = parseMusicianReuse(options.reuse, report);
-  const source = stableMusicXmlJson(parseSongSource(options.source)), mapping = stableMusicXmlJson(decodeSongMapping(options.mapping));
-  return report.parts.filter(part => !part.managed).map(part => {
+  const source = stableMusicXmlJson(document.source), mapping = stableMusicXmlJson(document.mapping);
+  return report.parts.filter(part => !part.managed && (options.selectedRows === undefined || options.selectedRows.includes(Number(part.labelCell.replace(/^[A-Z]+/, ''))))).map(part => {
     const rows = planMusicianRows(part, report, references);
     const layout = paginate(rows, report);
     const condensation: MusicianSheet['condensation'] = { sourceDigest: report.sourceDigest, mappingDigest: report.mappingDigest,
