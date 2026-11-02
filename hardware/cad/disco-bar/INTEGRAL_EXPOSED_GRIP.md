@@ -10,6 +10,8 @@ The operator clarified that about 3/32 inch (2.38125 mm) is the stationary flang
 
 The actual knob height and top bearing shape matter. With the relocated stop seated, bar-root height is T + E + (Hactual - 25.4), and foot height above the roof is T + (Hactual - 25.4). A shorter knob can reduce nominal roof clearance. Original socket depth is not a measurement of the knob. Base clearance, full stationary housing geometry, spindle support, physical fit, pad friction, screw preload, adhesive and strength require separate checks.
 
+The operator subsequently described approximately 7/8 inch, 22.225 mm, from the underside to the top of the full-width section, followed by an approximately 1/8 inch, 3.175 mm, dome. This supports the coarse 1-inch overall height but supplies no precision tolerance. The proposed shoe contact spans 6 to 20 mm above the underside, inside that reported full-width zone. The top is domed: the ideal-cylinder stop witness does not establish actual flat-face bearing contact or contact stress.
+
 ## Hollow column and slicer density
 
 The original far column remains hollow. The native addition check permits new material only inside the old central knob socket, so it does not fill the rest of the 109.22 mm column. A valid single CAD solid means a closed manufacturable boundary; it does not mean 100% filament infill. The localized filled-core CAD region gives the new stop a continuous supporting volume and avoids a sealed inaccessible cavity. Slicer walls, infill and possible local reinforcement at the stop, nut reactions and grip walls remain unspecified until printer/material and physical tests are available. No blanket 100% infill instruction or percentage is selected here.

@@ -6,6 +6,8 @@ The operator's 2026-11-01 instruction explicitly permits a separately labeled un
 
 The operator does not require 100% filament infill. Preserve the column's hollow interior and concentrate structural material around the grip, shoe guides, nut pockets and nominal knob stop. A valid closed CAD solid is not a slicer infill specification. Printer, material, wall and infill settings remain unselected; solid checks do not prove strength.
 
+The reported knob profile is approximately 7/8 inch of full-width height plus a 1/8-inch dome, about 1 inch overall. These are coarse observations, not tolerance bounds. The E22 study's shoe contact is 6 to 20 mm above the knob underside, within that reported full-width region. Dome-to-flat-stop contact is not verified by the ideal cylindrical socket probe.
+
 The operator's next-publication instruction is to show only complete publication candidates after their dependent checks pass. Remove historical comparison assemblies from the visible scenes, but retain their source, exports and other old data. Do not substitute a fit coupon for a complete mount. Keep the current scene until a replacement is ready. The operator confirmed Darren's snug socket after superseding the larger diameter estimate; preserve that socket and complete the compact assembly checks before publication. This display choice does not authorize old-data cleanup or establish physical fit.
 
 The two long-lived CAD sessions own separate source files and output directories. Use the [CAD desk](../../ui/cad/README.md) at <http://127.0.0.1:3940/> to select a workstream yourself. The coordinator maintains this publisher and the embedded OCP Viewer on port 3939. Workers perform headless work and do not publish or restart the viewer.
