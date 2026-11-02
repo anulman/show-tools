@@ -62,6 +62,10 @@ def main():
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
+    import concept_preview
+    if args.workspace == 'disco-bar' and concept_preview.CONFIG.is_file():
+        concept_preview.publish_configured(args.port, args.reset_camera)
+        return
     simple_arcade = CAD_DIR / 'build/arcade-simple/current.json'
     if args.workspace == 'box-mount' and args.variant in ('all', 'arcade-inclined') and simple_arcade.is_file():
         publish_simple_arcade(simple_arcade, args.port, args.reset_camera, args.explode)
