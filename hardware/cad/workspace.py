@@ -12,56 +12,45 @@ CAD_DIR = Path(__file__).parent
 
 
 def publish_simple_arcade(config_path, port, reset, explode):
-    """Publish the exact two-part arcade export selected for printer handoff."""
-    import sys
-    sys.path.insert(0, str(CAD_DIR / 'verification'))
-    from geometry_artifacts import Artifacts
+    """Publish the selected arcade print pair with its visual button reference."""
+    import arcade_scene
     from ocp_viewer import Camera, show
-    config = json.loads(config_path.read_text())
-    receipt_path = Path(config['path'])
-    if hashlib.sha256(receipt_path.read_bytes()).hexdigest() != config['sha256']:
-        raise ValueError('Changed simple arcade print selection')
-    receipt = json.loads(receipt_path.read_text())
-    records = receipt['review_components']
-    if (receipt.get('scope') != 'TWO_PART_ARCADE_BUTTON_BOX_WITHOUT_BALLAST'
-            or receipt['geometry_checks_pass'] is not True
-            or [r['name'] for r in records] != ['shell', 'bottom']):
-        raise ValueError('Expected the checked shell and bottom only')
-    artifacts = Artifacts()
-    shapes = [artifacts.load(record).translate(tuple(-value for value in record['source_to_print_translation_mm']))
-              for record in records]
-    ground = min(shape.bounding_box().min.Z for shape in shapes)
-    objects = [shape.translate((0, 0, -ground - (explode if index == 1 else 0)))
-               for index, shape in enumerate(shapes)]
-    artifacts.unchanged()
-    labels = ['Arcade button box - shell', 'Arcade button box - removable bottom']
+    objects, labels, colors, alphas, provenance = arcade_scene.load(config_path, explode)
     target = CAD_DIR / 'build/workspace/current-view.json'
     previous = json.loads(target.read_text()) if target.exists() else {}
     reset = reset or previous.get('presentation') != 'simple-arcade-box'
-    show(*objects, names=labels, colors=['#d1b394', '#b69a7e'], alphas=[.55, 1.],
+    receipt = json.dumps(dict(workspace='box-mount', presentation='simple-arcade-box',
+        labels=labels, provenance=provenance, canvas_delivery_verified=False), indent=2) + '\n'
+    show(*objects, names=labels, colors=colors, alphas=alphas,
          port=port, reset_camera=Camera.RESET if reset else Camera.KEEP,
          ortho=True if reset else None, zoom=.85 if reset else None)
     target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(json.dumps(dict(workspace='box-mount', presentation='simple-arcade-box',
-        labels=labels, receipt=config, actual_artifacts=artifacts.files,
-        canvas_delivery_verified=False), indent=2) + '\n')
+    target.write_text(receipt)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("workspace", choices=("box-mount", "disco-bar"))
+    parser.add_argument("workspace", choices=("box-mount", "disco-bar", "all-controls"))
     parser.add_argument("--variant", choices=("all", "arcade-inclined", "rotor-level", "mushroom-level"), default="all", help="Box-mount variants to show")
-    parser.add_argument("--step", type=Path, help="Local Darren STEP path, for disco-bar only")
+    parser.add_argument("--step", type=Path, help="Local Darren STEP path, for disco-ball scenes")
     parser.add_argument("--explode", type=float, default=0, help="Lower box-mount bottoms for inspection, in mm")
     parser.add_argument("--reset-camera", action="store_true")
     parser.add_argument("--port", type=int, default=3939)
     args = parser.parse_args()
-    if args.step is not None and args.workspace != "disco-bar":
-        parser.error("--step applies only to disco-bar")
+    if args.step is not None and args.workspace not in ("disco-bar", "all-controls"):
+        parser.error("--step applies only to disco-bar and all-controls")
     if args.explode != 0 and args.workspace != "box-mount":
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
+    if args.workspace == 'all-controls':
+        args.step = args.step or (Path(os.environ['SHOW_TOOLS_DISCO_STEP'])
+                                 if os.environ.get('SHOW_TOOLS_DISCO_STEP') else None)
+        if args.step is None:
+            parser.error('all-controls requires --step or SHOW_TOOLS_DISCO_STEP')
+        import all_controls
+        all_controls.publish(args.step, args.port, args.reset_camera)
+        return
     import concept_preview
     if args.workspace == 'disco-bar' and concept_preview.CONFIG.is_file():
         concept_preview.publish_configured(args.port, args.reset_camera)
