@@ -1,16 +1,17 @@
 import { importSheetMusicXml, stableMusicXmlJson, type MusicXmlReport } from './sheet-musicxml.js';
 import { parseSongSource } from './song-source.js';
 import { decodeSongMapping } from './compiled-song.js';
+import { musicianFeelRanges, vocalAnnotation, literalInstrumentCue, type VocalAnnotation } from './musician-annotations.js';
 import { scoreXmlText as xml } from './score-xml.js';
 import { planMusicianRows, parseMusicianReuse, musicianRepeatCandidates, type MusicianRow, type SectionReference } from './musician-sheet-plan.js';
 
-const profile = 'show-tools-musician-sheet-v2';
+const profile = 'show-tools-musician-sheet-v3';
 const width = 595.28, height = 841.89, margin = 38, top = 80, bottom = 795;
 const staffStart = margin + 25, staffEnd = width - margin;
-const convention = 'Blank five-line staff for handwritten notes. Arrangement marks and vocal cues are literal source indications; pitches, patterns and played durations are unspecified.';
+const convention = 'Blank five-line staff for handwritten notes. Normal playing is implicit; whole-bar ! and !! indicate Funky and Extra funky. Other arrangement marks and vocal cues retain source indications; pitches, patterns and played durations are unspecified.';
 type Part = MusicXmlReport['parts'][number];
-type Cue = MusicXmlReport['vocalCues'][number];
-interface System { row: MusicianRow; label: string; cueText: string; cueLines: string[]; cues: Cue[]; height: number; staffOffset: number }
+interface PlacedVocal { cue: VocalAnnotation; x: number; lines: string[] }
+interface System { row: MusicianRow; label: string; cueLines: string[]; vocals: PlacedVocal[]; height: number; staffOffset: number }
 
 export interface MusicianSheet {
   name: string;
@@ -45,17 +46,23 @@ function present(row: MusicianRow, report: MusicXmlReport, firstOnPage: boolean,
   const start = row.cells[0].bar, end = row.cells.at(-1)?.bar ?? start;
   const label = firstOnPage || row.section.id !== previousSection ? row.section.label : '';
   const cues = report.vocalCues.filter(cue => cue.bar >= start && cue.bar <= end);
-  const carried = firstOnPage && !cues.length ? report.vocalCues.find(cue => cue.bar >= row.section.startBar && cue.bar < start) : undefined;
-  const cueText = cues.length ? cues.map(cue => `b.${cue.bar}: ${cue.text}`).join(' / ')
-    : carried ? `from b.${carried.bar}: ${carried.text}` : '';
-  const cueLines = wrap(cueText, row.kind === 'staff' ? 60 : 46);
+  const cueText = cues.map(cue => `b.${cue.bar}: ${cue.text}`).join(' / ');
+  const measureWidth = (staffEnd - staffStart) / row.cells.length;
+  const vocals = row.kind === 'staff' ? cues.map((cue): PlacedVocal => {
+    const x = staffStart + (cue.bar - start) * measureWidth + 23;
+    const right = staffStart + (cue.bar - start + 1) * measureWidth;
+    const annotation = vocalAnnotation(cue);
+    return { cue: annotation, x, lines: annotation.kind === 'text' ? wrap(cue.text, Math.max(8, Math.floor((right - x - 5) / 4.7))) : [] };
+  }) : [];
+  const cueLines = row.kind === 'staff' ? [] : wrap(cueText, 46);
+  const cueHeight = (row.kind === 'staff' ? Math.max(0, ...vocals.map(vocal => Math.max(1, vocal.lines.length))) : cueLines.length) * 10;
   const heading = label ? 12 : 0;
   const bodyLines = row.kind === 'reference' ? wrap(referenceText(row, report), 60).length : 0;
-  const height = row.kind === 'staff' ? 64 + heading + cueLines.length * 10
-    : row.kind === 'rest' ? heading + Math.max(20, cueLines.length * 10 + 6) + 8
-      : heading + cueLines.length * 10 + bodyLines * 10 + 16;
+  const height = row.kind === 'staff' ? 64 + heading + cueHeight
+    : row.kind === 'rest' ? heading + Math.max(20, cueHeight + 6) + 8
+      : heading + cueHeight + bodyLines * 10 + 16;
   if (height > bottom - top) throw new Error(`Cues near bar ${start} exceed one writing page.`);
-  return { row, label, cues, cueText, cueLines, height, staffOffset: heading + cueLines.length * 10 + 14 };
+  return { row, label, cueLines, vocals, height, staffOffset: heading + cueHeight + 14 };
 }
 
 function paginate(rows: MusicianRow[], report: MusicXmlReport): System[][] {
@@ -95,8 +102,15 @@ function clefSvg(kind: ReturnType<typeof clef>, y: number): string {
   return '';
 }
 
+function pageFeels(page: System[], part: Part, report: MusicXmlReport) {
+  const first = page[0].row.cells[0].bar, last = page.at(-1)?.row.cells.at(-1)?.bar ?? first;
+  return musicianFeelRanges(part, report).filter(range => range.startBar <= last && range.endBar >= first)
+    .map(range => ({ ...range, startBar: Math.max(first, range.startBar), endBar: Math.min(last, range.endBar) }));
+}
+
 function svgPage(page: System[], pageIndex: number, pageCount: number, part: Part, report: MusicXmlReport): string {
   const first = page[0].row.cells[0].bar, last = page.at(-1)?.row.cells.at(-1)?.bar ?? first;
+  const feels = pageFeels(page, part, report);
   const body: string[] = [];
   let y = top;
   for (const system of page) {
@@ -105,7 +119,7 @@ function svgPage(page: System[], pageIndex: number, pageCount: number, part: Par
     body.push(`<g data-system-start="${start}" data-kind="${row.kind}">`);
     if (system.label) body.push(`<text data-section="${row.section.id}" x="${margin}" y="${y + 3}" font-size="9" font-weight="bold">${xml(system.label)}</text>`);
     if (row.kind !== 'staff') body.push(`<text x="${staffEnd}" y="${y + 3}" font-size="7" text-anchor="end" fill="#555">${start}-${end}</text>`);
-    for (const [line, text] of system.cueLines.entries()) body.push(`<text x="${row.kind === 'rest' ? 160 : margin}" y="${y + heading + 10 + line * 10}" font-size="8" fill="#525252">${xml(text)}</text>`);
+    if (row.kind !== 'staff') for (const [line, text] of system.cueLines.entries()) body.push(`<text x="${row.kind === 'rest' ? 160 : margin}" y="${y + heading + 10 + line * 10}" font-size="8" fill="#525252">${xml(text)}</text>`);
     if (row.kind === 'rest') {
       body.push(`<g data-rest-start="${start}" data-rest-end="${end}"><text x="101" y="${y + heading + 7}" text-anchor="middle" font-size="9">${row.cells.length}</text><path d="M65 ${y + heading + 16}h72m-72-5v10m72-10v10" stroke="#333" stroke-width="2" fill="none"/><text x="141" y="${y + heading + 19}" font-size="6" fill="#666">rest</text></g></g>`);
       y += system.height; continue;
@@ -116,19 +130,34 @@ function svgPage(page: System[], pageIndex: number, pageCount: number, part: Par
       body.push('</g></g>'); y += system.height; continue;
     }
     const staffY = y + system.staffOffset;
+    const vocalY = staffY - 6 - Math.max(0, ...system.vocals.map(vocal => Math.max(1, vocal.lines.length) - 1)) * 10;
+    const measureWidth = (staffEnd - staffStart) / row.cells.length;
+    for (const vocal of system.vocals) {
+      body.push(`<g data-vocal-bar="${vocal.cue.bar}">`);
+      if (vocal.cue.kind === 'count-and') {
+        const barX = staffStart + (vocal.cue.bar - start) * measureWidth;
+        const countX = barX + vocal.cue.countOffset / report.meter.numerator * measureWidth;
+        const andX = barX + vocal.cue.andOffset / report.meter.numerator * measureWidth;
+        body.push(`<text x="${countX}" y="${vocalY}" font-size="8" fill="#525252">3</text><text data-vocal-accent="true" x="${andX}" y="${vocalY - 8}" text-anchor="middle" font-size="10">&gt;</text><text data-vocal-count-offset="2.5" x="${andX}" y="${vocalY}" text-anchor="middle" font-size="8" fill="#525252">&amp;</text>`);
+      } else for (const [line, text] of vocal.lines.entries()) body.push(`<text x="${vocal.x}" y="${vocalY + line * 10}" font-size="8" fill="#525252">${xml(text)}</text>`);
+      body.push('</g>');
+    }
+    for (const range of feels.filter(range => range.startBar >= start && range.startBar <= end)) {
+      const x = staffStart + (range.startBar - start) * measureWidth + 4;
+      body.push(`<text data-feel-start="${range.startBar}" data-feel-end="${range.endBar}" x="${x}" y="${staffY + 41}" font-size="8" font-style="italic" fill="#444">${range.text} · bars ${range.startBar}-${range.endBar}</text>`);
+    }
     for (let line = 0; line < 5; line++) body.push(`<line data-staff-line="${line + 1}" x1="${margin}" y1="${staffY + line * 6}" x2="${staffEnd}" y2="${staffY + line * 6}" stroke="#4c4c4c" stroke-width=".55"/>`);
     body.push(clefSvg(clef(part), staffY));
-    const measureWidth = (staffEnd - staffStart) / row.cells.length;
     for (const [i, cell] of row.cells.entries()) {
       const x = staffStart + i * measureWidth;
-      body.push(`<g data-bar="${cell.bar}"><text x="${x + 4}" y="${staffY - 6}" font-size="7" fill="#555">${cell.bar}</text><line x1="${x}" y1="${staffY}" x2="${x}" y2="${staffY + 24}" stroke="#777" stroke-width=".55"/>`);
-      if (cell.text.trim()) body.push(`<text data-source-cell="${cell.cell}" x="${x + 4}" y="${staffY + 41}" font-size="8" fill="#444">${xml(cell.text)}</text>`);
+      body.push(`<g data-bar="${cell.bar}"><text x="${x + 4}" y="${vocalY}" font-size="7" fill="#555">${cell.bar}</text><line x1="${x}" y1="${staffY}" x2="${x}" y2="${staffY + 24}" stroke="#777" stroke-width=".55"/>`);
+      if (literalInstrumentCue(cell.text)) body.push(`<text data-source-cell="${cell.cell}" x="${x + 4}" y="${staffY + 41}" font-size="8" fill="#444">${xml(literalInstrumentCue(cell.text))}</text>`);
       body.push('</g>');
     }
     body.push(`<line x1="${staffEnd}" y1="${staffY}" x2="${staffEnd}" y2="${staffY + 24}" stroke="#444" stroke-width=".7"/></g>`);
     y += system.height;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(part.name)} notes, bars ${first} to ${last}"><rect width="100%" height="100%" fill="white"/><g font-family="Arial, sans-serif" fill="#222"><text x="${margin}" y="40" font-size="23" font-weight="bold"><tspan>${xml(part.name)}</tspan><tspan dx="8" font-size="13" font-weight="normal"> ${xml(report.title)}</tspan></text><text x="${staffEnd}" y="29" text-anchor="end" font-size="9">${report.meter.numerator}/${report.meter.denominator} · ${report.bpmPerChartCount} BPM</text><text x="${staffEnd}" y="40" text-anchor="end" font-size="9">Bars ${first}-${last}</text>${body.join('')}<text x="${staffEnd}" y="818" text-anchor="end" font-size="8" fill="#666">Page ${pageIndex + 1} of ${pageCount}</text></g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(part.name)} notes, bars ${first} to ${last}"><rect width="100%" height="100%" fill="white"/><g font-family="Arial, sans-serif" fill="#222"><text x="${margin}" y="40" font-size="23" font-weight="bold"><tspan>${xml(part.name)}</tspan><tspan dx="8" dy="-3.5" font-size="13" font-weight="normal"> ${xml(report.title)}</tspan></text><text x="${staffEnd}" y="29" text-anchor="end" font-size="9">${report.meter.numerator}/${report.meter.denominator} · ${report.bpmPerChartCount} BPM</text><text x="${staffEnd}" y="40" text-anchor="end" font-size="9">Bars ${first}-${last}</text>${body.join('')}<text x="${staffEnd}" y="818" text-anchor="end" font-size="8" fill="#666">Page ${pageIndex + 1} of ${pageCount}</text></g></svg>`;
 }
 
 function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], source: string, mapping: string, condensation: MusicianSheet['condensation']): string {
@@ -137,7 +166,8 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
   const pageStarts = new Set(pages.slice(1).map(page => page[0].row.cells[0].bar));
   const systemStarts = new Map(systems.map(system => [system.row.cells[0].bar, system]));
   const restStarts = new Map(systems.filter(system => system.row.kind === 'rest').map(system => [system.row.cells[0].bar, system.row.cells.length]));
-  const direction = (text: string, id: string, placement: 'above' | 'below') => `<direction placement="${placement}"><direction-type><words id="${id}" font-size="9">${xml(text)}</words></direction-type></direction>`;
+  const feels = pages.flatMap(page => pageFeels(page, part, report));
+  const direction = (text: string, id: string, placement: 'above' | 'below', countOffset = 0) => `<direction placement="${placement}"><direction-type><words id="${id}" font-size="9">${xml(text)}</words></direction-type>${countOffset ? `<offset>${countOffset * 960 * 4 / report.meter.denominator}</offset>` : ''}</direction>`;
   const measures = part.cells.map((cell, index) => {
     let body = '';
     const system = systemStarts.get(cell.bar);
@@ -148,10 +178,16 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
     const section = report.sections.find(section => section.startBar === cell.bar);
     if (section) body += `<direction><direction-type><rehearsal>${xml(section.label)}</rehearsal></direction-type></direction>`;
     if (system?.label && !section) body += direction(system.label, `section-${cell.bar}`, 'above');
-    for (const cue of report.vocalCues.filter(cue => cue.bar === cell.bar)) body += direction(`Vocal cue: ${cue.text}`, `vocal-${cue.cell}`, 'above');
-    if (system && !system.cues.length && system.cueText) body += direction(system.cueText, `carried-vocal-${cell.bar}`, 'above');
+    for (const cue of report.vocalCues.filter(cue => cue.bar === cell.bar)) {
+      const annotation = vocalAnnotation(cue);
+      if (annotation.kind === 'count-and') {
+        body += direction('Vocal cue: 3', `vocal-${cue.cell}-count`, 'above', annotation.countOffset);
+        body += direction('Vocal cue: > &', `vocal-${cue.cell}-and`, 'above', annotation.andOffset);
+      } else body += direction(`Vocal cue: ${cue.text}`, `vocal-${cue.cell}`, 'above');
+    }
     if (system?.row.kind === 'reference') body += direction(referenceText(system.row, report), `reference-${cell.bar}`, 'above');
-    if (cell.text.trim()) body += direction(cell.text, `chart-${cell.cell}`, 'below');
+    for (const feel of feels.filter(feel => feel.startBar === cell.bar)) body += direction(`${feel.text} · bars ${feel.startBar}-${feel.endBar}`, `feel-${cell.bar}`, 'below');
+    if (literalInstrumentCue(cell.text)) body += direction(literalInstrumentCue(cell.text), `chart-${cell.cell}`, 'below');
     body += `<note${cell.text.trim() ? ' print-object="no"' : ''}><rest measure="yes"/><duration>${report.meter.numerator * 960 * 4 / report.meter.denominator}</duration></note>`;
     if (index === part.cells.length - 1) body += '<barline location="right"><bar-style>light-heavy</bar-style></barline>';
     return `<measure number="${cell.bar}">${body}</measure>`;

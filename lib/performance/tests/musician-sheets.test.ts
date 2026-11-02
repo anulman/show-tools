@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Schema } from 'effect';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { literalInstrumentCue, musicianFeelRanges } from '../musician-annotations.js';
+import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { createMusicianSheets } from '../musician-sheets.js';
 import { parseSongSource } from '../song-source.js';
 import { compileSong, decodeSongMapping } from '../compiled-song.js';
@@ -106,7 +108,7 @@ test('DYC musician outputs condense rests while preserving every bar, active wri
   assert.match(sheets[1].xml, /<clef><sign>percussion<\/sign><\/clef>/);
 });
 
-test('focused parts preserve complete source metadata and bar durations with literal arrangement and lyric cues', async () => {
+test('focused parts preserve complete source metadata and bar durations with readable arrangement and lyric cues', async () => {
   const input = await inputs(), song = await compileSong(input.source, input.mapping);
   for (const sheet of await createMusicianSheets(input)) {
     const doc = parsed(sheet.xml);
@@ -133,7 +135,7 @@ test('focused parts preserve complete source metadata and bar durations with lit
     const row = Number(sheet.labelCell.slice(1)) - 1;
     for (const bar of song.chart.bars) {
       const raw = input.source.values[row]?.[bar.column - 1] ?? '';
-      if (raw.trim()) assert.ok(words.some(word => word.bar === bar.bar && word.id.startsWith('chart-') && word['#text'] === raw));
+      if (literalInstrumentCue(raw)) assert.ok(words.some(word => word.bar === bar.bar && word.id.startsWith('chart-') && word['#text'] === raw));
     }
     const rehearsals = doc.part[0].measure.flatMap(measure => (measure.direction ?? []).flatMap(direction => {
       const rehearsal = direction['direction-type'].rehearsal;
@@ -142,7 +144,7 @@ test('focused parts preserve complete source metadata and bar durations with lit
     assert.deepEqual(rehearsals, song.chart.sections.map(section => [section.startBar, section.label]));
     assert.ok(words.some(word => word.bar === 13 && word['#text'] === 'Vocal cue: Walking up to me expecting...'));
     assert.ok(words.some(word => word.bar === 201 && word['#text'] === 'Vocal cue: Show.'));
-    assert.ok(sheet.pages.some(page => page.includes('Instrumental A4') && page.includes('b.201: Show.')));
+    assert.ok(sheet.pages.some(page => page.includes('Instrumental A4') && page.includes('Show.')));
   }
 });
 
@@ -202,4 +204,46 @@ test('source resembling scripts is escaped in all printable outputs and stale ca
   }
   values[10][97] = '';
   await assert.rejects(createMusicianSheets({ source: { ...input.source, values }, mapping: input.mapping }), /CT11/);
+});
+
+
+test('feel ranges are section bounded, page clipped and omit normal playing marks', async () => {
+  const input = await inputs(), { report } = await importSheetMusicXml(input);
+  const bass = report.parts.find(part => part.labelCell === 'A14');
+  assert.ok(bass);
+  const ranges = musicianFeelRanges(bass, report);
+  for (const expected of [
+    { startBar: 77, endBar: 84, text: 'Funky' },
+    { startBar: 101, endBar: 108, text: 'Extra funky' },
+    { startBar: 125, endBar: 132, text: 'Funky' },
+    { startBar: 133, endBar: 136, text: 'Extra funky' },
+  ]) assert.ok(ranges.some(range => JSON.stringify(range) === JSON.stringify(expected)));
+  const [sheet] = await createMusicianSheets({ ...input, selectedRows: [14] });
+  assert.doesNotMatch(sheet.pages.join(''), />[-!]+<\/text>/);
+  for (const page of sheet.pages) {
+    const bars = coveredBars(page), first = bars[0], last = bars.at(-1) ?? first;
+    const labels = [...page.matchAll(/data-feel-start="(\d+)" data-feel-end="(\d+)"/g)];
+    for (const label of labels) {
+      assert.ok(Number(label[1]) >= first && Number(label[2]) <= last);
+      assert.ok(sheet.xml.includes(`bars ${label[1]}-${label[2]}</words>`), 'MusicXML and print pages share feel context');
+    }
+    for (const range of ranges.filter(range => range.startBar <= last && range.endBar >= first)) {
+      assert.ok(labels.some(label => Number(label[1]) === Math.max(first, range.startBar) && Number(label[2]) === Math.min(last, range.endBar)));
+    }
+  }
+});
+
+test('lyrics anchor to their own bar, and the accented and is exclusively a timed vocal cue', async () => {
+  for (const sheet of await createMusicianSheets(await inputs())) {
+    const svg = sheet.pages.join('');
+    assert.doesNotMatch(svg, /from b\.125|b\.125:/);
+    assert.match(svg, /data-vocal-bar="125">[^]*?>Show!<\/text>/);
+    assert.match(svg, /data-vocal-bar="137">[^]*?>Put your little/);
+    assert.match(svg, /data-vocal-bar="143">[^]*?data-vocal-accent="true"[^]*?data-vocal-count-offset="2.5"[^]*?>&amp;<\/text><\/g>/);
+    assert.match(svg, /data-vocal-bar="144">[^]*?>Hey!<\/text>/);
+    const measure143 = /<measure number="143">([^]*?)<\/measure>/.exec(sheet.xml)?.[1] ?? '';
+    assert.match(measure143, /id="vocal-[^"]+-count"[^]*?Vocal cue: 3<\/words><\/direction-type><offset>1920<\/offset>/);
+    assert.match(measure143, /id="vocal-[^"]+-and"[^]*?Vocal cue: &gt; &amp;<\/words><\/direction-type><offset>2400<\/offset>/);
+    assert.doesNotMatch(sheet.xml, /carried-vocal-/);
+  }
 });
