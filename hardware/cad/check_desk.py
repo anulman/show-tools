@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import socket
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -36,7 +37,16 @@ def check_active_shutdown(environment):
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]
         origin = f"http://127.0.0.1:{port}"
-        server = subprocess.Popen([sys.executable, str(HERE / "desk_server.py"), "--port", str(port),
+        fixture = Path(directory) / 'repo'
+        cad = fixture / 'hardware/cad'
+        ui = fixture / 'ui/cad'
+        (cad / 'build/desk').mkdir(parents=True)
+        ui.mkdir(parents=True)
+        shutil.copyfile(HERE / 'desk_server.py', cad / 'desk_server.py')
+        shutil.copyfile(HERE.parents[1] / 'ui/cad/index.html', ui / 'index.html')
+        shutil.copyfile(HERE / 'build/desk/app.js', cad / 'build/desk/app.js')
+        (cad / 'workspace.py').write_text('import time\ntime.sleep(60)\n')
+        server = subprocess.Popen([sys.executable, str(cad / "desk_server.py"), "--port", str(port),
                                    "--disco-step", str(invalid_step)], env=environment,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         responses = []
