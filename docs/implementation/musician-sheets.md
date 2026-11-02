@@ -10,11 +10,11 @@ For Dance Yrself Clean, the current compact handouts are **Bass: four A4 pages**
 node --import tsx scripts/build-musician-sheets.ts \
   --source songs/dance-yrself-clean.source.json \
   --mapping songs/dance-yrself-clean.mapping.json \
-  --out-dir output/pdf/dyc-musician-sheets-annotated \
+  --out-dir output/pdf/dyc-musician-sheets-section-feels \
   --pdf --python /private/tmp/show-tools-musician-pdf/bin/python
 ```
 
-Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-annotated/`; earlier versions remain available for comparison.
+Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-section-feels/`; earlier versions remain available for comparison.
 
 Every page repeats a vertically centered part/song heading, preserving the bold part name and lighter song title. Meter/tempo and the current bar range form a tightly spaced block at the upper right. Page numbering appears as “Page X of Y” at the bottom right. The printed template omits instructional header/footer sentences.
 
@@ -35,7 +35,7 @@ Literal blank arrangement cells mean the musician is not playing. An entirely bl
 
 Active material keeps up to four bars per full-size writing staff. Pickups remain visible even in a mostly inactive section: DYC Drums retains bars 76 and 160, and the marked entry at 203-205. The final two bars remain an explicit two-bar rest, not invented measures 219-220. The final page is rebalanced when an ending section would otherwise be split unnecessarily.
 
-Normal playing (`-`) is implicit. Whole-bar `!` and `!-` become “Funky”; `!!` becomes “Extra funky.” Contiguous ranges are bounded by sections, clipped to each page, and labeled once at their first visible bar. The same page spans appear in MusicXML. Compound beat-qualified instrument tokens retain their literal source spelling pending a confirmed interpretation.
+Normal playing (`-`) is implicit. Whole-bar `!` and `!-` become “Funky”; `!!` becomes “Extra funky.” Feel summaries sit beside the section title, with extra space above section headings. A feel covering the complete section needs no bar range. When consecutive feels cover a section, the first becomes the default and later changes retain their ranges: “Chorus B2 — Funky; Extra funky, bars 133-136.” Partial passages retain explicit ranges. Continuation pages repeat the complete section summary. The same summary appears above the staff in MusicXML. Compound beat-qualified instrument tokens retain their literal source spelling pending a confirmed interpretation.
 
 Each condensed row retains the original cells. Expanding staff rows, counted-rest ranges and approved reference ranges must reconstruct every bar exactly once and in order. Source text, notes, mappings and original coordinates remain in the MusicXML metadata.
 

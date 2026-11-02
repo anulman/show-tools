@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Schema } from 'effect';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { literalInstrumentCue, musicianFeelRanges } from '../musician-annotations.js';
+import { literalInstrumentCue, musicianFeelRanges, sectionFeelSummary } from '../musician-annotations.js';
 import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { createMusicianSheets } from '../musician-sheets.js';
 import { parseSongSource } from '../song-source.js';
@@ -207,7 +207,7 @@ test('source resembling scripts is escaped in all printable outputs and stale ca
 });
 
 
-test('feel ranges are section bounded, page clipped and omit normal playing marks', async () => {
+test('feel summaries sit in section headings and reserve bar ranges for internal changes', async () => {
   const input = await inputs(), { report } = await importSheetMusicXml(input);
   const bass = report.parts.find(part => part.labelCell === 'A14');
   assert.ok(bass);
@@ -220,17 +220,21 @@ test('feel ranges are section bounded, page clipped and omit normal playing mark
   ]) assert.ok(ranges.some(range => JSON.stringify(range) === JSON.stringify(expected)));
   const [sheet] = await createMusicianSheets({ ...input, selectedRows: [14] });
   assert.doesNotMatch(sheet.pages.join(''), />[-!]+<\/text>/);
-  for (const page of sheet.pages) {
-    const bars = coveredBars(page), first = bars[0], last = bars.at(-1) ?? first;
-    const labels = [...page.matchAll(/data-feel-start="(\d+)" data-feel-end="(\d+)"/g)];
-    for (const label of labels) {
-      assert.ok(Number(label[1]) >= first && Number(label[2]) <= last);
-      assert.ok(sheet.xml.includes(`bars ${label[1]}-${label[2]}</words>`), 'MusicXML and print pages share feel context');
-    }
-    for (const range of ranges.filter(range => range.startBar <= last && range.endBar >= first)) {
-      assert.ok(labels.some(label => Number(label[1]) === Math.max(first, range.startBar) && Number(label[2]) === Math.min(last, range.endBar)));
-    }
+  for (const [label, summary] of [
+    ['Intro B1', 'Funky'], ['Chorus B1', 'Extra funky'],
+    ['Chorus B2', 'Funky; Extra funky, bars 133-136'], ['Chorus B3', 'Funky'],
+  ]) {
+    const headings = sheet.pages.flatMap(page => [...page.matchAll(/<text data-section="[^"]+"[^>]*><tspan>([^<]+)<\/tspan><tspan data-section-feel="true"[^>]*>([^<]+)<\/tspan><\/text>/g)])
+      .filter(match => match[1] === label);
+    assert.ok(headings.length > 0);
+    assert.ok(headings.every(match => match[2] === summary));
+    assert.ok(sheet.xml.includes(`${summary}</words>`));
   }
+  assert.equal(sheet.pages.filter(page => page.includes('Funky; Extra funky, bars 133-136')).length, 2, 'Section continuation pages repeat the full heading context');
+  assert.doesNotMatch(sheet.pages.join(''), /data-feel-start|Funky[^<]*bars 77-84|Extra funky[^<]*bars 101-108/);
+  assert.equal(sectionFeelSummary({ id: 'test', label: 'Test', startBar: 1, endBar: 8 }, [
+    { startBar: 1, endBar: 4, text: 'Funky' },
+  ]), 'Funky, bars 1-4', 'A partial feel cannot silently apply to normal bars');
 });
 
 test('lyrics anchor to their own bar, and the accented and is exclusively a timed vocal cue', async () => {

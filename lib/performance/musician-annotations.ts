@@ -30,3 +30,12 @@ export function vocalAnnotation(cue: MusicXmlReport['vocalCues'][number]): Vocal
 export function literalInstrumentCue(text: string): string {
   return ['-', '!', '!!', '!-'].includes(text.trim()) ? '' : text.trim();
 }
+
+
+export function sectionFeelSummary(section: MusicXmlReport['sections'][number], ranges: FeelRange[]): string {
+  const feels = ranges.filter(range => range.startBar >= section.startBar && range.endBar <= section.endBar);
+  const complete = feels[0]?.startBar === section.startBar && feels.at(-1)?.endBar === section.endBar
+    && feels.every((range, index) => index === 0 || feels[index - 1].endBar + 1 === range.startBar);
+  return feels.map((range, index) => complete && index === 0 ? range.text
+    : `${range.text}, bars ${range.startBar}-${range.endBar}`).join('; ');
+}

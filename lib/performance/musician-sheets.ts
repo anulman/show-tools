@@ -1,12 +1,13 @@
 import { importSheetMusicXml, stableMusicXmlJson, type MusicXmlReport } from './sheet-musicxml.js';
 import { parseSongSource } from './song-source.js';
 import { decodeSongMapping } from './compiled-song.js';
-import { musicianFeelRanges, vocalAnnotation, literalInstrumentCue, type VocalAnnotation } from './musician-annotations.js';
+import { musicianFeelRanges, sectionFeelSummary, vocalAnnotation, literalInstrumentCue, type VocalAnnotation } from './musician-annotations.js';
 import { scoreXmlText as xml } from './score-xml.js';
 import { planMusicianRows, parseMusicianReuse, musicianRepeatCandidates, type MusicianRow, type SectionReference } from './musician-sheet-plan.js';
 
 const profile = 'show-tools-musician-sheet-v3';
 const width = 595.28, height = 841.89, margin = 38, top = 80, bottom = 795;
+const sectionHeadingHeight = 17;
 const staffStart = margin + 25, staffEnd = width - margin;
 const convention = 'Blank five-line staff for handwritten notes. Normal playing is implicit; whole-bar ! and !! indicate Funky and Extra funky. Other arrangement marks and vocal cues retain source indications; pitches, patterns and played durations are unspecified.';
 type Part = MusicXmlReport['parts'][number];
@@ -56,9 +57,9 @@ function present(row: MusicianRow, report: MusicXmlReport, firstOnPage: boolean,
   }) : [];
   const cueLines = row.kind === 'staff' ? [] : wrap(cueText, 46);
   const cueHeight = (row.kind === 'staff' ? Math.max(0, ...vocals.map(vocal => Math.max(1, vocal.lines.length))) : cueLines.length) * 10;
-  const heading = label ? 12 : 0;
+  const heading = label ? sectionHeadingHeight : 0;
   const bodyLines = row.kind === 'reference' ? wrap(referenceText(row, report), 60).length : 0;
-  const height = row.kind === 'staff' ? 64 + heading + cueHeight
+  const height = row.kind === 'staff' ? 60 + heading + cueHeight
     : row.kind === 'rest' ? heading + Math.max(20, cueHeight + 6) + 8
       : heading + cueHeight + bodyLines * 10 + 16;
   if (height > bottom - top) throw new Error(`Cues near bar ${start} exceed one writing page.`);
@@ -102,22 +103,19 @@ function clefSvg(kind: ReturnType<typeof clef>, y: number): string {
   return '';
 }
 
-function pageFeels(page: System[], part: Part, report: MusicXmlReport) {
-  const first = page[0].row.cells[0].bar, last = page.at(-1)?.row.cells.at(-1)?.bar ?? first;
-  return musicianFeelRanges(part, report).filter(range => range.startBar <= last && range.endBar >= first)
-    .map(range => ({ ...range, startBar: Math.max(first, range.startBar), endBar: Math.min(last, range.endBar) }));
-}
-
 function svgPage(page: System[], pageIndex: number, pageCount: number, part: Part, report: MusicXmlReport): string {
   const first = page[0].row.cells[0].bar, last = page.at(-1)?.row.cells.at(-1)?.bar ?? first;
-  const feels = pageFeels(page, part, report);
+  const feels = musicianFeelRanges(part, report);
   const body: string[] = [];
   let y = top;
   for (const system of page) {
-    const { row } = system, heading = system.label ? 12 : 0;
+    const { row } = system, heading = system.label ? sectionHeadingHeight : 0;
     const start = row.cells[0].bar, end = row.cells.at(-1)?.bar ?? start;
     body.push(`<g data-system-start="${start}" data-kind="${row.kind}">`);
-    if (system.label) body.push(`<text data-section="${row.section.id}" x="${margin}" y="${y + 3}" font-size="9" font-weight="bold">${xml(system.label)}</text>`);
+    if (system.label) {
+      const summary = sectionFeelSummary(row.section, feels);
+      body.push(`<text data-section="${row.section.id}" x="${margin}" y="${y + 8}" font-size="9" font-weight="bold"><tspan>${xml(system.label)}</tspan>${summary ? `<tspan data-section-feel="true" dx="10" font-size="8" font-weight="normal" font-style="italic">${xml(summary)}</tspan>` : ''}</text>`);
+    }
     if (row.kind !== 'staff') body.push(`<text x="${staffEnd}" y="${y + 3}" font-size="7" text-anchor="end" fill="#555">${start}-${end}</text>`);
     if (row.kind !== 'staff') for (const [line, text] of system.cueLines.entries()) body.push(`<text x="${row.kind === 'rest' ? 160 : margin}" y="${y + heading + 10 + line * 10}" font-size="8" fill="#525252">${xml(text)}</text>`);
     if (row.kind === 'rest') {
@@ -142,10 +140,6 @@ function svgPage(page: System[], pageIndex: number, pageCount: number, part: Par
       } else for (const [line, text] of vocal.lines.entries()) body.push(`<text x="${vocal.x}" y="${vocalY + line * 10}" font-size="8" fill="#525252">${xml(text)}</text>`);
       body.push('</g>');
     }
-    for (const range of feels.filter(range => range.startBar >= start && range.startBar <= end)) {
-      const x = staffStart + (range.startBar - start) * measureWidth + 4;
-      body.push(`<text data-feel-start="${range.startBar}" data-feel-end="${range.endBar}" x="${x}" y="${staffY + 41}" font-size="8" font-style="italic" fill="#444">${range.text} · bars ${range.startBar}-${range.endBar}</text>`);
-    }
     for (let line = 0; line < 5; line++) body.push(`<line data-staff-line="${line + 1}" x1="${margin}" y1="${staffY + line * 6}" x2="${staffEnd}" y2="${staffY + line * 6}" stroke="#4c4c4c" stroke-width=".55"/>`);
     body.push(clefSvg(clef(part), staffY));
     for (const [i, cell] of row.cells.entries()) {
@@ -166,7 +160,7 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
   const pageStarts = new Set(pages.slice(1).map(page => page[0].row.cells[0].bar));
   const systemStarts = new Map(systems.map(system => [system.row.cells[0].bar, system]));
   const restStarts = new Map(systems.filter(system => system.row.kind === 'rest').map(system => [system.row.cells[0].bar, system.row.cells.length]));
-  const feels = pages.flatMap(page => pageFeels(page, part, report));
+  const feels = musicianFeelRanges(part, report);
   const direction = (text: string, id: string, placement: 'above' | 'below', countOffset = 0) => `<direction placement="${placement}"><direction-type><words id="${id}" font-size="9">${xml(text)}</words></direction-type>${countOffset ? `<offset>${countOffset * 960 * 4 / report.meter.denominator}</offset>` : ''}</direction>`;
   const measures = part.cells.map((cell, index) => {
     let body = '';
@@ -186,7 +180,10 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
       } else body += direction(`Vocal cue: ${cue.text}`, `vocal-${cue.cell}`, 'above');
     }
     if (system?.row.kind === 'reference') body += direction(referenceText(system.row, report), `reference-${cell.bar}`, 'above');
-    for (const feel of feels.filter(feel => feel.startBar === cell.bar)) body += direction(`${feel.text} · bars ${feel.startBar}-${feel.endBar}`, `feel-${cell.bar}`, 'below');
+    if (system?.label) {
+      const summary = sectionFeelSummary(system.row.section, feels);
+      if (summary) body += direction(summary, `feel-${cell.bar}`, 'above');
+    }
     if (literalInstrumentCue(cell.text)) body += direction(literalInstrumentCue(cell.text), `chart-${cell.cell}`, 'below');
     body += `<note${cell.text.trim() ? ' print-object="no"' : ''}><rest measure="yes"/><duration>${report.meter.numerator * 960 * 4 / report.meter.denominator}</duration></note>`;
     if (index === part.cells.length - 1) body += '<barline location="right"><bar-style>light-heavy</bar-style></barline>';

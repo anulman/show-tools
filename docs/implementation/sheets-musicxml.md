@@ -13,7 +13,7 @@ node --import tsx scripts/build-sheets-musicxml.ts \
   --out-dir /private/tmp/show-tools-sheets-musicxml-new
 ```
 
-The destination must not exist. The build produces `Code.gs`, `Export.html`, `appsscript.json`, `INSTALL.md`, and a ZIP of those four files. These generated deployment files stay outside Git. The current musician-sheet package is available at `output/sheets-musicxml-annotated/show-tools-musicxml.zip`.
+The destination must not exist. The build produces `Code.gs`, `Export.html`, `appsscript.json`, `INSTALL.md`, and a ZIP of those four files. These generated deployment files stay outside Git. The current musician-sheet package is available at `output/sheets-musicxml-section-feels/show-tools-musicxml.zip`.
 
 1. Open the configured spreadsheet and choose **Extensions → Apps Script**.
 2. For a new bound project, paste `Code.gs` into the script file. Create an HTML file named **Export** and paste `Export.html` into it.
