@@ -5,7 +5,7 @@ import { scoreXmlText as xml } from './score-xml.js';
 import { planMusicianRows, parseMusicianReuse, musicianRepeatCandidates, type MusicianRow, type SectionReference } from './musician-sheet-plan.js';
 
 const profile = 'show-tools-musician-sheet-v2';
-const width = 595.28, height = 841.89, margin = 38, top = 105, bottom = 795;
+const width = 595.28, height = 841.89, margin = 38, top = 80, bottom = 795;
 const staffStart = margin + 25, staffEnd = width - margin;
 const convention = 'Blank five-line staff for handwritten notes. Arrangement marks and vocal cues are literal source indications; pitches, patterns and played durations are unspecified.';
 type Part = MusicXmlReport['parts'][number];
@@ -128,7 +128,7 @@ function svgPage(page: System[], pageIndex: number, pageCount: number, part: Par
     body.push(`<line x1="${staffEnd}" y1="${staffY}" x2="${staffEnd}" y2="${staffY + 24}" stroke="#444" stroke-width=".7"/></g>`);
     y += system.height;
   }
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(part.name)} notes, bars ${first} to ${last}"><rect width="100%" height="100%" fill="white"/><g font-family="Arial, sans-serif" fill="#222"><text x="${margin}" y="40" font-size="23" font-weight="bold">${xml(part.name)}</text><text x="${margin}" y="61" font-size="13">${xml(report.title)}</text><text x="${staffEnd}" y="40" text-anchor="end" font-size="9">${report.meter.numerator}/${report.meter.denominator} · ${report.bpmPerChartCount} BPM</text><text x="${staffEnd}" y="61" text-anchor="end" font-size="9">Bars ${first}-${last} · ${pageIndex + 1}/${pageCount}</text><text x="${margin}" y="80" font-size="8" fill="#666">Write your notes on the staff. Original chart marks appear below it.</text>${body.join('')}<text x="${margin}" y="818" font-size="7" fill="#777">Vocal entry cues above. Original arrangement marks below. Staff left blank for your notes.</text></g></svg>`;
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(part.name)} notes, bars ${first} to ${last}"><rect width="100%" height="100%" fill="white"/><g font-family="Arial, sans-serif" fill="#222"><text x="${margin}" y="40" font-size="23" font-weight="bold"><tspan>${xml(part.name)}</tspan><tspan dx="8" font-size="13" font-weight="normal"> ${xml(report.title)}</tspan></text><text x="${staffEnd}" y="29" text-anchor="end" font-size="9">${report.meter.numerator}/${report.meter.denominator} · ${report.bpmPerChartCount} BPM</text><text x="${staffEnd}" y="40" text-anchor="end" font-size="9">Bars ${first}-${last}</text>${body.join('')}<text x="${staffEnd}" y="818" text-anchor="end" font-size="8" fill="#666">Page ${pageIndex + 1} of ${pageCount}</text></g></svg>`;
 }
 
 function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], source: string, mapping: string, condensation: MusicianSheet['condensation']): string {

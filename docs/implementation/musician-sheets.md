@@ -14,7 +14,9 @@ node --import tsx scripts/build-musician-sheets.ts \
   --pdf --python /private/tmp/musician-pdf/bin/python
 ```
 
-Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-terse/`; the earlier eight-page versions remain under `output/pdf/dyc-musician-sheets/` for comparison.
+Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-clean/`; earlier versions remain available for comparison.
+
+Every page repeats a single-baseline part/song heading, preserving the bold part name and lighter song title. Meter/tempo and the current bar range form a tightly spaced block at the upper right. Page numbering appears as “Page X of Y” at the bottom right. The printed template omits instructional header/footer sentences.
 
 PDF generation uses an optional isolated Python environment:
 
