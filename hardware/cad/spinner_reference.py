@@ -33,7 +33,7 @@ def scene(roof_height, x=0, y=0):
         'REFERENCE fixed threaded body - drawing 28mm axial length, 28mm diameter',
         'REFERENCE encoder housing - drawing 15mm length; conservative 28mm diameter envelope',
         'REFERENCE rear shaft AXIS ONLY - drawing 16mm extension; diameter unspecified; total depth 2.32in']
-    provenance=dict(display_only=True,manufacturer_step_available=False,
+    provenance=dict(display_only=True,manufacturer_step_used=False,
         facts=dict(path=str(FACTS),sha256=hashlib.sha256(FACTS.read_bytes()).hexdigest()),
         source= axial['source'],axial_total_mm=body+encoder+tail,
         encoder_diameter_is_conservative_envelope=True,rear_shaft_is_axis_without_assumed_diameter=True,
