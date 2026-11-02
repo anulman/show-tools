@@ -1,5 +1,6 @@
 """Verify nominal full-depth spinner space and preserved lower mount geometry."""
 import argparse
+from copy import deepcopy
 import json
 import math
 from pathlib import Path
@@ -20,13 +21,33 @@ def parts(receipt):
     return data,result
 
 
+def unchanged(data,subjects):
+    for row in data['preview_components']:
+        assert concept.digest(row['step'])==row['sha256']
+        fresh=import_step(row['step']).solids()[0]
+        subject=subjects[row['name']]
+        if not subject.is_valid or concept.previous.inherited.fingerprint(subject)!=concept.previous.inherited.fingerprint(fresh):
+            raise ValueError('Actual subject mutated: '+row['name'])
+
+
+def mutation_negative_control(receipt):
+    data,subjects=parts(receipt)
+    subjects['shell']&Box(400,400,200).translate((0,0,80))
+    try:unchanged(data,subjects)
+    except ValueError as error:
+        assert 'Actual subject mutated' in str(error)
+        return True
+    raise AssertionError('Native unprotected clip did not trigger subject-mutation guard')
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--receipt',type=Path,required=True)
     parser.add_argument('--previous',type=Path,required=True)
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
-    report,new=parts(args.receipt);_,old=parts(args.previous)
+    report,new=parts(args.receipt);old_report,old=parts(args.previous)
+    unchanged(report,new);unchanged(old_report,old)
     shell,bottom=new['shell'],new['bottom']
     shift=report['source_lower_translation_mm']
     facts_path=Path(__file__).resolve().parents[2]/'fabrication/interface-facts.json'
@@ -38,16 +59,16 @@ def main():
     with concept.previous.inherited.detached_booleans():
         values['cover_preserved_symmetric_difference_mm3']=g.outside_volume(bottom,old['bottom'].translate((0,0,shift)))+g.outside_volume(old['bottom'].translate((0,0,shift)),bottom)
         lower_clip=Box(400,400,200).translate((0,0,-120.1))
-        a=shell&lower_clip;b=old['shell'].translate((0,0,shift))&lower_clip
+        a=deepcopy(shell)&deepcopy(lower_clip);b=deepcopy(old['shell']).translate((0,0,shift))&deepcopy(lower_clip)
         values['lower_features_preserved_symmetric_difference_mm3']=g.outside_volume(a,b)+g.outside_volume(b,a)
         upper_clip=Box(400,400,200).translate((0,0,80))
-        a=shell&upper_clip;b=old['shell']&upper_clip
+        a=deepcopy(shell)&deepcopy(upper_clip);b=deepcopy(old['shell'])&deepcopy(upper_clip)
         values['roof_and_upper_interface_preserved_symmetric_difference_mm3']=g.outside_volume(a,b)+g.outside_volume(b,a)
         body=Cylinder(14,43,align=(Align.CENTER,Align.CENTER,Align.MIN)).translate((0,0,-43))
         tail=Cylinder(14,16,align=(Align.CENTER,Align.CENTER,Align.MIN)).translate((0,0,-59))
         for name,shape in [('body_and_encoder',body),('rear_shaft',tail)]:
             for fixed,part in new.items():values[name+'_'+fixed+'_overlap_mm3']=g.intersection(shape,part)
-        centre=bottom&Cylinder(14,200,align=(Align.CENTER,Align.CENTER,Align.MIN)).translate((0,0,-150))
+        centre=deepcopy(bottom)&Cylinder(14,200,align=(Align.CENTER,Align.CENTER,Align.MIN)).translate((0,0,-150))
         cover_top=centre.bounding_box().max.Z
         clearance=-59-cover_top
         values['shell_bottom_overlap_mm3']=g.intersection(shell,bottom)
@@ -57,7 +78,9 @@ def main():
     assert math.isclose(-bottom.bounding_box().min.Z,64,abs_tol=1e-6)
     assert math.isclose(clearance,2,abs_tol=1e-6),clearance
     assert math.isclose(cover_top-bottom.bounding_box().min.Z,3,abs_tol=1e-6)
-    result=dict(scope='NOMINAL_LOW_PANEL_MOUNT_GEOMETRY_CHECK',geometry_checks_pass=True,
+    unchanged(report,new);unchanged(old_report,old)
+    rejected=mutation_negative_control(args.receipt)
+    result=dict(actual_subjects_unchanged=True,real_native_mutation_negative_control_rejected=rejected,scope='NOMINAL_LOW_PANEL_MOUNT_GEOMETRY_CHECK',geometry_checks_pass=True,
         receipt=dict(path=str(args.receipt.resolve()),sha256=concept.digest(args.receipt)),
         previous=dict(path=str(args.previous.resolve()),sha256=concept.digest(args.previous)),
         dimensions=dict(manufacturer_flange_to_shaft_tip_mm=28+15+16,
