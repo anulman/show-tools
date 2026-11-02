@@ -46,8 +46,8 @@ def check(receipt,output):
     report=dict(scope='INDEPENDENT_UNVALIDATED_PANEL_MOUNT_CONCEPT_DIAGNOSTICS',listed_geometry_diagnostics_pass=passed,
                 concept_receipt=dict(path=str(receipt.resolve()),sha256=concept.digest(receipt)),checks=checks,
                 checker_source=dict(path=str(Path(__file__).resolve()),sha256=concept.digest(Path(__file__))),
-                actual_nut_AF_and_tool_unknown=True,actual_fixed_shoulder_thickness_unknown=True,
-                reported_rough_knob_underside_to_flange_top_mm=r.get('reported_measurements',{}).get('knob_underside_to_fixed_flange_top_mm'),
+                actual_nut_AF_and_tool_unknown=True,fixed_flange_thickness_is_approximate=True,
+                reported_rough_fixed_flange_axial_thickness_mm=r.get('reported_measurements',{}).get('fixed_flange_axial_thickness_mm'),
                 physical_fit_verified=False,load_capacity_verified=False,tipping_stability_verified=False,
                 note='50mm access is reserved space only, not a selected real tool or proof against unmeasured spinner internals')
     assert not output.exists();output.write_text(json.dumps(report,indent=2)+'\n')

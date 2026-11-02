@@ -10,9 +10,12 @@ The 3 mm roof, 29 mm passage, 6 mm foot, and 0.5 mm bottom-removal side allowanc
 are study parameters. The supplied drawing's nominal body and shoulder diameters
 are 28 and 34 mm. Those values do not certify the actual hardware's fit.
 
-The operator's rough knob-underside-to-flange-top estimate is 3/32 inch,
-approximately 2.38 mm. Fixed shoulder thickness remains unknown. The old
-nut-adjustment range does not define this new roof-to-knob stack.
+The corrected operator description gives the fixed flange's axial thickness as
+roughly 3/32 inch, approximately 2.38 mm, with no visible gap above it. The flange
+bottom is on roof Z=0, and the nominal knob underside is at flange-top Z=2.38125.
+The earlier interpretation of 3/32 inch as a gap is invalid. Precision thickness
+and rotating-shaft clearance remain unmeasured. The old nut-adjustment range does
+not define this new roof-to-knob stack.
 
 Generate preview STEP files in a fresh directory:
 
@@ -38,7 +41,40 @@ proposed opening and bearing annulus.
 
 The 50 mm coaxial cylinder reserves tool space. It is not a model of an actual
 spinner nut, wrench, or socket. Actual nut dimensions, thread and body projection,
-fixed shoulder thickness, and the selected tightening tool remain necessary.
+precision flange thickness, and the selected tightening tool remain necessary.
 The separately proposed rotating clamp has no combined fit admission with this
 box. Roof strength, loaded tipping stability, physical fit, and printability
 remain unverified. Preview receipts are explicitly not manufacturing approval.
+
+## Check the five-print nominal assembly
+
+The intended print count is five: the integral bar and grip, two identical shoes,
+the box shell, and the bottom. No separate cup, collar, or keeper belongs in that
+count. CAD material boundaries do not prescribe slicer infill or wall settings.
+
+For the E22 concept, rotate its source geometry 180 degrees around X and place
+the original bar root at Z=24.38125 mm. The exposed grip ends at Z=2.38125 mm.
+Both values depend on the approximate flange-thickness datum above.
+
+```sh
+python hardware/cad/box-mount/access/check_panel_integral_nominal_clearance.py \
+  --base-receipt /private/tmp/panel-mount-box-concept-v5/preview-receipt.json \
+  --grip-receipt /private/tmp/integral-exposed-grip-stop-concept-v3/concept.json \
+  --key-receipt /private/tmp/integral-grip-service-v3/receipt.json \
+  --output /absolute/path/to/new-nominal-clearance.json
+```
+
+The check requires corrected thickness and zero-visible-gap metadata. It rejects
+the earlier gap interpretation before geometry work. Continuous axisymmetric
+windows contain all nine rotating solids and both complete side-key bounds.
+The nominal geometric bounds are 2.38125 mm for rotation and 0.5 mm for the key
+windows. No angle samples are used, and the two shoes must match after a
+180-degree rotation. The key receipt must bind the corrected grip and placement;
+the older receipt with the invalid gap interpretation is rejected. Intrinsic
+grip service and the post-glue lifecycle proof remain separate evidence from
+these box-clearance checks.
+
+The nominal 28 mm body envelope and 34 mm flange envelope are drawing-based
+clearance probes. The body envelope's depth is conservative, not a measurement
+or a test of body fit inside the enclosure. Actual spinner-nut/tool fit, rotating
+shaft profile, roof stiffness, pad grip, and loads remain unverified.
