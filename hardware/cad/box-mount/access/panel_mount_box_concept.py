@@ -1,6 +1,6 @@
 """Unvalidated flat-panel spinner mount with a wider stationary foot."""
 from __future__ import annotations
-import argparse,hashlib,json
+import argparse,hashlib,json,math
 from copy import deepcopy
 from dataclasses import asdict,dataclass
 from pathlib import Path
@@ -14,6 +14,7 @@ g=previous.g
 
 @dataclass(frozen=True)
 class Study:
+    roof_to_ground_mm:float|None=None
     body_width_mm:float=116.
     body_depth_mm:float=116.
     corner_radius_mm:float=12.
@@ -45,7 +46,10 @@ def build(selection,p=Study()):
         for kind in ('step','stl'):
             path=Path(r[kind]);assert digest(path)==r[kind+'_sha256'];inputs[str(path)]=digest(path)
         actual[name]=import_step(r['step']).solids()[0]
-    shell=actual['shell'];bottom=actual['bottom'];floor=shell.bounding_box().min.Z
+    shell=actual['shell'];bottom=actual['bottom']
+    shift=0. if p.roof_to_ground_mm is None else -bottom.bounding_box().min.Z-p.roof_to_ground_mm
+    shell=shell.translate((0,0,shift));bottom=bottom.translate((0,0,shift))
+    floor=shell.bounding_box().min.Z
     ground=bottom.bounding_box().min.Z
     # Keep the lower shell, bottom fasteners, cable outlets, and fixed tie eyes.
     cutter=g.r.block(300,300,100,(0,0,-p.upper_replacement_depth_mm+.1))
@@ -78,7 +82,7 @@ def build(selection,p=Study()):
     foot-=route
     result=lower+wall+roof+foot
     return dict(shell=result,bottom=bottom,source_shell=shell,source_bottom=bottom,
-                floor_z_mm=floor,ground_z_mm=ground,parameters=p,input_files=inputs)
+                floor_z_mm=floor,ground_z_mm=ground,source_lower_translation_mm=shift,parameters=p,input_files=inputs)
 
 
 def preview(data,output):
@@ -99,6 +103,7 @@ def preview(data,output):
     receipt=dict(scope='UNVALIDATED_PANEL_MOUNT_BOX_CONCEPT_NOT_PRINT_APPROVAL',units='mm',
         parameters=asdict(data['parameters']),preview_components=records,
         preview_assembly=dict(path=str(assembly.resolve()),sha256=digest(assembly)),input_files=data['input_files'],
+        source_lower_translation_mm=data['source_lower_translation_mm'],
         old_hex_well_and_keepers_obsolete=True,no_ballast=True,
         interpretation='Fixed flange bottom is on roofZ0; knob underside aligns with flange top. Earlier3/32in gap interpretation is invalid.',
         reported_measurements=dict(fixed_flange_axial_thickness_mm=2.38125,
@@ -120,4 +125,8 @@ def preview(data,output):
 if __name__=='__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--selection',type=Path,required=True);parser.add_argument('--output',type=Path,required=True)
-    args=parser.parse_args();preview(build(args.selection),args.output)
+    parser.add_argument('--roof-to-ground-mm',type=float)
+    args=parser.parse_args()
+    if args.roof_to_ground_mm is not None and (not math.isfinite(args.roof_to_ground_mm) or args.roof_to_ground_mm<=0):
+        parser.error('--roof-to-ground-mm must be finite and positive')
+    preview(build(args.selection,Study(roof_to_ground_mm=args.roof_to_ground_mm)),args.output)
