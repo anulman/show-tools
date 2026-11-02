@@ -33,3 +33,11 @@ python hardware/cad/five_part_print.py release /absolute/fresh/preflight \
 ```
 
 Release checks the exact source ZIP, eight complete reference runs, effective support policy, native support guard, unsafe upright control, hardware audits, unit/pose/inventory controls and shoe bed contact. It prepares a **printer-review proposal**, never production approval. The handoff consists of an STL-only ZIP plus a short text note. Actual printer/material settings, support removal, printed fits, bonding, grip strength and stability remain for printer/operator confirmation. A resin process needs separate cavity drainage and venting review.
+
+## Access after gluing
+
+Earlier ring/collar captures describe a retired design. They establish access constraints rather than a reason to restore those parts. In the current bar's source frame, the ball opening is Z=0 and positive Z points outside the ball. The exposed grip extends to Z=22; its side-screw axes are at Z=9 and the radial access recesses span Z=5..13, entirely beyond the opening. Nuts and shoes can be installed and removed through the root after the bare bar is glued. Releasing the current assembly loosens those exposed grip screws; it does not require removing the glue bond.
+
+The original alcohol/debond passages retain their original empty geometry and continue through the extension. They are not side tool ports. The static stop-v3 and intrinsic eight-actor service receipts bind the unchanged bar and shoe sources; the shortened box retains the same upper roof/interface. These are geometry and tool-path results, not proof of adhesive release, hand dexterity, grip force or load capacity.
+
+Handoff publication stages the complete ZIP and notes in a private sibling directory, validates them, then renames that directory into place. Failed partial copies, late notes writes or receipt publication roll back without leaving a final-named handoff. `check_handoff_publication.py` exercises those failures and checks existing-target preservation.

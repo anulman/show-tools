@@ -304,6 +304,39 @@ def support_pass(report):
         and report['all_native_candidates_processed'] is True)
 
 
+def publish_handoff(output,delivery,source_zip,notes,evidence):
+    import shutil
+    require(not delivery.exists(),'Use a fresh human handoff directory')
+    partial=None;published=False
+    with tempfile.TemporaryDirectory(prefix='.disco-handoff-',dir=delivery.parent) as directory:
+        staged=Path(directory)/'handoff';staged.mkdir()
+        target=staged/'DISCO-BALL-5-PIECES-PROPOSED-INCH-STL.zip'
+        shutil.copyfile(source_zip['path'],target)
+        require(pin(target)['sha256']==source_zip['sha256'],'Delivered ZIP changed')
+        with zipfile.ZipFile(target) as archive:
+            require(archive.testzip() is None and len(archive.namelist())==4
+                and all(name.endswith('.stl') for name in archive.namelist()),'Invalid staged fabrication ZIP')
+        note=staged/'PRINT-NOTES.txt';note.write_text(notes)
+        require(note.read_text()==notes,'Printer notes changed during staging')
+        result=dict(evidence,delivered_zip=dict(path=str((delivery/target.name).resolve()),sha256=pin(target)['sha256']),
+            printer_notes=dict(path=str((delivery/note.name).resolve()),sha256=pin(note)['sha256']))
+        try:
+            with tempfile.NamedTemporaryFile(prefix='.proposal-release-',dir=output,delete=False) as receipt:
+                partial=Path(receipt.name)
+                receipt.write((json.dumps(result,indent=2)+'\n').encode())
+            require(not delivery.exists(),'Handoff target appeared during preparation')
+            staged.rename(delivery);published=True
+            partial.replace(output/'proposal-release.json')
+        except BaseException:
+            if published:shutil.rmtree(delivery)
+            raise
+        finally:
+            if partial is not None:partial.unlink(missing_ok=True)
+    final=delivery/target.name
+    print(final,flush=True)
+    return final
+
+
 def release(output,guard_path,negative_path,cover_path,grip_path,delivery):
     slices=check_slices(output);controls=negative_controls(output);report=check_packet(output)
     guard=json.loads(guard_path.read_text());negative=json.loads(negative_path.read_text())
@@ -326,14 +359,7 @@ def release(output,guard_path,negative_path,cover_path,grip_path,delivery):
         and grip['provenance']==report['provenance'],'Grip hardware audit mismatch')
     require(all(not warning.strip() for row in slices['checks'] if row['variant']=='candidate' for warning in row['warnings']),
         'A proposed printing pose still has a slicer warning')
-    require(not delivery.exists(),'Use a fresh human handoff directory')
-    delivery.mkdir(parents=True)
-    import shutil
-    target=delivery/'DISCO-BALL-5-PIECES-PROPOSED-INCH-STL.zip'
-    shutil.copyfile(report['zip']['path'],target)
-    require(pin(target)['sha256']==report['zip']['sha256'],'Delivered ZIP changed')
-    note=delivery/'PRINT-NOTES.txt'
-    note.write_text("""DISCO BALL - PROPOSED FILAMENT PROTOTYPE
+    notes="""DISCO BALL - PROPOSED FILAMENT PROTOTYPE
 
 Four STL files, five printed pieces: bar x1, identical shoe x2, box shell x1, bottom cover x1.
 IMPORT AS INCHES. If imported as mm, scale uniformly by 25.4 (2540%).
@@ -354,14 +380,13 @@ Ordinary 2 mm and 1.5 mm hex keys. Reuse the spinner's original mounting nut.
 2 x cut grip pads, 0.079 x 0.630 x 0.315 inches (2 x 16 x 8 mm), adhesive toward the printed shoes.
 
 Mesh integrity, inch conversion, nominal hardware fit and reference slicing passed. Actual printed fit, grip strength, bonding and stability still need prototype testing.
-""")
-    result=dict(ready_to_send_for_printer_review=True,production_ready=False,physical_fit_verified=False,
-        delivered_zip=pin(target),printer_notes=pin(note),source_manifest=pin(output/'manifest.json'),
+"""
+    evidence=dict(ready_to_send_for_printer_review=True,production_ready=False,physical_fit_verified=False,
+        source_manifest=pin(output/'manifest.json'),
         reference_slices=pin(output/'slice-validation.json'),support_guard=pin(guard_path),
         unsafe_upright_negative_control=pin(negative_path),cover_hardware=pin(cover_path),grip_hardware=pin(grip_path),
         packet_controls=controls,quantity=5,unique_stl_files=4)
-    (output/'proposal-release.json').write_text(json.dumps(result,indent=2)+'\n')
-    print(target,flush=True)
+    return publish_handoff(output,delivery,report['zip'],notes,evidence)
 
 
 if __name__=='__main__':
