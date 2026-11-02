@@ -10,13 +10,13 @@ For Dance Yrself Clean, the current compact handouts are **Bass: four A4 pages**
 node --import tsx scripts/build-musician-sheets.ts \
   --source songs/dance-yrself-clean.source.json \
   --mapping songs/dance-yrself-clean.mapping.json \
-  --out-dir output/pdf/dyc-musician-sheets-section-feels \
+  --out-dir output/pdf/dyc-musician-sheets-song-title \
   --pdf --python /private/tmp/show-tools-musician-pdf/bin/python
 ```
 
-Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-section-feels/`; earlier versions remain available for comparison.
+Choose a directory that does not exist. Each part gets a PDF, self-contained printable HTML, SVG pages and MusicXML. The index links the handouts and repeat-candidate report. Current review files are under `output/pdf/dyc-musician-sheets-song-title/`; earlier versions remain available for comparison.
 
-Every page repeats a vertically centered part/song heading, preserving the bold part name and lighter song title. Meter/tempo and the current bar range form a tightly spaced block at the upper right. Page numbering appears as “Page X of Y” at the bottom right. The printed template omits instructional header/footer sentences.
+Every page repeats a vertically centered song/part heading: the song title uses the larger bold font, followed by an em dash and the smaller, lighter part name. Meter/tempo and the current bar range form a tightly spaced block at the upper right. Page numbering appears as “Page X of Y” at the bottom right. The printed template omits instructional header/footer sentences.
 
 PDF generation uses an optional isolated Python environment:
 
