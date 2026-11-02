@@ -1,0 +1,46 @@
+"""Check the actual composed reference scene without publishing to the viewer."""
+import argparse
+import json
+import math
+
+from OCP.BRepAdaptor import BRepAdaptor_Surface
+from OCP.GeomAbs import GeomAbs_Sphere
+
+from all_controls import compose
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--step', required=True)
+    args = parser.parse_args()
+    objects, names, colors, alphas, receipt = compose(args.step)
+    assert len(objects) == len(names) == len(colors) == len(alphas) == 17
+    assert not any(name.startswith('HISTORICAL ') for name in names)
+    assert receipt['manufacturing_approved'] is False
+    assert receipt['arcade']['button_reference']['upstream_valid'] is False
+    assert objects[1].bounding_box().min.Z == 0
+    surface = objects[-1]
+    assert not surface.solids() and len(surface.faces()) == 1
+    adaptor = BRepAdaptor_Surface(surface.faces()[0].wrapped)
+    assert adaptor.GetType() == GeomAbs_Sphere
+    sphere = adaptor.Sphere()
+    ref = receipt['sphere_reference']
+    root_z = ref['transform']['translation_mm'][2]
+    height = ref['original_bar_height_mm']
+    assert math.isclose(sphere.Location().Z(), root_z + height / 2, abs_tol=1e-6)
+    assert math.isclose(sphere.Radius(), ref['radius_mm'], abs_tol=1e-6)
+    for z in (root_z, root_z + height):
+        section_radius = math.sqrt(sphere.Radius() ** 2 - (z - sphere.Location().Z()) ** 2)
+        assert math.isclose(2 * section_radius, ref['slice_diameter_mm'], abs_tol=1e-6)
+    assert math.isclose(surface.bounding_box().min.Z, root_z, abs_tol=1e-6)
+    assert surface.bounding_box().max.Z > root_z + height
+    assert math.isclose(objects[2].bounding_box().max.Z, 113.0343037697962, abs_tol=1e-6)
+    print(json.dumps(dict(result='PASS', checks=['actual source pins', 'shared desk plane',
+        'original mounted button pose', 'current assembly only', 'native spherical surface',
+        'equal sections at original bar planes', 'open bottom and upper dome'],
+        desk_heights_inches={k: v / 25.4 for k, v in receipt['desk_heights_mm'].items()},
+        physical_fit_verified=False), indent=2))
+
+
+if __name__ == '__main__':
+    main()

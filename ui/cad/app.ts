@@ -1,7 +1,12 @@
-type Model = "box-mount" | "disco-bar";
+const modelNames = {
+  "box-mount": "Arcade button",
+  "disco-bar": "Disco ball",
+  "all-controls": "All controls",
+};
+type Model = keyof typeof modelNames;
 
 function modelFromAttribute(value: string | undefined): Model {
-  if (value === "box-mount" || value === "disco-bar") return value;
+  if (value === "box-mount" || value === "disco-bar" || value === "all-controls") return value;
   throw new Error("Unknown CAD workstream");
 }
 
@@ -31,7 +36,7 @@ function markSelected(model: Model): void {
 async function select(model: Model): Promise<void> {
   if (building) return;
   building = true;
-  const name = model === "box-mount" ? "Box mount" : "Disco bar";
+  const name = modelNames[model];
   statusMessage.textContent = `Building ${name} preview…`;
   overlay.hidden = false;
   panel.setAttribute("aria-busy", "true");

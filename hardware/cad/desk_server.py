@@ -13,7 +13,7 @@ import threading
 
 HERE = Path(__file__).resolve().parent
 UI = HERE.parents[1] / "ui" / "cad"
-MODELS = ("box-mount", "disco-bar")
+MODELS = ("box-mount", "disco-bar", "all-controls")
 
 
 def main():
@@ -50,7 +50,7 @@ def main():
         candidate = json.loads(receipt_path.read_text()).get("workspace")
         if candidate in MODELS:
             selected = candidate
-    if selected == "disco-bar" and step is None:
+    if selected in ("disco-bar", "all-controls") and step is None:
         selected = "box-mount"
     origin = f"http://127.0.0.1:{args.port}"
 
@@ -86,14 +86,14 @@ def main():
             if self.headers.get("Content-Length", "0") != "0":
                 self.respond(400, b"This action does not accept a request body.")
                 return
-            if model == "disco-bar" and step is None:
+            if model in ("disco-bar", "all-controls") and step is None:
                 self.respond(503, b"Disco reference is not configured. Ask the CAD session to connect it.")
                 return
             if not publishing.acquire(blocking=False):
                 self.respond(409, b"A preview is already building. Try again in a moment.")
                 return
             command = [sys.executable, str(HERE / "workspace.py"), model]
-            if model == "disco-bar":
+            if model in ("disco-bar", "all-controls"):
                 command.extend(("--step", str(step)))
             process = None
             try:

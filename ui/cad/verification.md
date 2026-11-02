@@ -13,3 +13,10 @@ Native automation attempts to click while the operator changed the browser were 
 The initial desk process was stopped and its session returned exit code 0 before the updated alias server was started. The current desk remains running for the operator. The OCP Viewer process was preserved throughout. No Sheets, CDP, audio, USB, or printer processes were started or changed.
 
 The operator subsequently confirmed the proposed shared low-roof alignment. Its confirmation metadata and docs are included without changing geometry. Separate disco notes assess a rubber liner and magnetic retention; no magnet, target, liner, force, or fitted dimensions are selected.
+
+
+## Shared desk scene (2026-11-01)
+
+The live desk displays Arcade button, Disco ball, and All controls. Native Vivaldi inspection confirmed the All controls selection reached Ready to inspect and showed the blue reference button seated in its inclined box beside the current disco assembly and translucent open sphere. Both base bottoms are on Z=0; only horizontal layout changed. The original bar's pinned STEP supplies the sphere height and maximum fitted slice diameter. The illustrative sphere has equal sections at the original bar root and far end and a dome above the latter. It has no planar bottom cap or manufactured wall thickness.
+
+`check_all_controls.py` checks the actual composed shapes, their placement, native spherical surface, equal section radii, open root, dome, and the unchanged button pose. Approximate desk heights are 4.45 inches to the button top and 9.10 inches to the illustrative ball top. These checks do not measure the real ball, establish upstream button validity, or approve fabrication. TypeScript and the real temporary-server route, origin/body, configuration failure, and publisher-shutdown checks passed with all three page identifiers.
