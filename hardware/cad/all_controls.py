@@ -91,6 +91,36 @@ def compose(step_path):
     for p, _ in current:
         if concept_preview.digest(p.path) != p.sha256:
             raise ValueError('Changed disco display artifact')
+    import additional_controls
+    pending = {}
+    additions = []
+    for workspace in additional_controls.SCENES:
+        missing = additional_controls.missing_measurements(workspace)
+        if missing:
+            pending[workspace] = missing
+            continue
+        additions.append((workspace, additional_controls.load(workspace)))
+    back_y = max(shape.bounding_box().max.Y for shape in objects) + 40
+    cursor_x = min(shape.bounding_box().min.X for shape in objects)
+    receipt['additional_controls'] = {}
+    receipt['pending_measurements'] = pending
+    for workspace, (parts, labels, palette, opacity, provenance) in additions:
+        bounds = [shape.bounding_box() for shape in parts]
+        left = min(box.min.X for box in bounds)
+        front = min(box.min.Y for box in bounds)
+        floor = min(box.min.Z for box in bounds)
+        if abs(floor) > 1e-6:
+            raise ValueError('Additional controls must be assembled on the Z=0 desk plane')
+        offset = (cursor_x - left, back_y - front, 0)
+        start_index = len(objects)
+        objects.extend(shape.translate(offset) for shape in parts)
+        names.extend(labels); colors.extend(palette); alphas.extend(opacity)
+        receipt['additional_controls'][workspace] = dict(
+            provenance=provenance, translation_mm=list(offset),
+            object_start_index=start_index, object_count=len(parts), labels=labels)
+        cursor_x += max(box.max.X for box in bounds) - left + 40
+    receipt['labels'] = names
+    receipt['presentation'] = 'shared-desk-controls-v2'
     return objects, names, colors, alphas, receipt
 
 

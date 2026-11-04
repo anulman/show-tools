@@ -1,12 +1,15 @@
 const modelNames = {
   "box-mount": "Arcade button",
   "disco-bar": "Disco ball",
+  "mushroom-mount": "Mushroom mount",
+  "micro-enclosure": "Micro enclosure",
   "all-controls": "All controls",
 };
 type Model = keyof typeof modelNames;
 
 function modelFromAttribute(value: string | undefined): Model {
-  if (value === "box-mount" || value === "disco-bar" || value === "all-controls") return value;
+  if (value === "box-mount" || value === "disco-bar" || value === "mushroom-mount"
+    || value === "micro-enclosure" || value === "all-controls") return value;
   throw new Error("Unknown CAD workstream");
 }
 
@@ -46,7 +49,7 @@ async function select(model: Model): Promise<void> {
     if (!response.ok) throw new Error(await response.text());
     selected = model;
     markSelected(model);
-    statusMessage.textContent = `${name} · Ready to inspect`;
+    statusMessage.textContent = (await response.text()) || `${name} · Ready to inspect`;
   } catch (error) {
     statusMessage.textContent = error instanceof Error ? error.message : "Preview unavailable. Try again.";
   } finally {

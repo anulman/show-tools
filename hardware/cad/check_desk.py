@@ -121,13 +121,16 @@ def main():
                     raise RuntimeError("Temporary desk did not start")
                 time.sleep(.05)
         assert 'role="tablist"' in html and 'data-selected="box-mount"' in html
-        for label in ('Arcade button', 'Disco ball', 'All controls'):
+        for label in ('Arcade button', 'Disco ball', 'Mushroom mount', 'Micro enclosure', 'All controls'):
             assert f'>{label}</button>' in html
         assert request(origin, "/viewer", 200) == html
         assert request(origin, "/app.js", 200)
         request(origin, "/../../etc/passwd", 404)
         request(origin, "/select/disco-bar", 403, method="POST")
         request(origin, "/select/disco-bar", 403, method="POST", headers={"Origin":"https://example.com"})
+        for model in ("mushroom-mount", "micro-enclosure"):
+            request(origin, f"/select/{model}", 403, method="POST")
+            request(origin, f"/select/{model}", 400, method="POST", headers={"Origin": origin}, body=b"x")
         request(origin, "/select/unknown", 404, method="POST", headers={"Origin":origin})
         request(origin, "/select/box-mount", 400, method="POST", headers={"Origin":origin}, body=b"x")
         message = request(origin, "/select/disco-bar", 503, method="POST", headers={"Origin":origin})

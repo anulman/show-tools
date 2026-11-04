@@ -1,0 +1,8 @@
+{
+  "source": "operator measurements required; all dimensions in mm",
+  "synthetic_fixture": false,
+  "board_length_mm": null,
+  "board_width_mm": null,
+  "installed_top_mm": null,
+  "exits": []
+}

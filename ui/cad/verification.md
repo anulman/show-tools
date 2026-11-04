@@ -23,3 +23,11 @@ The live desk displays Arcade button, Disco ball, and All controls. Native Vival
 
 
 The subsequent minimum-height disco study lowers its roof to 64 mm above the desk using the drawing's 59 mm flange-to-rear-shaft depth, 3 mm general bottom plate, and 2 mm clearance. The illustrative ball top is then 8.47 inches. The native checker verifies preservation of the upper interface, translated lower features and cover, full-depth clearance, and the reserved tool space. The visible spinner is dimension-based: body/housing envelopes, approximate red knob, and a rear-shaft axis with no invented diameter. Native Vivaldi inspection confirmed these references are visible through the lowered box in All controls. They are never print targets.
+
+## Five-page desk, November 3, 2026
+
+TypeScript checking and the isolated desk route/origin/body/shutdown harness pass with Mushroom mount and Micro enclosure added. Coordinator and live-deployment native combined-scene checks pass with 26 objects: the original 21 arcade/disco actors plus five mushroom actors. Additional assembly bottoms remain at Z=0, with 40 mm between bounding boxes. The selected arcade receipt is still the verified inch-STEP chamfer revision.
+
+Actual local desk publication returned 200 for Mushroom mount and All controls. Micro enclosure returned its intended 503 measurement message for PCB length, PCB width, and feet-bottom-to-highest-connected-component height. Its page preserves the prior model; the combined view records the pending measurements and includes no guessed I-PAC geometry. The micro recipe's independent synthetic native/STEP/STL checks pass; that fixture is not shown in the viewer.
+
+The Vivaldi computer-use service reported `cgWindowNotFound` during this publication. No new screen-delivery claim or screenshot is available. Publication receipts prove service delivery, not visible canvas delivery, physical fit, or print readiness.
