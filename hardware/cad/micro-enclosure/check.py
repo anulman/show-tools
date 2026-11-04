@@ -73,7 +73,7 @@ def main():
     hardware_readbacks = []
     for x, y in dimensions['screw_centres_mm']:
         rim, bearing = dimensions['shell_top_mm'], dimensions['outer_mm'][2]
-        head = bore(5.68, 3., (x, y, bearing))
+        head = bore(5.7, 1.65, (x, y, bearing))
         nut_bottom = rim-3.4-2.4
         nut = extrude(RegularPolygon(5.5/math.sqrt(3), 6), amount=2.4).translate((x, y, nut_bottom))
         nut -= bore(3.1, 2.6, (x, y, nut_bottom-.1))
@@ -141,8 +141,9 @@ def main():
         hardware_readbacks=hardware_readbacks,
         legacy_short_reach_negative_rejected=True,
         screw_length_bounds_mm=[9.7,10.3],
-        tolerance_basis='Conservative +/-0.30mm design bound; MF Supply SCM3X10D ISO4762 lists +/-0.29mm; actual operator hardware unverified',
-        tolerance_source='https://www.mfsupply.com/Socket_Head_Cap_Screws_p/scm3x10d.htm',
+        tolerance_basis='Explicit 9.70..10.30mm design/test bound only; no verified ISO7380-1 length tolerance or operator hardware measurement',
+        screw_head_envelope=dict(standard='ISO7380-1 button head', diameter_mm=5.7, height_mm=1.65,
+                                 source='https://www.accu.co.uk/socket-button-screws/8103-SSB-M3-10-A2'),
         thread_end_limit='One pitch geometric projection does not prove complete end threads, thread fit, preload or strength',
         limitations=['Interior height is a design budget; installed component height unmeasured',
                      'No PCB thickness, feet footprints, connector poses, bend radius, solder or strain-relief fit proof',
