@@ -153,6 +153,8 @@ The rationale above uses this session's explicit requirements, repository code, 
 
 ## Video studies consume explicit time
 
+Song directors compose on separately owned Figma song pages under Video (Art). Art owns shared visual assets and their promotion. Video (Procedural) owns scene ingestion and rendering; Performance Engine retains musical ownership. The [director guide](video-directors/README.md) and [registry](video-directors/registry.json) record page ownership, asset requests and renderer handoffs. This organization does not add an automatic Figma-page compiler or complete missing song bindings.
+
 The independent [video studio](../ui/video/README.md) lives under `ui/video/`. Its Street preview composes Figma-derived backgrounds and rigid pixel-art sprites. TypeScript prepares explicit visual state windows into immutable HOLD keys; a generic C++ sampler under `lib/video/` evaluates those keys at a supplied position, natively or through WASM. Pixi and the offline video exporter consume the same sampled actor frames. Neither renderer deforms or crossfades character drawings.
 
 Move-set authoring and artwork correction happen upstream of promotion in Figma. Identity approval is independent of style and source-export parity, and is bound to the approved reference edition and exact drawing/layer hashes. Deterministic preparation and rendering read frozen, hash-checked assets; they never generate, repaint, or redraw the character artwork.
