@@ -88,3 +88,5 @@ The enclosure needs internal room for the existing daisy chains. The stated cabl
 ## Mushroom mounting confirmation
 
 On November 4, 2026, the operator accepted an approximately 0.9-inch straight mounting hole and confirmed that no counterbore is required. The existing 23 mm hole is approximately 0.906 inches. The operator measured the threaded-body region with the supplied nut at approximately 7/8 inch diameter and the upper mounting flange at approximately 1 1/8 inches. The flange rests on the 4 mm roof and the stock nut clamps beneath it. These approximate part measurements and design acceptance do not establish a completed physical fit test.
+
+On November 4, the operator reported that the mushroom assembly needs at least 1 7/8 inches of internal space and chose a 2-inch minimum for clearance. These correspond to 47.625 mm and 50.8 mm. The selected Leo candidate has 55 mm of central vertical clearance from the cover's inside floor to the roof underside, exceeding the chosen minimum by 4.2 mm. Its height remains unchanged; this local height check does not establish connector bending space or complete physical fit.
