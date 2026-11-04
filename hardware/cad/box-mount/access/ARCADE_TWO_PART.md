@@ -24,3 +24,14 @@ Use a fresh output namespace. The recipe loads the exact frozen dual-exit source
 `load_review(receipt_path, expected_sha)` returns the two actual checked shapes in assembled coordinates. Viewer code which loads records directly must negate each `source_to_print_translation_mm` before displaying the assembly. The worker does not publish the shared viewer.
 
 All old sources and exports are retained. This cleanup does not establish physical resin fit/strength, actual cable-connector passage, support orientation, or the operator's future ballast arrangement.
+
+
+## Outside bottom chamfer and STEP handoff
+
+The printer's STEP handoff uses a 1 mm (0.03937 inch), 45° chamfer on the shell's outside lower rim. The operator confirmed the outside edge; the printer supplied no size. `arcade_bottom_chamfer.py` derives this revision from the exact successful two-part export. It checks that the change removes material only from that lower outer band and preserves the inner mating rim, all four cover-fastener regions, and the entire bottom. Existing empty cable and removal paths remain clear because the changed shell is a material subset of the checked original.
+
+The ZIP contains only `arcade-box-shell.step` and `arcade-box-bottom.step`. STEP declares inches explicitly. The writer converts native millimetre geometry to inch coordinates. Every assigned STEP length context must declare INCH with a 0.0254 metre conversion, and reimport must recover the same physical millimetre geometry. Internal millimetre STL pairs and validation receipts stay outside the human ZIP. Previous exports remain retained. The new chamfer has geometry checks; it has not yet been physically printed.
+
+```sh
+~/.local/share/show-tools/cad/venv/bin/python hardware/cad/box-mount/access/arcade_bottom_chamfer.py   --receipt /absolute/path/to/printed-two-part/receipt.json   --output /absolute/path/to/fresh/chamfer-step-export --chamfer-mm 1
+```
