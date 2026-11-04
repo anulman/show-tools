@@ -10,8 +10,8 @@ const dimension = Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrE
 const expectedLayer = Schema.Struct({ name: Schema.NonEmptyString, rgbaSha256: digest });
 const expectedAsset = Schema.Struct({ id: Schema.NonEmptyString, width: dimension, height: dimension,
   expectedRgbaSha256: digest, layers: Schema.NonEmptyArray(expectedLayer) });
-const Expected = Schema.Struct({ assets: Schema.NonEmptyArray(expectedAsset), batches: Schema.NonEmptyArray(Schema.Struct({ ids: Schema.NonEmptyArray(Schema.NonEmptyString) })) });
-const Actual = Schema.Struct({ collectionId: Schema.String, createdNodeIds: Schema.Array(Schema.String),
+const Expected = Schema.Struct({ fileKey: Schema.NonEmptyString, assets: Schema.NonEmptyArray(expectedAsset), batches: Schema.NonEmptyArray(Schema.Struct({ ids: Schema.NonEmptyArray(Schema.NonEmptyString) })) });
+const Actual = Schema.Struct({ fileKey: Schema.NonEmptyString, collectionId: Schema.String, createdNodeIds: Schema.Array(Schema.String),
   mutatedNodeIds: Schema.Array(Schema.String), assets: Schema.Array(Schema.Struct({
     id: Schema.String, nodeId: Schema.String, width: Schema.Number, height: Schema.Number, png: Schema.String,
     childLayers: Schema.NonEmptyArray(Schema.Struct({ name: Schema.NonEmptyString, nodeId: Schema.NonEmptyString, visible: Schema.Literal(true) })),
@@ -40,6 +40,7 @@ for (const [batchIndex, batch] of expected.batches.entries()) {
   const content = envelope.content.find(item => item.type === 'text' && item.text);
   if (!content?.text) throw Error('Missing Figma result');
   const result = Schema.decodeUnknownSync(Actual)(JSON.parse(content.text));
+  if (result.fileKey !== expected.fileKey) throw Error('Figma file identity differs from intended target');
   if (result.assets.length !== batch.ids.length || result.assets.some(asset => !batch.ids.includes(asset.id))) throw Error('Batch coverage differs');
   for (const actual of result.assets) {
     const source = expected.assets.find(asset => asset.id === actual.id);
@@ -67,7 +68,7 @@ for (const [batchIndex, batch] of expected.batches.entries()) {
 }
 if (seen.size !== expected.assets.length) throw Error('Incomplete canonical coverage');
 const inputSha256 = hash(Buffer.from(JSON.stringify(inputs)));
-const receipt = { status: 'PASS', fileKey: 'QWreOYAnaje2LlywefJFiK', inputSha256, inputs, nativePixelsCompared: nativePixels,
+const receipt = { status: 'PASS', fileKey: expected.fileKey, inputSha256, inputs, nativePixelsCompared: nativePixels,
   scope: 'Complete native RGBA and named-layer export parity; separate art and composed-timeline review required.', assets: verified };
 const bytes = JSON.stringify(receipt, null, 2) + '\n';
 const temporaryPath = `${directory}/.canonical-receipt-${process.pid}.tmp`;
