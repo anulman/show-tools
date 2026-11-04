@@ -84,3 +84,7 @@ Operator measurements supplied November 4, 2026:
 The operator considers 2.5 inches of interior height probably sufficient and prefers 3 inches for clearance. The mounting feet currently use wood screws. Foot screw positions, foot footprints, exact plug poses, and cable bundle dimensions remain unmeasured; the enclosure floor can remain undrilled for a later fitted mounting solution.
 
 The enclosure needs internal room for the existing daisy chains. The stated cable routes are USB to the music host, 5 V LED power, four arcade buttons with four conductors each, a mushroom button with two conductors, and a spinner with four conductors. These counts describe enclosure routing, not new electrical connections or musical bindings. Direct socket access and separate device channels are alternatives under consideration. Proposed seam openings and cable-storage bay dimensions are design allowances until the actual harness is checked.
+
+## Mushroom mounting confirmation
+
+On November 4, 2026, the operator accepted an approximately 0.9-inch straight mounting hole and confirmed that no counterbore is required. The existing 23 mm hole is approximately 0.906 inches. The operator measured the threaded-body region with the supplied nut at approximately 7/8 inch diameter and the upper mounting flange at approximately 1 1/8 inches. The flange rests on the 4 mm roof and the stock nut clamps beneath it. These approximate part measurements and design acceptance do not establish a completed physical fit test.
