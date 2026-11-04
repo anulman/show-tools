@@ -13,7 +13,7 @@ import threading
 
 HERE = Path(__file__).resolve().parent
 UI = HERE.parents[1] / "ui" / "cad"
-MODELS = ("box-mount", "disco-bar", "all-controls")
+MODELS = ("box-mount", "disco-bar", "mushroom-mount", "micro-enclosure", "all-controls")
 
 
 def main():
@@ -104,12 +104,19 @@ def main():
                     process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
                     active_process = process
                 stdout, stderr = process.communicate(timeout=120)
-                if process.returncode:
+                if process.returncode == 78:
+                    missing = json.loads(stdout)['missing_measurements']
+                    self.respond(503, ('Measurements needed: ' + '; '.join(missing)).encode())
+                elif process.returncode:
                     print(stdout, stderr, file=sys.stderr, flush=True)
                     self.respond(503, b"Could not build the preview. Ask the CAD session to check it, then try again.")
                 else:
                     selected = model
-                    self.respond(204)
+                    receipt = json.loads(receipt_path.read_text())
+                    pending = receipt.get('pending_measurements', {})
+                    message = ('All controls · Awaiting measurements for ' +
+                               ', '.join(name.replace('-', ' ') for name in pending)) if pending else ''
+                    self.respond(200, message.encode())
             except OSError as error:
                 print(error, file=sys.stderr, flush=True)
                 self.respond(503, b"Could not start the preview. Ask the CAD session to check it.")

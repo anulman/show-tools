@@ -9,7 +9,7 @@
     *{box-sizing:border-box}body{margin:0;height:100dvh;display:flex;flex-direction:column}
     header{display:flex;align-items:center;gap:28px;padding:12px 20px;border-bottom:1px solid #d8ddd5;background:#faf9f5;flex-wrap:wrap}
     h1{font-size:16px;margin:0;font-weight:650;letter-spacing:-.3px}
-    [role=tablist]{display:flex;gap:5px;background:#e8ebe3;padding:4px;border-radius:10px}
+    [role=tablist]{display:flex;flex-wrap:wrap;gap:5px;background:#e8ebe3;padding:4px;border-radius:10px}
     [role=tab]{font:inherit;font-size:14px;font-weight:550;border:0;padding:9px 18px;border-radius:7px;background:transparent;color:#56625a;cursor:pointer}
     [role=tab][aria-selected=true]{background:#fff;color:#173d30;box-shadow:0 1px 4px #182c181c}
     button:focus-visible{outline:3px solid #58a87d;outline-offset:2px}button:disabled{cursor:wait;opacity:.6}
@@ -27,6 +27,8 @@
     <nav role="tablist" aria-label="CAD workstreams">
       <button id="box-mount-tab" role="tab" disabled aria-controls="model-panel" aria-selected="false" tabindex="-1" data-model="box-mount">Arcade button</button>
       <button id="disco-bar-tab" role="tab" disabled aria-controls="model-panel" aria-selected="false" tabindex="-1" data-model="disco-bar">Disco ball</button>
+      <button id="mushroom-mount-tab" role="tab" disabled aria-controls="model-panel" aria-selected="false" tabindex="-1" data-model="mushroom-mount">Mushroom mount</button>
+      <button id="micro-enclosure-tab" role="tab" disabled aria-controls="model-panel" aria-selected="false" tabindex="-1" data-model="micro-enclosure">Micro enclosure</button>
       <button id="all-controls-tab" role="tab" disabled aria-controls="model-panel" aria-selected="false" tabindex="-1" data-model="all-controls">All controls</button>
     </nav>
     <p id="status" role="status" aria-live="polite">Connecting to the viewer…</p>

@@ -30,7 +30,7 @@ def publish_simple_arcade(config_path, port, reset, explode):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("workspace", choices=("box-mount", "disco-bar", "all-controls"))
+    parser.add_argument("workspace", choices=("box-mount", "disco-bar", "mushroom-mount", "micro-enclosure", "all-controls"))
     parser.add_argument("--variant", choices=("all", "arcade-inclined", "rotor-level", "mushroom-level"), default="all", help="Box-mount variants to show")
     parser.add_argument("--step", type=Path, help="Local Darren STEP path, for disco-ball scenes")
     parser.add_argument("--explode", type=float, default=0, help="Lower box-mount bottoms for inspection, in mm")
@@ -43,6 +43,10 @@ def main():
         parser.error("--explode applies only to box-mount")
     if args.variant != "all" and args.workspace != "box-mount":
         parser.error("--variant applies only to box-mount")
+    if args.workspace in ('mushroom-mount', 'micro-enclosure'):
+        import additional_controls
+        additional_controls.publish(args.workspace, args.port, args.reset_camera)
+        return
     if args.workspace == 'all-controls':
         args.step = args.step or (Path(os.environ['SHOW_TOOLS_DISCO_STEP'])
                                  if os.environ.get('SHOW_TOOLS_DISCO_STEP') else None)

@@ -1,8 +1,8 @@
 # Switch CAD workstreams in the desk
 
-Open <http://127.0.0.1:3940/> and select **Arcade button**, **Disco ball**, or **All controls**. The tabs publish the selected workstream into the embedded OCP Viewer. The page shows a building state while preparing a preview. Orbit, clip, and inspect the model as before, then send Scrawl feedback to the CAD coordination session.
+Open <http://127.0.0.1:3940/> and select **Arcade button**, **Disco ball**, **Mushroom mount**, **Micro enclosure**, or **All controls**. The tabs publish the selected workstream into the embedded OCP Viewer. The page shows a building state while preparing a preview. Orbit, clip, and inspect the model as before, then send Scrawl feedback to the CAD coordination session.
 
-All controls places the current arcade button and disco assembly on the same Z=0 desk plane. Only horizontal placement changes. The button reference uses its original 5° mounting pose, including the upstream invalid solid; it is not fabrication geometry. The translucent ball is an illustrative open spherical surface. Its equal sections use the original bar's maximum fitted width at its original root and far end; those shaped endpoint profiles themselves have different radii. The dome, shell thickness, and actual ball fit are not measured or approved.
+All controls places the current arcade button, disco assembly, and available specialist enclosures on the same Z=0 desk plane. The mushroom and micro enclosure sit in a second row with 40 mm between bounding boxes. A micro enclosure without required installed dimensions remains pending and contributes no guessed geometry. Only horizontal placement changes. The button reference uses its original 5° mounting pose, including the upstream invalid solid; it is not fabrication geometry. The translucent ball is an illustrative open spherical surface. Its equal sections use the original bar's maximum fitted width at its original root and far end; those shaped endpoint profiles themselves have different radii. The dome, shell thickness, and actual ball fit are not measured or approved.
 
 The desk and OCP Viewer are separate local processes. Keep the existing viewer on port 3939 running. Start the desk from the repository root:
 
@@ -31,7 +31,7 @@ bash -n hardware/cad/cad
 ~/.local/share/show-tools/cad/venv/bin/python hardware/cad/check_all_controls.py --step '/absolute/path/to/Disco Ball.step'
 ```
 
-Check all three tabs against the real viewer, including the building state and keyboard focus. Confirm a missing private reference produces an error and that another tab can still be selected. Backend publication requests require the desk's exact local origin and host; unknown routes and nonempty request bodies are rejected. The desk serves only its page and bundled script, with no file-serving route for private CAD assets.
+Check all five tabs against the real viewer, including the building state and keyboard focus. Confirm a missing private reference produces an error and that another tab can still be selected. Backend publication requests require the desk's exact local origin and host; unknown routes and nonempty request bodies are rejected. The desk serves only its page and bundled script, with no file-serving route for private CAD assets.
 
 Concept, fit, and print-readiness labels remain visible in the model and footer. A successful tab switch proves visible delivery only, not physical fit or manufacturing readiness.
 

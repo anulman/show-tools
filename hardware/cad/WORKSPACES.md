@@ -10,14 +10,16 @@ The reported knob profile is approximately 7/8 inch of full-width height plus a 
 
 The operator's next-publication instruction is to show only complete publication candidates after their dependent checks pass. Remove historical comparison assemblies from the visible scenes, but retain their source, exports and other old data. Do not substitute a fit coupon for a complete mount. Keep the current scene until a replacement is ready. The operator confirmed Darren's snug socket after superseding the larger diameter estimate; preserve that socket and complete the compact assembly checks before publication. This display choice does not authorize old-data cleanup or establish physical fit.
 
-The two long-lived CAD sessions own separate source files and output directories. Use the [CAD desk](../../ui/cad/README.md) at <http://127.0.0.1:3940/> to select a workstream yourself. The coordinator maintains this publisher and the embedded OCP Viewer on port 3939. Workers perform headless work and do not publish or restart the viewer.
+The specialized CAD sessions own separate source files and output directories. Use the [CAD desk](../../ui/cad/README.md) at <http://127.0.0.1:3940/> to select a workstream yourself. The coordinator maintains this publisher and the embedded OCP Viewer on port 3939. Workers perform headless work and do not publish or restart the viewer.
 
 | Session | Codex thread | Source ownership |
 | --- | --- | --- |
 | box mount | `01a185db-2443-7682-af19-1d339492bfad` | `box_mount.py`, `box-mount/` |
 | disco bar | `01a185db-74d7-7060-a11c-cce4e019ca21` | `disco_bar.py`, `disco-bar/` |
+| mushroom mount | `01a1a420-2b7c-7981-93d6-9cd96a0e83d3` | `mushroom-mount/` |
+| micro enclosure | `01a1a420-60e5-7db0-bd40-333b2130b6f7` | `micro-enclosure/` |
 
-The coordinator owns `workspace.py`, the `cad` launcher, this index, and viewer publication. Each worker uses its own Git worktree and commits verified milestones. The main session independently reviews integration before merging. Future sessions can resume these threads or use their committed source, notes, and validation receipts.
+The coordinator owns `additional_controls.py`, `all_controls.py`, the desk UI, `workspace.py`, the `cad` launcher, this index, and viewer publication. Each worker uses its own Git worktree and commits verified milestones. The main session independently reviews integration before merging. Future sessions can resume these threads or use their committed source, notes, and validation receipts.
 
 ## Select a preview
 
@@ -88,3 +90,9 @@ Geometry predicates and dimensional constraints can be checked by code. They do 
 ## Current five-piece print proposal
 
 See [FIVE-PART-PRINT.md](FIVE-PART-PRINT.md) for the current four-file/five-piece export and offline reference checks. This separate admission path preserves the retired packet validators. The proposed bar print is tilted 45° with build-plate-only supports to avoid trapped material in its sealed cavity. The human ZIP includes fabrication STLs only; source pins and validation reports remain separate. This prepares a printer-review proposal and does not approve unknown equipment, printed fits or strength.
+
+## Additional control enclosures
+
+The Mushroom mount and Micro enclosure pages load each specialist's `scene.load()` result through `additional_controls.py`. Scenes return native millimetre geometry, labels, colours, opacity, and provenance. Their assembled bottoms share Z=0. The combined page preserves vertical placement and places the additional controls behind the arcade and disco assemblies, leaving 40 mm between their bounding boxes.
+
+The micro enclosure depends on the installed PCB and mounting-feet dimensions. Its `missing_measurements()` result blocks fitted geometry when those facts are unavailable. The combined view records the missing values and continues showing the controls that have complete geometry. A missing dimension never supplies an assumed board or foot size. Selecting the micro page reports the required measurements and preserves the last published model.
