@@ -23,7 +23,7 @@ Two openings start at the removable-cover seam. The proposed USB and power openi
 
 Direct socket access still needs socket positions, plug-body dimensions, and insertion clearance. Separate channels would need each cable's outside dimensions and a strain-relief choice. The first candidate keeps two grouped exits to preserve room for existing leads and avoid unnecessary partitions. The openings provide no strain relief.
 
-Four M3x10 cover screws use 3.4 mm passages. Interior slots load nuts into 5.8 mm across-flats pockets, 2.7 mm deep, near the rim. The checker uses a 5.5 mm across-flats, 2.4 mm thick nut exclusion model and a 6 mm diameter vertical tool corridor. These are declared design envelopes, not hardware or printer fit measurements. The screw heads sit above the cover. The floor remains 3 mm thick below the PCB.
+Four M3x10 cover screws use 3.4 mm passages. Interior slots load nuts into 5.8 mm across-flats pockets, 2.7 mm deep, near the rim. The checker uses a 5.5 mm across-flats, 2.4 mm thick nut exclusion model and a 6 mm diameter vertical tool corridor. These are declared design envelopes, not hardware or printer fit measurements. The nut pocket is 1.6 mm higher than the first candidate. Its flat bearing roof remains 3.4 mm thick. The screw heads sit above the cover. The floor remains 3 mm thick below the PCB.
 
 The assembled footprint is under 256 × 256 mm. No printer, material, nozzle, orientation, or support plan has been selected, and the footprint does not establish printability.
 
@@ -42,3 +42,11 @@ The checker accepts `--measurements candidate.json` for the actual candidate or 
 The success receipt records source and configuration hashes. `load()` requires that receipt in local ignored `validation.json`, verifies current hashes, and loads the checked shell and cover through the shared artifact verifier. Changed configuration, changed source, corrupt exports, or a missing receipt block loading. `missing_measurements()` reports missing candidate input; invalid supplied input raises. With the committed candidate it returns an empty list. This geometry preview always reports `physical_fit_verified=false` and `fabrication_release=false`.
 
 The [verification commands](VERIFY.md) regenerate the exports and local validation selection.
+
+## Cover screw reach correction
+
+The original nut position provided only 1.85 mm of nominal axial overlap with the 2.4 mm nut envelope. The revised pocket raises the nut while retaining M3x10 screws and every enclosure, bay, and port dimension. At the current assembled cover-bearing height of 82.2 mm, the clamped nut spans Z=73.4 to 75.8 mm. The lowest possible position within the pocket spans Z=73.1 to 75.5 mm.
+
+[MF Supply's ISO 4762 M3x10 product](https://www.mfsupply.com/Socket_Head_Cap_Screws_p/scm3x10d.htm) specifies a length tolerance of ±0.29 mm. The checker uses the conservative 9.70 to 10.30 mm under-head length range. The shortest screw tip reaches Z=72.5 mm, covering the full nut envelope with at least 0.60 mm beyond its bottom. That exceeds one 0.5 mm thread pitch at either nut position. This allowance applies to the specified hardware envelope, not unmeasured operator hardware.
+
+The receipt includes native screw, head, and nut bounds for all four joints at three screw lengths and both nut positions. The old nut position must fail the same reach check. [Westfield's DIN 912 product specification](https://www.westfieldfasteners.co.uk/Standards/ScrewBolt-SHCap-M.html) allows incomplete threads at the screw end. Geometric projection therefore does not prove complete end threads, thread fit, preload, or load capacity. Physical hardware and print verification remain required.

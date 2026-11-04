@@ -25,6 +25,21 @@ def overlap(a, b):
     return 0. if intersection is None else sum(s.volume for s in intersection.solids())
 
 
+def joint_readback(screw, head, nut, pitch=.5):
+    """Native envelope extents establish axial reach, not helical thread strength."""
+    sb, hb, nb = bounds(screw), bounds(head), bounds(nut)
+    require(np.allclose(sb.mean(axis=0)[:2], nb.mean(axis=0)[:2], atol=1e-7), 'Screw and nut axes differ')
+    tip, bearing = sb[0, 2], hb[0, 2]
+    covered = max(0., min(bearing, nb[1, 2])-max(tip, nb[0, 2]))
+    projection = nb[0, 2]-tip
+    require(math.isclose(covered, nb[1, 2]-nb[0, 2], abs_tol=1e-7)
+            and projection >= pitch-1e-7, 'Insufficient full nut span plus one pitch')
+    return dict(screw_bounds_mm=sb.tolist(), head_bounds_mm=hb.tolist(),
+        nut_bounds_mm=nb.tolist(), under_head_length_mm=bearing-tip,
+        covered_nut_height_mm=covered, tip_projection_beyond_nut_mm=projection,
+        required_pitch_mm=pitch, full_nut_span_plus_one_pitch=True)
+
+
 def fixture():
     return dict(source='SYNTHETIC geometry harness; not I-PAC dimensions',
         synthetic_fixture=True, board_length_mm=100., board_width_mm=70.,
@@ -55,10 +70,26 @@ def main():
         require(overlap(shell, r) < 1e-6 and overlap(cover, r) < 1e-6, 'Reference intersects printed parts')
     for rise in (0.1, 1., 10., dimensions['outer_mm'][2]):
         require(overlap(shell, cover.translate((0, 0, rise))) < 1e-6, 'Cover removal obstruction')
+    hardware_readbacks = []
     for x, y in dimensions['screw_centres_mm']:
-        shaft = bore(3., 10., (x, y, dimensions['shell_top_mm']-7.))
-        require(overlap(shell, shaft) < 1e-6 and overlap(cover, shaft) < 1e-6, 'Screw passage blocked')
-        nut = extrude(RegularPolygon(5.5/math.sqrt(3), 6), amount=2.4).translate((x, y, dimensions['shell_top_mm']-7.55))
+        rim, bearing = dimensions['shell_top_mm'], dimensions['outer_mm'][2]
+        head = bore(5.68, 3., (x, y, bearing))
+        nut_bottom = rim-3.4-2.4
+        nut = extrude(RegularPolygon(5.5/math.sqrt(3), 6), amount=2.4).translate((x, y, nut_bottom))
+        nut -= bore(3.1, 2.6, (x, y, nut_bottom-.1))
+        require(overlap(shell, nut) < 1e-6, 'Clamped nut blocked')
+        require(overlap(shell, nut.translate((0, 0, .1))) > 1e-4, 'Nut has no flat roof reaction')
+        require(overlap(cover, head.translate((0, 0, -.1))) > 1e-4, 'Head has no cover bearing')
+        for length in (9.7, 10., 10.3):
+            shaft = bore(3., length, (x, y, bearing-length))
+            screw = shaft+head
+            require(screw.is_valid and len(screw.solids()) == 1, 'Invalid screw envelope')
+            require(overlap(shell, screw) < 1e-6 and overlap(cover, screw) < 1e-6, 'Screw passage blocked')
+            for seat, shift in [('clamped', 0.), ('lowest_in_pocket', -.3)]:
+                placed_nut = nut.translate((0, 0, shift))
+                row = joint_readback(screw, head, placed_nut)
+                row.update(axis_xy_mm=[x,y], nut_position=seat)
+                hardware_readbacks.append(row)
         for travel in (0., 1., 3., 6., 9., 12.):
             moved = nut.translate(((-1 if x>0 else 1)*travel, 0, 0))
             require(overlap(shell, moved) < 1e-6, 'Nut insertion path blocked')
@@ -73,6 +104,14 @@ def main():
         else:
             path = box(e['width_mm']-2, 7., e['depth_mm']-2, (e['offset_mm'], (1 if e['wall'][1]=='+' else -1)*(oy/2-1.5), z))
         require(overlap(shell, path) < 1e-6 and overlap(cover, path) < 1e-6, 'Proposed seam passage blocked')
+    legacy_nut = extrude(RegularPolygon(5.5/math.sqrt(3), 6), amount=2.4).translate((x, y, dimensions['shell_top_mm']-7.55))
+    nominal_screw = bore(3., 10., (x, y, bearing-10.))+head
+    try:
+        joint_readback(nominal_screw, head, legacy_nut)
+    except ValueError as error:
+        require(str(error) == 'Insufficient full nut span plus one pitch', 'Wrong legacy short-reach failure')
+    else:
+        raise ValueError('Legacy short-reach negative control passed')
     args.out.mkdir(parents=True, exist_ok=False)
     records = []
     for name, shape in [('shell', shell), ('cover', cover)]:
@@ -99,6 +138,12 @@ def main():
         source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                        for p in [Path(__file__).with_name(n) for n in ('model.py', 'scene.py', 'check.py')]},
         physical_fit_verified=False, fabrication_release=False, parts=records,
+        hardware_readbacks=hardware_readbacks,
+        legacy_short_reach_negative_rejected=True,
+        screw_length_bounds_mm=[9.7,10.3],
+        tolerance_basis='Conservative +/-0.30mm design bound; MF Supply SCM3X10D ISO4762 lists +/-0.29mm; actual operator hardware unverified',
+        tolerance_source='https://www.mfsupply.com/Socket_Head_Cap_Screws_p/scm3x10d.htm',
+        thread_end_limit='One pitch geometric projection does not prove complete end threads, thread fit, preload or strength',
         limitations=['Interior height is a design budget; installed component height unmeasured',
                      'No PCB thickness, feet footprints, connector poses, bend radius, solder or strain-relief fit proof',
                      'No floor mounting hole fit proof; undrilled floor',

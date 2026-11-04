@@ -45,8 +45,8 @@ def build(m):
     for x, y in centres:
         shell += box(11, 11, z, (x, y, 0))
         shell -= bore(3.4, 9., (x, y, z-8))
-        shell -= extrude(RegularPolygon(5.8/math.sqrt(3), 6), amount=2.7).translate((x, y, z-7.7))
-        shell -= box(7., 5.8, 2.7, (x-(3.5 if x>0 else -3.5), y, z-7.7))
+        shell -= extrude(RegularPolygon(5.8/math.sqrt(3), 6), amount=2.7).translate((x, y, z-6.1))
+        shell -= box(7., 5.8, 2.7, (x-(3.5 if x>0 else -3.5), y, z-6.1))
     cover = box(ox, oy, cover_t, (0, 0, z))
     for x, y in centres:
         cover -= bore(3.4, cover_t+2, (x, y, z-1))
@@ -74,7 +74,7 @@ def build(m):
         pcb_centre_xy_mm=[board_x, 0], pcb_reference_z_mm=floor+face_height,
         pcb_mounting_elevation_above_inside_floor_mm=face_height,
         screw_centres_mm=centres, screw_clearance_mm=3.4, screw_length_mm=10.,
-        nut_top_below_rim_mm=5., nut_pocket_across_flats_depth_mm=[5.8, 2.7],
+        nut_top_below_rim_mm=3.4, nut_pocket_across_flats_depth_mm=[5.8, 2.7],
         design_choices_mm=dict(wall=wall, cover=cover_t, lateral_margin=margin,
                                interior_height=height, cable_bay_length=bay),
         storage_region_mm=dict(size=[bay, iy-32, height-12], centre_xy=[bay_x, 0], bottom=floor+6),
