@@ -11,7 +11,10 @@ SCENES = ('mushroom-mount', 'micro-enclosure')
 def module_for(name):
     if name not in SCENES:
         raise ValueError('Unknown specialist enclosure')
-    mushroom_leo = name == 'mushroom-mount' and (HERE / 'build/mushroom-leo/current.json').is_file()
+    marker = HERE / 'build/mushroom-leo/current.json'
+    mushroom_leo = name == 'mushroom-mount' and (marker.exists() or marker.is_symlink())
+    if mushroom_leo and not marker.is_file():
+        raise ValueError('Leo mushroom selector must be a readable regular file')
     source = HERE / name / ('leo_scene.py' if mushroom_leo else 'scene.py')
     spec = importlib.util.spec_from_file_location(name.replace('-', '_') + '_scene', source)
     module = importlib.util.module_from_spec(spec)

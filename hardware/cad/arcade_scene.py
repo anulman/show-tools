@@ -15,7 +15,9 @@ LEO_CONFIG = HERE / 'build/arcade-leo/current.json'
 
 
 def load(config_path=CONFIG, explode=0):
-    use_leo = config_path == CONFIG and LEO_CONFIG.is_file()
+    use_leo = config_path == CONFIG and (LEO_CONFIG.exists() or LEO_CONFIG.is_symlink())
+    if use_leo and not LEO_CONFIG.is_file():
+        raise ValueError('Leo arcade selector must be a readable regular file')
     selection = json.loads((LEO_CONFIG if use_leo else config_path).read_text())
     receipt_path = Path(selection['path'])
     if hashlib.sha256(receipt_path.read_bytes()).hexdigest() != selection['sha256']:

@@ -26,3 +26,5 @@ The coordinator owns publication. Workers remain headless.
 The corrected I-PAC nut seat comes from the separately reviewed measured-enclosure work. It retains the chosen M3x10 button-head screws and provides full nominal nut coverage plus one pitch across the documented 9.7–10.3 mm geometric test range. That range is a design check, not a claim about the operator's screw tolerances or formed thread strength.
 
 See [box features and checks](box-mount/LEO_BOX_LEDGES.md) and [mushroom features and checks](mushroom-mount/LEO.md) for the candidate recipes and receipts. Existing manufacturing packets remain separate; selecting a preview does not update their admission gates or approve a new print release.
+
+Run `hardware/cad/check_leo_selectors.py` with the CAD Python environment after selecting the checked candidates. It uses private temporary markers to verify that truly absent selectors retain the baseline, while dangling symlinks and directories fail closed. It also reloads the real checked selections after the isolated checks; it never edits the live selector files.
