@@ -70,6 +70,11 @@ def main():
             step_sha256=hashlib.sha256(step.read_bytes()).hexdigest(),
             stl_sha256=hashlib.sha256(stl.read_bytes()).hexdigest()))
     receipt = dict(geometry_checks_pass=True, units='mm', measurements=m, dimensions=dimensions,
+        scope='IPAC_TWO_PART_MEASURED_ENVELOPE',
+        measurement_sha256=(hashlib.sha256(args.measurements.read_bytes()).hexdigest()
+                            if args.measurements else None),
+        source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                       for p in [Path(__file__).with_name(n) for n in ('model.py', 'scene.py', 'check.py')]},
         physical_fit_verified=False, fabrication_release=False, parts=records,
         limitations=['No connector poses, bend radius, solder or strain-relief fit proof',
                      'No floor mounting hole fit proof; undrilled floor',
