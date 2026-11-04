@@ -9,6 +9,9 @@ SPEC = importlib.util.spec_from_file_location('ipac_enclosure_model', HERE / 'mo
 MODEL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODEL)
 build = MODEL.build
+ARTIFACT_SPEC = importlib.util.spec_from_file_location('ipac_geometry_artifacts', HERE.parent / 'verification/geometry_artifacts.py')
+ARTIFACT_MODULE = importlib.util.module_from_spec(ARTIFACT_SPEC)
+ARTIFACT_SPEC.loader.exec_module(ARTIFACT_MODULE)
 
 
 def missing_measurements():
@@ -41,11 +44,18 @@ def load():
             or receipt.get('measurement_sha256') != hashlib.sha256(raw).hexdigest()
             or receipt.get('source_sha256') != sources):
         raise ValueError('I-PAC validation stale or mismatched; rerun check.py with current measurements')
-    shell, cover, refs, envelope, dimensions = build(m)
+    records = receipt.get('parts', [])
+    if [r.get('name') for r in records] != ['shell', 'cover']:
+        raise ValueError('I-PAC validation requires checked shell and cover artifacts')
+    artifacts = ARTIFACT_MODULE.Artifacts()
+    shell, cover = [artifacts.load(record) for record in records]
+    _, _, refs, envelope, dimensions = build(m)
+    artifacts.unchanged()
     provenance = dict(units='mm', source_sha256=hashlib.sha256(raw).hexdigest(),
         measurements=m, dimensions=dimensions, physical_fit_verified=False,
         validation_receipt=str(receipt_path),
         validation_sha256=hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
+        actual_artifacts=artifacts.files,
         fabrication_release=False, reference_type='measured exclusion boxes; not manufacturer CAD',
         geometry_sources={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (HERE/'model.py', HERE/'scene.py')})
