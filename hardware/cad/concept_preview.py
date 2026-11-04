@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import math
+import sys
 from pathlib import Path
 
 from build123d import Axis, import_step
@@ -40,6 +41,21 @@ def load(config_path=CONFIG):
             or data['physical_fit_verified'] is not False
             or data['display_only'] is not True):
         raise ValueError('Expected an explicitly unvalidated display study')
+    leo = data.get('leo_box_revision')
+    if leo is not None:
+        sys.path.insert(0, str(HERE / 'box-mount/access'))
+        import leo_box_ledges
+        leo_box_ledges.load_review(leo['path'], leo['sha256'], 'disco')
+        candidate = json.loads(Path(leo['path']).read_text())
+        for role, label in leo['actor_names'].items():
+            rows = [row for row in data['parts'] if row['name'] == label]
+            records = [row for row in candidate['review_components'] if row['name'] == role]
+            if (len(rows) != 1 or len(records) != 1
+                    or rows[0]['path'] != records[0]['step']
+                    or rows[0]['sha256'] != records[0]['step_sha256']):
+                raise ValueError('Disco scene does not match checked Leo box inventory')
+        if set(leo['actor_names']) != {'shell', 'bottom'}:
+            raise ValueError('Expected both checked Leo box actors')
     parts = []
     for row in data['parts']:
         part = DisplayPart(row['name'], Path(row['path']), row['sha256'], row['color'],
@@ -80,6 +96,7 @@ def publish_configured(port=3939, reset=False):
     objects.extend(extra);names.extend(extra_names);colors.extend(extra_colors);alphas.extend(extra_alphas)
     receipt = json.dumps(dict(workspace='disco-bar', presentation=SCOPE,
         selection=selection, labels=names, spinner_reference=reference,
+        leo_box_revision=data.get('leo_box_revision'),
         pending_measurements=data['pending_measurements'], study_parameters=data['study_parameters'],
         actual_artifacts={str(part.path): part.sha256 for part, _ in parts},
         physical_fit_verified=False, manufacturing_approved=False,

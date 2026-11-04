@@ -11,22 +11,32 @@ sys.path.insert(0, str(HERE / 'verification'))
 from geometry_artifacts import Artifacts
 
 CONFIG = HERE / 'build/arcade-simple/current.json'
+LEO_CONFIG = HERE / 'build/arcade-leo/current.json'
 
 
 def load(config_path=CONFIG, explode=0):
-    selection = json.loads(config_path.read_text())
+    use_leo = config_path == CONFIG and LEO_CONFIG.is_file()
+    selection = json.loads((LEO_CONFIG if use_leo else config_path).read_text())
     receipt_path = Path(selection['path'])
     if hashlib.sha256(receipt_path.read_bytes()).hexdigest() != selection['sha256']:
         raise ValueError('Changed arcade selection')
-    receipt = json.loads(receipt_path.read_text())
-    records = receipt['review_components']
-    if (receipt.get('scope') != 'TWO_PART_ARCADE_BUTTON_BOX_WITHOUT_BALLAST'
-            or receipt['geometry_checks_pass'] is not True
-            or [r['name'] for r in records] != ['shell', 'bottom']):
-        raise ValueError('Expected the checked arcade shell and bottom')
     artifacts = Artifacts()
-    shapes = [artifacts.load(r).translate(tuple(-v for v in r['source_to_print_translation_mm']))
-              for r in records]
+    leo = None
+    if use_leo:
+        sys.path.insert(0, str(HERE / 'box-mount/access'))
+        import leo_box_ledges
+        parts, leo = leo_box_ledges.load_review(receipt_path, selection['sha256'], 'arcade')
+        shapes = [parts['shell'], parts['bottom']]
+        artifacts.files.update(leo['validated_artifact_files'])
+    else:
+        receipt = json.loads(receipt_path.read_text())
+        records = receipt['review_components']
+        if (receipt.get('scope') != 'TWO_PART_ARCADE_BUTTON_BOX_WITHOUT_BALLAST'
+                or receipt['geometry_checks_pass'] is not True
+                or [r['name'] for r in records] != ['shell', 'bottom']):
+            raise ValueError('Expected the checked arcade shell and bottom')
+        shapes = [artifacts.load(r).translate(tuple(-v for v in r['source_to_print_translation_mm']))
+                  for r in records]
     ground = min(s.bounding_box().min.Z for s in shapes)
     objects = [s.translate((0, 0, -ground - (explode if i == 1 else 0)))
                for i, s in enumerate(shapes)]
@@ -47,6 +57,8 @@ def load(config_path=CONFIG, explode=0):
         button_reference=dict(path=str(button_path), sha256=button_sha,
             upstream_valid=bool(button.is_valid), fabrication_geometry=False,
             physical_fit_verified=False, rotation_x_degrees=5))
+    if leo is not None:
+        provenance['leo_ledge_revision'] = leo
     return (objects, ['Arcade button box - shell', 'Arcade button box - removable bottom',
                      'REFERENCE button - upstream invalid; fit unverified'],
             ['#d1b394', '#b69a7e', '#367fd4'], [.55, 1., 1.], provenance)

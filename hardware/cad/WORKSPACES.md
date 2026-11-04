@@ -96,3 +96,7 @@ See [FIVE-PART-PRINT.md](FIVE-PART-PRINT.md) for the current four-file/five-piec
 The Mushroom mount and Micro enclosure pages load each specialist's `scene.load()` result through `additional_controls.py`. Scenes return native millimetre geometry, labels, colours, opacity, and provenance. Their assembled bottoms share Z=0. The combined page preserves vertical placement and places the additional controls behind the arcade and disco assemblies, leaving 40 mm between their bounding boxes.
 
 The micro enclosure depends on the installed PCB and mounting-feet dimensions. Its `missing_measurements()` result blocks fitted geometry when those facts are unavailable. The combined view records the missing values and continues showing the controls that have complete geometry. A missing dimension never supplies an assumed board or foot size. Selecting the micro page reports the required measurements and preserves the last published model.
+
+## Printer-proposed internal ledges
+
+The operator-approved [Leo ledge candidates](LEO_MOUNTS.md) add sloped undersides to the applicable internal box features through separate opt-in recipes. Original sources and exports remain intact. The coordinator selects only checked candidates and retains the original button, shaft, cover, hardware and cable datums. Scope and remaining bridge/orientation limits are recorded per enclosure.
