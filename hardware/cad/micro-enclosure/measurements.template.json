@@ -1,8 +1,10 @@
 {
-  "source": "operator measurements required; all dimensions in mm",
+  "source": "Operator facts and chosen design dimensions required; all values in mm",
   "synthetic_fixture": false,
   "board_length_mm": null,
   "board_width_mm": null,
-  "installed_top_mm": null,
+  "pcb_mounting_elevation_above_inside_floor_mm": null,
+  "interior_height_mm": null,
+  "cable_bay_length_mm": 60,
   "exits": []
 }

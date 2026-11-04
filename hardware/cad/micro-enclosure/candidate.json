@@ -1,0 +1,33 @@
+{
+  "source": "Operator measurements relayed by Hardware Manager 2026-11-04: PCB 5 3/16 x 2 5/8 inches; PCB sits 5/8 inch above floor. Which PCB face defines that elevation is unconfirmed. Interior 3 inches is operator-selected space budget, not measured component height.",
+  "synthetic_fixture": false,
+  "board_length_mm": 131.7625,
+  "board_width_mm": 66.675,
+  "pcb_mounting_elevation_above_inside_floor_mm": 15.875,
+  "interior_height_mm": 76.2,
+  "cable_bay_length_mm": 60,
+  "exits": [
+    {
+      "wall": "x-",
+      "offset_mm": 0,
+      "width_mm": 35,
+      "depth_mm": 12,
+      "routing": "USB to host and 5V LED power; grouped cable path, not socket aligned"
+    },
+    {
+      "wall": "x+",
+      "offset_mm": 0,
+      "width_mm": 60,
+      "depth_mm": 12,
+      "routing": "Device wires: 4 arcade buttons x4, mushroom x2, spinner x4; grouped cable path"
+    }
+  ],
+  "design_note": "60mm side bay and 35x12/60x12mm grouped seam openings are proposed allowances, not measured bundle fits. No individual connector poses, feet footprints, PCB thickness or strain relief inferred. Nominal PCB reference plane does not assert top or underside datum.",
+  "routing_inventory": [
+    "USB to host",
+    "5V LED power",
+    "four arcade buttons: four wires each",
+    "mushroom: two wires",
+    "spinner: four wires"
+  ]
+}

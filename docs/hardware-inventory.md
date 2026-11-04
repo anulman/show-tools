@@ -69,3 +69,22 @@ A simulator may model explicitly declared inputs and outputs, but its success do
 ## Arcade-button CAD reference
 
 The operator confirmed the four 100 mm buttons are the same model in red, green, blue, and yellow on October 28, 2026. The [CAD workspace](../hardware/cad/README.md#inspect-the-100-mm-buttons) provides a pinned Adafruit 1185 manufacturer model for provisional family reference. It has invalid upstream geometry and does not establish measured fit. The [measurement worksheet](../hardware/cad/components/adafruit-1185/README.md#mechanical-facts-still-needed) records the remaining mechanical facts and housing choices.
+
+## I-PAC enclosure measurements and cable routing
+
+Operator measurements supplied November 4, 2026:
+
+| Item | Inches | Millimetres | Evidence limit |
+| --- | --- | --- | --- |
+| Ultimate I/O PCB length | 5 3/16 | 131.7625 | Operator measurement |
+| Ultimate I/O PCB width | 2 5/8 | 66.675 | Operator measurement |
+| PCB elevation above the mounting floor on installed feet | 5/8 | 15.875 | PCB face datum and thickness unspecified |
+| Selected internal enclosure height | 3 | 76.2 | Design clearance budget, not measured component height |
+
+The operator considers 2.5 inches of interior height probably sufficient and prefers 3 inches for clearance. The mounting feet currently use wood screws. Foot screw positions, foot footprints, exact plug poses, and cable bundle dimensions remain unmeasured; the enclosure floor can remain undrilled for a later fitted mounting solution.
+
+The enclosure needs internal room for the existing daisy chains. The stated cable routes are USB to the music host, 5 V LED power, four arcade buttons with four conductors each, a mushroom button with two conductors, and a spinner with four conductors. These counts describe enclosure routing, not new electrical connections or musical bindings. Direct socket access and separate device channels are alternatives under consideration. Proposed seam openings and cable-storage bay dimensions are design allowances until the actual harness is checked.
+
+## Mushroom mounting confirmation
+
+On November 4, 2026, the operator accepted an approximately 0.9-inch straight mounting hole and confirmed that no counterbore is required. The existing 23 mm hole is approximately 0.906 inches. The operator measured the threaded-body region with the supplied nut at approximately 7/8 inch diameter and the upper mounting flange at approximately 1 1/8 inches. The flange rests on the 4 mm roof and the stock nut clamps beneath it. These approximate part measurements and design acceptance do not establish a completed physical fit test.
