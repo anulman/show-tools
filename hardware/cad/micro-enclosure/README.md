@@ -1,40 +1,44 @@
-# I-PAC Ultimate I/O enclosure
+# I-PAC enclosure candidate
 
-Two-part enclosure workstream: floor-and-wall shell plus a removable screw-fastened cover. No ballast. `scene.py:load()` returns the same five-value API as `arcade_scene.py`: native-mm objects, labels, colours, alphas, provenance. The assembled shell is grounded at Z=0. No viewer publication occurs here.
+The candidate has two printed parts: a shell with an undrilled floor and a removable cover. Four short M3 screws close the cover into captive nuts. The open interior has a side bay for the existing daisy chains and spare wire. There is no ballast or printed divider.
 
-## Evidence and blocked fits
+## Operator facts and design choices
 
-The [official Ultimate I/O page](https://www.ultimarc.com/control-interfaces/i-pacs/i-pac-ultimate-i-o/) confirms a USB connection and a 5.5 mm barrel / 2.1 mm pin power connection. Its common FAQ says approximately 17 mm board height but links to I-PAC 2 and I-PAC 4 drawings; this is **not** a verified Ultimate enclosure stack height. The [CAPFEET page](https://www.ultimarc.com/output/led-and-output-controller-accessories/pcb-mounting-feet/) confirms four mounting feet, PCB screws and woodscrews. It supplies no foot dimensions. Pages inspected November 3, 2026.
+The operator supplied these measurements on November 4, 2026, through the Hardware Manager:
 
-The repository inventory confirms the board is already on these feet and uses the Adafruit 1466 supply directly. Neither a barrel's electrical mating diameter nor a product photograph establishes the installed plug body, cable bend radius or opening size.
+| Item | Inches | Millimetres | Meaning |
+| --- | --- | --- | --- |
+| PCB length | 5 3/16 | 131.7625 | Measured footprint |
+| PCB width | 2 5/8 | 66.675 | Measured footprint |
+| PCB mounting elevation above the inside floor | 5/8 | 15.875 | Nominal reference plane. Top versus underside datum is unconfirmed |
+| Interior height | 3 | 76.2 | Operator-selected space budget. Installed component height remains unmeasured |
 
-Measured PCB length/width and total feet-bottom-to-highest-connected-component height are required in `measurements.json` before `load()` can return a provisional scene. Detailed feet positions, PCB thickness and ports remain optional pending fits. Missing measurements deliberately block the actual design. The checker creates a **synthetic fixture**, proving the geometry recipe only; it does not establish I-PAC dimensions or release parts for printing.
+`candidate.json` records these facts and the proposed geometry. The 3 mm floor places the PCB reference plane at global Z=18.875 mm. The reference is a surface with no invented PCB thickness or feet shape. The closed lid underside is exactly 76.2 mm above the inside floor. The model adds no headroom above that budget.
 
-Minimum preview facts are PCB length, width and installed total height. Remaining fit facts are:
+The shell and cover measure 233.7625 × 108.675 × 82.2 mm assembled, excluding screw heads. The 60 mm side bay and 18 mm lateral margins are design allowances. A translucent region shows a 60 × 70.675 × 64.2 mm storage space clear of the posts. That region represents available design space, not measured cable occupancy. The floor has no guessed mounting holes.
 
-- PCB length, width, thickness; hole centres and diameters if wanted in the reference.
-- Installed foot height to PCB underside, each foot's footprint/position, and each floor screw centre and shaft diameter. Feet may be rotated or offset; do not infer centres from PCB holes.
-- Highest installed connector/harness above PCB underside, solder protrusion below it, cable/plug body widths/heights and preferred exit side(s).
-- Cable bundle size, bend/service clearance and strain-relief method; confirm whether preterminated harness must pass without unplugging.
+The routing inventory remains the operator's wiring plan: USB to the host, 5 V LED power, four arcade buttons with four wires each, a mushroom with two wires, and a spinner with four wires. The candidate does not shorten the existing daisy chains or change the wiring.
 
-The schema lives in `model.py`. The measured assembly keepout is centred in XY; floor top is Z=3. No separate PCB thickness is invented. Optional foot XY coordinates are relative to the PCB centre. Foot boxes are measured exclusion envelopes, not manufacturer solids. Cable openings are explicit seam-open notches in a selected wall; widths, depths and positions must come from the actual installation. Final strain relief remains blocked until the operator supplies its method/dimensions.
+Two openings start at the removable-cover seam. The proposed USB and power opening is 35 × 12 mm at the PCB end. The proposed device-wire opening is 60 × 12 mm at the storage-bay end. The lid lifts clear of both openings. Preterminated leads can be placed into the open notches without threading closed holes. The openings are grouped cable routes, not socket-aligned cutouts or measured bundle fits.
 
-## Independent verification
+Direct socket access still needs socket positions, plug-body dimensions, and insertion clearance. Separate channels would need each cable's outside dimensions and a strain-relief choice. The first candidate keeps two grouped exits to preserve room for existing leads and avoid unnecessary partitions. The openings provide no strain relief.
 
-```sh
-~/.local/share/show-tools/cad/venv/bin/python hardware/cad/micro-enclosure/check.py --out /private/tmp/ipac-enclosure-fixture
-```
+Four M3x10 cover screws use 3.4 mm passages. Interior slots load nuts into 5.8 mm across-flats pockets, 2.7 mm deep, near the rim. The checker uses a 5.5 mm across-flats, 2.4 mm thick nut exclusion model and a 6 mm diameter vertical tool corridor. These are declared design envelopes, not hardware or printer fit measurements. The screw heads sit above the cover. The floor remains 3 mm thick below the PCB.
 
-This exports STEP/STL for both synthetic printed parts, round-trips the STEP, checks valid connected solids, watertight STL, native/export bounds and volume, cover clearance, straight cover removal, fastener passages and reference-envelope interference. A synthetic configuration never becomes `measurements.json` or a fabrication release. Use `--measurements PATH` for measured geometry; provenance still reports physical fit and fabrication release as unverified.
+The assembled footprint is under 256 × 256 mm. No printer, material, nozzle, orientation, or support plan has been selected, and the footprint does not establish printability.
 
-Four short M3x10 cover screws and inward-loading captive hex nut slots are proposed cover hardware, independent of measured stack height. The 3.4 mm passages, 5.8 mm across-flats pockets and 2.7 mm pocket depth are design allowances, not printer-calibrated fits. Load ordinary M3 nuts from the interior before fitting the cover and screws from above. Nut slots are confined to corner posts outside the PCB keepout, 5 mm below the rim with 2.7 mm pocket depth. The uninterrupted floor under the PCB is 3 mm thick; solder protrusion and material suitability still require inspection.
+## Evidence limits
 
-`missing_measurements()` returns the absent-config checklist for coordinator display. It returns `[]` for a supplied valid actual-measurement configuration. Malformed supplied inputs raise; they are not silently skipped.
+The [Ultimate I/O product page](https://www.ultimarc.com/control-interfaces/i-pacs/i-pac-ultimate-i-o/) describes USB and barrel-power connections. Its common FAQ links to I-PAC 2 and I-PAC 4 dimensional images, which do not establish Ultimate I/O fit. The [CAPFEET page](https://www.ultimarc.com/output/led-and-output-controller-accessories/pcb-mounting-feet/) confirms four feet and screws but gives no dimensional drawing. The operator's measurements now supply the PCB footprint and nominal mounting elevation.
 
-Verified November 3, 2026: synthetic shell and cover each exported as a single valid solid; both STEP round trips matched native bounds and volume; both STL meshes were watertight and consistently wound with matching bounds and volume. The separate pending-scene check verified missing-measurement reporting and failure to load absent hardware dimensions. No actual I-PAC fit was established.
+Physical fit remains unverified. PCB thickness, solder protrusion, exact foot positions, mounting screw offsets, installed plug height, cable bend radii, bundle sizes, and strain relief remain open. The reference plane does not imply top or underside registration. Those facts block their dependent manufacturing details, not inspection of this space-planning candidate.
 
-The preview may have no cable openings while exit preferences are pending. A closed preview is not a usable wired enclosure release. Optional exits use explicit measured seam-notch dimensions; no connector pose or cable path is guessed. Exact CAPFEET geometry is not displayed without measurements; the assembly keepout uses only the minimum dimensions above.
+## Verification and scene contract
 
-Measured publication also requires a fresh validation receipt. Run `check.py --measurements hardware/cad/micro-enclosure/measurements.json --out /private/tmp/ipac-measured`, then copy its `receipt.json` to `hardware/cad/micro-enclosure/validation.json`. Both local files are ignored. `load()` checks the measurement file SHA and all three recipe/checker source SHAs before generating the scene. Any measurement or recipe change requires rechecking. The synthetic receipt cannot open this gate. The receipt authorizes a geometry preview only, with physical fit and fabrication release still false.
+`scene.py:load()` returns native millimetre objects, labels, colours, alphas, and provenance. Its four objects are the checked shell, the checked cover, the proposed storage region, and the PCB reference plane. The assembly is grounded at Z=0. The scene does not publish to a viewer.
 
-Use a fresh export directory for every check; existing namespaces are rejected before writing. The measured scene requires exactly the checked `shell` and `cover` records. The shared artifact verifier checks their STEP/STL hashes, solids, mesh integrity, mass and bounds; the scene displays those loaded STEP solids at their unchanged assembly coordinates. It regenerates only the reference envelopes and records every artifact hash in provenance. Corrupt STEP or STL files block loading.
+The checker accepts `--measurements candidate.json` for the actual candidate or uses a synthetic fixture when that option is absent. It requires a new output directory. It checks the exact interior-height budget, nominal PCB elevation and footprint, reference-plane intersection area, storage separation, seam passage continuity, screw passages, nut loading, tool approach, cover removal, and valid connected solids. STEP round trips must match native bounds and volumes. STL meshes must be watertight, consistently wound, and match the native bounds and volumes.
+
+The success receipt records source and configuration hashes. `load()` requires that receipt in local ignored `validation.json`, verifies current hashes, and loads the checked shell and cover through the shared artifact verifier. Changed configuration, changed source, corrupt exports, or a missing receipt block loading. `missing_measurements()` reports missing candidate input; invalid supplied input raises. With the committed candidate it returns an empty list. This geometry preview always reports `physical_fit_verified=false` and `fabrication_release=false`.
+
+The [verification commands](VERIFY.md) regenerate the exports and local validation selection.

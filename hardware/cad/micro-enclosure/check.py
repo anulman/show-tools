@@ -4,11 +4,10 @@ import hashlib
 import json
 import math
 from pathlib import Path
-import sys
 import numpy as np
 import trimesh
-from build123d import Unit, export_step, export_stl, import_step
-from model import build, bore
+from build123d import Unit, RegularPolygon, extrude, export_step, export_stl, import_step
+from model import build, bore, box
 
 
 def require(ok, message):
@@ -28,10 +27,9 @@ def overlap(a, b):
 
 def fixture():
     return dict(source='SYNTHETIC geometry harness; not I-PAC dimensions',
-        synthetic_fixture=True, board_length_mm=100., board_width_mm=70., foot_height_mm=8., installed_top_mm=28.,
-        feet=[dict(xy_mm=[x, y], size_mm=[9., 9.]) for x in (-43., 43.) for y in (-28., 28.)],
-        exits=[dict(wall='x+', offset_mm=0., width_mm=25., depth_mm=15.),
-               dict(wall='y-', offset_mm=0., width_mm=35., depth_mm=12.)])
+        synthetic_fixture=True, board_length_mm=100., board_width_mm=70.,
+        pcb_mounting_elevation_above_inside_floor_mm=8., interior_height_mm=60., cable_bay_length_mm=45.,
+        exits=[dict(wall='x+', offset_mm=0., width_mm=35., depth_mm=12.)])
 
 
 def main():
@@ -43,14 +41,38 @@ def main():
     m = json.loads(args.measurements.read_text()) if args.measurements else fixture()
     shell, cover, refs, envelope, dimensions = build(m)
     require(abs(bounds(shell)[0, 2]) < 1e-7, 'Shell must be grounded')
+    require(math.isclose(bounds(envelope)[0, 2], dimensions['floor_mm']+m['pcb_mounting_elevation_above_inside_floor_mm'], abs_tol=1e-7), 'PCB nominal mounting elevation changed')
+    require(math.isclose(bounds(envelope)[1, 2], bounds(envelope)[0, 2], abs_tol=1e-7), 'PCB reference must be a surface, not invented thickness')
+    require(math.isclose(dimensions['shell_top_mm']-dimensions['floor_mm'], m['interior_height_mm'], abs_tol=1e-7), 'Chosen interior budget changed')
     require(overlap(shell, cover) < 1e-6, 'Cover intersects shell')
-    for r in [*refs, envelope]:
+    pcb_bounds, storage_bounds = bounds(envelope), bounds(refs[0])
+    require(storage_bounds[0, 0] > pcb_bounds[1, 0], 'Storage bay overlaps PCB plan')
+    require(math.isclose(envelope.area, m['board_length_mm']*m['board_width_mm'], rel_tol=1e-9), 'PCB footprint area changed')
+    for part in (shell, cover):
+        intersection = envelope.intersect(part)
+        require(intersection is None or sum(f.area for f in intersection.faces()) < 1e-6, 'PCB reference surface intersects printed part')
+    for r in refs:
         require(overlap(shell, r) < 1e-6 and overlap(cover, r) < 1e-6, 'Reference intersects printed parts')
     for rise in (0.1, 1., 10., dimensions['outer_mm'][2]):
         require(overlap(shell, cover.translate((0, 0, rise))) < 1e-6, 'Cover removal obstruction')
     for x, y in dimensions['screw_centres_mm']:
         shaft = bore(3., 10., (x, y, dimensions['shell_top_mm']-7.))
         require(overlap(shell, shaft) < 1e-6 and overlap(cover, shaft) < 1e-6, 'Screw passage blocked')
+        nut = extrude(RegularPolygon(5.5/math.sqrt(3), 6), amount=2.4).translate((x, y, dimensions['shell_top_mm']-7.55))
+        for travel in (0., 1., 3., 6., 9., 12.):
+            moved = nut.translate(((-1 if x>0 else 1)*travel, 0, 0))
+            require(overlap(shell, moved) < 1e-6, 'Nut insertion path blocked')
+        tool = bore(6., 25., (x, y, dimensions['outer_mm'][2]+3.))
+        require(overlap(shell, tool) < 1e-6 and overlap(cover, tool) < 1e-6, 'Vertical tool approach blocked')
+    for e in m.get('exits', []):
+        # A block through the centre of each proposed opening checks the native cut.
+        ox, oy, _ = dimensions['outer_mm']
+        z = dimensions['shell_top_mm']-e['depth_mm']+1
+        if e['wall'][0] == 'x':
+            path = box(7., e['width_mm']-2, e['depth_mm']-2, ((1 if e['wall'][1]=='+' else -1)*(ox/2-1.5), e['offset_mm'], z))
+        else:
+            path = box(e['width_mm']-2, 7., e['depth_mm']-2, (e['offset_mm'], (1 if e['wall'][1]=='+' else -1)*(oy/2-1.5), z))
+        require(overlap(shell, path) < 1e-6 and overlap(cover, path) < 1e-6, 'Proposed seam passage blocked')
     args.out.mkdir(parents=True, exist_ok=False)
     records = []
     for name, shape in [('shell', shell), ('cover', cover)]:
@@ -77,7 +99,8 @@ def main():
         source_sha256={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                        for p in [Path(__file__).with_name(n) for n in ('model.py', 'scene.py', 'check.py')]},
         physical_fit_verified=False, fabrication_release=False, parts=records,
-        limitations=['No connector poses, bend radius, solder or strain-relief fit proof',
+        limitations=['Interior height is a design budget; installed component height unmeasured',
+                     'No PCB thickness, feet footprints, connector poses, bend radius, solder or strain-relief fit proof',
                      'No floor mounting hole fit proof; undrilled floor',
                      'Nut pocket and M3 screw design allowances require physical fit checks'])
     (args.out/'receipt.json').write_text(json.dumps(receipt, indent=2)+'\n')

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+CONFIG = HERE / 'candidate.json'
 SPEC = importlib.util.spec_from_file_location('ipac_enclosure_model', HERE / 'model.py')
 MODEL = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODEL)
@@ -15,9 +16,9 @@ ARTIFACT_SPEC.loader.exec_module(ARTIFACT_MODULE)
 
 
 def missing_measurements():
-    path = HERE / 'measurements.json'
+    path = CONFIG
     if not path.exists():
-        return ['PCB length', 'PCB width', 'feet-bottom to highest connected component']
+        return ['PCB length', 'PCB width', 'nominal PCB mounting elevation above inside floor', 'selected interior space budget']
     m = json.loads(path.read_bytes())
     if m.get('synthetic_fixture') is not False:
         raise ValueError('Actual scene requires measurements, not a synthetic fixture')
@@ -26,16 +27,16 @@ def missing_measurements():
 
 
 def load():
-    path = HERE / 'measurements.json'
+    path = CONFIG
     if not path.exists():
-        raise ValueError('I-PAC fit blocked: supply measured PCB length/width and total installed height in micro-enclosure/measurements.json; see README.md')
+        raise ValueError('I-PAC fit blocked: supply measured PCB length/width and nominal mounting elevation and selected interior height in micro-enclosure/candidate.json; see README.md')
     raw = path.read_bytes()
     m = json.loads(raw)
     if m.get('synthetic_fixture') is not False:
         raise ValueError('Actual scene requires measurements, not a synthetic fixture')
     receipt_path = HERE / 'validation.json'
     if not receipt_path.exists():
-        raise ValueError('I-PAC validation required: run check.py --measurements measurements.json, then copy receipt.json to validation.json')
+        raise ValueError('I-PAC validation required: run check.py --measurements candidate.json, then copy receipt.json to validation.json')
     receipt = json.loads(receipt_path.read_bytes())
     sources = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                for p in [HERE/n for n in ('model.py', 'scene.py', 'check.py')]}
@@ -56,12 +57,12 @@ def load():
         validation_receipt=str(receipt_path),
         validation_sha256=hashlib.sha256(receipt_path.read_bytes()).hexdigest(),
         actual_artifacts=artifacts.files,
-        fabrication_release=False, reference_type='measured exclusion boxes; not manufacturer CAD',
+        fabrication_release=False, reference_type='PCB footprint at operator-reported mounting elevation plus declared storage budget; hardware height and feet shape unmeasured',
         geometry_sources={p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                           for p in (HERE/'model.py', HERE/'scene.py')})
     return ([shell, cover, *refs, envelope],
         ['I-PAC shell - provisional undrilled floor', 'I-PAC removable cover',
-         *['REFERENCE measured CAPFEET envelope '+str(i+1) for i in range(len(refs))],
-         'REFERENCE measured assembly envelope - PCB and feet details pending'],
-        ['#d1b394', '#b69a7e', *['#efefdf']*len(refs), '#23774e'],
-        [.55, .7, *[1.]*len(refs), .3], provenance)
+         'DESIGN cable storage region - no measured cable fit',
+         'REFERENCE PCB nominal mounting plane - face datum/thickness/feet unknown'],
+        ['#d1b394', '#b69a7e', '#5599c4', '#23774e'],
+        [.55, .55, .12, 1.], provenance)
