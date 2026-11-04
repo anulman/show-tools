@@ -1,0 +1,289 @@
+{
+  "version": 1,
+  "created": "2026-11-03",
+  "figmaFileKey": "QWreOYAnaje2LlywefJFiK",
+  "supervisor": {
+    "title": "Video (Art)",
+    "threadId": "01a17a72-c840-7363-837f-a04c3269351b"
+  },
+  "procedural": {
+    "title": "Video (Procedural)",
+    "threadId": "01a189eb-3e69-7172-9d51-df02e3c8f9fd"
+  },
+  "rosterSource": {
+    "url": "https://docs.google.com/spreadsheets/d/1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg/edit",
+    "confirmedOn": "2026-11-03",
+    "verifiedByThreadId": "01a16bdf-dfff-70b0-8956-ccf2dd9bd992",
+    "scope": "Song titles/order only; does not establish chart, cast, activity or runtime support."
+  },
+  "sessions": [
+    {
+      "order": 1,
+      "songId": "dance-yrself-clean",
+      "title": "Dance Yrself Clean",
+      "pageId": "298:22337",
+      "directorThreadId": "01a1a43a-595a-7ca0-988e-0160a1bced92",
+      "pageName": "Song 01 · Dance Yrself Clean",
+      "source": {
+        "kind": "canonical-musicxml",
+        "path": "songs/dance-yrself-clean.musicxml",
+        "sha256": "826d3ed3ec838b529cf3077c74d52333fed98b22368614a65811b923747ed415",
+        "coverage": "eight-parts-without-voice-metadata"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 2,
+      "songId": "drunk-girls",
+      "title": "Drunk Girls",
+      "pageId": "298:22338",
+      "directorThreadId": "01a1a43b-14d2-75a1-9833-029e61bb8db2",
+      "pageName": "Song 02 · Drunk Girls",
+      "source": {
+        "kind": "canonical-musicxml",
+        "path": "songs/drunk-girls.musicxml",
+        "sha256": "842e670696f5ae5ac17fc72ec2d2c4a261f5e4774e43ad5e967a2d8c0052fc7e",
+        "coverage": "form-only-without-voice-metadata"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 3,
+      "songId": "i-can-change",
+      "title": "I Can Change",
+      "pageId": "298:22339",
+      "directorThreadId": "01a1a43b-25b5-7d53-a99b-099b8f8ff35f",
+      "pageName": "Song 03 · I Can Change",
+      "source": {
+        "kind": "canonical-musicxml",
+        "path": "songs/i-can-change.musicxml",
+        "sha256": "f23b8cc3d2f8698b509fcf8c08f40a87d18c0ed868b8aa0ad83992a6019ac38f",
+        "coverage": "form-only-without-voice-metadata"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 4,
+      "songId": "tribulations",
+      "title": "Tribulations",
+      "pageId": "298:22340",
+      "directorThreadId": "01a1a43b-4728-7791-8a5b-571312eb7092",
+      "pageName": "Song 04 · Tribulations",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 5,
+      "songId": "daft-punk-is-playing-at-my-house",
+      "title": "Daft Punk is Playing at My House",
+      "pageId": "298:22341",
+      "directorThreadId": "01a1a43b-575c-7270-9fdd-e41327b5e653",
+      "pageName": "Song 05 · Daft Punk is Playing at My House",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 6,
+      "songId": "all-i-want",
+      "title": "All I Want",
+      "pageId": "298:22342",
+      "directorThreadId": "01a1a43b-6b71-7fa0-a816-8f5a2b7f9678",
+      "pageName": "Song 06 · All I Want",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 7,
+      "songId": "you-wanted-a-hit",
+      "title": "You Wanted A Hit",
+      "pageId": "298:22343",
+      "directorThreadId": "01a1a43b-8004-7cd3-820f-01c01c9ec44f",
+      "pageName": "Song 07 · You Wanted A Hit",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 8,
+      "songId": "someone-great",
+      "title": "Someone Great",
+      "pageId": "298:22344",
+      "directorThreadId": "01a1a43b-90e7-7f01-9205-1851bef536d6",
+      "pageName": "Song 08 · Someone Great",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 9,
+      "songId": "all-my-friends",
+      "title": "All My Friends",
+      "pageId": "298:22345",
+      "directorThreadId": "01a1a43b-a52b-77c0-8e19-ca738e2ee9d7",
+      "pageName": "Song 09 · All My Friends",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 10,
+      "songId": "home",
+      "title": "Home",
+      "pageId": "298:22346",
+      "directorThreadId": "01a1a43b-b179-7040-8b2b-28898d226a00",
+      "pageName": "Song 10 · Home",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 11,
+      "songId": "christmas-will-break-your-heart",
+      "title": "Christmas Will Break Your Heart",
+      "pageId": "298:22347",
+      "directorThreadId": "01a1a43b-c02e-7b42-bd58-934046048584",
+      "pageName": "Song 11 · Christmas Will Break Your Heart",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "director-live-read"
+      }
+    },
+    {
+      "order": 12,
+      "songId": "new-york-i-love-you-but-youre-bringing-me-down",
+      "title": "New York, I Love You But You’re Bringing Me Down",
+      "pageId": "298:22348",
+      "directorThreadId": "01a1a43b-c9ec-7ca0-a066-4770b847f087",
+      "pageName": "Song 12 · New York, I Love You But You’re Bringing Me Down",
+      "source": {
+        "kind": "unbound"
+      },
+      "casting": {
+        "kind": "unbound"
+      },
+      "status": "ready-for-operator",
+      "sceneRoots": [],
+      "assetRequests": [],
+      "artReview": "not-started",
+      "pageVerification": {
+        "kind": "supervisor-creation-receipt",
+        "figmaSessionId": "53447940-ef4d-413e-922c-6c9874961f0d",
+        "liveContentInspection": "deferred-until-composition"
+      }
+    }
+  ],
+  "sourceCheckout": {
+    "commit": "fd8e53fe55acc9aa81dbbd4d429a57bf914b32f3",
+    "state": "unmerged-authoring-branch",
+    "note": "The three MusicXML paths and cutover guide are verified in this authoring revision; they are absent from merged main1620a50. These are pending branch references, not merged renderer inputs."
+  }
+}
