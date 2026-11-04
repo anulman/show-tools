@@ -225,3 +225,9 @@ Compiled captures automatically complete at their authored source endpoint if th
 Validate the static character handoff with `node --import tsx scripts/video-expansion/check-static-avatars.mts`. This checks all 51 IDs, image hashes, dimensions, and transparency. `npm run check:layout` also compares every built avatar with its published source and checks its offline-cache entry. The 46 gallery previews are static UI art and have not passed the finished-animation repaint review.
 
 Verify explicit prefix views with dry and effected PCM at 44.1 and 48 kHz. Place the omitted hit on an independent absolute musical grid; deriving its frame from a rounded loop period can leak a sample. Check a subsequent full view, retained-bank replacement, zero-length admission after late arming, and unchanged manual Play/Stop behavior. Full DYC verification covers all 218 bars and initial preparation of its 12 takes. Prefix views add no recordings.
+
+## Direct scenes and character actions through storyboards
+
+Use the [pixel-storyboard skill](../skills/pixel-storyboard/SKILL.md) for scene composition, character actions and tween studies. The [operator instructions](../skills/pixel-storyboard/references/operator-guide.md) explain the review sequence. Establish the starting and ending poses, then draw the middle and split the remaining gaps. Even a complete-motion request follows that sequence.
+
+Keep art authoring and musical execution separate. A Figma held-pose animatic tests drawings and provisional timing. It does not establish live PE synchronization or runtime promotion. Verify the actual Figma export and preserve independently accepted pose, face, finish and timing decisions. The skill's [Maestro case](../skills/pixel-storyboard/references/maestro-case.md) records the evidence behind this workflow.
