@@ -39,6 +39,7 @@ def main():
     p.add_argument('--out', type=Path, required=True)
     p.add_argument('--measurements', type=Path)
     args = p.parse_args()
+    require(not args.out.exists(), 'Output directory already exists; choose a fresh --out namespace')
     m = json.loads(args.measurements.read_text()) if args.measurements else fixture()
     shell, cover, refs, envelope, dimensions = build(m)
     require(abs(bounds(shell)[0, 2]) < 1e-7, 'Shell must be grounded')
@@ -50,7 +51,7 @@ def main():
     for x, y in dimensions['screw_centres_mm']:
         shaft = bore(3., 10., (x, y, dimensions['shell_top_mm']-7.))
         require(overlap(shell, shaft) < 1e-6 and overlap(cover, shaft) < 1e-6, 'Screw passage blocked')
-    args.out.mkdir(parents=True, exist_ok=True)
+    args.out.mkdir(parents=True, exist_ok=False)
     records = []
     for name, shape in [('shell', shell), ('cover', cover)]:
         require(shape.is_valid and len(shape.solids()) == 1 and shape.volume > 0, 'Invalid native '+name)
