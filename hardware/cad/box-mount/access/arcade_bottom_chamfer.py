@@ -5,12 +5,15 @@ from copy import deepcopy
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 import sys
 import tempfile
 import zipfile
 
 from build123d import Align,Box,Cylinder,GeomType,RectangleRounded,Unit,export_step,export_stl,extrude,import_step
+from OCP.Interface import Interface_Static
+from OCP.STEPCAFControl import STEPCAFControl_Controller
 sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'verification'))
 from geometry_artifacts import Artifacts,adaptive_mass
 import clean_c_base_admission as native
@@ -34,6 +37,44 @@ def equal(first,second,label):
     differences=[boolean(first,second,'cut'),boolean(second,first,'cut')]
     require(max(differences)<1e-6,label+': '+str(differences))
     return differences
+
+
+def inch_length_contexts(path):
+    entities={number:re.sub(r'\s+','',body) for number,body in re.findall(r'#(\d+)\s*=\s*(.*?);',Path(path).read_text(),re.S)}
+    result=[]
+    for number,body in entities.items():
+        assigned=re.search(r'GLOBAL_UNIT_ASSIGNED_CONTEXT\(\(([^)]*)\)\)',body)
+        if assigned is None:continue
+        lengths=[reference for reference in re.findall(r'#(\d+)',assigned[1]) if 'LENGTH_UNIT()' in entities[reference]]
+        require(len(lengths)==1,'STEP length context must have one length unit')
+        unit=entities[lengths[0]]
+        conversion=re.search(r"CONVERSION_BASED_UNIT\('INCH',#(\d+)\)",unit)
+        require(conversion is not None,'Active STEP length context does not declare INCH')
+        measure=re.fullmatch(r'LENGTH_MEASURE_WITH_UNIT\((LENGTH_MEASURE\([^)]+\)|[^,]+),#(\d+)\)',entities[conversion[1]])
+        require(measure is not None,'Unexpected STEP inch conversion')
+        base=entities[measure[2]]
+        if 'SI_UNIT(.MILLI.,.METRE.)' in base:metres=.001
+        elif 'SI_UNIT($,.METRE.)' in base:metres=1.
+        else:raise ValueError('Unknown STEP inch base unit')
+        scalar=measure[1]
+        if scalar.startswith('LENGTH_MEASURE('):scalar=scalar[len('LENGTH_MEASURE('):-1]
+        factor=float(scalar.replace('D','E'))*metres
+        require(math.isclose(factor,.0254,abs_tol=1e-12,rel_tol=0),'STEP inch factor is not 0.0254 metre')
+        result.append(dict(context_id=number,length_unit_id=lengths[0],unit='INCH',metres_per_unit=factor))
+    require(bool(result),'No assigned STEP length contexts')
+    return result
+
+
+def write_inch_step(shape,path):
+    STEPCAFControl_Controller.Init_s()
+    previous=Interface_Static.CVal_s('write.step.unit')
+    require(Interface_Static.SetCVal_s('write.step.unit','INCH'),'Could not select STEP output inches')
+    try:
+        # build123d's unit describes the input document; the writer chooses output units.
+        require(export_step(deepcopy(shape),path,unit=Unit.MM),'Inch STEP export failed')
+    finally:
+        require(Interface_Static.SetCVal_s('write.step.unit',previous),'Could not restore STEP writer units')
+    return inch_length_contexts(path)
 
 
 def bottom_edges(shell):
@@ -90,8 +131,7 @@ def run(receipt,output,size):
         for old in records:
             name=old['name'];shape=parts[name]
             step=staged/('arcade-box-'+name+'.step');stl=staged/'internal-mm'/('arcade-box-'+name+'.stl')
-            # build123d declares STEP units without converting the input coordinates.
-            require(export_step(deepcopy(shape).scale(1/25.4,about=(0,0,0)),step,unit=Unit.IN),'Inch STEP export failed')
+            contexts=write_inch_step(shape,step)
             restored=import_step(step);require(restored.is_valid and len(restored.solids())==1,'Invalid STEP round trip')
             equal(shape,restored.solids()[0],'STEP changed physical size or material')
             require(export_stl(deepcopy(shape),stl,tolerance=.03,angular_tolerance=.1),'Internal validation mesh export failed')
@@ -102,7 +142,7 @@ def run(receipt,output,size):
                 mass_integration='native adaptive closed-volume Eps1e-10; original rtol1e-6 unchanged',
                 mass_relative_error_estimates=[error,restored_error],
                 source_to_print_translation_mm=old['source_to_print_translation_mm'],
-                bounds_mm=[[bb.min.X,bb.min.Y,bb.min.Z],[bb.max.X,bb.max.Y,bb.max.Z]],step_coordinate_unit='inch')
+                bounds_mm=[[bb.min.X,bb.min.Y,bb.min.Z],[bb.max.X,bb.max.Y,bb.max.Z]],step_coordinate_unit='inch',active_step_length_contexts=contexts)
             validated.load(row)
             rows.append(row)
         archive=staged/'ARCADE-BUTTON-BOX-STEP-CHAMFER.zip'
@@ -123,6 +163,7 @@ def run(receipt,output,size):
             protected_cover_joints=protected,bottom_physical_geometry_unchanged=True,source_subjects_unchanged=True,
             existing_empty_cable_reserves_and_cover_withdrawal_preserved_by_material_subset=True,
             archive=dict(path=str((output/archive.name).resolve()),sha256=digest(archive)),
+            active_step_length_contexts_verified=True,
             source_code_sha256=digest(Path(__file__)),new_chamfer_physical_print_verified=False)
         (staged/'receipt.json').write_text(json.dumps(report,indent=2)+'\n')
         require(not output.exists(),'Export target appeared during preparation')
