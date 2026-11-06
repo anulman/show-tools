@@ -4,7 +4,7 @@ import { compileSheetsSong } from '../compiled-song.js';
 import type { SongMapping, CompiledSong } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
-import dycMapping from '../../../songs/dance-yrself-clean.mapping.json';
+import dycMapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 
 function fixture(retention: 'variant' | 'layer'): { source: SongSource; mapping: SongMapping } {
   const values = Array.from({ length: 24 }, () => Array<string>(10).fill(''));

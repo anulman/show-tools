@@ -10,7 +10,7 @@ import { compiledProgramBytes } from '../../lib/performance/compiled-native.js';
 import { parseSongSource } from '../../lib/performance/song-source.js';
 import { runChartCompiler } from '../chart-compiler.js';
 import { parseCommandFailure } from '../lib/command-diagnostics.js';
-import mapping from '../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../songs/dance-yrself-clean.cutover.mapping.json';
 import source from '../../songs/dance-yrself-clean.source.json';
 import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
 

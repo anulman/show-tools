@@ -4,7 +4,7 @@ import { compileSheetsSong, canonicalSongJson, decodeCompiledSong, inspectCompil
 import type { SongMapping } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
-import dycMapping from '../../../songs/dance-yrself-clean.mapping.json';
+import dycMapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { PF } from '../wasm-abi.js';
 

@@ -33,7 +33,7 @@
   ],
   "layerGroups": [
     { "id": "drums-claps-main", "voiceId": "drums-claps", "armCells": ["B18", "D18"] },
-    { "id": "whistle-main", "voiceId": "whistle", "armCells": ["AT20", "AV20"] },
+    { "id": "whistle-main", "voiceId": "whistle", "armCells": ["AT20"] },
     { "id": "bing-bong-main", "voiceId": "bing-bong", "armCells": ["F21", "H21"] }
   ],
   "variantRules": [{ "voiceId": "cowbell", "row": 11, "fromBar": 1, "sampledOnly": true }],

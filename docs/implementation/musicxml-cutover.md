@@ -16,13 +16,13 @@ Source references identify cells for diagnostics and Sheets following. The music
 
 ## Verify the migration
 
-Run the independent DYC check from the repository root.
+Run the independent frozen DYC migration check from the repository root. It uses the retained source snapshot and `dance-yrself-clean.cutover.mapping.json`, preserving the original migration baseline as the live chart evolves.
 
 ```sh
 node --import tsx scripts/verify-musicxml-cutover.ts
 ```
 
-Pass a MusicXML path as the optional argument to inspect another copy of the migrated DYC document.
+Pass a MusicXML path to compare another copy against that original baseline. Later authored chart revisions can intentionally differ; use `npm run verify:dyc` to validate the current chart in native and WASM engines.
 
 ```sh
 node --import tsx scripts/verify-musicxml-cutover.ts songs/dance-yrself-clean.musicxml
@@ -30,7 +30,7 @@ node --import tsx scripts/verify-musicxml-cutover.ts songs/dance-yrself-clean.mu
 
 The verifier compares the generated result with values captured before the cutover at commit `4eb0569`. The original baseline was captured before the Sheets converter and musician renderer changed. The committed script retains its hashes.
 
-The check covers the complete compiled song except the source and mapping digests, which identify the new storage representation. It also compares native instruction bytes and every SVG page byte for Bass and Drums. DYC retains all 218 bars, 62 cues, 12 takes, four Bass pages, and five Drums pages.
+The check covers the complete compiled song except the source and mapping digests, which identify the new storage representation. It also compares native instruction bytes and every SVG page byte for Bass and Drums. The frozen migration retains all 218 bars, 62 cues, 12 takes, four Bass pages, and five Drums pages.
 
 Run the input-authority and corruption tests separately.
 
@@ -91,3 +91,6 @@ The complete repository suite passed 570 tests with two explicit skips. The Vide
 A fresh public DYC fetch succeeded with 468 cell notes and the complete used range `A1:HL55`. Its native bytes match the committed chart exactly. The strict frozen-baseline verifier additionally compares the original source range `A1:HL30`, so its full compiled-object hash is intentionally specific to that frozen input. Workbook matching recognizes the exact Google `m d` display format for date-coerced rhythm cells without accepting mismatched values.
 
 Regression coverage includes complete-chart bounds, dynamically added voice rows, unknown nested metadata, archive removal, standard feel and vocal-offset edits, canonical repeat timing, timing-only loading, and embedded-catalog CLI portability. The Apps Script package is rebuilt locally; installation and Google authorization remain operator work. External notation-editor save/reimport remains unverified.
+
+
+The latest Sheets revision changes Whistle to one retained take from bars 45–46. `AV20` is `cb`, `AX20` is blank, and bars 47–48 use sampled playback. The current canonical song has 61 cues and 11 takes. The current import mapping removes obsolete arm `AV20` from the Whistle group; the separate cutover mapping stays paired with the historical JSON source. PCM checks cover Whistle reuse at bars 47–49 and its later return, with manual and automatic commits at both sample rates.

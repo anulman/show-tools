@@ -15,7 +15,7 @@ const output = resolve(args[1]);
 await mkdir(output);
 
 const source: unknown = JSON.parse(await readFile('songs/dance-yrself-clean.source.json', 'utf8'));
-const mapping: unknown = JSON.parse(await readFile('songs/dance-yrself-clean.mapping.json', 'utf8'));
+const mapping: unknown = JSON.parse(await readFile('songs/dance-yrself-clean.cutover.mapping.json', 'utf8'));
 const dyc = await importSheetMusicXml({ source, mapping });
 await writeFile(join(output, 'dance-yrself-clean.musicxml'), dyc.xml, { flag: 'wx' });
 for (const id of ['drunk-girls', 'i-can-change']) {

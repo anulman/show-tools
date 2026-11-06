@@ -5,7 +5,7 @@ import { readMusicXmlSong } from '../../performance/musicxml-song.js';
 import { parseSongSource } from '../../performance/song-source.js';
 import { columnName } from '../../performance/columns.js';
 import sourceInput from '../../../songs/dance-yrself-clean.source.json';
-import mapping from '../../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 import { deriveMainVocalSections } from '../main-vocal-sections.js';
 
 const source = parseSongSource(sourceInput);

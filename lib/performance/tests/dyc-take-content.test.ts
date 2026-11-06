@@ -8,6 +8,9 @@ import { CONTROL_IDS, type ChannelId } from '../model.js';
 import { PF } from '../wasm-abi.js';
 
 const compiled = song.compiled;
+assert.equal(compiled.takes.filter(take => take.voiceId === 'whistle').length, 1);
+assert.equal(compiled.chart.bars[45].cues.L1, 'cb');
+assert.equal(compiled.chart.bars[47].cues.L1, '');
 const module = await WebAssembly.compile(await readFile(new URL('../../../ui/practice/wasm/manual-clock.wasm', import.meta.url)));
 
 function createEngine(rate: number) {
@@ -36,6 +39,10 @@ function marker(bar: number, beat: number) { return (bar * 8 + Math.floor(beat))
 type Audition = { bar: number; beat: number; channel: ChannelId; expected: number; label: string };
 
 const auditions: readonly Audition[] = [
+  { bar: 47, beat: .5, channel: 'L1', expected: marker(45, 0), label: 'Whistle reuses its first bar after the written commit' },
+  { bar: 48, beat: 2.5, channel: 'L1', expected: marker(46, 2), label: 'Whistle reuses its second bar without recording another layer' },
+  { bar: 49, beat: .5, channel: 'L1', expected: marker(45, 0), label: 'Whistle repeats the same two-bar take' },
+  { bar: 69, beat: .5, channel: 'L1', expected: marker(45, 0), label: 'Whistle later play resumes its single retained take' },
   { bar: 3, beat: .5, channel: 'R1', expected: marker(1, 0), label: 'first drums bar repeats while its second layer records' },
   { bar: 4, beat: 2.5, channel: 'R1', expected: marker(2, 2), label: 'second drums bar repeats while its second layer records' },
   { bar: 5, beat: .5, channel: 'R1', expected: marker(1, 0) + marker(3, 0), label: 'drums plays bar 1 plus bar 3' },
@@ -71,7 +78,7 @@ for (const rate of [44100, 48000]) for (const autoFinish of [false, true]) test(
   const presses = compiled.cues.filter(cue => !autoFinish || (cue.kind !== 'commit' && cue.kind !== 'commit-arm'))
     .map(cue => ({ frame: cue.bar === 0 ? 1 : at(cue.bar, cue.cueBeat ?? 0) + 1, cue }))
     .sort((first, second) => first.frame - second.frame || CONTROL_IDS.indexOf(first.cue.buttonId) - CONTROL_IDS.indexOf(second.cue.buttonId));
-  const checks = auditions.map(check => ({ ...check, frame: at(check.bar, check.beat) }));
+  const checks = auditions.map(check => ({ ...check, frame: at(check.bar, check.beat) })).sort((a, b) => a.frame - b.frame);
   let frame = 0, nextPress = 0, nextCheck = 0;
 
   function render(frames: number) {

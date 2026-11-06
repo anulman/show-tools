@@ -38,6 +38,13 @@ export function compiledMeaningDigest(song: CompiledSong): string {
   return digest(canonicalSongJson({ ...meaning, source: { ...source, digest: '' } }));
 }
 
+export async function frozenCutoverMusicXml(): Promise<string> {
+  const { importSheetMusicXml } = await import('../lib/performance/sheet-musicxml.js');
+  const source: unknown = JSON.parse(await readFile(new URL('../songs/dance-yrself-clean.source.json', import.meta.url), 'utf8'));
+  const mapping: unknown = JSON.parse(await readFile(new URL('../songs/dance-yrself-clean.cutover.mapping.json', import.meta.url), 'utf8'));
+  return (await importSheetMusicXml({ source, mapping })).xml;
+}
+
 export async function verifyMusicXmlCutover(musicxml: string) {
   const { song } = await readMusicXmlSong(musicxml);
   assert.equal(compiledMeaningDigest(song), baseline.song, `Compiled song differs from pre-cutover ${baseline.commit}. Only source and mapping digests may change.`);
@@ -53,7 +60,7 @@ export async function verifyMusicXmlCutover(musicxml: string) {
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const args = process.argv.slice(2);
   if (args.length > 1) throw new Error('Usage: node --import tsx scripts/verify-musicxml-cutover.ts [SONG.musicxml]');
-  const file = args[0] ?? 'songs/dance-yrself-clean.musicxml';
-  const result = await verifyMusicXmlCutover(await readFile(file, 'utf8'));
+  const xml = args[0] ? await readFile(args[0], 'utf8') : await frozenCutoverMusicXml();
+  const result = await verifyMusicXmlCutover(xml);
   process.stdout.write(JSON.stringify(result, null, 2) + '\n');
 }

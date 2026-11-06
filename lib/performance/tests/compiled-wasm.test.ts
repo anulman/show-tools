@@ -401,7 +401,9 @@ test('DYC missing Bing Bong finish matches the written finish through bar 10 bea
         assert(!missed.events.some(event => event.type === 'fault'), 'missing a finish never faults the transport');
         frame += count;
       }
-      const bing = automatic.compiledTake(3);
+      const bingIndex = song.compiled.takes.findIndex(take => take.voiceId === 'bing-bong' && take.begin.bar === 7);
+      assert(bingIndex >= 0);
+      const bing = automatic.compiledTake(bingIndex);
       assert.equal(bing.ready, true);
       assert(Math.abs(bing.frames - 6 * framesPerCount) <= 1, 'source capture ends at bar 8 beat 3');
       assert.equal(bing.period, Math.ceil(8 * framesPerCount), 'two silent-source counts complete the original two-bar phrase');
@@ -439,8 +441,16 @@ test('DYC short practice loops discard unfinished source spans instead of overfl
       assert.equal(native.state().phase, 'playing');
       assert.equal(native.state().error, null);
       assert.equal(native.state().recording, null);
-      assert.equal(native.compiledTake(endBar === 1 ? 0 : 3).ready, false, 'incomplete prefix never becomes a published take');
-      if (endBar === 7) assert(native.compiledTake(2).ready, 'earlier complete Bing Bong layer survives the truncated replacement');
+      const unfinished = song.compiled.takes.findIndex(take => endBar === 1
+        ? take.voiceId === 'drums-claps' && take.begin.bar === 1
+        : take.voiceId === 'bing-bong' && take.begin.bar === 7);
+      assert(unfinished >= 0);
+      assert.equal(native.compiledTake(unfinished).ready, false, 'incomplete prefix never becomes a published take');
+      if (endBar === 7) {
+        const earlier = song.compiled.takes.findIndex(take => take.voiceId === 'bing-bong' && take.begin.bar === 5);
+        assert(earlier >= 0);
+        assert(native.compiledTake(earlier).ready, 'earlier complete Bing Bong layer survives the truncated replacement');
+      }
     } finally { native.dispose(); }
   }
 });

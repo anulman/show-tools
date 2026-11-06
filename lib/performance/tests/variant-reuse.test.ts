@@ -4,7 +4,7 @@ import { compileSheetsSong, decodeCompiledSong, inspectCompiledSong } from '../c
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { PF } from '../wasm-abi.js';
 import source from '../../../songs/dance-yrself-clean.source.json';
-import mapping from '../../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 
 test('DYC shortened Cowbells reuse one prefix view and restore the full take in adjacent bars', async () => {
   const song = await compileSheetsSong(source, mapping);
