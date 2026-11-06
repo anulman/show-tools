@@ -9,6 +9,7 @@ const Effect = Schema.Union([
 	Schema.Struct({ kind: Schema.Literal('chorus'), rateHz: Finite, depthMs: Finite, baseDelayMs: Finite, wet: Finite }),
 ]);
 const Commands = Schema.Union([
+	Schema.Struct({ command: Schema.Literal('configureJiggle'), args: Schema.Struct({ minimumTravel: Finite, minimumReversal: Finite }) }),
 	Schema.Struct({ command: Schema.Literal('start'), args: Schema.Struct({ bpm: Schema.optionalKey(Finite), countInBars: Schema.optionalKey(Schema.Int), startBar: Schema.optionalKey(Schema.Int), endBar: Schema.optionalKey(Schema.Int), loop: Schema.optionalKey(Schema.Boolean), automatic: Schema.optionalKey(Schema.Boolean), runId: Schema.optionalKey(Schema.String) }) }),
 	Schema.Struct({ command: Schema.Literal('stop'), args: Schema.Struct({}) }),
 	Schema.Struct({ command: Schema.Literal('control'), args: Schema.Struct({ control: Schema.Union([Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2', 'mushroom', 'tempo']) }), Schema.Struct({ id: Schema.Literal('knob'), value: Finite }), Schema.Struct({ id: Schema.Literal('cueButton'), value: Schema.Literals([0, 1]) })]), commandId: Schema.optionalKey(Schema.String) }) }),
@@ -78,6 +79,11 @@ export function encodeInitialProfiles(configurations: unknown) {
 export function encodeCommand(input: unknown, state: PracticeState) {
 	const command = decode(input);
 	switch (command.command) {
+		case 'configureJiggle': {
+			const { minimumTravel, minimumReversal } = command.args;
+			if (!Number.isInteger(minimumTravel) || !Number.isInteger(minimumReversal) || minimumTravel < 1 || minimumTravel > 32767 || minimumReversal < 1 || minimumReversal > minimumTravel) throw new Error('Invalid jiggle thresholds');
+			return numeric(12, [minimumTravel, minimumReversal]);
+		}
 		case 'start': {
 			const { bpm = state.bpm, countInBars = 1, startBar = 1, endBar = state.endBar, loop = true, automatic = false } = command.args;
 			if (bpm < 40 || bpm > 240 || countInBars < 0 || countInBars > 4 || startBar < 1 || endBar < startBar) throw new Error('Invalid start options');

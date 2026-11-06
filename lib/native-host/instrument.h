@@ -27,6 +27,7 @@ public:
   int set_automatic(int enabled);
   int set_click(int enabled);
   int set_click_gain(double gain);
+  int set_jiggle_thresholds(double travel, double reversal);
   int render(const float* input, uint32_t frames);
   int64_t write(AudioPump::Write sink, void* context);
   Lifecycle lifecycle() const;

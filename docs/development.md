@@ -269,3 +269,19 @@ node --import tsx scripts/build-session-release.ts --native-artifact NATIVE_ARTI
 ```
 
 The builder verifies native hashes and source equivalence, the reviewed standalone Linux Node executable, and song package integrity. It rebuilds the browser UI, bundles server/CLI/preparation tools, includes licenses and provenance, refuses an existing output directory, and writes full file/archive checksums. Private profiles, tokens and TLS files are installed separately and never enter the archive. The installed `bin/show-tools-session` accepts session subcommands directly.
+
+### Connect the laptop I-PAC
+
+Build `lib/peripherals` and read its [persistent host contract](../lib/peripherals/README.md#persistent-mac-device-host).
+`./show-tools peripheral connect --config /absolute/path/peripheral.json` connects
+the permissioned terminal's local helper to an enabled, stopped hardware-audio
+session. It starts no audio or browser. The gateway origin, private token,
+optional certificate, helper path and output mapping are explicit configuration.
+Do not put temporary USB registry IDs into a song.
+
+Run `node --import tsx --test lib/peripherals/tests/bridge.test.ts` for bounded
+ingress, reversal-preserving motion, stale sessions and cleanup ordering. Run the
+native peripheral CTest targets as well. The bridge integration test uses a real
+gateway/native fake host and synthetic child process without opening USB. Verify
+the physical LED and motion thresholds from the permissioned terminal before
+declaring the installed instrument ready.

@@ -220,3 +220,20 @@ Transport Stop retains the engine and captured takes. Terminate audio reaps the 
 The [session CLI](implementation/session-cli.md) manages the web service and the separate audio lifecycle. `session start` starts the server with audio off or preserves an already-running session. `session stop` explicitly stops the service and its audio child. Neither command starts musical transport. The user service has no default session expiry; boot enabling and login lingering remain explicit host setup choices. The CLI reads the installed private profile and uses the same authenticated audio API as the web UI.
 
 The native owner publishes copied state and events with a process epoch, run identity, and publication revision. Commands report the result applied by the owner. A lost connection leaves an in-flight outcome unknown; neither gateway nor desk replays it. The gateway validates package metadata and hashes before submitting the compiled packet and initial profiles. The native owner prepares a replacement while stopped and retains the existing instrument if preparation fails.
+
+The separate [I-PAC device bridge](../lib/peripherals/README.md#persistent-mac-device-host)
+runs on the computer carrying USB. Its native helper owns only the qualified
+I-PAC interfaces, normalizes input edges, and writes fenced PE-authored light
+images. The TypeScript client authenticates to the gateway, bounds ingress and
+preserves direction reversals; it chooses no voice, effect deadline or LED phase.
+Native `cueButton` resolves all eligible rows at one frame, commits before arms,
+and reports independent failures. Release changes held state without performing
+cues. Device detach releases held state through the same attempt/host-epoch fence,
+leaving musical transport alone.
+
+The complete light getter samples continuous native count-beat time. Held
+brightness overrides recording's beat pulse, which overrides playing's steady
+level. Native snapshots and remote SSE carry the complete image unchanged. The
+delivery gate owns freshness and successful-write commit, and sends brightness
+reports for its explicit mapping. Mac Input Monitoring, real USB delivery and a
+future Linux peripheral adapter remain separate from fake-host verification.

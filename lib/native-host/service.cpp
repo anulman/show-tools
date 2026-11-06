@@ -86,6 +86,13 @@ bool parse(Request& request,const Bytes& data) {
     if(request.op==5 && !integer(request.args[2]))return false;
     return true;
   }
+  if(request.op==12) {
+    if(left!=16)return false;
+    request.args[0]=f64(p); request.args[1]=f64(p+8);
+    return std::isfinite(request.args[0]) && std::isfinite(request.args[1])
+      && std::floor(request.args[0])==request.args[0] && std::floor(request.args[1])==request.args[1]
+      && request.args[0]>=1 && request.args[0]<=32767 && request.args[1]>=1 && request.args[1]<=request.args[0];
+  }
   if(request.op==11) { if(left!=4)return false; request.args[0]=u32(p); return request.args[0]>=1 && request.args[0]<=1000000; }
   if(request.op!=9 && request.op!=10)return false;
   uint32_t manifest_size=0,packet_size=0;
@@ -169,6 +176,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           if(rc==0 && int(a[0])==4 && alsa_run.drop(*device)<0) { shared.device_failed=true; rc=-1; }
 #endif
           break;
+        case 12: rc=instrument.set_jiggle_thresholds(a[0],a[1]); break;
         case 4: rc=instrument.select(int(a[0])); break;
         case 5: rc=instrument.set_channel(int(a[0]),a[1],int(a[2])); break;
         case 6: rc=instrument.set_automatic(int(a[0])); break;

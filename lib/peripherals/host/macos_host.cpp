@@ -125,13 +125,15 @@ void removed(void* context, IOReturn, void*) {
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
     std::cout << "peripheral-host SESSION SDK_CHANNEL --confirm-wiring\n"
+      "peripheral-host --inspect (qualifies interfaces without opening them)\n"
       "Owns the sole d209:0410 I-PAC Tab button and relative Y interfaces exclusively.\n"
       "Reads native light publications on stdin; brightness-only writes, no enable-mask changes.\n";
     return 0;
   }
   uint64_t session = 0, channel = 0;
-  if (argc != 4 || !number(argv[1], 9007199254740991ULL, session) || !session
-    || !number(argv[2], 95, channel) || std::string(argv[3]) != "--confirm-wiring") {
+  bool inspect = argc == 2 && std::string(argv[1]) == "--inspect";
+  if (!inspect && (argc != 4 || !number(argv[1], 9007199254740991ULL, session) || !session
+    || !number(argv[2], 95, channel) || std::string(argv[3]) != "--confirm-wiring")) {
     std::cerr << "Use peripheral-host SESSION SDK_CHANNEL --confirm-wiring (or --help).\n"; return 2;
   }
   Host host; host.session = double(session); host.channel = uint32_t(channel);
@@ -170,7 +172,12 @@ int main(int argc, char** argv) {
   std::vector<IOHIDDeviceRef> opened;
   if (locations.size() != 1 || keyboards != 1 || mice != 1 || outputs != 1 || host.keyboard == host.mouse
     || host.output == host.keyboard || host.output == host.mouse) {
-    std::cerr << "Require one I-PAC with unique Tab, relative-Y and validated LED interfaces. No interfaces opened.\n";
+    std::cerr << "Require one I-PAC with unique Tab, relative-Y and validated LED interfaces. Observed "
+      << locations.size() << " physical locations, " << keyboards << " Tab, " << mice << " relative-Y and "
+      << outputs << " LED interfaces. No interfaces opened.\n";
+  } else if (inspect) {
+    std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonUsage\":43,\"relativeYUsage\":49,\"opened\":false}" << std::endl;
+    result = 0;
   } else {
     for (auto device : {host.keyboard, host.mouse, host.output}) {
       auto options = device == host.output ? kIOHIDOptionsTypeNone : kIOHIDOptionsTypeSeizeDevice;
@@ -192,7 +199,9 @@ int main(int argc, char** argv) {
         IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
       }
       int flags = fcntl(STDIN_FILENO, F_GETFL);
+      int output_flags = fcntl(STDOUT_FILENO, F_GETFL);
       if (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) host.failed = true;
+      if (output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) host.failed = true;
       std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGPIPE, SIG_IGN);
       if (!host.failed && host.clear()) {
         std::cout << "{\"type\":\"ready\",\"version\":1,\"session\":" << host.session
@@ -220,6 +229,7 @@ int main(int argc, char** argv) {
         result = host.failed ? 1 : 0;
       }
       if (flags >= 0) fcntl(STDIN_FILENO, F_SETFL, flags);
+      if (output_flags >= 0) fcntl(STDOUT_FILENO, F_SETFL, output_flags);
       for (auto device : opened) IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
     }
   }
