@@ -76,7 +76,7 @@ class StagingTests(unittest.TestCase):
             archive_path = root / "input.tar.gz"
             archive_path.write_bytes(data)
             digest = expected_hash or hashlib.sha256(data).hexdigest()
-            with patch.object(stage, "MAX_EXPANDED", expanded or stage.MAX_EXPANDED), patch.object(stage, "NODE_SHA256", hashlib.sha256(ELF).hexdigest()):
+            with patch.object(stage, "MAX_EXPANDED", expanded or stage.MAX_EXPANDED):
                 try:
                     result = stage.stage(archive_path, digest, len(data), expected_source, root)
                 except Exception:
@@ -200,8 +200,7 @@ class StagingTests(unittest.TestCase):
             source = root / "input.tar.gz"
             source.write_bytes(data)
             digest = hashlib.sha256(data).hexdigest()
-            with patch.object(stage, "NODE_SHA256", hashlib.sha256(ELF).hexdigest()):
-                stage.stage(source, digest, len(data), SOURCE, root)
+            stage.stage(source, digest, len(data), SOURCE, root)
             installed = root / "releases" / LEAF / "gateway/server.mjs"
             installed.write_bytes(b"changed")
             with self.assertRaisesRegex(RuntimeError, "mismatch"):
@@ -273,8 +272,7 @@ class StagingTests(unittest.TestCase):
                 self.assertFalse(process.is_alive())
                 self.assertEqual(process.exitcode, 0)
             self.assertEqual(sorted(results.get(timeout=1) for _ in processes), ["already-staged", "staged-only"])
-            with patch.object(stage, "NODE_SHA256", hashlib.sha256(ELF).hexdigest()):
-                stage.validate_release(target, SOURCE)
+            stage.validate_release(target, SOURCE)
             self.assertEqual(sum(candidate.exists() for candidate in candidates), 1)
 
 

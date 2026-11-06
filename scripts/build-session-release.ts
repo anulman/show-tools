@@ -71,7 +71,8 @@ const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
 const reviewSources = new Set(git('ls-files', '-z', '--', 'lib/remote-performance', 'lib/native-host', 'lib/native-alsa',
   'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches', 'scripts/build-session-release.ts',
   'scripts/session-bundles.ts', 'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
-  'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', 'package.json', 'package-lock.json').split('\0').filter(Boolean));
+  'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', '.github/workflows/native-host.yml',
+  'package.json', 'package-lock.json').split('\0').filter(Boolean));
 for (const name of ['server.mjs', 'session-cli.mjs', 'prepare.mjs']) {
   const inputs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
     JSON.parse(await readFile(join(output, 'provenance', `${name}.inputs.json`), 'utf8')));

@@ -14,6 +14,10 @@ on:
       - 'ui/practice/**'
       - 'package.json'
       - 'package-lock.json'
+      - 'scripts/stage-session-release.py'
+      - 'scripts/tests/stage-session-release.test.py'
+      - 'scripts/build-session-release.ts'
+      - 'scripts/session-bundles.ts'
       - '.github/workflows/native-host.yml'
   workflow_dispatch:
 
@@ -80,5 +84,7 @@ jobs:
           cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-host --target native_fake_host --parallel
       - run: npm run typecheck
+      - name: Test release staging without executing release code
+        run: python3 scripts/tests/stage-session-release.test.py
       - name: Test remote controls without hardware
         run: node --import tsx --test --test-concurrency=4 lib/remote-performance/tests/*.test.ts ui/practice/tests/remote-session.test.ts
