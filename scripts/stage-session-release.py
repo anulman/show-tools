@@ -263,7 +263,9 @@ def promote(extracted, target, source):
 
 
 def copy_reviewed_archive(source, destination, expected_hash, expected_bytes):
-    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW)
+    if not stat.S_ISREG(source.lstat().st_mode):
+        raise RuntimeError("Archive must be a regular file without symlinks")
+    fd = os.open(source, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     with os.fdopen(fd, "rb") as incoming, destination.open("xb") as output:
         info = os.fstat(incoming.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_size != expected_bytes:

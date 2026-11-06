@@ -3,6 +3,7 @@ import importlib.util
 import io
 import json
 import multiprocessing
+import os
 from pathlib import Path
 import tarfile
 import tempfile
@@ -211,6 +212,17 @@ class StagingTests(unittest.TestCase):
             root.chmod(0o755)
             with self.assertRaisesRegex(RuntimeError, "private caller-owned"):
                 stage.stage(source, hashlib.sha256(data).hexdigest(), len(data), SOURCE, root)
+
+    def test_rejects_special_and_symlink_archive_without_opening(self):
+        with tempfile.TemporaryDirectory(prefix="stage-test-") as directory:
+            root = Path(directory).resolve()
+            special = root / "archive.fifo"
+            os.mkfifo(special)
+            alias = root / "archive.symlink"
+            alias.symlink_to(special)
+            for path in (special, alias):
+                with self.subTest(path=str(path)), self.assertRaisesRegex(RuntimeError, "regular file without symlinks"):
+                    stage.stage(path, "a" * 64, 1, SOURCE, root)
 
     def test_rejects_symlink_release_target_and_lock(self):
         for name in (LEAF, ".stage.lock"):
