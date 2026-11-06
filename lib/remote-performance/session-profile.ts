@@ -12,6 +12,7 @@ const AlsaSchema = Schema.Struct({
 export const SessionProfileSchema = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   serviceName: Schema.String.check(Schema.isPattern(/^show-tools-[a-z0-9-]+\.service$/)),
+  server: Schema.Struct({ nodeExecutable: path, entrypoint: path }),
   host: Schema.NonEmptyString.check(Schema.isMaxLength(256)),
   port: integer(1, 65535),
   origin: Schema.NonEmptyString.check(Schema.isMaxLength(8192)),
