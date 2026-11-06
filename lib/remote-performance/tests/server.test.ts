@@ -48,9 +48,21 @@ test('profile server starts off without native executable and SSE bootstraps the
     const controlSession = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
     const result = await fetch(`${profile.origin}/api/audio`, { method: 'POST', headers, body: JSON.stringify({ sessionId: controlSession.sessionId, sequence: 1, goal: 'on' }) });
     assert.equal((await result.json()).outcome, 'accepted');
-    await until(() => app.controller.snapshot().audio.kind === 'fault' ? true : undefined);
+    await until(() => {
+      const audio = app.controller.snapshot().audio;
+      return audio.kind === 'stopping' && audio.error?.includes('ownership is uncertain') ? true : undefined;
+    });
+    const replacement = await fetch(`${profile.origin}/api/audio`, { method: 'POST', headers, body: JSON.stringify({ sessionId: controlSession.sessionId, sequence: 2, goal: 'on' }) });
+    assert.equal((await replacement.json()).outcome, 'rejected');
     assert.equal((await fetch(`${profile.origin}/api/status`, { headers })).status, 200);
-  } finally { await app.close(); await rm(directory, { recursive: true, force: true }); }
+    await assert.rejects(app.close(), /Native cleanup did not confirm exit/);
+    assert.equal(app.server.listening, false);
+    await assert.rejects(app.close(), /Native cleanup did not confirm exit/);
+  } finally {
+    app.server.closeAllConnections();
+    if (app.server.listening) await new Promise<void>(done => app.server.close(() => done()));
+    await rm(directory, { recursive: true, force: true });
+  }
 });
 
 test('killing the foreground server also releases its real owned fake native host', async () => {

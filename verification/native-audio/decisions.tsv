@@ -1,0 +1,8 @@
+ts	phase	decision	why	evidence	result
+2026-11-06T09:24:45.485261+00:00	scope	Model controller awaits and ownership transfers separately	Do not assume spawn/assignment or process exit/publication are atomic	NativeAudio.tla;README.md	bounded domain defined
+2026-11-06T09:24:45.485402+00:00	finding	Reproduce unassigned-child cleanup failure on actual controller	Backend finalizer completion did not prove a missing handle was reaped	finding.md;replay.ts	old baseline off/alive1/accepted
+2026-11-06T09:24:45.485404+00:00	fix	Retain pending ownership until managed-service recovery	Preserve safety without assuming successful process termination	7e702341cc484193b3df6186f2eaca5371aed400	new baseline stopping/alive1/rejected
+2026-11-06T09:24:45.485406+00:00	verification	Check seven invariants over two attempts and one total issued command	Explore every enabled finite-model ordering	NativeAudio.tla;NativeAudio.cfg	1761 reachable baseline states; all hold
+2026-11-06T09:24:45.485407+00:00	sensitivity	Replay seven broken-variant paths through six actual source mutants	A passing model alone does not establish implementation correspondence	verify.ts;replay.ts	baseline paths pass; specific mutants fail
+2026-11-06T09:24:45.485409+00:00	view	Interpret all model variants with statechart and keep smaller illustrative graph separate	Make intent readable without overstating a graph abstraction	view.mjs;illustration.mmd	full model1761 states; illustration86 states/7 labels
+2026-11-06T09:32:54.518165+00:00	maintenance	Supply required canonical light snapshot and pin transitive native schemas	PR113 changed payload validation without lifecycle atomicity changes	09e5ecf;results.md;coverage.json	old checker rejects drift; refreshed full model and six source mutants pass

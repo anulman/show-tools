@@ -172,6 +172,10 @@ Record which checks ran and what remains unverified. After the complete performa
 
 Chrome verified the production adapter with synthetic microphone input. Four native lead-in clicks remained audible with song click off. Capture retained exactly two bars as 88,200 frames at 44,100 Hz, autoplay began on bar 3, MP3 export decoded into two audible channels, and Stop left zero active voices. Physical microphone quality, phone behavior, the complete installed extension path, and EliteDesk device behavior remain separate verification tasks.
 
+## Verify performance contracts
+
+Use the [formal verification guide](../verification/README.md) when changing native audio lifecycle, capture publication and handoff, or canonical MusicXML meaning. `npm run verify:formal` runs all three packages sequentially after the documented checker setup. Each package checks its declared bounds, actual-code witnesses, and deliberate source mutations. Read the package contract before advancing a source synchronization record. A bounded model pass does not prove every implementation trace or physical audio behavior.
+
 ## Keep the handoff current
 
 ### Build from canonical MusicXML

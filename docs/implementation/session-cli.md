@@ -45,6 +45,8 @@ node --import tsx --test lib/remote-performance/tests/session-cli.test.ts
 npm run typecheck
 ```
 
+If the desk remains stopping with an unconfirmed-cleanup diagnostic, do not repeatedly Enable audio or treat a page reload as device cleanup. A startup that requested a child but never received its handle remains uncertain even if delegated cleanup returned. Use the configured managed-service recovery and confirm the entire owned process group has exited before starting again. This conservative state can also follow an ambiguous spawn failure; it is not an automatic restart path.
+
 Actual systemd group cleanup and physical audio-device release require the verified deployment handoff on an explicitly assigned idle host.
 
 ## Managed ALSA admission

@@ -1,0 +1,24 @@
+---
+title: "Native audio ownership and cancellation"
+---
+stateDiagram-v2
+  s0: Audio off
+  s1: Opening audio
+  s2: Stopping audio
+  s3: Audio fault
+  s4: Launch ownership uncertain
+  s5: Audio ready
+  s6: Cleanup unconfirmed
+  [*] --> s0
+  s0 --> s1: Enable audio
+  s1 --> s2: Terminate audio
+  s1 --> s3: No child was requested or Child exit confirmed
+  s1 --> s4: Unresolved launch retained
+  s2 --> s0: No child was requested or Child exit confirmed
+  s2 --> s4: Unresolved launch retained
+  s1 --> s5: Stopped readback verified
+  s5 --> s2: Terminate audio
+  s1 --> s6: Exit cannot be confirmed
+  s2 --> s6: Exit cannot be confirmed
+  s5 --> s3: Child exit confirmed
+  s5 --> s6: Exit cannot be confirmed

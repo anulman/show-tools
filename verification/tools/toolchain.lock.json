@@ -1,0 +1,14 @@
+{
+  "java": {
+    "version": "25.0.5+8.0.LTS",
+    "url": "https://github.com/adoptium/temurin25-binaries/releases/download/jdk-25.0.5%2B8/OpenJDK25U-jre_aarch64_mac_hotspot_25.0.5_8.tar.gz",
+    "sha256": "72ebd76b502c849e88dea39afae51baf5f82f2b5b1b6389c28ea707b20451bce",
+    "archive": "OpenJDK25U-jre_aarch64_mac_hotspot_25.0.5_8.tar.gz",
+    "size": 56298727
+  },
+  "tlc": {
+    "version": "1.7.4",
+    "url": "https://github.com/tlaplus/tlaplus/releases/download/v1.7.4/tla2tools.jar",
+    "sha256": "936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88"
+  }
+}
