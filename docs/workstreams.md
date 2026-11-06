@@ -36,6 +36,12 @@ Separate portable control/light state from device-specific IO. Evaluate what can
 
 Plan artifact: `docs/plans/elitedesk-peripherals.md`.
 
+### Hardware Manager and EliteDesk IT
+
+Hardware Manager owns physical-installation coordination and operator hardware decisions. Hardware - EliteDesk owns the on-device agent handoff, read-only Proxmox inventory, storage planning, native device hosting, and deployment recovery. Performance Engine retains shared C++ semantics, ABI, song compilation, and clock-contract ownership. Chief selects reviewed integration artifacts. The [inventory procedure](operations/elitedesk-inventory.md) and [native-host handoff](operations/elitedesk-handoff.md) record this split and the current implementation gaps.
+
+The operator's November 5 milestone is a locally served performance desk reachable from a laptop or phone, with controls forwarded to the EliteDesk and all audio processing on the EliteDesk. This supersedes the earlier requirement to host the web UI elsewhere. Browser WASM practice remains available as a separate local-audio mode. Remote attachment must not create browser audio, reset the shared host, or replace its applied settings with browser defaults. The operator authorizes autonomous development through merge. Actual dry-monitor takeover and live-device changes retain their concrete approval boundary.
+
 ## Video Assistant
 
 Analyze both character-ideas PDFs visually with the PDF skill before making character-specific claims:
@@ -67,7 +73,8 @@ Review the published plans through their [GitHub PRs](plan-review.md). GitHub co
 | --- | --- |
 | Show tools · Filters & patches | `01a1725c-d20e-7710-a36c-977d4943a5ff` |
 | Show tools · Performance Engine | `01a1725c-da47-7851-8a43-354e7a51f7af` |
-| Show tools · EliteDesk hosting | `01a1725c-dd77-7973-88da-86743f86a5b3` |
+| Show tools · Hardware Manager | `01a1725c-dd77-7973-88da-86743f86a5b3` |
+| Show tools · Hardware - EliteDesk | `01a1ae25-c959-74e2-aeb9-561f64516886` |
 | Show tools · Video Assistant | `01a17a72-c840-7363-837f-a04c3269351b` |
 
 Use these IDs for explicit cross-session coordination. They are not native ABI identifiers or repository configuration.
