@@ -120,10 +120,19 @@ run.addEventListener('click', () => {
     select('Scale', 'chromatic');
     await until(() => audio.tuner.snapshot().targets.length === 13 && document.querySelector('.tuner-dial')?.getAttribute('data-notches') === '13',
       'Chromatic targets did not reach the dial');
+    await until(() => {
+      const current = audio.tuner.snapshot();
+      return current.pitch.kind === 'pitched' && current.pitch.note.midi === 48
+        && document.querySelector('.tuner-dial')?.getAttribute('data-hit') === '0';
+    }, 'Chromatic C3 did not reach the dial after detector warming');
     check(document.querySelector('.tuner-dial')?.getAttribute('data-hit') === '0', 'The chromatic dial uses the native C3 target without octave wrapping');
     select('Scale', 'major');
-    await until(() => audio.tuner.snapshot().targets.length === 8 && document.querySelector('.tuner-dial')?.getAttribute('data-hit') === '0',
-      'Major targets did not return to the dial');
+    await until(() => {
+      const current = audio.tuner.snapshot();
+      const dial = document.querySelector('.tuner-dial');
+      return current.targets.length === 8 && current.pitch.kind === 'pitched' && current.pitch.note.midi === 48
+        && dial?.getAttribute('data-notches') === '8' && dial.getAttribute('data-hit') === '0';
+    }, 'Major C3 did not return to the dial after detector warming');
     check(contexts === 1 && acquisitions === 1, 'Listening acquires the microphone through the existing session once');
     if (new URLSearchParams(location.search).has('review')) {
       const resume = document.createElement('button');
