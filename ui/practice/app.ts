@@ -24,6 +24,8 @@ import { keyboardFocusBlocksShortcut } from './keyboard-focus.js';
 import { takePresentation } from './take-presentation.js';
 import { createPeripheralInput, peripheralCommandId } from './peripheral-input.js';
 import type { PeripheralInput } from './peripheral-input.js';
+import { mountTuner, type TunerPanel } from '../tuner/panel.js';
+import type { TunerPort } from '../../lib/tuner/model.js';
 
 function requiredElement<T extends Element>(selector: string, constructor: { new(): T }, root: ParentNode = document): T {
   const element = root.querySelector(selector);
@@ -100,6 +102,10 @@ const mode = audioMode(new URL(location.href));
 const remote = mode === 'hardware';
 type PerformanceSession = PracticeAudio | RemoteSession;
 let audio: PerformanceSession | undefined;
+let tunerPanel: TunerPanel | undefined;
+let tunerSession: PerformanceSession | undefined;
+let tunerPort: TunerPort | undefined;
+const tunerDialog = requiredElement('#tuner-dialog', HTMLDialogElement);
 let remoteDesk: RemoteDesk | undefined;
 let preparing: Promise<PerformanceSession> | null = null;
 let starting = false;
@@ -193,6 +199,52 @@ async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[])
   }).finally(() => { preparing = null; render(state); });
   return preparing;
 }
+
+function sharedTuner(instance: PerformanceSession): TunerPort {
+  return {
+    snapshot: () => instance.tuner.snapshot(),
+    subscribe: listener => instance.tuner.subscribe(listener),
+    command: command => {
+      if (instance !== audio) return Promise.reject(new Error('The audio session changed. Reconnect the tuner.'));
+      if (command.kind !== 'close' && command.kind !== 'silence' && (isRunning() || starting || outputCapture !== 'idle'))
+        return Promise.reject(new Error('Stop practice and finish the demo recording before using the tuner.'));
+      return instance.tuner.command(command);
+    },
+  };
+}
+
+function syncTunerSession() {
+  if (!tunerPanel || tunerSession === audio) return;
+  tunerSession = audio;
+  tunerPort = audio ? sharedTuner(audio) : undefined;
+  tunerPanel.setSession(tunerPort ?? null);
+}
+
+requiredElement('#open-tuner', HTMLButtonElement).addEventListener('click', () => {
+  if (tunerDialog.open) return;
+  tunerPanel = mountTuner(requiredElement('#tuner-root', HTMLElement), {
+    connect: async () => {
+      if (isRunning() || starting || outputCapture !== 'idle') throw new Error('Stop practice and finish the demo recording before using the tuner.');
+      const instance = await ensureAudio();
+      if (instance !== audio) throw new Error('The audio session changed. Reconnect the tuner.');
+      tunerSession = instance;
+      tunerPort = sharedTuner(instance);
+      return tunerPort;
+    },
+  });
+  tunerSession = undefined;
+  syncTunerSession();
+  tunerDialog.showModal();
+});
+requiredElement('#close-tuner', HTMLButtonElement).addEventListener('click', () => {
+  void act(async () => {
+    await tunerPanel?.close();
+    tunerPanel = undefined;
+    tunerSession = undefined;
+    tunerPort = undefined;
+    tunerDialog.close();
+  });
+});
 
 function controlName(id: ChannelId): string {
   return song?.compiled?.parts.find(part => part.role.kind === 'pad' && part.role.buttonId === id)?.name || chart?.controlNames[id] || id;
@@ -447,6 +499,7 @@ elements['audio-mode-select'].addEventListener('change', () => {
 });
 
 function render(next: Partial<PracticeState>) {
+  syncTunerSession();
   const ended = next.phase === 'ended' && state.phase !== 'ended';
   state = { ...state, ...next };
   beginOutputRecording(state.phase);

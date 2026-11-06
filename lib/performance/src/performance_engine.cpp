@@ -1,6 +1,7 @@
 #include "performance_engine.h"
 #include "patch_engine.h"
 #include "compiled_program.h"
+#include "tuner.h"
 #include <cstddef>
 #include <limits>
 #include <algorithm>
@@ -59,6 +60,7 @@ struct EffectProfile {
   uint32_t count = 0, revision = 0;
 };
 struct pf_engine {
+  std::unique_ptr<tuner::Engine> tuning;
   bt_tracker* tracker = nullptr;
   st_engine* sampler = nullptr;
   sq_engine* sequencer = nullptr;
@@ -194,6 +196,7 @@ void emit(pf_engine* engine, int type, double when = -1, int applied = -1, int c
   for (int id = 0; id < PF_CHANNELS; ++id) pf_channel_info(engine, id, event + PF_EVENT_CHANNELS + id * PF_CHANNEL_FIELDS);
 }
 void silence(pf_engine* engine, int reason = 3) {
+  if (engine->tuning) engine->tuning->close();
   engine->cue_button_held = false;
   if (engine->compiled) engine->compiled->stop();
   clear_live(engine);
@@ -415,6 +418,7 @@ pf_engine* pf_create(double rate, int mode, int voices, double seconds, int beat
   pf_engine* engine = new (std::nothrow) pf_engine;
   if (!engine) return nullptr;
   engine->rate = rate; engine->mode = mode; engine->beats_per_bar = beats_per_bar; engine->max_seconds = seconds;
+  engine->tuning.reset(new (std::nothrow) tuner::Engine(rate));
   engine->tracker = bt_create(rate);
   engine->sampler = st_create(rate, voices, 8, seconds);
   if (engine->sampler) engine->sequencer = sq_create(engine->sampler, beats_per_bar);
@@ -431,7 +435,7 @@ pf_engine* pf_create(double rate, int mode, int voices, double seconds, int beat
     }
     engine->clicks[accent][engine->click_length - 1] = 0;
   }
-  if (!engine->tracker || !engine->sampler || !engine->sequencer || !engine->song || !engine->song->cues || !engine->clicks[0] || !engine->clicks[1]) { pf_destroy(engine); return nullptr; }
+  if (!engine->tuning || !engine->tracker || !engine->sampler || !engine->sequencer || !engine->song || !engine->song->cues || !engine->clicks[0] || !engine->clicks[1]) { pf_destroy(engine); return nullptr; }
   return engine;
 }
 void pf_destroy(pf_engine* engine) {
@@ -569,6 +573,53 @@ void pf_stop(pf_engine* engine) {
   engine->phase = PF_IDLE; engine->count_remaining = 0;
   engine->error_code = PF_OK; engine->error = ""; silence(engine); emit(engine, PF_STATE);
 }
+int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected, int value, int scale) {
+  if (!engine || !engine->tuning) return -1;
+  if (engine->tuning->snapshot().commandRevision != expected) return fail(engine, PF_COMMAND_CONFLICT, "Tuner changed. Refresh its state and retry.");
+  if (command != PF_TUNER_CLOSE && command != PF_TUNER_SILENCE && running(engine)) return fail(engine, PF_ACTION_FAILED, "Stop the performance before using the tuner.");
+  bool applied = false;
+  switch (command) {
+    case PF_TUNER_CONFIGURE: applied = engine->tuning->configure(value, static_cast<tuner::Scale>(scale)); break;
+    case PF_TUNER_CUE: applied = engine->tuning->cue(); break;
+    case PF_TUNER_PLAY_SCALE: applied = engine->tuning->playScale(); break;
+    case PF_TUNER_SILENCE: applied = engine->tuning->silence(); break;
+    case PF_TUNER_CONFIRM: applied = engine->tuning->confirm(expected); break;
+    case PF_TUNER_LISTEN:
+      if (!flag(value) || (value && !engine->microphone)) return fail(engine, PF_MICROPHONE_REQUIRED);
+      applied = engine->tuning->setListening(value != 0); break;
+    case PF_TUNER_CLOSE: applied = engine->tuning->close(); break;
+    default: return fail(engine, PF_INVALID_PROGRAM, "Unknown tuner command");
+  }
+  if (!applied) return fail(engine, PF_INVALID_PROGRAM, "Invalid tuner command or scale selection");
+  engine->error_code = PF_OK; engine->error = "";
+  return 0;
+}
+int pf_audio_needed(const pf_engine* engine) {
+  if (!engine || !engine->tuning) return 0;
+  const auto state = engine->tuning->snapshot();
+  return running(engine) || state.listening || state.previewKind != tuner::PreviewKind::Silent;
+}
+void pf_tuner_info(const pf_engine* engine, double* out) {
+  if (!out) return;
+  std::fill(out, out + PF_TUNER_FIELDS, 0);
+  if (!engine || !engine->tuning) return;
+  const auto state = engine->tuning->snapshot();
+  const auto& pitch = state.detector;
+  out[PF_TUNER_REVISION] = state.commandRevision; out[PF_TUNER_ROOT] = state.rootMidi;
+  out[PF_TUNER_SCALE] = int(state.scale); out[PF_TUNER_STEP] = state.step; out[PF_TUNER_COUNT] = state.targetCount;
+  out[PF_TUNER_COMPLETE] = state.complete; out[PF_TUNER_LISTENING] = state.listening;
+  out[PF_TUNER_PREVIEW_KIND] = int(state.previewKind); out[PF_TUNER_PREVIEW_STEP] = state.previewStep;
+  out[PF_TUNER_PITCH_STATUS] = int(pitch.status); out[PF_TUNER_FREQUENCY] = pitch.frequency;
+  out[PF_TUNER_MIDI] = pitch.midi; out[PF_TUNER_CENTS] = pitch.cents; out[PF_TUNER_CONFIDENCE] = pitch.confidence;
+  out[PF_TUNER_RMS] = pitch.rms; out[PF_TUNER_ROUNDED_MIDI] = pitch.roundedMidi;
+  out[PF_TUNER_LETTER] = pitch.note.letter; out[PF_TUNER_ACCIDENTAL] = pitch.note.accidental;
+  out[PF_TUNER_OCTAVE] = pitch.note.octave; out[PF_TUNER_FRAME] = double(state.frameCount);
+  for (unsigned i = 0; i < state.targetCount; ++i) {
+    const auto& note = state.targets[i]; double* row = out + PF_TUNER_TARGETS + i * PF_TUNER_TARGET_FIELDS;
+    row[PF_TUNER_TARGET_MIDI] = note.midi; row[PF_TUNER_TARGET_LETTER] = note.letter;
+    row[PF_TUNER_TARGET_ACCIDENTAL] = note.accidental; row[PF_TUNER_TARGET_OCTAVE] = note.octave;
+  }
+}
 int pf_select(pf_engine* engine, int id) {
   if (!engine || !channel(id)) return fail(engine, PF_INVALID_CHANNEL);
   engine->selected = id; engine->error_code = PF_OK; engine->error = ""; emit(engine, PF_STATE); return 0;
@@ -597,6 +648,7 @@ int pf_set_microphone(pf_engine* engine, int enabled) {
   if (!engine || !flag(enabled)) return fail(engine, PF_INVALID_PROGRAM, "Microphone state must be boolean");
   engine->microphone = enabled;
   if (!enabled) {
+    engine->tuning->close();
     if (engine->compiled) engine->compiled->microphone_lost();
     clear_live(engine);
     for (int id = 0; id < ST_CHANNELS; ++id) sq_cancel_recording(engine->sequencer, id);
@@ -844,6 +896,8 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
   unsigned block = unsigned(std::max(1.0, std::min(1024.0, std::floor(engine->rate * 0.25))));
   for (unsigned offset = 0; offset < frames;) {
     unsigned length = std::min(block, frames - offset), cursor = 0;
+    engine->tuning->process(input ? input + offset : nullptr, left ? left + offset : nullptr,
+      right ? right + offset : nullptr, length, engine->microphone);
     double start = engine->processed;
     bt_process(engine->tracker, input ? input + offset : nullptr, length);
     double events[64 * BT_E_COUNT]; unsigned count;

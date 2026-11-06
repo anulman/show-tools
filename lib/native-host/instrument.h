@@ -20,6 +20,7 @@ public:
   bool prepare(const uint8_t* packet, uint32_t bytes, const Profiles& profiles);
   bool prepare_profiles(const Profiles& profiles);
   bool start(const Start& start);
+  bool can_start() const;
   void stop();
   int control(int id, double value);
   int select(int channel);
@@ -28,6 +29,8 @@ public:
   int set_click(int enabled);
   int set_click_gain(double gain);
   int set_jiggle_thresholds(double travel, double reversal);
+  int tuner(int operation, uint32_t expected_revision, int value, int scale);
+  bool audio_needed() const;
   int render(const float* input, uint32_t frames);
   int64_t write(AudioPump::Write sink, void* context);
   Lifecycle lifecycle() const;
@@ -39,6 +42,7 @@ private:
   Lifecycle lifecycle_ = Lifecycle::Stopped;
   Engine engine_{nullptr, pf_destroy};
   std::unique_ptr<AudioPump> pump_;
+  bool utility_output_ = false;
 };
 }
 #endif

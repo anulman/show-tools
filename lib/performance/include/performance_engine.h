@@ -22,7 +22,15 @@ enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_A
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
   PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
   PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 8, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 10, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+enum pf_tuner_command { PF_TUNER_CONFIGURE = 0, PF_TUNER_CUE = 1, PF_TUNER_CONFIRM = 2, PF_TUNER_LISTEN = 3, PF_TUNER_CLOSE = 4, PF_TUNER_PLAY_SCALE = 5, PF_TUNER_SILENCE = 6 };
+enum pf_tuner_field { PF_TUNER_REVISION, PF_TUNER_ROOT, PF_TUNER_SCALE, PF_TUNER_STEP, PF_TUNER_COUNT,
+  PF_TUNER_COMPLETE, PF_TUNER_LISTENING, PF_TUNER_PREVIEW_KIND, PF_TUNER_PITCH_STATUS,
+  PF_TUNER_FREQUENCY, PF_TUNER_MIDI, PF_TUNER_CENTS, PF_TUNER_CONFIDENCE, PF_TUNER_RMS,
+  PF_TUNER_ROUNDED_MIDI, PF_TUNER_LETTER, PF_TUNER_ACCIDENTAL, PF_TUNER_OCTAVE, PF_TUNER_FRAME,
+  PF_TUNER_PREVIEW_STEP, PF_TUNER_TARGETS, PF_TUNER_FIELDS = 72 };
+enum pf_tuner_target_field { PF_TUNER_TARGET_MIDI, PF_TUNER_TARGET_LETTER, PF_TUNER_TARGET_ACCIDENTAL,
+  PF_TUNER_TARGET_OCTAVE, PF_TUNER_TARGET_FIELDS };
 enum pf_compiled_limits { PF_COMPILED_MAGIC = 0x50464331, PF_COMPILED_VERSION = 6, PF_COMPILED_HEADER_FIELDS = 16, PF_COMPILED_TAKE_FIELDS = 9, PF_COMPILED_CUE_FIELDS = 11, PF_COMPILED_MEMBER_FIELDS = 3, PF_COMPILED_PLAYBACK_FIELDS = 3, PF_COMPILED_MAX_TAKES = 32, PF_COMPILED_ROTATION_MAGIC = 0x50465231, PF_COMPILED_ROTATION_HEADER_FIELDS = 3, PF_COMPILED_ROTATION_FIELDS = 4, PF_COMPILED_WINDOW_MAGIC = 0x50465731, PF_COMPILED_WINDOW_HEADER_FIELDS = 2, PF_COMPILED_WINDOW_FIELDS = 4 };
 enum pf_compiled_take_field { PF_TAKE_VOICE, PF_TAKE_READY, PF_TAKE_LENGTH, PF_TAKE_CAPACITY, PF_TAKE_REVISION, PF_TAKE_PHASE, PF_TAKE_PLAYBACK_STATE, PF_TAKE_PERIOD, PF_TAKE_SOURCE_END, PF_TAKE_SELECTION, PF_TAKE_FIELDS };
 enum pf_tempo_field { PF_TEMPO_COUNT, PF_TEMPO_FRAME, PF_TEMPO_HINT, PF_TEMPO_SOURCE, PF_TEMPO_ESTIMATED, PF_TEMPO_BPM, PF_TEMPO_FIELDS };
@@ -90,6 +98,12 @@ void pf_tempo_info(const pf_engine* engine, double* out);
 int pf_clock_command(pf_engine* engine, int type, double value, double frame, double client_sequence, double epoch);
 int pf_start(pf_engine* engine, double bpm, int count_in_bars, int start_bar, int end_bar, int loop, int automatic);
 void pf_stop(pf_engine* engine);
+/* Tuning borrows this engine's existing audio session while transport is stopped.
+   Every mutation names the last observed control revision. Pitch telemetry does
+   not advance it. Close/Start/Stop/Panic invalidate earlier tuner controls. */
+int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected_revision, int value, int scale);
+void pf_tuner_info(const pf_engine* engine, double* out);
+int pf_audio_needed(const pf_engine* engine);
 /* IDs preserve JavaScript UTF-16 code-unit identity, including embedded NULs.
    Null pointer with zero length means no ID. Other IDs contain 1..200 units. */
 /* Controls 0..3 pads, 4 Panic, 5 signed relative jiggle, 6 tempo hit,

@@ -154,6 +154,8 @@ Use this starting brief for a new session.
 
 ## Verify and report the changed behavior
 
+For [the shared-session tuner](implementation/tuner.md), run the native and WASM tuner tests, then build the desk and run `node --import tsx scripts/build-tuner-check.ts`. Open `/tuner-check/index.html?test=1` on the isolated static server and click **Run shared tuner checks**. This fixture supplies synthetic C3 input through the desk's own context and counts context creation and microphone acquisition. Verify the displayed result in a real browser. It does not test an installed microphone. Include tuner changes in native release source-equivalence checks and Linux CI triggers.
+
 Build the fake native host at `build/native-host/native_fake_host` before `npm test`, or set `NATIVE_FAKE_HOST` to its built path. The default suite includes the real native IPC vertical test and fails if the executable is missing. Run the common checks from the worktree root.
 
 ```sh

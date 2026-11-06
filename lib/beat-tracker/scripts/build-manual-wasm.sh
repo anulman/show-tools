@@ -22,9 +22,9 @@ node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$performance_dir/
 exports="$(node --import tsx "$repo_dir/scripts/wasm-exports.ts" "$module_dir/include/beat_tracker.h" "$sampler_dir/include/sample_engine.h" "$sequencer_dir/include/audio_sequence_engine.h" "$performance_dir/include/performance_engine.h")"
 
 em++ -O3 -std=c++17 -fno-exceptions -DBT_MANUAL_ONLY \
-    -I"$module_dir/include" -I"$sampler_dir/include" -I"$sequencer_dir/include" -I"$performance_dir/include" -I"$patches_dir/include" \
+    -I"$module_dir/include" -I"$sampler_dir/include" -I"$sequencer_dir/include" -I"$performance_dir/include" -I"$patches_dir/include" -I"$performance_dir/../tuner/include" \
     "$module_dir/src/beat_tracker.cpp" "$module_dir/src/beat_clock.cpp" "$module_dir/src/tempo_follower.cpp" \
-    "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$performance_dir/src/compiled_program.cpp" "$patches_dir/src/patch_engine.cpp" \
+    "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$performance_dir/src/compiled_program.cpp" "$patches_dir/src/patch_engine.cpp" "$performance_dir/../tuner/src/tuner.cpp" \
     --no-entry -sSTANDALONE_WASM=1 -sFILESYSTEM=0 -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 \
     -sINITIAL_MEMORY=268435456 -sSTACK_SIZE=1048576 \
     "-sEXPORTED_FUNCTIONS=$exports" \

@@ -51,3 +51,16 @@ test('jiggle configuration encodes bounded ordered raw-count thresholds', () => 
 	for (const [minimumTravel, minimumReversal] of [[0, 1], [4, 0], [4, 5], [4.5, 2], [32768, 2], [Infinity, 2]])
 		assert.throws(() => encodeCommand({ command: 'configureJiggle', args: { minimumTravel, minimumReversal } }, state));
 });
+
+test('tuner commands carry native revision and validate control inputs before encoding', () => {
+  const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'run', String);
+  const encoded = encodeCommand({ command: 'tuner', args: { kind: 'configure', root: 60, scale: 'natural-minor', expectedRevision: 0xffffffff } }, state);
+  assert.equal(encoded.readUInt16LE(), 13);
+  assert.deepEqual(Array.from({ length: 4 }, (_, index) => encoded.readDoubleLE(2 + index * 8)), [0, 0xffffffff, 60, 1]);
+  for (const args of [
+    { kind: 'cue', expectedRevision: -1 },
+    { kind: 'listen', expectedRevision: 0, enabled: 1 },
+    { kind: 'configure', root: 116, scale: 'major', expectedRevision: 0 },
+    { kind: 'confirm', expectedRevision: 0x100000000 },
+  ]) assert.throws(() => encodeCommand({ command: 'tuner', args }, state));
+});

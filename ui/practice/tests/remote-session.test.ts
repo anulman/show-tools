@@ -1,3 +1,4 @@
+import { tunerFixture } from '../../../lib/remote-performance/tests/tuner-fixture.js';
 import { lightFixture } from '../../../lib/remote-performance/tests/light-fixture.js';
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
@@ -9,7 +10,7 @@ const state = { phase: 'idle', bar: null, beat: null, countInRemaining: 0, bpm: 
   automatic: false, click: false, selectedChannel: 'L1', runId: 'run', seq: 0,
   channels: ['L1', 'L2', 'R1', 'R2'].map(id => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })),
   looping: [], recording: null, microphone: false, error: null };
-const performance = { hostEpoch: 'host', revision: '1', state, lights: lightFixture() };
+const performance = { hostEpoch: 'host', revision: '1', state, tuner: tunerFixture(), lights: lightFixture() };
 const off = { serverEpoch: 'server', revision: '1', song, audio: { kind: 'off' } };
 const ready = { ...off, revision: '3', audio: { kind: 'ready', attempt: 'attempt', performance } };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -136,4 +137,26 @@ test('opening an already playing desk observes current state without changing au
     await assert.rejects(desk.terminateAudio(), /disconnected/);
     assert.deepEqual(requests, ['GET /api/session', 'GET /api/events']);
   } finally { await desk.dispose(); globalThis.fetch = previous; }
+});
+
+
+test('tuner telemetry publishes independently of practice state and invalidation fences commands', async () => {
+  await fixture(async ({ desk, publish, calls }) => {
+    await publish({ type: 'desk', view: ready });
+    const session = desk.performance();
+    const seen: boolean[] = [];
+    session.tuner.subscribe(value => seen.push(value.listening));
+    const tuner = { ...performance.tuner, revision: 1, listening: true, pitch: { kind: 'unvoiced' } };
+    await publish({ type: 'native', serverEpoch: 'server', revision: '4', attempt: 'attempt', performance: { ...performance, revision: '4', tuner } });
+    assert.deepEqual(seen, [false, true]);
+    assert.equal(session.snapshot().phase, 'idle');
+    assert.equal(session.tuner.snapshot().revision, 1);
+    await session.tuner.command({ kind: 'listen', expectedRevision: 1, enabled: false });
+    assert.equal(calls.at(-1)?.body.command, 'tuner');
+    assert.deepEqual(calls.at(-1)?.body.args, { kind: 'listen', expectedRevision: 1, enabled: false });
+    await publish({ type: 'desk', view: { ...off, revision: '5' } });
+    await assert.rejects(session.tuner.command({ kind: 'cue', expectedRevision: 1 }), /stale/);
+    assert.throws(() => session.tuner.snapshot(), /stale/);
+    assert.throws(() => session.tuner.subscribe(() => {}), /stale/);
+  });
 });

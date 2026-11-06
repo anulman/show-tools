@@ -35,7 +35,7 @@ const reviewedIdentity = commitIdentity(options['reviewed-revision'] ?? sourceRe
 if (sourceIdentity.tree !== reviewedIdentity.tree) throw new Error('Reviewed revision and release source have different trees');
 const nativeRevision = Schema.decodeUnknownSync(revisionString)((await readFile(join(native, 'source-revision.txt'), 'utf8')).trim());
 execFileSync('git', ['diff', '--exit-code', nativeRevision, sourceRevision, '--', 'lib/native-host', 'lib/native-alsa',
-  'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches'], { cwd: root, stdio: 'pipe' });
+  'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches', 'lib/tuner'], { cwd: root, stdio: 'pipe' });
 const nativeFiles: string[] = [];
 for (const line of (await readFile(join(native, 'SHA256SUMS'), 'utf8')).trim().split('\n')) {
   const match = /^([a-f0-9]{64})  ([A-Za-z0-9_.-]+)$/.exec(line);
@@ -69,7 +69,7 @@ for (const name of ['manual-clock-build.json', 'manual-clock-compiler.txt']) awa
 await buildSessionBundles(root, output);
 const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
 const reviewSources = new Set(git('ls-files', '-z', '--', 'lib/remote-performance', 'lib/native-host', 'lib/native-alsa',
-  'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches', 'scripts/build-session-release.ts',
+  'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches', 'lib/tuner', 'scripts/build-session-release.ts',
   'scripts/session-bundles.ts', 'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
   'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', '.github/workflows/native-host.yml',
   'package.json', 'package-lock.json').split('\0').filter(Boolean));

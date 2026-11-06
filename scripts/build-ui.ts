@@ -42,6 +42,9 @@ async function copyAssets(directory: string): Promise<void> {
   }
 }
 await copyAssets(resolve(root, 'ui/practice'));
+await cp(resolve(root, 'ui/tuner/panel.css'), resolve(output, 'ui/practice/tuner.css'));
+const index = resolve(output, 'ui/practice/index.html');
+await writeFile(index, (await readFile(index, 'utf8')).replace('href="../tuner/panel.css"', 'href="./tuner.css"'));
 await mkdir(resolve(output, 'ui/practice/wasm'), { recursive: true });
 await cp(resolve(root, 'ui/practice/wasm/manual-clock.wasm'), resolve(output, 'ui/practice/wasm/manual-clock.wasm'));
 await cp(resolve(root, 'node_modules/sql.js/dist/sql-wasm.wasm'), resolve(root, 'ui/practice/wasm/sql-wasm.wasm'));
@@ -65,7 +68,7 @@ for (const name of (await readdir(resolve(root, 'songs'))).filter(name => name.e
 const browserFiles = Object.keys(result.metafile.outputs).filter(path => path.endsWith('.js') && !path.endsWith('/sw.js')).map(path => '/' + relative(output, resolve(root, path)).replaceAll('\\', '/'));
 const worker = resolve(output, 'ui/practice/sw.js');
 const offlineFiles = [...browserFiles, ...songFiles, '/ui/practice/index.html', '/ui/practice/style.css', '/ui/practice/icon.svg',
-  '/ui/practice/manifest.webmanifest', '/ui/practice/voice-library.css', '/ui/practice/wasm/sql-wasm.wasm', ...avatarFiles, '/ui/practice/wasm/manual-clock.wasm'].sort();
+  '/ui/practice/manifest.webmanifest', '/ui/practice/voice-library.css', '/ui/practice/tuner.css', '/ui/practice/wasm/sql-wasm.wasm', ...avatarFiles, '/ui/practice/wasm/manual-clock.wasm'].sort();
 const offlineHash = createHash('sha256');
 for (const path of offlineFiles) {
   offlineHash.update(path).update('\0').update(await readFile(resolve(output, '.' + path))).update('\0');

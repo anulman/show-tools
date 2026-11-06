@@ -1,4 +1,6 @@
 import { Schema } from 'effect';
+import { TunerCommandSchema } from '../tuner/schema.js';
+import { tunerCommandValues } from '../tuner/observation.js';
 import { CONTROL_IDS, type PracticeState, type VoiceEffectsState } from '../performance/model.js';
 import { PF } from '../performance/wasm-abi.js';
 
@@ -9,6 +11,7 @@ const Effect = Schema.Union([
 	Schema.Struct({ kind: Schema.Literal('chorus'), rateHz: Finite, depthMs: Finite, baseDelayMs: Finite, wet: Finite }),
 ]);
 const Commands = Schema.Union([
+	Schema.Struct({ command: Schema.Literal('tuner'), args: TunerCommandSchema }),
 	Schema.Struct({ command: Schema.Literal('configureJiggle'), args: Schema.Struct({ minimumTravel: Finite, minimumReversal: Finite }) }),
 	Schema.Struct({ command: Schema.Literal('start'), args: Schema.Struct({ bpm: Schema.optionalKey(Finite), countInBars: Schema.optionalKey(Schema.Int), startBar: Schema.optionalKey(Schema.Int), endBar: Schema.optionalKey(Schema.Int), loop: Schema.optionalKey(Schema.Boolean), automatic: Schema.optionalKey(Schema.Boolean), runId: Schema.optionalKey(Schema.String) }) }),
 	Schema.Struct({ command: Schema.Literal('stop'), args: Schema.Struct({}) }),
@@ -79,6 +82,7 @@ export function encodeInitialProfiles(configurations: unknown) {
 export function encodeCommand(input: unknown, state: PracticeState) {
 	const command = decode(input);
 	switch (command.command) {
+		case 'tuner': return numeric(13, [...tunerCommandValues(command.args)]);
 		case 'configureJiggle': {
 			const { minimumTravel, minimumReversal } = command.args;
 			if (!Number.isInteger(minimumTravel) || !Number.isInteger(minimumReversal) || minimumTravel < 1 || minimumTravel > 32767 || minimumReversal < 1 || minimumReversal > minimumTravel) throw new Error('Invalid jiggle thresholds');
