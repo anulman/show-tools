@@ -1,6 +1,7 @@
 import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
-import { decodeBootstrap, decodePublication, decodeResult } from './remote-schema.js';
-import type { ChannelId, ChannelSettings, Control, PracticeEvent, PracticeState, SongScript, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
+import { decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome } from './remote-schema.js';
+import type { DeskView, NativePerformance, NativeTarget } from '../../lib/remote-performance/session-schema.js';
+import type { ChannelId, ChannelSettings, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -8,52 +9,55 @@ async function readJson(response: Response): Promise<unknown> {
   return JSON.parse(text);
 }
 
-export class RemoteSession {
-  readonly listeners = new Set<(state: PracticeState) => void>();
-  readonly eventListeners = new Set<(event: PracticeEvent) => void>();
-  readonly abort = new AbortController();
-  readonly outputStream = undefined;
-  readonly monitoringRelationship = 'unknown' as const;
+export class RemoteDesk {
+  private readonly listeners = new Set<(view: DeskView) => void>();
+  private readonly abort = new AbortController();
   private sequence = 0;
-  private disposed = false;
   private connected = false;
-  private revision: bigint;
-  private constructor(readonly token: string, readonly sessionId: string, readonly hostEpoch: string, revision: string, public song: SongScript, private latest: PracticeState) { this.revision = BigInt(revision); }
-  static async create(token: string) {
+  private disposed = false;
+  private endpoint: RemoteSession | undefined;
+  private constructor(private readonly token: string, private readonly sessionId: string, private latest: DeskView) { this.updateEndpoint(); }
+  static async connect(token: string) {
     const response = await fetch('/api/session', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
-    if (!response.ok) throw new Error(`Remote session failed (${response.status})`);
-    const bootstrap = decodeBootstrap(await readJson(response));
-    const session = new RemoteSession(token, bootstrap.sessionId, bootstrap.hostEpoch, bootstrap.revision, bootstrap.song, bootstrap.state);
-    return session;
+    if (!response.ok) throw new Error(`Remote desk failed (${response.status})`);
+    const bootstrap = decodeDeskBootstrap(await readJson(response));
+    return new RemoteDesk(token, bootstrap.sessionId, bootstrap.view);
   }
-  get microphone() { return this.latest.microphone; }
   snapshot() { return this.latest; }
-  subscribe(listener: (state: PracticeState) => void) { this.listeners.add(listener); listener(this.latest); return () => this.listeners.delete(listener); }
-  onEvent(listener: (event: PracticeEvent) => void) { this.eventListeners.add(listener); return () => this.eventListeners.delete(listener); }
-  private publish(state: PracticeState) { this.latest = state; for (const listener of this.listeners) listener(state); }
-  private disconnect(error: string) {
-    this.connected = false;
-    this.abort.abort();
-    if (!this.disposed) this.publish({ ...this.latest, error });
+  subscribe(listener: (view: DeskView) => void) { this.listeners.add(listener); listener(this.latest); return () => this.listeners.delete(listener); }
+  performance() {
+    if (!this.connected || !this.endpoint) throw new Error('Hardware audio is unavailable. Enable audio and wait for ready.');
+    return this.endpoint;
   }
-  private observe(hostEpoch: string, revision: string, state: PracticeState) {
-    if (hostEpoch !== this.hostEpoch) throw new Error('Remote host changed. Refresh to reconnect.');
-    const next = BigInt(revision);
-    if (next <= this.revision) return false;
-    this.revision = next;
-    this.publish(state);
-    return true;
+  private updateEndpoint() {
+    const audio = this.latest.audio;
+    if (audio.kind !== 'ready') { this.endpoint?.invalidate(); this.endpoint = undefined; return; }
+    if (!this.endpoint?.matches({ attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch })) {
+      this.endpoint?.invalidate();
+      this.endpoint = new RemoteSession(this, { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch }, audio.performance);
+    } else this.endpoint.observe(audio.performance);
   }
-  async listen(onSong: (song: SongScript) => void = () => {}) {
+  private observe(view: DeskView) {
+    if (view.serverEpoch !== this.latest.serverEpoch) throw new Error('Desk server restarted. Reconnect to the desk.');
+    if (BigInt(view.revision) < BigInt(this.latest.revision)) return;
+    this.latest = view; this.updateEndpoint();
+    for (const listener of this.listeners) listener(view);
+  }
+  private disconnect(error: unknown) {
+    this.connected = false; this.endpoint?.invalidate(); this.endpoint = undefined; this.abort.abort();
+    if (!this.disposed) { this.latest = { ...this.latest, audio: { kind: 'fault', error: error instanceof Error ? error.message : String(error) } }; for (const listener of this.listeners) listener(this.latest); }
+  }
+  async listen() {
     try {
       const response = await fetch('/api/events', { headers: { Authorization: `Bearer ${this.token}`, 'X-Session-Id': this.sessionId }, signal: this.abort.signal, cache: 'no-store' });
       if (!response.ok || !response.body) throw new Error(`Remote events failed (${response.status})`);
       this.connected = true;
+      this.observe(this.latest);
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let pending = '';
       for (;;) {
         const { value, done } = await reader.read();
-        if (done) throw new Error('Remote connection closed. Refresh to reconnect.');
+        if (done) throw new Error('Remote connection closed. Reconnect to the desk.');
         pending = (pending + value).replace(/\r\n/g, '\n');
         if (pending.length > 8 * 1024 * 1024) throw new Error('Remote event frame is too large.');
         let end: number;
@@ -61,38 +65,73 @@ export class RemoteSession {
           const frame = pending.slice(0, end); pending = pending.slice(end + 2);
           const data = frame.split('\n').filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
           if (!data) continue;
-          const publication = decodePublication(JSON.parse(data));
-          if (publication.type === 'gap') throw new Error('Remote events were lost. Refresh to reconnect.');
-          if (publication.type === 'event') { for (const listener of this.eventListeners) listener(publication.event); }
-          else {
-            const current = BigInt(publication.revision) >= this.revision;
-            this.observe(publication.hostEpoch, publication.revision, publication.state);
-            if (current && publication.type === 'session') { this.song = publication.song; onSong(publication.song); }
+          const publication = decodeDeskPublication(JSON.parse(data));
+          if (publication.type === 'gap') throw new Error('Remote events were lost. Reconnect to the desk.');
+          if (publication.type === 'desk') this.observe(publication.view);
+          else if (publication.type === 'event') {
+            if (this.latest.audio.kind === 'ready' && publication.attempt === this.latest.audio.attempt) this.endpoint?.event(publication.event);
+          } else {
+            if (publication.serverEpoch !== this.latest.serverEpoch) throw new Error('Desk server restarted. Reconnect to the desk.');
+            const audio = this.latest.audio;
+            if (audio.kind === 'ready' && audio.attempt === publication.attempt && audio.performance.hostEpoch === publication.performance.hostEpoch)
+              this.observe({ ...this.latest, revision: publication.revision, audio: { ...audio, performance: publication.performance } });
           }
         }
       }
-    } catch (error) {
-      if (!this.disposed) this.disconnect(error instanceof Error ? error.message : String(error));
-    }
+    } catch (error) { if (!this.disposed) this.disconnect(error); }
   }
-  private async command(command: string, args: object = {}) {
-    if (this.disposed || !this.connected) throw new Error('Remote session is disconnected. Refresh to reconnect.');
-    let response: Response;
-    try {
-      response = await fetch('/api/command', { method: 'POST', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId: this.sessionId, sequence: ++this.sequence, command, args }) });
-    } catch (error) { this.disconnect('Remote command outcome unknown. Refresh to reconnect.'); throw new Error('Remote command outcome unknown. Refresh to reconnect.', { cause: error }); }
-    if (!response.ok) { this.disconnect(`Remote command outcome unknown (${response.status}). Refresh to reconnect.`); throw new Error(`Remote command outcome unknown (${response.status})`); }
-    let result: ReturnType<typeof decodeResult>;
-    try { result = decodeResult(await readJson(response)); }
-    catch (error) { this.disconnect('Invalid command result. Refresh to reconnect.'); throw new Error('Invalid command result; outcome unknown.', { cause: error }); }
+  private async post(route: string, body: object) {
+    if (!this.connected || this.disposed) throw new Error('Remote desk is disconnected. Reconnect to the desk.');
+    const response = await fetch(route, { method: 'POST', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: this.sessionId, sequence: ++this.sequence, ...body }) });
+    if (!response.ok) throw new Error(`Remote request failed (${response.status}); outcome unknown.`);
+    return readJson(response);
+  }
+  private async setAudio(goal: 'on' | 'off') {
+    const decision = decodeAudioDecision(await this.post('/api/audio', { goal }));
+    this.observe(decision.view);
+    if (decision.outcome === 'rejected') throw new Error(decision.error);
+    return this.latest;
+  }
+  enableAudio() { return this.setAudio('on'); }
+  terminateAudio() { return this.setAudio('off'); }
+  async command(endpoint: RemoteSession, target: NativeTarget, command: string, args: object) {
+    if (this.endpoint !== endpoint) throw new Error('Hardware audio session is stale.');
+    let result: ReturnType<typeof decodeNativeOutcome>;
+    try { result = decodeNativeOutcome(await this.post('/api/command', { target, command, args })); }
+    catch (error) { endpoint.invalidate(); throw new Error('Remote command outcome unknown. Terminate audio before enabling it again.', { cause: error }); }
     if (result.outcome !== 'applied') {
-      if (result.outcome === 'unknown') this.disconnect('Remote command outcome unknown. Refresh to reconnect.');
+      if (result.outcome === 'unknown') endpoint.invalidate();
       throw new Error(result.error || `Remote command ${result.outcome}`);
     }
-    try { this.observe(result.hostEpoch, result.revision, result.state); }
-    catch (error) { this.disconnect('Remote host changed. Refresh to reconnect.'); throw error; }
-    return this.latest;
+    if (this.endpoint !== endpoint || result.hostEpoch !== target.hostEpoch) { endpoint.invalidate(); throw new Error('Hardware audio session is stale.'); }
+    endpoint.observe(result);
+    return endpoint.snapshot();
+  }
+  async dispose() { this.disposed = true; this.connected = false; this.abort.abort(); this.endpoint?.invalidate(); this.listeners.clear(); }
+}
+
+export class RemoteSession {
+  private readonly listeners = new Set<(state: PracticeState) => void>();
+  private readonly eventListeners = new Set<(event: PracticeEvent) => void>();
+  readonly outputStream = undefined;
+  readonly monitoringRelationship = 'unknown' as const;
+  private valid = true;
+  private latest: NativePerformance;
+  constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance) { this.latest = performance; }
+  matches(target: NativeTarget) { return this.valid && target.attempt === this.target.attempt && target.hostEpoch === this.target.hostEpoch; }
+  invalidate() { this.valid = false; this.listeners.clear(); this.eventListeners.clear(); }
+  observe(performance: NativePerformance) {
+    if (!this.valid || performance.hostEpoch !== this.target.hostEpoch || BigInt(performance.revision) <= BigInt(this.latest.revision)) return;
+    this.latest = performance; for (const listener of this.listeners) listener(performance.state);
+  }
+  event(event: PracticeEvent) { for (const listener of this.eventListeners) listener(event); }
+  get microphone() { return this.latest.state.microphone; }
+  snapshot() { return this.latest.state; }
+  subscribe(listener: (state: PracticeState) => void) { this.listeners.add(listener); listener(this.snapshot()); return () => this.listeners.delete(listener); }
+  onEvent(listener: (event: PracticeEvent) => void) { this.eventListeners.add(listener); return () => this.eventListeners.delete(listener); }
+  private command(command: string, args: object = {}) {
+    if (!this.valid) return Promise.reject(new Error('Hardware audio session is stale.'));
+    return this.desk.command(this, this.target, command, args);
   }
   start(options: StartOptions = {}) { return this.command('start', options); }
   stop() { return this.command('stop'); }
@@ -102,7 +141,7 @@ export class RemoteSession {
   setClick(enabled: boolean) { return this.command('setClick', { enabled }); }
   configureVoiceEffects(_configurations: readonly VoiceEffectConfiguration[]): Promise<PracticeState> { throw new Error('Select a voice profile to edit.'); }
   configureVoiceProfile(profile: number, effects: readonly LiveEffectDefinition[]) {
-    const voices = this.latest.voiceEffects;
+    const voices = this.latest.state.voiceEffects;
     if (!voices || voices.length !== VOICE_PROFILE_COUNT || voices.some(voice => !voice.prepared)) throw new Error('Host effect profiles are not ready. Refresh to reconnect.');
     const selected = voices.find(voice => voice.profile === profile);
     if (!selected) throw new Error('Voice profile is unavailable.');
@@ -111,5 +150,5 @@ export class RemoteSession {
   async disableMicrophone(_generation?: number) {}
   async enableMicrophone(): Promise<number> { throw new Error('Microphone belongs to the remote host'); }
   setMonitoringRelationship() { throw new Error('Monitoring belongs to the remote host'); }
-  async dispose() { this.disposed = true; this.connected = false; this.abort.abort(); this.listeners.clear(); this.eventListeners.clear(); }
+  async dispose() { this.invalidate(); }
 }
