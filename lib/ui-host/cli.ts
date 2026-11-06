@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { call, configuration, ensureManager, savedStatus } from './client.js';
 import { identity } from './broker.js';
-import { git, importBuild } from './snapshot.js';
+import { git, importBuild, worktreeKey } from './snapshot.js';
 import { decode, TargetSchema, type Config, type Status } from './model.js';
 
 const execute = promisify(execFile);
@@ -88,7 +88,7 @@ export async function runUiCli(args: readonly string[], directory = process.cwd(
   await ensureManager(config);
   let request;
   if (command === 'preview') {
-    const target = decode(TargetSchema, { kind: 'preview', worktree, session: values.get('--session') ?? 'worktree' });
+    const target = decode(TargetSchema, { kind: 'preview', worktree, worktreeKey: await worktreeKey(worktree), session: values.get('--session') ?? 'worktree' });
     if (flags.has('--build')) await run('npm', ['run', 'build:ui'], worktree);
     const snapshot = await importBuild(join(worktree, 'dist'), config.stateRoot).catch(error => {
       throw new Error(`No verified preview build available. Run npm run build, or use --build when WASM is already built. ${error instanceof Error ? error.message : error}`);
@@ -108,7 +108,7 @@ export async function runUiCli(args: readonly string[], directory = process.cwd(
     }
   } else if (command === 'stop') {
     if ([values.has('--id'), values.has('--session'), flags.has('--live')].filter(Boolean).length > 1) throw new Error('Choose one UI to stop.');
-    const target = flags.has('--live') ? decode(TargetSchema, { kind: 'live' }) : decode(TargetSchema, { kind: 'preview', worktree, session: values.get('--session') ?? 'worktree' });
+    const target = flags.has('--live') ? decode(TargetSchema, { kind: 'live' }) : decode(TargetSchema, { kind: 'preview', worktree, worktreeKey: await worktreeKey(worktree), session: values.get('--session') ?? 'worktree' });
     request = { command: 'stop', id: values.get('--id') ?? identity(target) } satisfies import('./model.js').Request;
   } else request = { command: 'shutdown' } satisfies import('./model.js').Request;
   const result = await call(config, request);

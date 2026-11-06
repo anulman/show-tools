@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { cp, mkdir, readFile, readdir, rename, rm, lstat, writeFile, realpath } from 'node:fs/promises';
+import { cp, mkdir, readFile, readdir, rename, rm, lstat, writeFile, realpath, stat } from 'node:fs/promises';
 import { join, relative, resolve, sep } from 'node:path';
 import { decode, BuildInfoSchema, ManifestSchema, SnapshotSchema, type Snapshot } from './model.js';
 
@@ -16,6 +16,12 @@ export async function sourceInfo(worktree: string) {
 }
 export async function repository(worktree: string) {
   return realpath(resolve(worktree, await git(worktree, 'rev-parse', '--git-common-dir')));
+}
+export async function worktreeKey(worktree: string) {
+  const directory = await realpath(await git(worktree, 'rev-parse', '--absolute-git-dir'));
+  const info = await stat(directory, { bigint: true });
+  if (info.birthtimeNs === 0n) throw new Error('Worktree filesystem lacks birth identity; cannot safely assign a durable browser origin');
+  return createHash('sha256').update([directory, info.dev, info.ino, info.birthtimeNs].join(':')).digest('hex');
 }
 async function walk(directory: string): Promise<string[]> {
   const result: string[] = [];

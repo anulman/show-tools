@@ -4,7 +4,7 @@ import { chmod, mkdir, readFile, rename, stat, writeFile, realpath } from 'node:
 import { randomUUID, createHash } from 'node:crypto';
 import { extname, join, resolve, sep } from 'node:path';
 import { decode, RegistrySchema, RequestSchema, type Config, type Owner, type Registration, type Registry, type Request, type Snapshot, type Status } from './model.js';
-import { git, loadSnapshot, repository } from './snapshot.js';
+import { git, loadSnapshot, repository, worktreeKey } from './snapshot.js';
 
 const types: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css',
   '.json': 'application/json', '.webmanifest': 'application/manifest+json', '.wasm': 'application/wasm', '.png': 'image/png', '.svg': 'image/svg+xml', '.md': 'text/plain' };
@@ -107,7 +107,7 @@ export async function createUiBroker(config: Config, owner: Owner) {
   async function serve(request: Extract<Request, { command: 'serve' }>) {
     const target = request.target;
     if (target.kind === 'preview') {
-      if (await realpath(target.worktree) !== target.worktree || await repository(target.worktree) !== config.repository) throw new Error('Preview must identify a real worktree in this repository');
+      if (await realpath(target.worktree) !== target.worktree || await repository(target.worktree) !== config.repository || await worktreeKey(target.worktree) !== target.worktreeKey) throw new Error('Preview must identify a real worktree in this repository');
     }
     const build = await loadSnapshot(config.stateRoot, request.snapshot);
     snapshots.set(build.id, build);

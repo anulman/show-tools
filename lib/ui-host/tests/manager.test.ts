@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { configuration, ensureManager, call } from '../client.js';
-import { importBuild, sourceInfo } from '../snapshot.js';
+import { importBuild, sourceInfo, worktreeKey } from '../snapshot.js';
 import { identity } from '../broker.js';
 
 const execute = promisify(execFile);
@@ -56,7 +56,7 @@ test('real manager reuses ownership, pins builds, retains reservations, and refu
     const owners = await Promise.all([ensureManager(f.config), ensureManager(f.config)]);
     assert.equal(owners[0].owner.pid, owners[1].owner.pid);
     const first = await f.build('one'); const second = await f.build('two');
-    const target = { kind: 'preview', worktree: f.repo, session: 'practice' } satisfies import('../model.js').Target;
+    const target = { kind: 'preview', worktree: f.repo, worktreeKey: await worktreeKey(f.repo), session: 'practice' } satisfies import('../model.js').Target;
     const served = await call(f.config, { command: 'serve', target, snapshot: first.id }); assert(served.ok, JSON.stringify(served));
     const row = served.statuses[0].registration; const origin = `http://127.0.0.1:${row.port}`;
     const initial = await fetch(origin + '/ui/practice/', { redirect: 'manual' });
@@ -118,5 +118,23 @@ test('an unavailable socket with a live recorded owner fails closed without sign
     await writeFile(join(f.config.controlDirectory, 'owner.json'), JSON.stringify({ version: 1, nonce: 'foreign', pid: process.pid }));
     await assert.rejects(ensureManager(f.config), /live UI manager owns an unavailable socket/);
     process.kill(process.pid, 0);
+  } finally { await f.cleanup(); }
+});
+
+test('a different worktree recreated at the same path cannot inherit the prior origin', async () => {
+  const f = await fixture(); const path = join(f.root, 'preview');
+  try {
+    await execute('git', ['-C', f.repo, 'worktree', 'add', '--detach', path, 'HEAD']);
+    await ensureManager(f.config); const build = await f.build('recreated');
+    const first = { kind: 'preview', worktree: path, worktreeKey: await worktreeKey(path), session: 'worktree' } satisfies import('../model.js').Target;
+    const served = await call(f.config, { command: 'serve', target: first, snapshot: build.id }); assert(served.ok);
+    const port = served.statuses[0].registration.port;
+    await call(f.config, { command: 'stop', id: identity(first) });
+    await execute('git', ['-C', f.repo, 'worktree', 'remove', path]);
+    await execute('git', ['-C', f.repo, 'worktree', 'add', '--detach', path, 'HEAD']);
+    const replacement = { ...first, worktreeKey: await worktreeKey(path) }; assert.notEqual(replacement.worktreeKey, first.worktreeKey);
+    const stale = await call(f.config, { command: 'serve', target: first, snapshot: build.id }); assert(!stale.ok);
+    const next = await call(f.config, { command: 'serve', target: replacement, snapshot: build.id }); assert(next.ok);
+    assert.notEqual(next.statuses.find(item => item.registration.id === identity(replacement))?.registration.port, port);
   } finally { await f.cleanup(); }
 });

@@ -6,7 +6,7 @@ const revision = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40,64}$/));
 const port = Schema.Int.check(Schema.isBetween({ minimum: 1024, maximum: 65535 }));
 export const TargetSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('live') }),
-  Schema.Struct({ kind: Schema.Literal('preview'), worktree: text, session: Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/)) }),
+  Schema.Struct({ kind: Schema.Literal('preview'), worktree: text, worktreeKey: HashSchema, session: Schema.String.check(Schema.isPattern(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/)) }),
 ]);
 export type Target = typeof TargetSchema.Type;
 export const SourceSchema = Schema.Struct({ revision, tree: revision, dirty: Schema.Boolean });
