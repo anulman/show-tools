@@ -915,6 +915,7 @@ if (remote) {
       terminateAudio.disabled = !connected || status.kind === 'off' || status.kind === 'fault' || status.kind === 'stopping';
       if (!connected || status.kind !== 'ready') {
         audio = undefined;
+        syncTunerSession();
         transportGeneration++;
         starting = false;
         releasePresses();
