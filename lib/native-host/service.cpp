@@ -1,6 +1,7 @@
 #include "instrument.h"
 #include "frame.h"
 #include "spsc_queue.h"
+#include "performance_light_output.h"
 #ifdef NATIVE_ALSA_HOST
 #include "alsa_pcm.h"
 #include "alsa_run.h"
@@ -50,6 +51,7 @@ struct Observation {
   std::array<double,PF_LIVE_FIELDS> live{};
   std::array<double,PF_COMPILED_MAX_TAKES*PF_TAKE_FIELDS> takes{};
   std::array<double,PF_TEMPO_FIELDS> tempo{};
+  std::array<double,PF_LIGHT_FIELDS> lights{};
 };
 struct Request { uint64_t connection=0, order=0; uint32_t sequence=0; uint16_t op=0; std::array<double,6> args{}; Bytes manifest,packet; std::array<uint8_t,32> digest{}; std::array<uint32_t,6> counts{},revisions{}; std::vector<pf_effect_definition> effects; int status=1,code=0; Observation observation; };
 void observe(Instrument& instrument,Observation& out,uint64_t revision) {
@@ -60,11 +62,12 @@ void observe(Instrument& instrument,Observation& out,uint64_t revision) {
   for(int i=0;i<PF_COMPILED_MAX_TAKES;++i) pf_compiled_take_info(e,i,out.takes.data()+i*PF_TAKE_FIELDS);
   pf_live_info(e,out.live.data());
   pf_tempo_info(e,out.tempo.data());
+  pf_light_output(e,out.lights.data());
 }
 struct Presentation { Bytes manifest; std::array<uint8_t,32> digest{}; };
 Bytes snapshot(const Observation& state,const Presentation& presentation) {
   Bytes out; out.reserve(22000+presentation.manifest.size()); put64(out,state.revision); put64(out,state.run); put32(out,uint32_t(presentation.manifest.size())); out.insert(out.end(),presentation.manifest.begin(),presentation.manifest.end()); out.insert(out.end(),presentation.digest.begin(),presentation.digest.end());
-  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); return out;
+  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); array(out,state.lights); return out;
 }
 int64_t discard(void*,const float*,uint32_t frames) { return frames; }
 }
@@ -82,6 +85,13 @@ bool parse(Request& request,const Bytes& data) {
     if((request.op==3 || request.op==4 || request.op==5 || request.op==6 || request.op==7) && !integer(request.args[0])) return false;
     if(request.op==5 && !integer(request.args[2]))return false;
     return true;
+  }
+  if(request.op==12) {
+    if(left!=16)return false;
+    request.args[0]=f64(p); request.args[1]=f64(p+8);
+    return std::isfinite(request.args[0]) && std::isfinite(request.args[1])
+      && std::floor(request.args[0])==request.args[0] && std::floor(request.args[1])==request.args[1]
+      && request.args[0]>=1 && request.args[0]<=32767 && request.args[1]>=1 && request.args[1]<=request.args[0];
   }
   if(request.op==11) { if(left!=4)return false; request.args[0]=u32(p); return request.args[0]>=1 && request.args[0]<=1000000; }
   if(request.op!=9 && request.op!=10)return false;
@@ -166,6 +176,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           if(rc==0 && int(a[0])==4 && alsa_run.drop(*device)<0) { shared.device_failed=true; rc=-1; }
 #endif
           break;
+        case 12: rc=instrument.set_jiggle_thresholds(a[0],a[1]); break;
         case 4: rc=instrument.select(int(a[0])); break;
         case 5: rc=instrument.set_channel(int(a[0]),a[1],int(a[2])); break;
         case 6: rc=instrument.set_automatic(int(a[0])); break;

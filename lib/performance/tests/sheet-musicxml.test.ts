@@ -11,7 +11,7 @@ import { decodeSongMapping } from '../compiled-song.js';
 import { runSheetsMusicXmlImport } from '../../../scripts/import-sheet-musicxml.js';
 
 async function inputs() {
-  const [source, mapping] = await Promise.all(['source', 'mapping'].map(async suffix =>
+  const [source, mapping] = await Promise.all(['source', 'cutover.mapping'].map(async suffix =>
     JSON.parse(await readFile(new URL(`../../../songs/dance-yrself-clean.${suffix}.json`, import.meta.url), 'utf8'))));
   return { source: parseSongSource(source), mapping: decodeSongMapping(mapping) };
 }
@@ -121,7 +121,7 @@ test('CLI emits the real study and refuses to overwrite an existing output direc
   const directory = await mkdtemp(join(tmpdir(), 'musicxml-cli-'));
   try {
     const output = join(directory, 'new-study');
-    const args = ['--source', 'songs/dance-yrself-clean.source.json', '--mapping', 'songs/dance-yrself-clean.mapping.json', '--out-dir', output];
+    const args = ['--source', 'songs/dance-yrself-clean.source.json', '--mapping', 'songs/dance-yrself-clean.cutover.mapping.json', '--out-dir', output];
     await runSheetsMusicXmlImport(args);
     const before = await readFile(join(output, 'score.musicxml'), 'utf8');
     assert.equal(parsed(before).part.length, 8);

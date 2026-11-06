@@ -289,18 +289,37 @@ void Playback::finish() noexcept {
 bool Playback::start(bool loop, uint32_t start_frame) noexcept {
   if (start_frame || take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.initial_)) return false;
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
-  clear_source_end(); printed_history_valid_ = true;
+  clear_source_end(); source_begin_ = 0; window_period_ = take_.period_; printed_history_valid_ = true;
   phase_ = 0; iteration_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
 }
 bool Playback::start_at_capture_end(bool loop) noexcept {
   if (take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.end_)) return false;
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
-  clear_source_end(); printed_history_valid_ = true;
+  clear_source_end(); source_begin_ = 0; window_period_ = take_.period_; printed_history_valid_ = true;
   phase_ = take_.length_; iteration_ = 1; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
 }
 bool Playback::set_source_end(uint32_t exclusive_frame) noexcept {
   if (take_.state_ != TakeState::committed || exclusive_frame > take_.length_) return false;
   source_end_ = exclusive_frame; return true;
+}
+bool Playback::start_window(bool loop, uint32_t begin, uint32_t end, uint32_t period, const Rack& initial) noexcept {
+  if (take_.state_ != TakeState::committed || begin > end || end > take_.length_ || !period || period < end - begin
+    || !shadow_->copy_state(initial)) return false;
+  if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
+  source_begin_ = begin; source_end_ = end; window_period_ = period;
+  phase_ = 0; iteration_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing;
+  printed_history_valid_ = true; return true;
+}
+bool Playback::set_window(uint32_t begin, uint32_t end, uint32_t period) noexcept {
+  if (take_.state_ != TakeState::committed || begin > end || end > take_.length_ || !period || period < end - begin) return false;
+  if (source_begin_ != begin || source_end_ != end || window_period_ != period) printed_history_valid_ = false;
+  if (window_period_ != period) phase_ %= period;
+  source_begin_ = begin; source_end_ = end; window_period_ = period;
+  return true;
+}
+bool Playback::start_window_at_capture_end(bool loop, uint32_t begin, uint32_t end, uint32_t period) noexcept {
+  if (end != take_.length_ || !start_window(loop, begin, end, period, *take_.end_)) return false;
+  printed_history_valid_ = false; iteration_ = 1; return true;
 }
 void Playback::stop() noexcept {
   if (state_ != PlaybackState::playing) return;
@@ -310,17 +329,18 @@ void Playback::stop() noexcept {
 }
 void Playback::reset() noexcept { shadow_->reset(); finish(); phase_ = 0; iteration_ = 0; clear_source_end(); printed_history_valid_ = true; }
 Stereo Playback::next() noexcept {
-  if (state_ == PlaybackState::playing && phase_ == take_.period_) {
+  if (state_ == PlaybackState::playing && phase_ == window_period_) {
     if (loop_) {
       phase_ = 0;
       if (iteration_ != std::numeric_limits<uint64_t>::max()) ++iteration_;
     } else stop();
   }
   if (state_ == PlaybackState::playing) {
-    bool suppressed = phase_ >= source_end_;
+    uint32_t source_frame = source_begin_ + phase_;
+    bool suppressed = source_frame >= source_end_;
     if (suppressed) printed_history_valid_ = false;
-    Stereo evolved = shadow_->process(suppressed ? Stereo{} : take_.read_source(phase_));
-    Stereo output = !iteration_ && printed_history_valid_ && phase_ < take_.length_ ? take_.printed_[phase_] : evolved;
+    Stereo evolved = shadow_->process(suppressed ? Stereo{} : take_.read_source(source_frame));
+    Stereo output = !iteration_ && printed_history_valid_ && source_frame < take_.length_ ? take_.printed_[source_frame] : evolved;
     ++phase_; return output;
   }
   if (state_ == PlaybackState::releasing) {

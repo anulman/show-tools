@@ -49,6 +49,7 @@ int Instrument::set_channel(int channel, double gain, int muted) { return engine
 int Instrument::set_automatic(int enabled) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_automatic(engine_.get(), enabled) : -1; }
 int Instrument::set_click(int enabled) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_click(engine_.get(), enabled) : -1; }
 int Instrument::set_click_gain(double gain) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_click_gain(engine_.get(), gain) : -1; }
+int Instrument::set_jiggle_thresholds(double travel, double reversal) { return engine_ && lifecycle_ == Lifecycle::Prepared ? pf_set_jiggle_thresholds(engine_.get(), travel, reversal) : -1; }
 int Instrument::render(const float* input, uint32_t frames) {
   if (lifecycle_ != Lifecycle::Running) return -1;
   if (pump_->render(input, frames) < 0) { lifecycle_ = Lifecycle::Faulted; return -1; }

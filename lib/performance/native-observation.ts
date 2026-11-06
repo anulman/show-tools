@@ -60,7 +60,7 @@ export function decodeNativeEvent(event: Float64Array, runId: string, message: (
       if (event[PF.EVENT_ERROR]) result.error = message(event[PF.EVENT_ERROR]);
       if (type === 'control') {
         const id = event[PF.EVENT_CONTROL];
-        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : id === 6 ? { id: 'tempo' } : { id: CONTROL_IDS[id] };
+        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : id === 6 ? { id: 'tempo' } : id === 7 ? { id: 'cueButton', value: event[PF.EVENT_VALUE] === 1 ? 1 : 0 } : { id: CONTROL_IDS[id] };
         result.applied = event[PF.EVENT_APPLIED] === 1;
       }
       if (type === 'tempo-hit') result.tempoHit = { beatHint: event[PF.EVENT_VALUE] === 1 ? 1 : null,
@@ -73,5 +73,6 @@ export function decodeNativeTake(info: ArrayLike<number>, index: number): Compil
   const playback = (['idle', 'playing', 'releasing'] as const)[info[PF.TAKE_PLAYBACK_STATE]];
   if (!playback) throw new Error('Invalid native take playback state');
   return { index, ready: info[PF.TAKE_READY] === 1, frames: info[PF.TAKE_LENGTH], period: info[PF.TAKE_PERIOD], playback,
-    sourceEndFrames: info[PF.TAKE_SOURCE_END] < 0 ? null : info[PF.TAKE_SOURCE_END] };
+    selectionIndex: info[PF.TAKE_SELECTION] < 0 ? null : info[PF.TAKE_SELECTION],
+      sourceEndFrames: info[PF.TAKE_SOURCE_END] < 0 ? null : info[PF.TAKE_SOURCE_END] };
 }

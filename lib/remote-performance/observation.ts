@@ -4,6 +4,8 @@ import { CompiledSongSchema, decodeCompiledSong } from '../performance/compiled-
 import { decodeNativeEvent, decodeNativeLiveEffects, decodeNativeState, decodeNativeTake, decodeNativeTempo, decodeNativeVoices } from '../performance/native-observation.js';
 import type { SongScript } from '../performance/model.js';
 import { PF } from '../performance/wasm-abi.js';
+import { PF as LIGHT } from '../performance/light-abi.js';
+import { LightPublicationSchema } from './native-schema.js';
 
 const Manifest = Schema.Struct({
 	id: Schema.String,
@@ -63,8 +65,10 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	const live = reader.array(PF.LIVE_FIELDS);
 	const takes = reader.array(PF.COMPILED_MAX_TAKES * PF.TAKE_FIELDS);
 	const tempo = reader.array(PF.TEMPO_FIELDS);
+	const lightImage = reader.array(LIGHT.LIGHT_FIELDS);
 	reader.end();
 	if (revision === 0n && manifestBytes.length === 0 && digest.every(byte => byte === 0)) return null;
+	const lights = Schema.decodeUnknownSync(LightPublicationSchema)(Array.from(lightImage));
 	const manifest = parseManifest(manifestBytes, digest);
 	const voiceRows = Array.from({ length: PF.VOICE_PROFILES }, (_, i) => voices.subarray(i * PF.VOICE_FIELDS, (i + 1) * PF.VOICE_FIELDS));
 	const effectRows = voiceRows.map((_, profile) => Array.from({ length: PF.MAX_LIVE_EFFECTS }, (_, stage) => {
@@ -76,7 +80,7 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	state.liveEffects = decodeNativeLiveEffects(live);
 	state.compiledTakes = Array.from({ length: manifest.takeCount }, (_, i) => decodeNativeTake(takes.subarray(i * PF.TAKE_FIELDS, (i + 1) * PF.TAKE_FIELDS), i));
 	state.tempoHits = decodeNativeTempo(tempo);
-	return { revision, song: manifest.song, state };
+	return { revision, song: manifest.song, state, lights };
 }
 
 export function decodeEvent(payload: Buffer, runId: string) {

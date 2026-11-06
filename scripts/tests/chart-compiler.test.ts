@@ -10,7 +10,7 @@ import { compiledProgramBytes } from '../../lib/performance/compiled-native.js';
 import { parseSongSource } from '../../lib/performance/song-source.js';
 import { runChartCompiler } from '../chart-compiler.js';
 import { parseCommandFailure } from '../lib/command-diagnostics.js';
-import mapping from '../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../songs/dance-yrself-clean.cutover.mapping.json';
 import source from '../../songs/dance-yrself-clean.source.json';
 import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
 
@@ -34,7 +34,7 @@ test('chart CLI compiles the canonical DYC MusicXML into deterministic reviewabl
     const inputs = ['--musicxml', 'songs/dance-yrself-clean.musicxml'];
     const result = await run(['compile', ...inputs, '--out', first]);
     await run(['encode', '--song', first, '--out', native]);
-    assert.match(result.stdout, /capture 7:1\.\.8:3 \(6 counts\).*rest 8:3\.\.9:1 \(2 counts, zero source\).*loop 7:1\.\.9:1 \(8 counts\)/);
+    assert.match(result.stdout, /capture 8:1\.\.13:1 \(20 counts\)/);
     const song = decodeCompiledSong(JSON.parse(await readFile(first, 'utf8')));
     assert.equal(song.executable, true);
     assert.deepEqual(new Uint8Array(await readFile(native)), compiledProgramBytes(song));
@@ -43,7 +43,7 @@ test('chart CLI compiles the canonical DYC MusicXML into deterministic reviewabl
     assert.deepEqual(await readFile(native), firstBytes);
     await run(['compile', ...inputs, '--out', second]);
     assert.equal(await readFile(first, 'utf8'), await readFile(second, 'utf8'));
-    assert.match((await run(['inspect', 'songs/dance-yrself-clean.musicxml'])).stdout, /Schema 5.*executable/);
+    assert.match((await run(['inspect', 'songs/dance-yrself-clean.musicxml'])).stdout, /Schema 6.*executable/);
     await assert.rejects(run(['compile', '--source', 'songs/dance-yrself-clean.source.json', '--out', first]), /Unknown or repeated chart option --source/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

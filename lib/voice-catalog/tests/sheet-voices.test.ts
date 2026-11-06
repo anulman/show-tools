@@ -5,7 +5,7 @@ import type { CompiledSong } from '../../performance/compiled-song.js';
 import { parseSongSource } from '../../performance/song-source.js';
 import type { SongSource } from '../../performance/song-source.js';
 import sourceInput from '../../../songs/dance-yrself-clean.source.json';
-import mapping from '../../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 import { bindingMatches, discoverSheetVoices } from '../sheet-voices.js';
 
 const source = parseSongSource(sourceInput);

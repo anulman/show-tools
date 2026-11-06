@@ -14,6 +14,7 @@ class Program {
   bool prepare_effects(const patches::Rack& definition, uint32_t revision) noexcept;
   bool prepare_effects(const patches::Rack* const* definitions, const uint32_t* revisions) noexcept;
   int rotate(double value, double frame, double bpm) noexcept;
+  void jiggle_thresholds(int travel, int reversal) noexcept;
   bool rotation_eligible() const noexcept;
   double rotation_remaining() const noexcept;
   int profile_activity(int profile) const noexcept;
@@ -25,6 +26,7 @@ class Program {
   void stop() noexcept;
   void microphone_lost() noexcept;
   int press(int button, double frame, double bpm, bool microphone) noexcept;
+  int press_current(double frame, double bpm, bool microphone) noexcept;
   void beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm) noexcept;
   void render(const float* input, float* left, float* right, float* live_left, float* live_right,
     uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack, patches::Rack& backup_rack) noexcept;
@@ -38,6 +40,7 @@ class Program {
   int error() const noexcept { return error_; }
   void clear_error() noexcept { error_ = PF_OK; }
   bool has_capture() const noexcept;
+  bool recording() const noexcept { return active_capture_.take >= 0; }
   const double* table() const noexcept { return table_.get(); }
   uint32_t table_fields() const noexcept { return fields_; }
  private:
@@ -47,10 +50,12 @@ class Program {
   struct PlaybackCue;
   struct Pending;
   struct RotationWindow { double begin = 0, end = 0; };
-  struct SelectionWindow { int selection = -1, take = -1; double end = 0; int64_t cut[2]{-1, -1}; };
+  struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2]; };
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   Program() = default;
+  int resolve(int button, double frame, double bpm) noexcept;
+  int press_selected(int cue, double frame, double bpm, bool microphone) noexcept;
   bool reservation_available(int take, int button, int committing) const noexcept;
   int available_bank(int take) const noexcept;
   int preflight_commit(const Cue& cue, CommitPlan& plan) const noexcept;
@@ -76,7 +81,11 @@ class Program {
   std::unique_ptr<SelectionWindow[]> selection_windows_;
   int window_count_ = 0;
   int rotation_count_ = 0, monitor_route_ = PF_DEFAULT_PROFILE;
-  double rotation_grid_ = .25, rotation_deadline_ = -1;
+  double rotation_inactivity_ = .25, rotation_deadline_frame_ = -1;
+  int minimum_travel_ = 4, minimum_reversal_ = 2, gesture_direction_ = 0, gesture_window_ = -1;
+  double gesture_travel_ = 0, gesture_reversal_ = 0, gesture_bucket_end_ = -1;
+  void clear_gesture() noexcept;
+  bool meaningful_motion(double value, double frame) noexcept;
   bool handed_off_[PF_CHANNELS]{};
   std::unique_ptr<Take[]> takes_;
   std::unique_ptr<Cue[]> cues_;
