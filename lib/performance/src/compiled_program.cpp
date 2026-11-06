@@ -299,7 +299,7 @@ void Program::stop() noexcept {
     if (commit_period(active_capture_.take, period) && take.cache[active_capture_.bank]->commit(period)) take.latest = active_capture_.bank;
     else take.cache[active_capture_.bank]->reset_for_capture();
   }
-  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_ = -1; clear_gesture(); phase_ = PF_IDLE; error_ = PF_OK;
+  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_frame_ = -1; clear_gesture(); phase_ = PF_IDLE; error_ = PF_OK;
   for (int button = 0; button < PF_CHANNELS; ++button) pending_[button] = {};
   for (int voice = 0; voice < PF_CHANNELS; ++voice) { if (voices_[voice]) voices_[voice]->reset(); if (tails_[voice]) tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
   drain_[PF_DEFAULT_PROFILE] = 0; drain_[PF_BACKUP_PROFILE] = 0;
@@ -308,7 +308,7 @@ void Program::stop() noexcept {
 }
 void Program::microphone_lost() noexcept {
   if (active_capture_.take >= 0) takes_[active_capture_.take].cache[active_capture_.bank]->reset_for_capture();
-  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_ = -1; clear_gesture();
+  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_frame_ = -1; clear_gesture();
   for (int button = 0; button < PF_CHANNELS; ++button) pending_[button] = {};
   for (int voice = 0; voice < PF_CHANNELS; ++voice) { voices_[voice]->reset(); tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
   drain_[PF_DEFAULT_PROFILE] = 0; drain_[PF_BACKUP_PROFILE] = 0;
@@ -326,8 +326,11 @@ void Program::remember_cues(double frame, double bpm) noexcept {
 }
 void Program::tempo_changed(double frame, double old_bpm, double new_bpm) noexcept {
   remember_cues(frame, old_bpm);
+  if (rotation_deadline_frame_ > frame) rotation_deadline_frame_ = frame + (rotation_deadline_frame_ - frame) * old_bpm / new_bpm;
   anchor_position_ = position(frame, old_bpm); anchor_frame_ = frame;
   query_position_ = anchor_position_; query_frame_ = frame; bpm_ = new_bpm;
+  if (rotation_deadline_frame_ > frame && gesture_window_ >= 0)
+    rotation_deadline_frame_ = std::min(rotation_deadline_frame_, frame_at(rotation_windows_[gesture_window_].end));
 }
 bool Program::commit_period(int id, uint32_t& period) const noexcept {
   const Take& take = takes_[id]; const auto& cache = take.cache[active_capture_.bank];
@@ -376,8 +379,8 @@ bool Program::rotation_eligible() const noexcept {
   return false;
 }
 double Program::rotation_remaining() const noexcept {
-  if (!rotation_eligible() || rotation_deadline_ < 0) return 0;
-  double frames = frame_at(rotation_deadline_) - query_frame_;
+  if (!rotation_eligible() || rotation_deadline_frame_ < 0) return 0;
+  double frames = rotation_deadline_frame_ - query_frame_;
   return frames > 0 ? frames * bpm_ / (rate_ * 60) : 0;
 }
 void Program::clear_gesture() noexcept {
@@ -413,7 +416,7 @@ int Program::rotate(double value, double frame, double bpm) noexcept {
   if (!value || phase_ != PF_PLAYING) return PF_OK;
   for (int id = 0; id < rotation_count_; ++id) if (frame >= frame_at(rotation_windows_[id].begin) && frame < frame_at(rotation_windows_[id].end)) {
     if (gesture_window_ != id) { clear_gesture(); gesture_window_ = id; }
-    if (meaningful_motion(value, frame)) rotation_deadline_ = std::min(query_position_ + rotation_inactivity_, rotation_windows_[id].end);
+    if (meaningful_motion(value, frame)) rotation_deadline_frame_ = std::min(frame + rotation_inactivity_ * rate_ * 60 / bpm, frame_at(rotation_windows_[id].end));
     return PF_OK;
   }
   clear_gesture();
@@ -781,7 +784,7 @@ void Program::beat(int phase, int bar, int beat, int count_remaining, double fra
   double next_position = (bar - 1) * beats_ + beat - 1;
   bool wrap = phase == PF_PLAYING && phase_ == PF_PLAYING && next_position < anchor_position_;
   if (wrap) {
-    rotation_deadline_ = -1;
+    rotation_deadline_frame_ = -1;
     apply_pending(std::ceil(frame), bpm);
     if (active_capture_.take >= 0) {
       int cue = takes_[active_capture_.take].commit_cue;

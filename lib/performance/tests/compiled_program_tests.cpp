@@ -912,6 +912,29 @@ void rotation_releases_after_inactivity() {
     require(std::abs(capped->rotation_remaining() - .025) < 1e-12, "written window caps inactivity");
     capped->rotate(1, .125 * frames_per_count, 120);
     require(!capped->rotation_eligible() && capped->rotation_remaining() == 0, "window end remains exclusive");
+    program->start(2, 0, 7880000, 98); program->beat(PF_PLAYING, 2, 1, 0, 7880000, 98);
+    const double motion = 7884001, count98 = rate * 60 / 98;
+    const double expiry = motion + .25 * count98;
+    program->rotate(1, motion, 98);
+    program->rotate(0, std::nextafter(expiry, -std::numeric_limits<double>::infinity()), 98);
+    require(program->rotation_remaining() > 0, "preceding representable frame remains inside exact input-relative interval");
+    program->rotate(0, expiry, 98);
+    require(program->rotation_remaining() == 0, "large absolute input frame expires without a count-roundtrip residue");
+    program->start(2, 0, 7880000, 98); program->beat(PF_PLAYING, 2, 1, 0, 7880000, 98);
+    program->rotate(1, motion, 98);
+    const double first_change = motion + .1 * count98;
+    program->tempo_changed(first_change, 98, 120);
+    require(std::abs(program->rotation_remaining() - .15) < 1e-9, "first tempo change preserves remaining count distance");
+    const double second_change = first_change + .05 * rate * 60 / 120;
+    program->tempo_changed(second_change, 120, 90);
+    require(std::abs(program->rotation_remaining() - .1) < 1e-9, "second tempo change preserves remaining count distance");
+    const double final_frame = std::ceil(second_change + .1 * rate * 60 / 90);
+    program->rotate(0, final_frame - 1, 90);
+    require(program->rotation_remaining() > 0, "last audio frame before retimed expiry remains active");
+    program->rotate(0, final_frame, 90);
+    require(program->rotation_remaining() == 0, "two tempo changes expire at the independently predicted first audio frame");
+    program->tempo_changed(final_frame + 1, 90, 40);
+    require(program->rotation_remaining() == 0, "a slower tempo cannot reactivate expired jiggle processing");
   }
 }
 void jiggle_filters_small_motion_in_bounded_musical_buckets() {

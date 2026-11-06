@@ -81,7 +81,7 @@ class Program {
   std::unique_ptr<SelectionWindow[]> selection_windows_;
   int window_count_ = 0;
   int rotation_count_ = 0, monitor_route_ = PF_DEFAULT_PROFILE;
-  double rotation_inactivity_ = .25, rotation_deadline_ = -1;
+  double rotation_inactivity_ = .25, rotation_deadline_frame_ = -1;
   int minimum_travel_ = 4, minimum_reversal_ = 2, gesture_direction_ = 0, gesture_window_ = -1;
   double gesture_travel_ = 0, gesture_reversal_ = 0, gesture_bucket_end_ = -1;
   void clear_gesture() noexcept;

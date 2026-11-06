@@ -116,8 +116,18 @@ int main(int argc, char** argv) {
   std::array<uint32_t, PF_VOICE_PROFILES> counts{}, revisions{}; counts.fill(1); counts[PF_BACKUP_PROFILE] = 2; revisions.fill(1);
   if (pf_prepare_voice_effects(engine.get(), effects.data(), counts.data(), revisions.data()) < 0
     || pf_load_compiled_bytes(engine.get(), bytes.data(), uint32_t(bytes.size())) < 0) return fail(pf_error(engine.get()));
+  double inactivity = 0;
+  size_t cursor = PF_COMPILED_HEADER_FIELDS + size_t(field(bytes, 8)) * PF_COMPILED_TAKE_FIELDS
+    + size_t(field(bytes, 9)) * PF_COMPILED_CUE_FIELDS + size_t(field(bytes, 10)) * PF_COMPILED_MEMBER_FIELDS
+    + size_t(field(bytes, 11)) * PF_COMPILED_PLAYBACK_FIELDS;
+  while (cursor < bytes.size() / 8) {
+    if (field(bytes, cursor) == PF_COMPILED_ROTATION_MAGIC) {
+      inactivity = field(bytes, cursor + 2);
+      cursor += PF_COMPILED_ROTATION_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_ROTATION_FIELDS;
+    } else cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_WINDOW_FIELDS;
+  }
   std::array<double, PF_FIELDS> snapshot{}; pf_snapshot(engine.get(), snapshot.data());
-  if (pf_set_microphone(engine.get(), 1) < 0 || pf_set_click(engine.get(), 0) < 0 || pf_set_click_gain(engine.get(), 0) < 0
+  if (pf_set_jiggle_thresholds(engine.get(), 1, 1) < 0 || pf_set_microphone(engine.get(), 1) < 0 || pf_set_click(engine.get(), 0) < 0 || pf_set_click_gain(engine.get(), 0) < 0
     || pf_start(engine.get(), snapshot[PF_BPM], 1, 1, int(snapshot[PF_BAR_COUNT]), 0, 0) < 0) return fail(pf_error(engine.get()));
   Events events;
   if (!events.drain(engine.get())) return 1;
@@ -126,14 +136,9 @@ int main(int argc, char** argv) {
   std::array<Stem, 4> stems{};
   uint64_t frame = 0;
   uint64_t rotations = 0;
-  double expected_release_count = -1;
+  double expected_release_frame = -1;
   std::vector<uint64_t> rotation_cutoffs;
   size_t next_press = 0;
-  auto release_frame = [&] {
-    const double whole_count = (snapshot[PF_BAR_NUMBER] - 1) * snapshot[PF_BEATS_PER_BAR] + snapshot[PF_BEAT_NUMBER] - 1;
-    std::array<double, BT_S_COUNT> clock{}; bt_snapshot(pf_tracker(engine.get()), clock.data());
-    return clock[BT_S_NEXT_BEAT_FRAME] + (expected_release_count - whole_count - 1) * sample_rate * 60 / clock[BT_S_BPM];
-  };
   auto process = [&](uint32_t frames, bool must_be_silent) {
     for (uint32_t offset = 0; offset < frames; ++offset) input[offset] = float((int((frame + offset) % 97) - 48) / 256.0);
     for (auto& channel : output) channel.fill(0);
@@ -152,35 +157,30 @@ int main(int argc, char** argv) {
     if (snapshot[PF_PHASE] == PF_ENDED) break;
     if (snapshot[PF_PHASE] != PF_COUNT_IN && snapshot[PF_PHASE] != PF_PLAYING) return fail("Transport stopped before ENDED");
     if (frame >= max_frames) return fail("Performance exceeded the declared song-duration fixture guard");
-    if (expected_release_count >= 0) {
-      const uint64_t cutoff = uint64_t(std::ceil(release_frame()));
+    if (expected_release_frame >= 0) {
+      const uint64_t cutoff = uint64_t(std::ceil(expected_release_frame));
       std::array<double, PF_VOICE_FIELDS> backup{}; pf_voice_info(engine.get(), PF_BACKUP_PROFILE, backup.data());
       if (frame > cutoff) return fail("Fixture stepped past the expected rotation cutoff");
       if (frame == cutoff) {
         if (backup[PF_VOICE_ROTATION_REMAINING] != 0 || backup[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE)
-          return fail("Rotation remained active at its authored quarter-grid cutoff frame " + std::to_string(frame));
-        rotation_cutoffs.push_back(frame); expected_release_count = -1;
+          return fail("Rotation remained active at its full-inactivity cutoff frame " + std::to_string(frame));
+        rotation_cutoffs.push_back(frame); expected_release_frame = -1;
       } else if (frame == cutoff - 1 && (backup[PF_VOICE_ROTATION_REMAINING] <= 0 || backup[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE)) {
-        return fail("Rotation stopped before its authored quarter-grid cutoff frame " + std::to_string(cutoff));
+        return fail("Rotation stopped before its full-inactivity cutoff frame " + std::to_string(cutoff));
       }
     }
     while (next_press < presses.size() && presses[next_press].frame == frame) {
       if (pf_control(engine.get(), presses[next_press].button, presses[next_press].value, nullptr, 0) < 0) return fail("Press rejected at frame " + std::to_string(frame) + ": " + pf_error(engine.get()));
       if (presses[next_press].button == 5 && presses[next_press].value != 0) {
         std::array<double, PF_VOICE_FIELDS> backup{}; pf_voice_info(engine.get(), PF_BACKUP_PROFILE, backup.data());
-        if (backup[PF_VOICE_ROTATION_ELIGIBLE] != 1 || backup[PF_VOICE_ROTATION_REMAINING] <= 0 || backup[PF_VOICE_ROTATION_REMAINING] > .25 + 1e-9) return fail("Rotation did not activate on its quarter grid at frame " + std::to_string(frame));
+        if (backup[PF_VOICE_ROTATION_ELIGIBLE] != 1 || backup[PF_VOICE_ROTATION_REMAINING] <= 0 || backup[PF_VOICE_ROTATION_REMAINING] > inactivity + 1e-9) return fail("Rotation did not activate for its full inactivity interval at frame " + std::to_string(frame));
         pf_snapshot(engine.get(), snapshot.data());
         std::array<double, BT_S_COUNT> clock{}; bt_snapshot(pf_tracker(engine.get()), clock.data());
         const double whole_count = (snapshot[PF_BAR_NUMBER] - 1) * snapshot[PF_BEATS_PER_BAR] + snapshot[PF_BEAT_NUMBER] - 1;
         const double frames_per_count = double(sample_rate) * 60 / clock[BT_S_BPM];
-        double next_quarter = -1;
-        for (int quarter = 1; quarter <= 4; ++quarter) {
-          const double candidate = whole_count + quarter * .25;
-          if (clock[BT_S_NEXT_BEAT_FRAME] - (1 - quarter * .25) * frames_per_count > frame) { next_quarter = candidate; break; }
-        }
-        if (next_quarter < 0) return fail("No future quarter grid in the current native count");
-        expected_release_count = std::min(next_quarter, presses[next_press].window_end_count);
-        const double expected_frame = release_frame();
+        const double window_end_frame = clock[BT_S_NEXT_BEAT_FRAME] + (presses[next_press].window_end_count - whole_count - 1) * frames_per_count;
+        expected_release_frame = std::min(frame + inactivity * frames_per_count, window_end_frame);
+        const double expected_frame = expected_release_frame;
         const double actual_frame = frame + backup[PF_VOICE_ROTATION_REMAINING] * frames_per_count;
         if (expected_frame <= frame || std::abs(actual_frame - expected_frame) >= 1e-6) {
           std::cerr << std::setprecision(17) << "Rotation deadline mismatch at frame " << frame
@@ -194,9 +194,9 @@ int main(int argc, char** argv) {
     }
     uint64_t count = std::min<uint64_t>(block_frames, max_frames - frame);
     if (next_press < presses.size()) count = std::min(count, presses[next_press].frame - frame);
-    if (expected_release_count >= 0) {
+    if (expected_release_frame >= 0) {
       pf_snapshot(engine.get(), snapshot.data());
-      const double deadline = release_frame();
+      const double deadline = expected_release_frame;
       if (!std::isfinite(deadline) || deadline <= frame || deadline >= max_frames) return fail("Invalid expected rotation cutoff");
       const uint64_t cutoff = uint64_t(std::ceil(deadline));
       count = std::min(count, cutoff - frame - uint64_t(cutoff - frame > 1));
@@ -204,7 +204,7 @@ int main(int argc, char** argv) {
     if (!count || !process(uint32_t(count), false)) return fail("Could not advance fixture audio");
   }
   if (next_press != presses.size()) return fail("Press script extends beyond ENDED");
-  if (expected_release_count >= 0) return fail("Rotation cutoff was not observed before ENDED");
+  if (expected_release_frame >= 0) return fail("Rotation cutoff was not observed before ENDED");
   if (!process(128, true)) return 1;
   pf_snapshot(engine.get(), snapshot.data());
   std::cout << std::setprecision(17) << "{\"frames\":" << frame << ",\"phase\":" << snapshot[PF_PHASE]
