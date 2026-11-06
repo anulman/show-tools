@@ -1,5 +1,7 @@
 #include "audio_pump.h"
 #include "instrument.h"
+#include "alsa_run.h"
+#include <cerrno>
 #include <algorithm>
 #include <array>
 #include <cstdlib>
@@ -33,6 +35,40 @@ std::vector<uint8_t> compiled_packet() {
   }
   return bytes;
 }
+struct StatefulDevice {
+  enum class State { Setup, Prepared, Running };
+  State capture = State::Setup, playback = State::Setup;
+  int prepares = 0, drops = 0, drains = 0;
+  bool draining = false, hold_drain = false;
+  uint32_t written = 0;
+  int prepare() {
+    ++prepares;
+    if (capture == State::Running || playback == State::Running) return -EBUSY;
+    capture = playback = State::Prepared;
+    return 0;
+  }
+  void read() { capture = State::Running; }
+  static int64_t write(void* context, const float*, uint32_t frames) {
+    auto& device = *static_cast<StatefulDevice*>(context);
+    device.playback = State::Running;
+    frames = std::min(frames, 17u);
+    device.written += frames;
+    return frames;
+  }
+  int finish() {
+    if (!draining) {
+      require(capture == State::Running && playback == State::Running);
+      capture = State::Setup;
+      draining = true;
+      ++drains;
+    }
+    if (hold_drain) return 1;
+    playback = State::Setup;
+    draining = false;
+    return 0;
+  }
+  int drop() { capture = playback = State::Setup; draining = false; ++drops; return 0; }
+};
 struct Engine {
   pf_engine* value = pf_create(8000, PF_PRACTICE, 32, 30, 4);
   Engine() {
@@ -64,6 +100,54 @@ int main() {
   require(instrument.render(test_input.data(), 127) == 0 && instrument.pending() == 127);
   instrument.stop();
   require(instrument.pending() == 0 && instrument.lifecycle() == native_host::Lifecycle::Prepared);
+  require(instrument.start({120, 0, 1, 1, 0, 0}));
+  Sink tail{{}, 17};
+  while (instrument.lifecycle() == native_host::Lifecycle::Running) {
+    require(instrument.render(test_input.data(), 509) == 0);
+    if (instrument.lifecycle() == native_host::Lifecycle::Running)
+      while (instrument.pending()) require(instrument.write(write_short, &tail) > 0);
+  }
+  require(instrument.lifecycle() == native_host::Lifecycle::Prepared && instrument.pending() == 509);
+  require(!instrument.start({120, 0, 1, 1, 0, 0}));
+  while (instrument.pending()) require(instrument.write(write_short, &tail) > 0);
+  require(instrument.prepare_profiles(profiles));
+  require(instrument.start({120, 0, 1, 1, 0, 0}));
+  instrument.stop();
+  native_host::AlsaRun run;
+  StatefulDevice device;
+  const native_host::Start start{120, 0, 1, 1, 0, 0};
+  require(run.start(instrument, device, start) == 0);
+  device.read();
+  while (instrument.lifecycle() == native_host::Lifecycle::Running) {
+    require(instrument.render(test_input.data(), 509) == 0);
+    if (instrument.lifecycle() == native_host::Lifecycle::Running)
+      while (instrument.pending()) require(instrument.write(StatefulDevice::write, &device) > 0);
+  }
+  auto before = device.written;
+  require(run.start(instrument, device, start) == -1 && device.prepares == 1);
+  require(run.complete(instrument, device) == 0 && device.drains == 0);
+  while (instrument.pending()) {
+    require(instrument.write(StatefulDevice::write, &device) > 0);
+    if (instrument.pending()) require(run.complete(instrument, device) == 0 && device.drains == 0);
+  }
+  require(device.written - before == 509);
+  device.hold_drain = true;
+  require(run.complete(instrument, device) == 0 && device.drains == 1 && device.drops == 0);
+  require(run.active() && run.start(instrument, device, start) == -1 && device.prepares == 1);
+  device.hold_drain = false;
+  require(run.complete(instrument, device) == 0 && !run.active() && device.drains == 1);
+  require(run.start(instrument, device, start) == 0);
+  device.read();
+  require(instrument.render(test_input.data(), 509) == 0);
+  require(instrument.write(StatefulDevice::write, &device) > 0);
+  instrument.stop();
+  require(run.drop(device) == 0 && instrument.pending() == 0 && device.drops == 1 && device.drains == 1);
+  require(run.start(instrument, device, start) == 0);
+  device.read();
+  require(instrument.render(test_input.data(), 509) == 0);
+  require(instrument.write(StatefulDevice::write, &device) > 0);
+  require(instrument.control(4, 0) == 0);
+  require(run.drop(device) == 0 && instrument.pending() == 0 && device.drops == 2 && device.drains == 1);
   Engine engine;
   AudioPump pump(engine.value, 509);
   std::array<float, 509> input{}; input.fill(.25f);

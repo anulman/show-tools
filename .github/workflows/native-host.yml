@@ -5,11 +5,15 @@ on:
     paths:
       - 'lib/native-host/**'
       - 'lib/native-alsa/**'
+      - 'lib/remote-performance/**'
       - 'lib/performance/**'
       - 'lib/sequencer/**'
       - 'lib/sampler/**'
       - 'lib/beat-tracker/**'
       - 'lib/patches/**'
+      - 'ui/practice/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/native-host.yml'
   workflow_dispatch:
 
@@ -40,3 +44,41 @@ jobs:
           cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-host --parallel
           ctest --test-dir build/native-host --output-on-failure
+      - name: Stage Linux host with provenance
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p build/artifact
+          cp build/native-host/native_alsa_host build/artifact/
+          cp lib/native-alsa/README.md build/artifact/ALSA-NOTICE.md
+          cp /usr/share/common-licenses/LGPL-2.1 build/artifact/
+          git rev-parse HEAD > build/artifact/source-revision.txt
+          c++ --version > build/artifact/compiler.txt
+          dpkg-query -W libasound2-dev libasound2t64 libc6 libstdc++6 > build/artifact/packages.txt
+          ldd build/artifact/native_alsa_host > build/artifact/runtime-dependencies.txt
+          cd build/artifact
+          sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: native-alsa-linux-x86_64-${{ github.sha }}
+          path: build/artifact/
+          if-no-files-found: error
+
+  controls:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Build fake native host for IPC tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libasound2-dev
+          cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-host --target native_fake_host --parallel
+      - run: npm run typecheck
+      - name: Test remote controls without hardware
+        run: node --import tsx --test --test-concurrency=4 lib/remote-performance/tests/*.test.ts ui/practice/tests/remote-session.test.ts

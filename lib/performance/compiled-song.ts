@@ -63,7 +63,7 @@ const TakeSchema = Schema.Struct({
   retention: Schema.Literals(['layer', 'variant', 'replace', 'unresolved']), gain: Schema.NullOr(Finite),
 });
 const PadStrings = Schema.Struct({ L1: Schema.String, L2: Schema.String, R1: Schema.String, R2: Schema.String });
-const ChartSchema = Schema.Struct({
+export const ChartSchema = Schema.Struct({
   title: Schema.String, bpm: Finite, beatsPerBar: Schema.Int,
   bars: list(Schema.Struct({ bar: Schema.Int, column: Schema.Int, sectionId: Schema.String, section: Schema.String, partial: Schema.Boolean, cues: PadStrings })),
   sections: list(Schema.Struct({ id: Schema.String, label: Schema.String, startBar: Schema.Int, endBar: Schema.Int })),

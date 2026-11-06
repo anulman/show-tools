@@ -44,8 +44,8 @@ export class PracticeAudio {
     const sessionId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try {
       tracker = await BeatTracker.create({
-        wasmUrl: new URL('./wasm/manual-clock.wasm', import.meta.url),
-        workletUrl: new URL('./practice-worklet.js', import.meta.url), processorName: 'practice', outputChannelCounts: [2, 2],
+        wasmUrl: new URL('./wasm/manual-clock.wasm', document.baseURI),
+        workletUrl: new URL('./practice-worklet.js', document.baseURI), processorName: 'practice', outputChannelCounts: [2, 2],
         processorOptions: { practice: { bpm: chart.bpm, beatsPerBar: chart.beatsPerBar, runId: `${sessionId}-ready`,
           barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program, initialVoiceEffects,
           compiledProgram: compiled ? Array.from(encodeCompiledProgram(compiled)) : undefined } } });

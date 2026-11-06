@@ -5,9 +5,10 @@ import vm from 'node:vm';
 import { webcrypto } from 'node:crypto';
 import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.ts';
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
+import { audioMode, canChangeAudioMode, changeAudioMode } from '../audio-mode.ts';
 
 function prepareUIContext(context) {
-  for (const [key, value] of Object.entries({ crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
+  for (const [key, value] of Object.entries({ URL, URLSearchParams, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
   vm.createContext(context);
 }
 import { loadSong } from '../../../songs/index.ts';
@@ -46,7 +47,7 @@ for (const gate of ['resume']) for (const action of ['stop', 'panic']) {
 }
 
 const uiSource = (await sourceForVM(new URL('../app.ts', import.meta.url)))
-  .replace(/^import .*;\n/gm, '').split('elements.start.addEventListener(')[0];
+  .replace(/^import .*;\n/gm, '').replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })').split('elements.start.addEventListener(')[0];
 
 for (const action of ['stopPractice', 'panic']) {
   test(`UI ${action} cancels initial audio preparation before launch`, async () => {
@@ -59,6 +60,7 @@ for (const action of ['stopPractice', 'panic']) {
         this.checked = true;
         this.textContent = '';
       }
+      addEventListener() {}
     }
     const elements = new Map();
     const querySelector = selector => {
@@ -92,6 +94,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
     checked = true;
     textContent = '';
     setAttribute() {}
+    addEventListener() {}
   }
   class Recorder {
     static isTypeSupported() { return true; }
@@ -108,7 +111,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
     PracticeAudio: { create: () => preparing.promise },
   };
   prepareUIContext(context);
-  const source = (await sourceForVM(new URL('../app.ts', import.meta.url))).replace(/^import .*;\n/gm, '').split('elements.start.addEventListener(')[0];
+  const source = (await sourceForVM(new URL('../app.ts', import.meta.url))).replace(/^import .*;\n/gm, '').replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })').split('elements.start.addEventListener(')[0];
   vm.runInContext(`${source}\nfunction render() {}\nchart = { bars: Array(218) }; song = { chart, program: { lengthBeats: 4, events: [] } }; globalThis.recordDemo = toggleOutputRecording;`, context);
   const first = context.recordDemo();
   const second = context.recordDemo();
@@ -126,6 +129,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
       this.textContent = '';
     }
     setAttribute() {}
+    addEventListener() {}
   }
   class Recorder {
     static isTypeSupported() { return true; }
@@ -151,7 +155,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
   const elements = new Map();
   const revoked = [];
   const context = {
-    Map, Set, Blob, URL: { createObjectURL(blob) { assert.equal(blob.type, 'audio/mpeg'); return 'blob:test'; }, revokeObjectURL(url) { revoked.push(url); } },
+    Map, Set, Blob, URL: class extends URL { static createObjectURL(blob) { assert.equal(blob.type, 'audio/mpeg'); return 'blob:test'; } static revokeObjectURL(url) { revoked.push(url); } },
     recordingToMp3: convert, loadedSong,
     installVoiceCatalog: () => ({ savedConfigurations: () => savedConfigurations, saveDrafts: catalogSave, update() {}, async load() {}, openProfile() {} }),
     createVoiceEffectsEditor: () => ({ configurations: () => typeof voiceConfigurations === 'function' ? voiceConfigurations() : voiceConfigurations }),

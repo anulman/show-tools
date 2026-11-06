@@ -143,4 +143,8 @@ Existing libraries and version-one JSON backups upgrade automatically. Version-t
 
 The static avatar library includes five pixel-final snapshots and 46 gallery previews. Finished animation review is pending for the gallery previews. Artwork provenance and review status are recorded in [the avatar handoff](https://github.com/anulman/show-tools/tree/main/assets/video/avatars).
 
+## Audio modes
+
+Choose Browser mode to run practice audio on this device. Choose Hardware mode when the desk is served by the EliteDesk gateway; the native host owns audio and timing. Hardware mode requires the gateway and its token. Stop browser audio before switching modes. Switching reloads the desk, so download a take first. Leaving Hardware mode detaches this desk without stopping the native instrument. Start remains a separate action after switching.
+
 Song imports and downloads use complete canonical MusicXML. Saved effects and character assignments travel with a song download. See the [cutover guide](../../docs/implementation/musicxml-cutover.md) for the profile, CLI and current notation capabilities. JSON worksheet snapshots are explicit import/audit inputs only.

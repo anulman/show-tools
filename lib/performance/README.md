@@ -28,7 +28,7 @@ This target links a manual-tempo clock, sequencer, and sampler. It requires neit
 
 Give one caller ownership of each engine. The component handles returned by `pf_tracker()`, `pf_sampler()`, and `pf_sequencer()` are borrowed. Do not separately advance the clock or dispatch sequencer beats while `pf_process()` owns block processing. The diagnostic `pf_on_beat()` API exercises native behavior in tests; it is not an additional scheduling path for a live host.
 
-Song scripts under `songs/` produce declarative instructions. C++ executes them without per-beat JavaScript callbacks. For compiled programs, use `pf_configure_compiled()` with numeric tables or `pf_load_compiled_bytes()` with the compiler's `.pfp` bytes. Both loaders validate and atomically replace a stopped program. The byte format consists of little-endian IEEE-754 doubles; constants and row widths are defined in the header. Native device hosting, physical controls, and a relay producer remain future work.
+Song scripts under `songs/` produce declarative instructions. C++ executes them without per-beat JavaScript callbacks. For compiled programs, use `pf_configure_compiled()` with numeric tables or `pf_load_compiled_bytes()` with the compiler's `.pfp` bytes. Both loaders validate and atomically replace a stopped program. The byte format consists of little-endian IEEE-754 doubles; constants and row widths are defined in the header. The native host provides fake PCM and an ALSA backend; installed-device validation, physical controls, and a relay producer remain future work.
 
 ## Preserve state and command identity
 

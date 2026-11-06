@@ -14,6 +14,4 @@ ctest --test-dir /tmp/show-tools-alsa-build --output-on-failure
 
 The device names, format, channel selection, and buffer settings are installation configuration. The simulated test does not verify a physical interface or ALSA driver.
 
-## System dependency and license
-
-Linux links the installed `libasound` shared library. Upstream provides its [LGPL 2.1 license](https://github.com/alsa-project/alsa-lib/blob/master/COPYING). This repository adds an adapter and does not copy the ALSA implementation. Runtime distribution must identify the system library and retain its required license notices. The native performance engine's manual clock remains independent of aubio.
+On Linux, the daemon links dynamically to libasound from alsa-lib, which is licensed under the [GNU Lesser General Public License, version 2.1](https://raw.githubusercontent.com/alsa-project/alsa-lib/master/COPYING). Distribution must provide the applicable license and allow replacement of that library.

@@ -1,0 +1,20 @@
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { compiledProgramBytes } from '../performance/compiled-native.js';
+import { encodeInitialProfiles } from './commands.js';
+import { loadSong } from '../../songs/index.js';
+
+const [id, effectsPath, directory] = process.argv.slice(2);
+if (!id || !effectsPath || !directory || process.argv.length !== 5) throw new Error('Usage: package-song SONG_ID EFFECTS.json NEW_DIRECTORY');
+const song = await loadSong(id);
+if (!song.compiled || !song.compiled.executable) throw new Error('Song has no executable compiled program');
+const bytes = compiledProgramBytes(song.compiled);
+const effects = await readFile(effectsPath);
+const profiles = encodeInitialProfiles(JSON.parse(effects.toString('utf8')));
+const hash = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
+const manifest = { id: song.id, description: song.description, compiled: song.compiled, practice: song.practice, takeCount: song.compiled.takes.length, packetSha256: hash(bytes), profilesSha256: hash(profiles) };
+await mkdir(directory);
+await writeFile(join(directory, 'manifest.json'), JSON.stringify(manifest), { flag: 'wx' });
+await writeFile(join(directory, 'song.pfp'), bytes, { flag: 'wx' });
+await writeFile(join(directory, 'effects.json'), effects, { flag: 'wx' });
