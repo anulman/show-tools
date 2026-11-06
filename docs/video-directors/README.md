@@ -18,9 +18,9 @@ Use the Figma skills for every applicable MCP call. A resting screenshot proves 
 
 Different song pages isolate composition work, but MCP calls still share one Figma file. This is a cooperative session protocol; MCP does not automatically enforce the lease or page ownership. Serialize file calls with an atomic directory lease at `/private/tmp/show-tools-figma-QWreOYAnaje2LlywefJFiK.lease`.
 
-1. Acquire the lease with `mkdir` on that exact path. Success grants one file-call batch. If the directory exists, continue work that does not call Figma and coordinate with Art.
-2. Record your thread ID and owned page in a file named `owner` inside the directory. Keep calls sequential and restricted to your page.
-3. Finish or inspect a failed call before releasing. Remove your own `owner` file, then remove the empty lease directory.
+1. Acquire the lease with `mkdir` on that exact path. Require a completed command result with `exit_code: 0` before recording ownership or making any file call. A busy, failed, missing, or still-running result grants no ownership. Continue independent work and send harness recovery to Chief.
+2. Record your thread ID, a fresh unique token, and owned page as JSON in `owner` inside the directory. Retain that complete expected record for the batch. Use the [shared owned-call wrapper](figma-lease.md) to check the exact live record immediately before every file call. Keep calls sequential and restricted to your page.
+3. Finish or reconcile a failed call before releasing. Verify the exact owner record again before removing your own `owner` file and the empty lease directory. Never release a foreign lease.
 
 The supervisor's verified page-creation receipt is enough to establish bootstrap ownership. If the file is busy, defer a fresh page read until composition starts instead of blocking readiness on the lease. Inspect the page before its first mutation.
 
