@@ -2,14 +2,14 @@ import { MusicXmlValidationError } from './musicxml-errors.js';
 export { MusicXmlValidationError } from './musicxml-errors.js';
 import { Schema } from 'effect';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { CompiledSongSchema, decodeCompiledSong, type CompiledSong } from './compiled-song.js';
+import { CompiledSongSchema, SongMappingSchema, RotationSchema, decodeCompiledSong, type CompiledSong } from './compiled-song.js';
 import { SongSourceSchema, type SongSource } from './song-source.js';
 import type { MusicXmlReport, MusicXmlCell, MusicalAnnotations } from './musicxml-model.js';
 import { scoreXmlText as xml, stableMusicXmlJson } from './score-xml.js';
 import { columnName } from './columns.js';
 import { CatalogDocumentSchema, type CatalogDocument } from '../voice-catalog/model.js';
 
-export const MUSICXML_SONG_PROFILE = 'show-tools-song-v2';
+export const MUSICXML_SONG_PROFILE = 'show-tools-song-v3';
 const buttons: (keyof CompiledSong['chart']['controlNames'])[] = ['L1', 'L2', 'R1', 'R2'];
 const maximumBytes = 16 * 1024 * 1024;
 const decodeSongArchive = Schema.decodeUnknownSync(SongSourceSchema, { onExcessProperty: 'error' });
@@ -440,7 +440,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   }
   const digest = await semanticDigest({ title: chart.title, meter, bpmPerChartCount: bpm, sections, vocalCues, parts, annotations }, performance, voices);
   const song = decodeCanonicalProgram({
-    schemaVersion: 5, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
+    schemaVersion: 6, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
     ticksPerQuarter: 960, meter, source: { ...performance.source, digest }, mappingDigest: digest, chart,
     voices: performance.voices, parts: resolvedParts, rotation: performance.rotation, cueWindow: performance.cueWindow,
     cues: performance.cues, takes: performance.takes, selections: performance.selections, playback: performance.playback,
@@ -459,4 +459,53 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
 
 export async function compileMusicXmlSong(input: string): Promise<CompiledSong> {
   return (await readMusicXmlSong(input)).song;
+}
+
+/** Explicit authoring migration. The normal reader accepts only the current profile. */
+export async function migrateMusicXmlSongV2(input: string): Promise<string> {
+  if (new TextEncoder().encode(input).byteLength > maximumBytes) throw new MusicXmlValidationError('Canonical MusicXML exceeds the 16 MiB limit.');
+  if (/<!DOCTYPE|<!ENTITY/i.test(input)) throw new MusicXmlValidationError('MusicXML DTD and entity declarations are not supported.');
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false,
+    parseAttributeValue: false, trimValues: false, isArray: name => name === 'miscellaneous-field' });
+  const Fields = Schema.Struct({ 'score-partwise': Schema.Struct({ identification: Schema.Struct({ miscellaneous: Schema.Struct({
+    'miscellaneous-field': Schema.Array(Schema.Struct({ name: Schema.String, '#text': Schema.optionalKey(Schema.String) })),
+  }) }) }) });
+  const fields = Schema.decodeUnknownSync(Fields)(parser.parse(input))['score-partwise'].identification.miscellaneous['miscellaneous-field'];
+  unique(fields.map(field => field.name), 'metadata field');
+  const metadata = new Map(fields.map(field => [field.name, field['#text'] ?? '']));
+  const profile = metadata.get('show-tools:profile');
+  if (profile === MUSICXML_SONG_PROFILE) return canonicalize(await readMusicXmlSong(input));
+  if (profile !== 'show-tools-song-v2') throw new MusicXmlValidationError('Migration requires a complete show-tools-song-v2 or current canonical song.');
+  const oldRotation = Schema.Struct({ voiceId: Schema.String, releaseGridBeats: Schema.Number.check(Schema.isFinite()),
+    windows: RotationSchema.fields.windows });
+  const oldPerformance = Schema.Struct({ ...Performance.fields, rotation: Schema.NullOr(oldRotation) });
+  const performance = Schema.decodeUnknownSync(oldPerformance, { onExcessProperty: 'error' })(JSON.parse(metadata.get('show-tools:performance') ?? 'null'));
+  const rotation = performance.rotation ? { voiceId: performance.rotation.voiceId, inactivityBeats: performance.rotation.releaseGridBeats,
+    windows: performance.rotation.windows } : null;
+  const replacements = new Map<string, string>([
+    ['show-tools:profile', MUSICXML_SONG_PROFILE],
+    ['show-tools:performance', stableMusicXmlJson({ ...performance, rotation })],
+  ]);
+  const mapping = metadata.get('show-tools:mapping');
+  if (mapping) {
+    const value: unknown = JSON.parse(mapping);
+    const version = Schema.decodeUnknownSync(Schema.Struct({ mappingVersion: Schema.optionalKey(Schema.Int) }))(value);
+    if (version.mappingVersion !== undefined) {
+      const oldRule = Schema.Struct({ row: Schema.Int, voiceId: Schema.String, releaseGridBeats: Schema.Number.check(Schema.isFinite()) });
+      const oldMapping = Schema.Struct({ ...SongMappingSchema.fields, mappingVersion: Schema.Literal(5), rotationRule: Schema.optionalKey(oldRule) });
+      const legacy = Schema.decodeUnknownSync(oldMapping, { onExcessProperty: 'error' })(value);
+      const { rotationRule, ...rest } = legacy;
+      replacements.set('show-tools:mapping', stableMusicXmlJson({ ...rest, mappingVersion: 6, ...(rotationRule ? {
+        rotationRule: { row: rotationRule.row, voiceId: rotationRule.voiceId, inactivityBeats: rotationRule.releaseGridBeats },
+      } : {}) }));
+    }
+  }
+  const converted = input.replace(/<miscellaneous-field name="([^"]+)">[\s\S]*?<\/miscellaneous-field>/g,
+    (element, name: string) => replacements.has(name) ? `<miscellaneous-field name="${name}">${xml(replacements.get(name) ?? '')}</miscellaneous-field>` : element);
+  return canonicalize(await readMusicXmlSong(converted));
+}
+
+function canonicalize(current: MusicXmlSong): Promise<string> {
+  return writeMusicXmlSong({ song: current.song, report: current.report, ...(current.source ? { source: current.source } : {}),
+    ...(current.mapping !== null ? { mapping: current.mapping } : {}), ...(current.voices ? { voices: current.voices } : {}) });
 }

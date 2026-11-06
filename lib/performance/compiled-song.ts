@@ -5,7 +5,7 @@ import { SongSourceSchema } from './song-source.js';
 
 const list = <S extends Schema.Constraint>(schema: S) => Schema.mutable(Schema.Array(schema));
 const Finite = Schema.Number.check(Schema.isFinite());
-const validRotationGrid = (value: number) => value > 0 && value <= 1 && Number.isInteger(value * 960);
+const validInactivityBeats = (value: number) => value > 0 && value <= 1 && Number.isInteger(value * 960);
 const ButtonSchema = Schema.Literals(['L1', 'L2', 'R1', 'R2']);
 const CueKindSchema = Schema.Literals(['arm', 'commit', 'commit-arm', 'stop', 'play']);
 export const ExecutionSchema = Schema.Union([
@@ -22,7 +22,7 @@ const PartRoleSchema = Schema.Union([
 ]);
 const PartSchema = Schema.Struct({ id: Schema.String, name: Schema.String, source: SourceRefSchema, role: PartRoleSchema, profile: Schema.Int });
 const RotationWindowSchema = Schema.Struct({ begin: PointSchema, end: PointSchema, source: SourceRefSchema, endSource: SourceRefSchema, sources: list(SourceRefSchema) });
-const RotationSchema = Schema.Struct({ voiceId: Schema.String, releaseGridBeats: Finite, windows: list(RotationWindowSchema) });
+export const RotationSchema = Schema.Struct({ voiceId: Schema.String, inactivityBeats: Finite, windows: list(RotationWindowSchema) });
 const ActionFields = {
   kind: CueKindSchema, cueBeat: Schema.NullOr(Finite), execution: ExecutionSchema,
   captureTail: Schema.Literals(['none', 'silence-to-bar-end']), tempoBeatHint: Schema.Literals([0, 1]),
@@ -32,14 +32,14 @@ const OverrideSchema = Schema.Struct({
   a1: Schema.String, notation: Schema.String, ...ActionFields,
 });
 export const SongMappingSchema = Schema.Struct({
-  mappingVersion: Schema.Literal(5), notationVersion: Schema.Literal('dyc-v1'), songId: Schema.String,
+  mappingVersion: Schema.Literal(6), notationVersion: Schema.Literal('dyc-v1'), songId: Schema.String,
   spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String,
   titleCell: Schema.String, bpmCell: Schema.String, sectionRow: Schema.Int, barRow: Schema.Int, leadInColumn: Schema.Int,
   startBar: Schema.Int, endBar: Schema.Int,
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String })),
   liveParts: list(Schema.Struct({ id: Schema.String, labelCell: Schema.String, role: Schema.Literals(['default-live', 'rotation-live']) })),
-  rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, releaseGridBeats: Finite })),
+  rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, inactivityBeats: Finite })),
   cueWindow: Schema.NullOr(CueWindowSchema),
   capturePolicies: list(Schema.Struct({ voiceId: Schema.String, retention: Schema.Literals(['layer', 'variant', 'replace']), gain: Finite })),
   layerGroups: list(Schema.Struct({ id: Schema.String, voiceId: Schema.String, armCells: list(Schema.String) })),
@@ -75,7 +75,7 @@ const SelectionWindowSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('prefix'), endCount: Finite }),
 ]);
 export const CompiledSongSchema = Schema.Struct({
-  schemaVersion: Schema.Literal(5), notationVersion: Schema.Literal('dyc-v1'), id: Schema.String, title: Schema.String,
+  schemaVersion: Schema.Literal(6), notationVersion: Schema.Literal('dyc-v1'), id: Schema.String, title: Schema.String,
   ticksPerQuarter: Schema.Literal(960), meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   source: Schema.Struct({ spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String, range: Schema.String, digest: Schema.String }),
   mappingDigest: Schema.String, chart: ChartSchema,
@@ -146,7 +146,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     || song.parts.filter(part => part.role.kind === 'default-live').length > 1 || song.parts.filter(part => part.role.kind === 'rotation-live').length > 1) throw new Error('Invalid executable voice registry.');
   if (song.rotation) {
     if (!song.parts.some(part => part.id === song.rotation?.voiceId && part.role.kind === 'rotation-live')
-      || !validRotationGrid(song.rotation.releaseGridBeats)) throw new Error('Invalid executable rotation route.');
+      || !validInactivityBeats(song.rotation.inactivityBeats)) throw new Error('Invalid executable rotation route.');
     let previousEnd = -1;
     for (const window of song.rotation.windows) {
       const begin = pointCount(window.begin, beats), end = pointCount(window.end, beats);
@@ -355,8 +355,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   let rotation: CompiledSong['rotation'] = null;
   if (mapping.rotationRule) {
     const rule = mapping.rotationRule;
-    rotation = { voiceId: rule.voiceId, releaseGridBeats: rule.releaseGridBeats, windows: [] };
-    if (!parts.some(part => part.id === rule.voiceId && part.role.kind === 'rotation-live') || !validRotationGrid(rule.releaseGridBeats)
+    rotation = { voiceId: rule.voiceId, inactivityBeats: rule.inactivityBeats, windows: [] };
+    if (!parts.some(part => part.id === rule.voiceId && part.role.kind === 'rotation-live') || !validInactivityBeats(rule.inactivityBeats)
       || rule.row < 1 || mapping.deferredRows.some(deferred => deferred.row === rule.row)) issue('rotation-rule', 'Declare one rotation-live source part and a positive release grid of at most one counted beat on the 960-tick count lattice, without deferring the same row.', ref(Math.max(1, rule.row), 1));
     if (at(source.values, rule.row, mapping.leadInColumn).trim()) issue('rotation-lead-in', 'Rotation spans must begin in a song measure, after the count-in.', ref(rule.row, mapping.leadInColumn));
     let open: { begin: typeof PointSchema.Type; source: typeof SourceRefSchema.Type; sources: typeof SourceRefSchema.Type[] } | null = null;
@@ -572,7 +572,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     if (selectionId === null) issue('play-selection', 'The play cue has no resolved committed take selection.', cue.source);
   }
   const artifact: CompiledSong = {
-    schemaVersion: 5, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
+    schemaVersion: 6, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
     source: { spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, range: source.range, digest: await digest(source) },
     mappingDigest: await digest(mapping), chart, voices: mapping.controls.map(c => ({ id: c.voiceId, buttonId: c.buttonId, arrangementRow: c.arrangementRow })),
     parts, rotation, cueWindow: mapping.cueWindow, cues, takes, selections, playback, diagnostics,
@@ -587,7 +587,7 @@ export function inspectCompiledSong(input: unknown): string {
     `Source ${song.source.sheetName} / gid ${song.source.sheetId} / ${song.source.digest}`, `Range ${song.chart.bars[0]?.bar ?? '?'}..${song.chart.bars.at(-1)?.bar ?? '?'} · ${song.meter.numerator}/${song.meter.denominator}`];
   for (const part of song.parts) lines.push(`PART\t${part.source.a1}\t${part.name}\t${part.id}\tprofile ${part.profile}\t${part.role.kind}${part.role.kind === 'pad' ? ` ${part.role.buttonId}` : ''}`);
   if (song.rotation) {
-    lines.push(`ROTATION\t${song.rotation.voiceId}\trelease at the next ${song.rotation.releaseGridBeats} counted-beat grid boundary strictly after accepted rotation; gate at written end; natural tails`);
+    lines.push(`ROTATION\t${song.rotation.voiceId}\trelease after ${song.rotation.inactivityBeats} counted beats of inactivity after accepted jiggle; gate at written end; natural tails`);
     for (const window of song.rotation.windows) lines.push(`ROTATION WINDOW\t${window.source.a1} -> ${window.endSource.a1}\t${window.begin.bar}:${window.begin.beat + 1}..${window.end.bar}:${window.end.beat + 1}\thalf-open\t${window.sources.map(source => source.a1).join(',')}`);
   }
   for (const cue of song.cues) {

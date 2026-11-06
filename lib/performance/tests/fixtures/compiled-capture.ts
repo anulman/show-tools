@@ -8,7 +8,7 @@ export async function compiledCaptureFixture({ inTransportRecapture = false } = 
   if (inTransportRecapture) { values[17][1] = ''; values[17][2] = 'r'; values[17][3] = 'c'; values[17][4] = ''; }
   values[9] = ['', '', '-', '-', "-'", "-'"];
   return compileSheetsSong({ sourceVersion: 1, spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', range: 'A1:F24', values, notes: { A18: 'Drums', A19: 'Cowbell', A20: 'Whistle', A21: 'Synth' } }, {
-    mappingVersion: 5, liveParts: [], notationVersion: 'dyc-v1', songId: 'fixture', spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture',
+    mappingVersion: 6, liveParts: [], notationVersion: 'dyc-v1', songId: 'fixture', spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture',
     titleCell: 'B1', bpmCell: 'F2', sectionRow: 4, barRow: 5, leadInColumn: 2, startBar: 1, endBar: 4,
     meter: { numerator: 4, denominator: 4 }, controls: [
       { buttonId: 'R1', voiceId: 'drums', cueRow: 18, arrangementRow: 10, nameNoteCell: 'A18' },

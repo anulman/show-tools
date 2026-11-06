@@ -1,6 +1,6 @@
 # Canonical MusicXML songs
 
-The song document is MusicXML 4.0 with the `show-tools-song-v2` application profile. Sheets is an import boundary. Renderers and performance compilation read the MusicXML document.
+The song document is MusicXML 4.0 with the `show-tools-song-v3` application profile. Sheets is an import boundary. Renderers and performance compilation read the MusicXML document.
 
 The XML reader produces the shared song model in memory. Compiled JSON and native instruction bytes are generated outputs. C++ retains clock advancement, cue execution, capture, mixing, and DSP.
 
@@ -16,13 +16,13 @@ Source references identify cells for diagnostics and Sheets following. The music
 
 ## Verify the migration
 
-Run the independent frozen DYC migration check from the repository root. It uses the retained source snapshot and `dance-yrself-clean.cutover.mapping.json`, preserving the original migration baseline as the live chart evolves.
+Run the independent DYC check from the repository root.
 
 ```sh
 node --import tsx scripts/verify-musicxml-cutover.ts
 ```
 
-Pass a MusicXML path to compare another copy against that original baseline. Later authored chart revisions can intentionally differ; use `npm run verify:dyc` to validate the current chart in native and WASM engines.
+Pass a MusicXML path as the optional argument to inspect another copy of the migrated DYC document.
 
 ```sh
 node --import tsx scripts/verify-musicxml-cutover.ts songs/dance-yrself-clean.musicxml
@@ -30,7 +30,7 @@ node --import tsx scripts/verify-musicxml-cutover.ts songs/dance-yrself-clean.mu
 
 The verifier compares the generated result with values captured before the cutover at commit `4eb0569`. The original baseline was captured before the Sheets converter and musician renderer changed. The committed script retains its hashes.
 
-The check covers the complete compiled song except the source and mapping digests, which identify the new storage representation. It also compares native instruction bytes and every SVG page byte for Bass and Drums. The frozen migration retains all 218 bars, 62 cues, 12 takes, four Bass pages, and five Drums pages.
+The check covers the complete compiled song except the source and mapping digests, which identify the new storage representation. It also compares native instruction bytes and every SVG page byte for Bass and Drums. DYC retains all 218 bars, 62 cues, 12 takes, four Bass pages, and five Drums pages.
 
 Run the input-authority and corruption tests separately.
 
@@ -84,7 +84,7 @@ The browser access host was unavailable during the final run, so live browser in
 
 ## Canonical import completion
 
-The completed integration uses profile `show-tools-song-v2`. All bundled modules read the canonical document; timing-only songs retain blank-program practice, while any unresolved authored commands keep audio blocked. Musician planning and Video preparation consume normalized annotations rather than reparsing Sheets glyphs. Video CLIs accept a self-contained song, with an optional external catalog used only when no portable snapshot exists.
+The completed integration uses profile `show-tools-song-v3`. All bundled modules read the canonical document; timing-only songs retain blank-program practice, while any unresolved authored commands keep audio blocked. Musician planning and Video preparation consume normalized annotations rather than reparsing Sheets glyphs. Video CLIs accept a self-contained song, with an optional external catalog used only when no portable snapshot exists.
 
 The complete repository suite passed 570 tests with two explicit skips. The Video suite passed 53 tests. TypeScript, both UI builds, offline layout checks and official MusicXML 4.0 schema validation passed. DYC native/WASM conformance passed at 44.1 and 48 kHz; compiled meaning, native bytes and all nine writing-page SVGs remain unchanged. Regenerated Bass and Drums PDFs were rendered and visually checked.
 
@@ -92,5 +92,16 @@ A fresh public DYC fetch succeeded with 468 cell notes and the complete used ran
 
 Regression coverage includes complete-chart bounds, dynamically added voice rows, unknown nested metadata, archive removal, standard feel and vocal-offset edits, canonical repeat timing, timing-only loading, and embedded-catalog CLI portability. The Apps Script package is rebuilt locally; installation and Google authorization remain operator work. External notation-editor save/reimport remains unverified.
 
+## Explicit jiggle inactivity migration
 
-The latest Sheets revision changes Whistle to one retained take from bars 45–46. `AV20` is `cb`, `AX20` is blank, and bars 47–48 use sampled playback. The current canonical song has 61 cues and 11 takes. The current import mapping removes obsolete arm `AV20` from the Whistle group; the separate cutover mapping stays paired with the historical JSON source. PCM checks cover Whistle reuse at bars 47–49 and its later return, with manual and automatic commits at both sample rates.
+Profile v3, compiled schema 6, mapping version 6 and native packet 6 name the jiggle release interval `inactivityBeats`. A nonzero accepted motion keeps the effect active for that full count-beat interval after the latest motion, capped by its authored window. This deliberately replaces v2's next-grid release; .25 now means a full quarter count of inactivity. Standard MusicXML notation and every other performance instruction remain unchanged.
+
+The normal reader rejects v2 documents. Migrate them explicitly to a new file:
+
+```sh
+node --import tsx scripts/migrate-jiggle-musicxml.ts INPUT.musicxml --out NEW.musicxml
+```
+
+The command validates the legacy application metadata, renames the rotation interval in performance data and optional mapping archive, and rewrites through the strict current reader/writer. It retains standard music, source archives, annotations and portable voice metadata while recalculating canonical semantic digests. Repeating the migration on a current canonical file produces identical bytes; the CLI refuses to overwrite an existing output.
+
+The original cutover hashes at `4eb0569` remain frozen. The verifier explicitly projects compiled schema 6's interval field back to its historical name/schema and native packet 6's version marker back to 5 before comparing those original hashes. Every other compiled field, native instruction value and musician-page hash remains pinned. Separate tests establish v3 rejection/migration and the native timing tests establish the intentionally changed release behavior. This historical projection is verification only and is never an executable compatibility loader.
