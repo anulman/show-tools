@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileSong } from '../../performance/compiled-song.js';
+import { compileSheetsSong } from '../../performance/compiled-song.js';
 import type { CompiledSong } from '../../performance/compiled-song.js';
 import { parseSongSource } from '../../performance/song-source.js';
 import type { SongSource } from '../../performance/song-source.js';
@@ -9,7 +9,7 @@ import mapping from '../../../songs/dance-yrself-clean.mapping.json';
 import { bindingMatches, discoverSheetVoices } from '../sheet-voices.js';
 
 const source = parseSongSource(sourceInput);
-const compiled = await compileSong(source, mapping);
+const compiled = await compileSheetsSong(source, mapping);
 function changed(change: (values: string[][]) => void): SongSource {
   const values = source.values.map(row => [...row]); change(values);
   return { ...source, values };

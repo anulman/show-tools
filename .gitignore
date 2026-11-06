@@ -3,6 +3,7 @@ ui/practice/wasm/
 ui/practice/evidence/
 node_modules/
 dist/
+output/
 .envrc
 
 ui/video/wasm/

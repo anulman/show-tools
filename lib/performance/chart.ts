@@ -13,7 +13,7 @@ const ChartSource = Schema.Struct({
 });
 const decodeChartSource = Schema.decodeUnknownSync(ChartSource);
 
-export function parseChart(input: unknown): Chart {
+export function importSheetChart(input: unknown): Chart {
   const source = decodeChartSource(input);
   const rows = source.values;
   const barRow = rows.find(row => row[0] === 'Bar');

@@ -56,9 +56,15 @@ for (const character of characters.characters) {
   await cp(resolve(root, path), destination);
   avatarFiles.push('/ui/practice/' + path);
 }
+const songFiles: string[] = [];
+await mkdir(resolve(output, 'ui/practice/songs'), { recursive: true });
+for (const name of (await readdir(resolve(root, 'songs'))).filter(name => name.endsWith('.musicxml')).sort()) {
+  await cp(resolve(root, 'songs', name), resolve(output, 'ui/practice/songs', name));
+  songFiles.push('/ui/practice/songs/' + name);
+}
 const browserFiles = Object.keys(result.metafile.outputs).filter(path => path.endsWith('.js') && !path.endsWith('/sw.js')).map(path => '/' + relative(output, resolve(root, path)).replaceAll('\\', '/'));
 const worker = resolve(output, 'ui/practice/sw.js');
-const offlineFiles = [...browserFiles, '/ui/practice/index.html', '/ui/practice/style.css', '/ui/practice/icon.svg',
+const offlineFiles = [...browserFiles, ...songFiles, '/ui/practice/index.html', '/ui/practice/style.css', '/ui/practice/icon.svg',
   '/ui/practice/manifest.webmanifest', '/ui/practice/voice-library.css', '/ui/practice/wasm/sql-wasm.wasm', ...avatarFiles, '/ui/practice/wasm/manual-clock.wasm'].sort();
 const offlineHash = createHash('sha256');
 for (const path of offlineFiles) {

@@ -3,7 +3,7 @@ import test from 'node:test';
 import { readFile } from 'node:fs/promises';
 import { compileStreetScore, parseStreetScene, type PreparedStreetScene, type StreetActor, type StreetWindow } from '../street-score.js';
 import { createStreetSampler } from '../street-sampler.js';
-import { parseStreetCell } from '../street-rhythm.js';
+import { parseSheetStageCell } from '../../performance/sheet-stage-notation.js';
 import { grayscaleRgba } from '../presentation.js';
 
 function actor(role: StreetActor['role'], ultra = true): StreetActor {
@@ -164,7 +164,7 @@ test('special action repetition requires matching closing pixels and pivot, othe
 
 test('silent beat-4 anchor permits successive drawings on 4& and 4a', () => {
   const authored = input();
-  const cell = parseStreetCell('(4)&a', 4);
+  const cell = parseSheetStageCell('(4)&a', 4);
   authored.scene = { ...authored.scene, durationCounts: 4, actors: authored.scene.actors.map(actor => ({ ...actor, clips: actor.clips.map(clip => ({ ...clip, keys: [0, .5, 1, 1.5].map((atQuarter, pose) => ({ atQuarter, pose })) })) })) };
   authored.windows[0].states = [state(0, 4)];
   authored.windows[0].accents = [...cell.accents]; authored.windows[0].downbeats = [cell.anchor ?? 0];
@@ -173,7 +173,7 @@ test('silent beat-4 anchor permits successive drawings on 4& and 4a', () => {
 
 test('leading subdivision Cowbell anchors beat 1 and accents ongoing sequential drawings', () => {
   const authored = input();
-  const cell = parseStreetCell('&e3a&', 4);
+  const cell = parseSheetStageCell('&e3a&', 4);
   authored.scene = { ...authored.scene, durationCounts: 4, actors: authored.scene.actors.map(actor => ({ ...actor, clips: actor.clips.map(clip => ({ ...clip, keys: [0, .5, 1, 1.5].map((atQuarter, pose) => ({ atQuarter, pose })) })) })) };
   authored.windows[0].states = [state(0, 4)];
   authored.windows[0].accents = [...cell.accents]; authored.windows[0].downbeats = [cell.anchor ?? 0];

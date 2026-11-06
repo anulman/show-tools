@@ -54,12 +54,12 @@ Start authorizes live input only with microphone ready and a prepared rack. Stop
 
 Default-live effects apply during count-in and playing. The click and cached sample mix stay outside the effect input. Compiled arm immediately routes live input through the target voice stack; recording waits for its declared boundary. Prepared dual banks retain original mono source, printed stereo PCM, and graph state. Playback evolves effects from original source across iterations without processing printed PCM or resetting DSP on wrap. Overlap rejects atomically; `crb` remains legal. Legacy and generic raw capture still reject with effects enabled.
 
-## Compile a worksheet
+## Compile a canonical song
 
 ```sh
-./show-tools chart fetch --url 'https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit#gid=SHEET_ID' --out /tmp/source.json
-./show-tools chart compile --source /tmp/source.json --mapping songs/dance-yrself-clean.mapping.json --out /tmp/song.json
-./show-tools chart inspect /tmp/song.json
+./show-tools chart fetch --url 'https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit#gid=SHEET_ID' --mapping IMPORT_MAPPING.json --out /tmp/song.musicxml
+./show-tools chart inspect /tmp/song.musicxml
+./show-tools chart compile --musicxml /tmp/song.musicxml --out /tmp/song.json
 ./show-tools chart encode --song /tmp/song.json --out /tmp/song.pfp
 ```
 

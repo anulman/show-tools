@@ -14,6 +14,7 @@
     "test:follower": "SHOW_TOOLS_FOLLOWER_TESTS=1 npm test",
     "typecheck": "tsc --noEmit",
     "check:layout": "node --import tsx scripts/check-ui-layout.ts",
+    "verify:musicxml": "node --import tsx scripts/verify-musicxml-cutover.ts",
     "verify:dyc": "node --import tsx scripts/verify-dyc-performance.ts",
     "test:peripherals": "node --import tsx lib/peripherals/scripts/verify.ts",
     "test:lights": "node --import tsx scripts/verify-light-bank.ts",

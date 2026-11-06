@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { parseChart, columnName, rangeForBar } from '../../../lib/performance/chart.js';
+import { importSheetChart, columnName, rangeForBar } from '../../../lib/performance/chart.js';
 import { selectionFromEvent, selectionURL } from '../sheets-extension/selection.js';
 
 const source = JSON.parse(await readFile(new URL('../../../songs/dance-yrself-clean.chart.json', import.meta.url)));
-const chart = parseChart(source);
+const chart = importSheetChart(source);
 
 test('real chart maps bars and sections to their actual sheet columns', () => {
   assert.equal(chart.bpm, 98);

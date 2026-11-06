@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile, writeFile } from 'node:fs/promises';
-import { compileSong } from '../lib/performance/compiled-song.js';
-import { parseSongSource } from '../lib/performance/song-source.js';
+import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
+import { musicXmlSourceView } from '../lib/performance/musicxml-source-view.js';
 import { parseCatalogDocument } from '../lib/voice-catalog/model.js';
 import { discoverSheetVoices } from '../lib/voice-catalog/sheet-voices.js';
 import { resolveVoice } from '../lib/voice-catalog/session.js';
@@ -9,13 +9,15 @@ import { compileStreetScore, StreetScene, type StreetWindow } from '../lib/video
 import { deriveMainVocalSections } from '../lib/video/main-vocal-sections.js';
 import { Schema } from 'effect';
 
-const [catalogPath, sourcePath, mappingPath, assetsScenePath, outputPath] = process.argv.slice(2);
-if (!catalogPath || !sourcePath || !mappingPath || !assetsScenePath || !outputPath) throw new Error('Usage: prepare-street-preview.ts catalog.json source.json mapping.json assets-scene.json output.json (keep operator inputs/output private)');
-const files = await Promise.all([catalogPath, sourcePath, mappingPath, assetsScenePath].map(path => readFile(path, 'utf8')));
-const [catalogText, sourceText, mappingText, assetsText] = files;
-const catalog = parseCatalogDocument(JSON.parse(catalogText)), source = parseSongSource(JSON.parse(sourceText));
-const compiled = await compileSong(source, JSON.parse(mappingText));
-const mainVocalSections = deriveMainVocalSections({ compiled, source });
+const positionals = process.argv.slice(2);
+const [catalogPath, musicXmlPath, assetsScenePath, outputPath] = positionals.length === 3 ? [undefined, ...positionals] : positionals;
+if (![3, 4].includes(positionals.length) || !musicXmlPath || !assetsScenePath || !outputPath) throw new Error('Usage: prepare-street-preview.ts [catalog.json] song.musicxml assets-scene.json output.json (keep operator inputs/output private)');
+const [musicxml, assetsText] = await Promise.all([musicXmlPath, assetsScenePath].map(path => readFile(path, 'utf8')));
+const document = await readMusicXmlSong(musicxml);
+if (document.voices === null && !catalogPath) throw new Error('MusicXML has no portable voice catalog; supply catalog.json before song.musicxml.');
+const catalog = parseCatalogDocument(document.voices ?? (catalogPath ? JSON.parse(await readFile(catalogPath, 'utf8')) : undefined)), source = musicXmlSourceView(document);
+const compiled = document.song;
+const mainVocalSections = deriveMainVocalSections({ compiled, source, annotations: document.report.annotations });
 const countedBeatUnit = compiled.meter.denominator;
 if (countedBeatUnit !== 4 && countedBeatUnit !== 8) throw new Error('Street preview supports quarter-note or eighth-note counts');
 const previewCountsPerSecond = compiled.chart.bpm / 60;
@@ -48,5 +50,5 @@ const scene = compileStreetScore({ scene: { ...assets, actors, durationCounts, p
 }, ...authored });
 const preparedText = `${JSON.stringify(scene, null, 2)}\n`;
 await writeFile(outputPath, preparedText);
-await writeFile(`${outputPath}.receipt.json`, `${JSON.stringify({ kind: 'private-authored-preview-receipt', catalogSha256: digest(catalogText), sourceSha256: digest(sourceText), mappingSha256: digest(mappingText), assetsSha256: digest(assetsText), preparedSha256: digest(preparedText), sourceDigest: compiled.source.digest, mainVocalSections, savedBindings: resolved.map(({ row, voice }) => ({ spreadsheetId: row.spreadsheetId, sheetId: row.sheetId, labelCell: row.labelCell, sourceLabel: row.sourceLabel, voiceId: voice.id, characterId: voice.characterId })), nativeProgram: 'not-verified' }, null, 2)}\n`);
+await writeFile(`${outputPath}.receipt.json`, `${JSON.stringify({ kind: 'private-authored-preview-receipt', catalogSha256: digest(JSON.stringify(catalog)), musicXmlSha256: digest(musicxml), assetsSha256: digest(assetsText), preparedSha256: digest(preparedText), sourceDigest: compiled.source.digest, mainVocalSections, savedBindings: resolved.map(({ row, voice }) => ({ spreadsheetId: row.spreadsheetId, sheetId: row.sheetId, labelCell: row.labelCell, sourceLabel: row.sourceLabel, voiceId: voice.id, characterId: voice.characterId })), nativeProgram: 'not-verified' }, null, 2)}\n`);
 process.stdout.write(`Prepared ${actors.length} actors; ${(durationCounts / previewCountsPerSecond).toFixed(3)}s authored policy preview at ${compiled.chart.bpm} counted BPM. Private receipt: ${outputPath}.receipt.json\n`);

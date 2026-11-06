@@ -1,12 +1,16 @@
+import { musicXmlSourceView } from '../../lib/performance/musicxml-source-view.js';
 import defaultMapping from '../../songs/dance-yrself-clean.mapping.json';
-import defaultSource from '../../songs/dance-yrself-clean.source.json';
-import { compileSong, decodeCompiledSong, decodeSongMapping, inspectCompiledSong, canonicalSongJson } from '../../lib/performance/compiled-song.js';
+import { readBundledMusicXml } from '../../songs/load-musicxml.js';
+import { readMusicXmlSong } from '../../lib/performance/musicxml-song.js';
+import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
+import { decodeCompiledSong, decodeSongMapping, inspectCompiledSong } from '../../lib/performance/compiled-song.js';
 import type { CompiledSong, SongMapping } from '../../lib/performance/compiled-song.js';
 import { fetchSongSource, parseSongSource, canonicalSourceJson } from '../../lib/performance/song-source.js';
+import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 
-type PanelOptions = { resolveMapping?: (source: SongSource, mapping: SongMapping) => SongMapping; isBusy: () => boolean; onLoad: (song: CompiledSong, source?: SongSource) => Promise<void> };
-type Work = 'idle' | 'fetching' | 'reading' | 'compiling' | 'loading';
+type PanelOptions = { resolveMapping?: (source: SongSource, mapping: SongMapping) => SongMapping; exportMusicXml?: (xml: string) => Promise<string>; isBusy: () => boolean; onLoad: (song: CompiledSong, source: SongSource | undefined, voices: CatalogDocument | null) => Promise<void> };
+type Work = 'idle' | 'fetching' | 'reading' | 'compiling' | 'loading' | 'exporting';
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
   const node = document.createElement(tag);
@@ -31,8 +35,8 @@ function label(text: string, control: HTMLElement): HTMLLabelElement {
 export function installChartPanel(root: HTMLElement, options: PanelOptions): { show: (song: CompiledSong) => void; dispose: () => void } {
   const details = element('details');
   details.className = 'chart-compiler';
-  details.append(element('summary', 'Chart source, compiler & inspection'));
-  const introduction = element('p', 'Fetch a public worksheet or import frozen source, then inspect the exact program before loading it. Changes stay staged while practice runs.');
+  details.append(element('summary', 'MusicXML song & inspection'));
+  const introduction = element('p', 'Import a MusicXML song or fetch a public worksheet into MusicXML, then inspect the exact program before loading it. Changes stay staged while practice runs.');
   introduction.className = 'effects-note';
   const url = element('input');
   url.type = 'url';
@@ -42,25 +46,25 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
   const sourceFile = element('input');
   sourceFile.type = 'file'; sourceFile.accept = '.json,application/json';
   const artifactFile = element('input');
-  artifactFile.type = 'file'; artifactFile.accept = '.json,application/json';
+  artifactFile.type = 'file'; artifactFile.accept = '.musicxml,.xml,application/vnd.recordare.musicxml+xml,application/xml,text/xml';
   const files = element('div');
   files.className = 'effects-controls';
-  files.append(label('IMPORT FROZEN SOURCE JSON', sourceFile), label('IMPORT COMPILED SONG JSON', artifactFile));
+  files.append(label('IMPORT SHEETS SNAPSHOT JSON', sourceFile), label('IMPORT MUSICXML SONG', artifactFile));
   const mapping = element('textarea');
   mapping.value = JSON.stringify(defaultMapping, null, 2);
   mapping.rows = 12;
   mapping.spellcheck = false;
   mapping.style.width = '100%';
   mapping.style.boxSizing = 'border-box';
-  const compile = button('Compile & inspect');
+  const compile = button('Reimport worksheet snapshot');
   const load = button('Load staged song');
-  const downloadSong = button('Download timing JSON');
-  const downloadSource = button('Download source JSON');
+  const downloadSong = button('Download MusicXML');
+  const downloadSource = button('Download worksheet archive');
   const actions = element('div');
   actions.className = 'effects-controls';
   actions.append(compile, load, downloadSong, downloadSource);
   const libraryNote = element('p'); libraryNote.className = 'effects-note';
-  libraryNote.textContent = 'Song exports contain timing instructions. Export the voice library separately to keep effects and characters.';
+  libraryNote.textContent = 'MusicXML song exports include the current song’s saved effects and character assignments. The voice library backup preserves the complete library.';
   const status = element('p');
   status.className = 'effects-note';
   status.setAttribute('role', 'status');
@@ -73,10 +77,13 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
   report.style.whiteSpace = 'pre-wrap';
   report.style.overflowWrap = 'anywhere';
   details.append(introduction, label('PUBLIC WORKSHEET URL', url), refresh, files,
-    label('EXPLICIT CHART MAPPING JSON', mapping), actions, libraryNote, status, sourceStatus, report);
+    label('SHEETS IMPORT CONFIGURATION JSON', mapping), actions, libraryNote, status, sourceStatus, report);
   root.replaceChildren(details);
 
-  let source: SongSource | null = parseSongSource(defaultSource);
+  let source: SongSource | null = null;
+  let musicXml: string | null = null;
+  let stagedSource: SongSource | null = null;
+  let stagedVoices: CatalogDocument | null = null;
   let staged: CompiledSong | null = null;
   let work: Work = 'idle';
   let generation = 0;
@@ -94,11 +101,11 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     compile.disabled = working || !source;
     load.disabled = working || !staged?.executable;
     refresh.disabled = working && work !== 'fetching';
-    downloadSong.disabled = !staged;
+    downloadSong.disabled = working || !musicXml;
     downloadSource.disabled = !source;
     sourceStatus.textContent = source
-      ? `Source ready. ${source.sheetName}, gid ${source.sheetId}, ${Object.keys(source.notes).length} cell notes.`
-      : 'This artifact contains no source cells. Fetch or import frozen source to recompile or download its source.';
+      ? `Worksheet archive available. ${source.sheetName}, gid ${source.sheetId}, ${Object.keys(source.notes).length} cell notes.`
+      : 'This MusicXML has no archived worksheet. Import and playback use its canonical song data.';
   }
 
   function setStaged(song: CompiledSong) {
@@ -126,7 +133,7 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     if (!current(value)) return;
     const message = error instanceof Error ? error.message : String(error);
     status.textContent = publicFetch
-      ? `Public fetch failed. ${message} If the browser blocks this request, fetch through the CLI and import its frozen source JSON here.`
+      ? `Public fetch failed. ${message} If the browser blocks this request, fetch through the CLI and import its MusicXML file here.`
       : message;
   }
 
@@ -137,14 +144,18 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     renderControls();
   }
 
-  async function compileSource(nextSource: SongSource, mappingText: string, value: number) {
+  async function importSource(nextSource: SongSource, mappingText: string, value: number) {
     const input = decodeSongMapping(JSON.parse(mappingText));
     const resolved = options.resolveMapping?.(nextSource, input) ?? input;
-    const song = await compileSong(nextSource, resolved);
+    const converted = await importSheetMusicXml({ source: nextSource, mapping: resolved });
+    const document = await readMusicXmlSong(converted.xml);
     if (!current(value)) return;
     source = nextSource;
+    musicXml = converted.xml;
+    stagedSource = musicXmlSourceView(document);
+    stagedVoices = document.voices;
     mapping.value = JSON.stringify(resolved, null, 2);
-    setStaged(song);
+    setStaged(document.song);
   }
 
   refresh.addEventListener('click', () => {
@@ -158,7 +169,7 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
       try {
         const frozenMapping = decodeSongMapping(JSON.parse(mappingText));
         const nextSource = await fetchSongSource(worksheetUrl, { signal: controller.signal, sheetName: frozenMapping.sheetName });
-        await compileSource(nextSource, mappingText, value);
+        await importSource(nextSource, mappingText, value);
       } catch (error) { failed(error, value, true); }
       finally { finish(value); }
     })();
@@ -169,8 +180,8 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     const nextSource = source;
     const mappingText = mapping.value;
     const value = begin('compiling');
-    status.textContent = 'Compiling the frozen source…';
-    void compileSource(nextSource, mappingText, value).catch(error => failed(error, value)).finally(() => finish(value));
+    status.textContent = 'Importing the worksheet snapshot into MusicXML…';
+    void importSource(nextSource, mappingText, value).catch(error => failed(error, value)).finally(() => finish(value));
   }, { signal: listeners.signal });
 
   sourceFile.addEventListener('change', () => {
@@ -178,9 +189,9 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     if (!file) return;
     const mappingText = mapping.value;
     const value = begin('reading');
-    status.textContent = `Reading frozen source ${file.name}…`;
+    status.textContent = `Reading worksheet snapshot ${file.name}…`;
     void (async () => {
-      try { await compileSource(parseSongSource(JSON.parse(await file.text())), mappingText, value); }
+      try { await importSource(parseSongSource(JSON.parse(await file.text())), mappingText, value); }
       catch (error) { failed(error, value); }
       finally { sourceFile.value = ''; finish(value); }
     })();
@@ -190,13 +201,17 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     const file = artifactFile.files?.[0];
     if (!file) return;
     const value = begin('reading');
-    status.textContent = `Reading compiled song ${file.name}…`;
+    status.textContent = `Reading MusicXML song ${file.name}…`;
     void (async () => {
       try {
-        const song = decodeCompiledSong(JSON.parse(await file.text()));
+        const text = await file.text();
+        const document = await readMusicXmlSong(text);
         if (!current(value)) return;
-        source = null;
-        setStaged(song);
+        source = document.source;
+        musicXml = text;
+        stagedSource = musicXmlSourceView(document);
+        stagedVoices = document.voices;
+        setStaged(document.song);
       } catch (error) { failed(error, value); }
       finally { artifactFile.value = ''; finish(value); }
     })();
@@ -204,8 +219,9 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
 
   mapping.addEventListener('input', () => {
     staged = null;
+    musicXml = null;
     report.textContent = '';
-    status.textContent = 'Mapping changed. Compile and inspect it before loading.';
+    status.textContent = 'Sheets import configuration changed. Reimport and inspect the worksheet snapshot before loading.';
     renderControls();
   }, { signal: listeners.signal });
 
@@ -218,15 +234,15 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     void (async () => {
       try {
         if (options.isBusy()) throw new Error('Practice became busy. The staged song was not loaded.');
-        await options.onLoad(song, source ?? undefined);
+        await options.onLoad(song, stagedSource ?? undefined, stagedVoices);
         if (current(value)) status.textContent = `Loaded ${song.title}. Start practice when ready.`;
       } catch (error) { failed(error, value); }
       finally { finish(value); }
     })();
   }, { signal: listeners.signal });
 
-  function download(text: string, filename: string) {
-    const address = URL.createObjectURL(new Blob([text], { type: 'application/json;charset=utf-8' }));
+  function download(text: string, filename: string, type: string) {
+    const address = URL.createObjectURL(new Blob([text], { type }));
     downloads.add(address);
     const link = element('a');
     link.href = address; link.download = filename;
@@ -234,15 +250,33 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
     setTimeout(() => { URL.revokeObjectURL(address); downloads.delete(address); }, 0);
   }
   downloadSong.addEventListener('click', () => {
-    if (staged) download(canonicalSongJson(staged), `${staged.id}.performance.json`);
+    if (!staged || !musicXml || work !== 'idle') return;
+    const text = musicXml, filename = `${staged.id}.musicxml`;
+    const value = begin('exporting');
+    status.textContent = 'Preparing the MusicXML song and saved voice assignments…';
+    void (async () => {
+      const exported = options.exportMusicXml ? await options.exportMusicXml(text) : text;
+      if (!current(value)) return;
+      download(exported, filename, 'application/vnd.recordare.musicxml+xml;charset=utf-8');
+      status.textContent = 'MusicXML song prepared for download.';
+    })().catch(error => failed(error, value)).finally(() => finish(value));
   }, { signal: listeners.signal });
   downloadSource.addEventListener('click', () => {
-    if (source) download(canonicalSourceJson(source), 'worksheet.source.json');
+    if (source) download(canonicalSourceJson(source), 'worksheet.source.json', 'application/json;charset=utf-8');
   }, { signal: listeners.signal });
 
-  const initialGeneration = begin('compiling');
-  status.textContent = 'Inspecting the bundled frozen DYC source…';
-  void compileSource(source, mapping.value, initialGeneration).catch(error => failed(error, initialGeneration)).finally(() => finish(initialGeneration));
+  const initialGeneration = begin('reading');
+  status.textContent = 'Inspecting the bundled DYC MusicXML…';
+  void (async () => {
+    const text = await readBundledMusicXml('dance-yrself-clean');
+    const document = await readMusicXmlSong(text);
+    if (!current(initialGeneration)) return;
+    source = document.source;
+    musicXml = text;
+    stagedSource = musicXmlSourceView(document);
+    stagedVoices = document.voices;
+    setStaged(document.song);
+  })().catch(error => failed(error, initialGeneration)).finally(() => finish(initialGeneration));
 
   return {
     show(input) {
@@ -252,6 +286,9 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
       generation++;
       work = 'idle';
       source = null;
+      musicXml = null;
+      stagedSource = null;
+      stagedVoices = null;
       setStaged(song);
     },
     dispose() {

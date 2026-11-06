@@ -1,4 +1,7 @@
-export type StreetCell = {
+import { parseArrangementHits } from './compiled-song.js';
+import type { MusicXmlReport, StageCellAnnotation } from './musicxml-model.js';
+
+export type SheetStageCell = {
   readonly active: boolean;
   readonly emphasis: 'normal' | 'special' | 'ultra';
   readonly sampled: boolean;
@@ -7,10 +10,10 @@ export type StreetCell = {
 };
 
 /** Forward subdivision notation; grouping marks annotate phrases, never audio stops. */
-export function parseStreetCell(text: string, beatsPerBar: number, lyric = false): StreetCell {
+export function parseSheetStageCell(text: string, beatsPerBar: number, lyric = false): SheetStageCell {
   const value = text.trim();
   const emphasis = value.includes('!!') ? 'ultra' : value.includes('!') ? 'special' : 'normal';
-  const result = { active: value !== '', emphasis, sampled: value.includes("'"), accents: [], anchor: null } satisfies StreetCell;
+  const result = { active: value !== '', emphasis, sampled: value.includes("'"), accents: [], anchor: null } satisfies SheetStageCell;
   const words = /^([1-9])?([A-Za-z][A-Za-z\s'’"“”.,!?…:;()/-]*)$/.exec(value);
   if (lyric && words && !/^[ea]$/i.test(value)) {
     const beat = words[1] === undefined ? null : Number(words[1]);
@@ -39,4 +42,24 @@ export function parseStreetCell(text: string, beatsPerBar: number, lyric = false
     if (!silent) accents.push(next / 4);
   }
   return { ...result, accents, anchor };
+}
+
+export function normalizeSheetStageCells(report: Omit<MusicXmlReport, 'annotations'>): StageCellAnnotation[] {
+  const lyricCells = new Set(report.vocalCues.map(cue => cue.cell));
+  return report.parts.flatMap(part => part.cells.map(cell => {
+    try {
+      const parsed = parseSheetStageCell(cell.text, report.meter.numerator, lyricCells.has(cell.cell));
+      return { cell: cell.cell, kind: 'resolved', ...parsed, accents: [...parsed.accents], eligibility: classifySheetSectionEligibility(cell.text) } satisfies StageCellAnnotation;
+    } catch (error) {
+      return { cell: cell.cell, kind: 'unresolved', message: error instanceof Error ? error.message : String(error), eligibility: classifySheetSectionEligibility(cell.text) } satisfies StageCellAnnotation;
+    }
+  }));
+}
+
+export function classifySheetSectionEligibility(text: string): StageCellAnnotation['eligibility'] {
+  const value = text.trim();
+  if (!value) return { kind: 'inactive', reason: 'blank' };
+  if (parseArrangementHits(value) !== null || /^(?:-+'?|!{1,2})$/.test(value)) return { kind: 'inactive', reason: 'notation' };
+  if (/^[A-Za-z][A-Za-z\s'’"“”.,!?…:;()/-]*$/.test(value) && !/^[ea]$/i.test(value)) return { kind: 'lyric' };
+  return { kind: 'unresolved', message: 'Section start is neither plain lyric text, a blank, nor recognized notation; classify it before preparing song activity.' };
 }
