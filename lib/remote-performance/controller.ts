@@ -124,11 +124,6 @@ export class PersistentDesk implements DeskController {
       Effect.forkScoped,
     );
     const initialize = Effect.tryPromise({ try: async signal => {
-      for (let index = 0; ; index++) {
-        signal.throwIfAborted();
-        try { await stat(socket); break; } catch { if (index >= 200) throw new Error('Native socket timed out'); }
-        await new Promise<void>(resolve => setTimeout(resolve, 10));
-      }
       await prepareInstalledPackage(socket, this.installed, signal);
       signal.throwIfAborted();
       const instrument = new NativeInstrument(socket, { disconnected: () => this.failAttempt(attempt, 'Native host disconnected') });

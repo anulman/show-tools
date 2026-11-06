@@ -63,7 +63,7 @@ test('fresh ALSA enables verify the legacy service before any native spawn, and 
     controller.setAudio('on');
     await until(() => controller.snapshot().audio.kind === 'fault' ? true : undefined);
     await assert.rejects(stat(marker));
-    assert.equal((await readFile(calls, 'utf8')).trimEnd().split('\n').length, 3);
+    assert.equal((await readFile(calls, 'utf8')).trimEnd().split('\n').length, 3, JSON.stringify(controller.snapshot().audio));
     await writeFile(systemctl, '#!/bin/sh\nhead -c 5000 /dev/zero\n');
     controller.setAudio('on');
     await until(() => controller.snapshot().audio.kind === 'fault' ? true : undefined);
