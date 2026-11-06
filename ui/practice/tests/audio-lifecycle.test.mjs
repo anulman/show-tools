@@ -174,13 +174,16 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
 function voiceEditorHarness() {
   class Element {
     children = []; listeners = new Map(); attributes = {}; dataset = {}; value = '';
+    style = { setProperty() {} }; validationMessage = '';
+    replaceChildren(...children) { this.children = [...children]; }
+    setCustomValidity(message) { this.validationMessage = message; }
     constructor(tag) { this.tag = tag; }
     append(...children) { this.children.push(...children); }
     get lastElementChild() { return this.children.at(-1); }
     get valueAsNumber() { return this.value === '' ? NaN : Number(this.value); }
     setAttribute(name, value) { this.attributes[name] = value; }
     addEventListener(name, callback) { this.listeners.set(name, callback); }
-    reportValidity() { return this.value !== ''; }
+    reportValidity() { return this.value !== '' && !this.validationMessage; }
     querySelector() { return null; }
   }
   const roots = new Map(), applied = [];
@@ -211,7 +214,7 @@ function voiceEditorHarness() {
   } };
 }
 
-for (const [profile, label, stage, parameter] of [[0, 'Wet', 0, 'wet'], [0, 'Feedback', 0, 'feedback'], [5, 'Depth · ms', 1, 'depthMs']]) {
+for (const [profile, label, stage, parameter] of [[0, 'Wet', 0, 'wet'], [0, 'Feedback', 0, 'feedback'], [5, 'Depth', 1, 'depthMs']]) {
   test(`blank required ${label} remains invalid instead of becoming zero`, () => {
     const h = voiceEditorHarness(); h.field(profile, label, '');
     assert(Number.isNaN(h.editor.configurations()[profile].effects[stage][parameter]));
