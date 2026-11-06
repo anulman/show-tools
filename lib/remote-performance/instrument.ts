@@ -1,5 +1,5 @@
 import type { PracticeState, SongScript } from '../performance/model.js';
-import { encodeCommand } from './commands.js';
+import { encodeCommand, isPriorityCommand } from './commands.js';
 import { HostConnection } from './host-connection.js';
 import { decodeEvent, decodeSnapshot } from './observation.js';
 import type { Instrument, Observation, Outcome } from './gateway.js';
@@ -53,7 +53,7 @@ export class NativeInstrument implements Instrument {
 		let operation: Buffer;
 		try { operation = encodeCommand(input, current.state); }
 		catch (error) { return { outcome: 'rejected', error: error instanceof Error ? error.message : 'Invalid command' }; }
-		const result = await connection.command(operation, operation.readUInt16LE() === 2);
+		const result = await connection.command(operation, isPriorityCommand(input));
 		if (result.length !== 16) throw new Error('Invalid host result');
 		const status = result.readUInt32LE(0);
 		const code = result.readInt32LE(4);

@@ -55,14 +55,17 @@ test('requires TLS off loopback', () => {
 	assert.throws(() => createGateway({ host: '0.0.0.0', port: 80, origin, token: Buffer.from(token), staticRoot: '.' }, instrument), /TLS/);
 });
 
-test('admits Stop when ordinary commands fill the session', async () => {
+for (const priority of [
+	{ command: 'stop', args: {} },
+	{ command: 'control', args: { control: { id: 'mushroom' }, commandId: 'panic-1' } },
+]) test(`admits ${priority.command} priority when ordinary commands fill the session`, async () => {
 	let admitted = 0;
 	const release: Array<() => void> = [];
 	const instrument: Instrument = {
 		snapshot: () => ({ type: 'session' }),
 		command: async (input) => {
 			admitted++;
-			if (typeof input === 'object' && input !== null && 'command' in input && input.command === 'stop') return { outcome: 'applied' };
+			if (admitted > 256) assert.deepEqual(input, priority);
 			await new Promise<void>(resolve => release.push(resolve));
 			return { outcome: 'applied' };
 		},
@@ -76,7 +79,7 @@ test('admits Stop when ordinary commands fill the session', async () => {
 	const base = `http://127.0.0.1:${address.port}`;
 	const headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
 	const session = await (await fetch(`${base}/api/session`, { headers })).json() as { sessionId: string };
-	const send = (sequence: number, command: string) => fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId, sequence, command, args: {} }) });
+	const send = (sequence: number, command: string, args: object = {}) => fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId, sequence, command, args }) });
 	const pending: Promise<Response>[] = [];
 	try {
 		for (let i = 1; i <= 256; i++) {
@@ -84,7 +87,13 @@ test('admits Stop when ordinary commands fill the session', async () => {
 			while (admitted < i) await new Promise(resolve => setTimeout(resolve, 1));
 		}
 		assert.equal((await send(257, 'control')).status, 503);
-		assert.equal((await (await send(258, 'stop')).json()).outcome, 'applied');
+		assert.equal((await send(258, 'control', { control: { id: 'mushroom' }, commandId: 1 })).status, 503);
+		const result = send(259, priority.command, priority.args);
+		pending.push(result);
+		while (admitted < 257) await new Promise(resolve => setTimeout(resolve, 1));
+		assert.equal((await send(260, priority.command, priority.args)).status, 503);
+		for (const resolve of release) resolve();
+		assert.equal((await (await result).json()).outcome, 'applied');
 	} finally {
 		for (const resolve of release) resolve();
 		await Promise.all(pending);

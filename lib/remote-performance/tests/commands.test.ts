@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { encodeInitialProfiles } from '../commands.js';
+import { encodeInitialProfiles, isPriorityCommand } from '../commands.js';
 import { PF } from '../../performance/wasm-abi.js';
 
 test('encodes all profile counts, revisions, and effects in host wire order', () => {
@@ -14,4 +14,16 @@ test('encodes all profile counts, revisions, and effects in host wire order', ()
 	assert.equal(bytes.readDoubleLE(62), 100);
 	assert.throws(() => encodeInitialProfiles(configurations.slice(1)), /six/);
 	assert.throws(() => encodeInitialProfiles(configurations.map(config => config.profile === 2 ? { ...config, effects: [{ kind: 'slapback', delayMs: 1, feedback: 0, wet: 0 }] } : config)), /effect/);
+});
+
+test('reserves priority only for validated Stop and Panic commands', () => {
+	assert.equal(isPriorityCommand({ command: 'stop', args: {} }), true);
+	assert.equal(isPriorityCommand({ command: 'control', args: { control: { id: 'mushroom' }, commandId: 'panic-1' } }), true);
+	for (const input of [
+		{ command: 'control', args: { control: { id: 'mushroom' }, commandId: 1 } },
+		{ command: 'control', args: { control: { id: 'R1' } } },
+		{ command: 'control', args: { control: { id: 'knob', value: 1 } } },
+		{ command: 'control', args: { control: 'mushroom' } },
+		{ command: 'stop' },
+	]) assert.equal(isPriorityCommand(input), false);
 });

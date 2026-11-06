@@ -19,6 +19,14 @@ const Commands = Schema.Union([
 	Schema.Struct({ command: Schema.Literal('configureVoiceEffects'), args: Schema.Struct({ configurations: Schema.Array(Schema.Struct({ profile: Schema.Int, effects: Schema.Array(Effect) })) }) }),
 ]);
 const decode = Schema.decodeUnknownSync(Commands);
+const parse = Schema.decodeUnknownOption(Commands);
+
+export function isPriorityCommand(input: unknown): boolean {
+	const result = parse(input);
+	if (result._tag === 'None') return false;
+	const command = result.value;
+	return command.command === 'stop' || (command.command === 'control' && command.args.control.id === 'mushroom');
+}
 
 function numeric(opcode: number, values: number[] = []) {
 	const bytes = Buffer.alloc(2 + values.length * 8);

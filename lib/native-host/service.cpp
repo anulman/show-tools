@@ -312,7 +312,7 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
     if(payload.size()<34 || !std::equal(identity.begin(),identity.end(),payload.begin()))break;
     auto* request=new Request; request->sequence=header.sequence; request->connection=connection; request->order=++order;
     if(!parse(*request,payload)) { delete request; break; }
-    bool is_stop=request->op==2;
+    bool is_stop=request->op==2 || (request->op==3 && request->args[0]==4);
     size_t request_bytes=request->packet.size()+request->manifest.size()+request->effects.size()*40;
     if(request_bytes>16*1024*1024-pending_bytes || (is_stop && stop_outstanding) || (!is_stop && outstanding>=256) ||
        !(is_stop?shared.stops.push(request):shared.commands.push(request))) {
