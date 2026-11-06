@@ -538,3 +538,30 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
     } finally { native.dispose(); }
   });
 }
+
+for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
+  test(`WASM physical cue warnings use authored counts and accepted state (${rate} Hz, ${beats} counts)`, () => {
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 3, 120, 3, 25, 25, 0, 2, 0, 0, 0, 1, 2, 3,
+      0, 0, 1, -1, PF.STOP, 1, 0, -1, -1, -1, 0,
+      0, 0, 2, 0, PF.STOP, 0, 0, -1, -1, -1, 0];
+    const native = engine(program, rate);
+    const brightness = () => native.lightOutput()[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL];
+    try {
+      native.start({ runId: 'cue-warning', bpm: 120, countInBars: 1, endBar: 3, loop: false });
+      until(native, 1);
+      assert(brightness() > .699, 'full-bar cue starts pulsing within its authored bar');
+      native.control({ id: 'cueButton', value: 1 }); assert.equal(brightness(), 1);
+      native.control({ id: 'cueButton', value: 0 }); assert.equal(brightness(), 0, 'accepted queued cue clears warning');
+      until(native, 1, beats - 2);
+      const clock = native.query('pf_snapshot');
+      const boundary = clock[PF.CLOCK_BEAT_FRAME] + rate / 2;
+      render(native, Math.round(boundary - native.processedFrames) - 1);
+      assert.equal(brightness(), 0, 'timed cue is dark before its two-count lead');
+      render(native, 2); assert(brightness() > .699, 'timed warning starts two chart counts before cue');
+      render(native, rate / 8); assert(brightness() > .34 && brightness() < .36, 'warning uses native beat phase');
+      until(native, 2); render(native, 1);
+      assert.equal(brightness(), 0, 'unpressed timed warning ends at the authored cue');
+      native.stop(); assert.equal(brightness(), 0);
+    } finally { native.dispose(); }
+  });
+}
