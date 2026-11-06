@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "file": "disco-ball.png",
+  "sha256": "5deee9451d478c2d6a69571e390e3a4b8190ea13a050b9f172f2ac25e40ded91",
+  "width": 70,
+  "height": 70,
+  "scale": 1,
+  "figma": {
+    "fileKey": "QWreOYAnaje2LlywefJFiK",
+    "pageId": "638:22337",
+    "componentId": "641:51908",
+    "sourceNodeId": "525:223641",
+    "exportScale": 1
+  },
+  "provenance": "Exact 124 rectangle clusters from the approved Song04 ball, source offsets (570,98) at 0.5; no cable or mount. Art approved native 70x70 at integer display scale.",
+  "approval": {
+    "sourceStyle": "approved existing-source reuse by Video (Art)",
+    "sourceRgbaParity": "4900 native pixels match the 124 original source rectangle clusters",
+    "alpha": "1008 transparent pixels, 3892 opaque pixels; binary alpha",
+    "export": "actual component.exportAsync PNG, no screenshot flattening or pixel edits"
+  },
+  "rgbaSha256": "db62a5679fb2e82b5eb3b2de8fd25138867026df4807a8cab311e5e1dca20167"
+}
