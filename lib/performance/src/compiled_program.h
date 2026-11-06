@@ -41,6 +41,7 @@ class Program {
   void clear_error() noexcept { error_ = PF_OK; }
   bool has_capture() const noexcept;
   bool recording() const noexcept { return active_capture_.take >= 0; }
+  bool cue_warning(int end_bar) const noexcept;
   const double* table() const noexcept { return table_.get(); }
   uint32_t table_fields() const noexcept { return fields_; }
  private:
