@@ -176,3 +176,18 @@ test('an incomplete startup owner remains fail-closed and is left intact', async
     assert((await stat(join(f.config.controlDirectory, 'starting'))).isDirectory());
   } finally { await f.cleanup(); }
 });
+
+test('live publication accepts a clean merged build and preserves it after dirty-build refusal', async () => {
+  const f = await fixture();
+  try {
+    await execute('git', ['-C', f.repo, 'update-ref', 'refs/remotes/origin/main', 'HEAD']);
+    const clean = await f.build('live-clean'); await ensureManager(f.config);
+    const live = await call(f.config, { command: 'serve', target: { kind: 'live' }, snapshot: clean.id }); assert(live.ok);
+    const row = live.statuses[0].registration; assert.equal(row.port, f.config.livePort);
+    await writeFile(join(f.repo, 'untracked-source.ts'), 'export const changed = true;');
+    const dirty = await f.build('live-dirty'); assert(dirty.source.dirty);
+    const rejected = await call(f.config, { command: 'serve', target: { kind: 'live' }, snapshot: dirty.id }); assert(!rejected.ok);
+    assert.match(rejected.error, /clean committed build/);
+    assert.equal(await (await fetch(`http://127.0.0.1:${row.port}/`)).text(), 'live-clean');
+  } finally { await f.cleanup(); }
+});
