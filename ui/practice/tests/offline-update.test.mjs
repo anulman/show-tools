@@ -18,33 +18,32 @@ function workerHarness() {
       if (!storage.has(key)) storage.set(key, new Map());
       const entries = storage.get(key);
       return {
-        async addAll(requests) {
-          const responses = await Promise.all(requests.map(async request => {
-            assert.equal(request.cache, 'reload');
-            if (failure && request.url.endsWith(failure)) throw new Error('Deployment interrupted');
-            return [request.url, new Response(`${version}:${new URL(request.url).pathname}`)];
-          }));
-          for (const [url, response] of responses) entries.set(url, response);
-        },
+        async put(url, response) { entries.set(url, response); },
         async match(url) { return entries.get(url)?.clone(); },
       };
     },
     async keys() { return [...storage.keys()]; },
     async delete(key) { return storage.delete(key); },
   };
-  function load(buildId) {
+  function load(buildId, workerScope = scope) {
     const listeners = new Map();
     const lifecycle = [];
     const context = {
       URL, Set, caches,
       Request: class extends Request { constructor(path, options) { super(new URL(path, scope), options); } },
       self: {
-        location: new URL('sw.js', scope), registration: { scope },
+        location: new URL('sw.js', workerScope), registration: { scope: workerScope },
         addEventListener(type, callback) { listeners.set(type, callback); },
         async skipWaiting() { lifecycle.push('skipWaiting'); },
         clients: { async claim() { lifecycle.push('claim'); }, async matchAll() { return clients; } },
       },
-      fetch() { throw new Error('Build assets must not fall through to network'); },
+      async fetch(request) {
+        assert.equal(request.cache, 'reload');
+        const url = new URL(request.url);
+        assert.equal(url.searchParams.get('__show_tools_build'), buildId);
+        if (failure && url.pathname.endsWith(failure)) throw new Error('Deployment interrupted');
+        return new Response(`${version}:${url.pathname}`);
+      },
     };
     vm.createContext(context);
     vm.runInContext(workerSource.replace('__BUILD_CACHE_ID__', buildId).replace('"__BUILD_MODULE_FILES__"', JSON.stringify(files)), context);
@@ -79,7 +78,7 @@ test('an ABI4 deployment installs all files before replacing ABI3 and keeps JS a
   await next.dispatch('message', { data: { type: 'activate-when-idle' }, source: { id: 'desk' } });
   assert.deepEqual(next.lifecycle, ['skipWaiting']);
   await next.dispatch('activate');
-  assert.deepEqual([...h.storage.keys()], ['show-tools-practice-v4']);
+  assert.deepEqual([...h.storage.keys()], [`show-tools-practice-${scope}:v4`]);
   assert.deepEqual(next.lifecycle, ['skipWaiting', 'claim']);
   h.setVersion('abi5');
   assert.match(await next.asset('app.js?cache-bust=1'), /^abi4:/);
@@ -96,7 +95,7 @@ test('failed installation preserves the usable old build without activation', as
   const next = h.load('v4');
   await assert.rejects(next.dispatch('install'), /Deployment interrupted/);
   assert.deepEqual(next.lifecycle, []);
-  assert.equal(h.storage.get('show-tools-practice-v4').size, 0);
+  assert.equal(h.storage.get(`show-tools-practice-${scope}:v4`).size, 0);
   assert.match(await old.asset('app.js'), /^abi3:/);
   assert.match(await old.asset('wasm/manual-clock.wasm'), /^abi3:/);
 });
@@ -108,7 +107,7 @@ test('a missing current-build asset never falls back to another build cache', as
   h.setVersion('abi4');
   const next = h.load('v4');
   await next.dispatch('install');
-  h.storage.get('show-tools-practice-v4').delete(`${scope}wasm/manual-clock.wasm`);
+  h.storage.get(`show-tools-practice-${scope}:v4`).delete(`${scope}wasm/manual-clock.wasm`);
   await assert.rejects(next.asset('wasm/manual-clock.wasm'), /This build is unavailable offline/);
   assert.match(await next.asset('app.js'), /^abi4:/);
 });
@@ -263,4 +262,14 @@ test('a new controller waits for editor dismissal even after its save completes'
   assert.equal(h.reloads, 0, 'successful save does not interrupt the still-open editor');
   h.closeEditor();
   assert.equal(h.reloads, 1, 'closing retries the pending update without another audio frame');
+});
+
+test('activating a pinned release preserves another registration scope', async () => {
+  const h = workerHarness();
+  const old = h.load('old', `${origin}/__build/old/ui/practice/`);
+  await old.dispatch('install');
+  const next = h.load('new', `${origin}/__build/new/ui/practice/`);
+  await next.dispatch('install');
+  await next.dispatch('activate');
+  assert.equal(h.storage.size, 2);
 });
