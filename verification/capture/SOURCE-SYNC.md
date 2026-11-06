@@ -33,3 +33,18 @@ No property wording changed and no possible product bug was confirmed. In partic
 The receipt and process evidence remain temporary. `RESULTS.md`, this source classification, source hashes, runnable witnesses and the finite model are the retained review record.
 
 Statechart initially exposed a verification-only bound defect after the invalid-release counterexample. Its continue-past-bugs exploration could admit a fourth generation and then evaluate a publication outside the finite domain. The repaired negative variant gates that deliberate incoming start on remaining generation capacity. This does not remove the initial policy violation or change the pristine graph. The corrected mutant statechart completes without evaluator errors or unchecked rules.
+
+## Tuner integration at 9b514790
+
+Outcome: updated from `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0` to `9b51479061fa48fbfffb8271541c1cf475a7e101`. Read every covered-source diff and its history. The relevant feature commit is `c158856`; merge `9b514790` incorporates reviewed controller/proof package #120. `compiled_program.cpp`, its header and reused fixtures, both patch-engine files, and the light output header are byte-identical to the preceding sync. Neither capture boundary policy nor the model promise changed.
+
+| Changed boundary | Classification and mapping |
+| --- | --- |
+| `performance_engine.h`: ABI 10, tuner commands, separate observation table and utility-audio query. | Interface/build drift. Packet 6, capture windows, take fields, and capture action kinds remain unchanged. These additional query/control methods do not add capture transactions. |
+| `performance_engine.cpp`: prepared tuner allocation and raw-input processing before the existing clock/render loop. | Build/mapping drift. The witness host must link the real tuner implementation. The tuner receives the original input and separate output buffers; capture-bank admission/publication methods remain unchanged. DSP accuracy and device pumping are not modeled. |
+| `silence` and microphone-loss paths close tuning. Start already calls `silence`. | Additive cleanup. Existing compiled Stop/microphone-loss transitions are unchanged. No extra await or interleaving occurs inside the serialized engine boundary. |
+| Tuner command entry rejects ordinary operations while running; Close/Silence affect only tuning. | New native control path. Successful allowed controls and rejected controls are stuttering steps for the capture model because they do not write its bank/draft/publication state. A real-engine witness checks the selected active-capture boundary and expected PCM. A native-only gate-removal mutant demonstrates that witness can fail. |
+
+The runner adds the tuner include path and source to its build, and pins those actual implementation files. It preserves all five previous capture mutants, then separately mutates the running-transport gate in a temporary engine copy. No product source is rewritten. The final pristine rerun covers all eleven scenarios. All sixteen current statechart interpretations across lifecycle and capture complete without unchecked rules; the finite capture graphs and five original counterexamples retain their prior counts and meanings.
+
+The model still does not cover tuner pitch/preview accuracy, arbitrary tuner-command interleavings, stopped ALSA utility pumping, UI session attachment, effect fidelity, or physical timing. The new isolation check is selected native evidence, not a refinement proof for those paths. Initial failures were verification source/build drift, not a reproduced product defect; no property was weakened.

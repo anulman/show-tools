@@ -57,6 +57,37 @@ void sliced_endpoint_reuses_protected_banks() {
   }
 }
 
+void tuner_isolation() {
+  Engine engine; prepare(engine, table());
+  std::array<double, PF_TUNER_FIELDS> tuning{};
+  pf_tuner_info(engine, tuning.data());
+  ok(engine, pf_tuner_command_apply(engine, PF_TUNER_PLAY_SCALE, uint32_t(tuning[PF_TUNER_REVISION]), 0, 0));
+  pf_tuner_info(engine, tuning.data());
+  ok(engine, pf_tuner_command_apply(engine, PF_TUNER_LISTEN, uint32_t(tuning[PF_TUNER_REVISION]), 1, 0));
+  require(pf_audio_needed(engine), "stopped utility audio uses the existing engine");
+  ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0));
+  pf_tuner_info(engine, tuning.data());
+  require(!tuning[PF_TUNER_LISTENING] && !tuning[PF_TUNER_PREVIEW_KIND],
+    "Start clears tuning before recording");
+  ok(engine, press(engine, 0)); until(engine, 1);
+  const auto draft = take(engine, 0);
+  require(pf_tuner_command_apply(engine, PF_TUNER_CUE, uint32_t(tuning[PF_TUNER_REVISION]), 0, 0) < 0,
+    "reference playback rejects during capture");
+  require(take(engine, 0) == draft, "rejected tuner operation preserves the capture draft");
+  for (int command : {PF_TUNER_CLOSE, PF_TUNER_SILENCE}) {
+    pf_tuner_info(engine, tuning.data());
+    ok(engine, pf_tuner_command_apply(engine, command, uint32_t(tuning[PF_TUNER_REVISION]), 0, 0));
+    require(take(engine, 0) == draft, "closing tuning preserves active capture");
+  }
+  until(engine, 2);
+  const auto retained = take(engine, 0);
+  require(retained[PF_TAKE_READY] && retained[PF_TAKE_LENGTH] == 16000,
+    "capture still commits at its authored endpoint after tuner controls");
+  const auto audio = render(engine, 1);
+  require(std::abs(audio.left[0] - .3125f) < 1e-6,
+    "capture playback retains microphone PCM without reference contamination");
+}
+
 int main(int argc, char** argv) {
   if (argc != 2) return 2;
   const char* scenario = argv[1];
@@ -70,6 +101,7 @@ int main(int argc, char** argv) {
   else if (std::strcmp(scenario, "selection-preflight") == 0) commit_preflights_entire_selection_before_publication();
   else if (std::strcmp(scenario, "boundary-orders") == 0) { disjoint_reservation_handoff_both_orders(); unified_button_and_light_priority(); unified_button_reports_independent_failures(); }
   else if (std::strcmp(scenario, "wrap-preserves-latest") == 0) loop_wrap_discards_unfinished_capture_and_preserves_latest();
+  else if (std::strcmp(scenario, "tuner-isolation") == 0) tuner_isolation();
   else return 2;
   std::printf("PASS capture witness %s\n", scenario);
   return 0;

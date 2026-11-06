@@ -91,11 +91,12 @@ const sourceFiles = [
   'verification/capture/replay.cpp', 'lib/performance/src/performance_engine.cpp', 'lib/performance/src/compiled_program.cpp',
   'lib/beat-tracker/src/beat_tracker.cpp', 'lib/beat-tracker/src/beat_clock.cpp', 'lib/beat-tracker/src/tempo_follower.cpp',
   'lib/sampler/src/sample_engine.cpp', 'lib/sequencer/src/audio_sequence_engine.cpp', 'lib/patches/src/patch_engine.cpp',
+  'lib/tuner/src/tuner.cpp',
   'lib/patches/src/tribulations_guitar.cpp', 'lib/patches/src/tribulations_string.cpp', 'lib/patches/src/tribulations_filter.cpp', 'lib/patches/src/tribulations_amp.cpp',
 ];
 const build = join(output, 'native');
 mkdirSync(build);
-const flags = ['-std=c++17', '-O0', '-DBT_MANUAL_ONLY', ...['beat-tracker', 'sampler', 'sequencer', 'performance', 'patches'].map(name => '-I' + join(repository, 'lib', name, 'include'))];
+const flags = ['-std=c++17', '-O0', '-DBT_MANUAL_ONLY', ...['beat-tracker', 'sampler', 'sequencer', 'performance', 'patches', 'tuner'].map(name => '-I' + join(repository, 'lib', name, 'include'))];
 const compiler = process.env.CXX || 'c++';
 const objects = sourceFiles.map((file, index) => {
   const object = join(build, index + '.o');
@@ -104,25 +105,30 @@ const objects = sourceFiles.map((file, index) => {
 });
 const executable = join(build, 'replay');
 accepted(compiler, objects.concat(['-o', executable]), 'link-pristine');
-const scenarios = ['combined-admission', 'independent-admission', 'invalid-outgoing', 'retained-bank', 'autoplay', 'stop-complete', 'automatic-endpoint', 'selection-preflight', 'boundary-orders', 'wrap-preserves-latest'];
+const scenarios = ['combined-admission', 'independent-admission', 'invalid-outgoing', 'retained-bank', 'autoplay', 'stop-complete', 'automatic-endpoint', 'selection-preflight', 'boundary-orders', 'wrap-preserves-latest', 'tuner-isolation'];
 for (const scenario of scenarios) accepted(executable, [scenario], 'replay-' + scenario, build);
-const originalSource = readFileSync(join(repository, 'lib/performance/src/compiled_program.cpp'), 'utf8');
 const nativeWitnesses = [];
-for (const mutation of mutations) {
+const nativeMutations = [
+  ...mutations.map(mutation => ({ ...mutation, file: 'lib/performance/src/compiled_program.cpp', objectIndex: 2 })),
+  { name: 'tunerDuringCapture', scenario: 'tuner-isolation', message: 'reference playback rejects during capture',
+    file: 'lib/performance/src/performance_engine.cpp', objectIndex: 1,
+    edits: [{ before: 'if (command != PF_TUNER_CLOSE && command != PF_TUNER_SILENCE && running(engine))', after: 'if (false)' }] },
+];
+for (const mutation of nativeMutations) {
   const folder = join(build, mutation.name);
   mkdirSync(folder);
-  let source = originalSource;
+  let source = readFileSync(join(repository, mutation.file), 'utf8');
   for (const edit of mutation.edits) {
     assert.equal(source.split(edit.before).length, 2, `Source mutation anchor changed for ${mutation.name}`);
     source = source.replace(edit.before, edit.after);
   }
-  const changed = join(folder, 'compiled_program.cpp');
+  const changed = join(folder, 'mutant.cpp');
   writeFileSync(changed, source);
   copyFileSync(join(repository, 'lib/performance/src/compiled_program.h'), join(folder, 'compiled_program.h'));
   const object = join(folder, 'mutant.o');
   accepted(compiler, [...flags, '-c', changed, '-o', object], 'compile-mutant-' + mutation.name);
   const mutant = join(folder, 'replay');
-  accepted(compiler, objects.map((item, index) => index === 2 ? object : item).concat(['-o', mutant]), 'link-mutant-' + mutation.name);
+  accepted(compiler, objects.map((item, index) => index === mutation.objectIndex ? object : item).concat(['-o', mutant]), 'link-mutant-' + mutation.name);
   const result = run(mutant, [mutation.scenario], 'replay-mutant-' + mutation.name, folder);
   assert(result.status !== 0 || result.signal !== null, `Actual C++ mutant ${mutation.name} passed`);
   assert(result.log.includes(mutation.message), `Actual C++ mutant failed for an unrelated reason; inspect replay-mutant-${mutation.name}.log`);

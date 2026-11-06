@@ -19,3 +19,9 @@ The finite model does not prove clock advancement, numeric boundary conversion, 
 Current-source native coverage also includes automatic final-bar slice publication across three captures, immutable-parent readback, audible playback, and unified cue-button ordering, held repeats, release, and independent outcomes. The no-autoplay source mutant disables both full-take and slice start paths plus selection playback. No production files, invariant wording, or finite bounds changed.
 
 Statechart first exposed a verification-only bound defect in continued exploration after the invalid-release mutant's intended counterexample. That broken branch could start a fourth generation and then read outside the finite publication domain. The negative variant now requires remaining generation capacity for its deliberate invalid start. Its two-step `InvalidReleaseCannotAdmit` counterexample is preserved, and the corrected statechart checks all remaining rules without an evaluator error. The corrected mutant statechart reaches 4,484 states. The pristine model still exhausts exactly 4,904 states.
+
+## Shared-tuner maintenance
+
+Updated at source sync `9b51479061fa48fbfffb8271541c1cf475a7e101`. The ten invariant definitions and finite bounds are unchanged. The pristine full graph again exhausts 4,904 states and the display graph exhausts 362. All five formal mutants retain their named failures. All eleven native scenarios pass before and after six assertion-specific actual-source mutations. The added native-only mutation removes the tuner gate during recording and fails the new isolation assertion. It does not extend the formal model to tuner state. Production hashes are checked after restoration.
+
+The original hash rejection and missing tuner dependency in the standalone witness build were verification drift. No capture-policy product bug was found. The source classification and scope exclusions are recorded in [SOURCE-SYNC.md](SOURCE-SYNC.md).

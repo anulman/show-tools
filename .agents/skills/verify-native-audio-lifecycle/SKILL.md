@@ -33,7 +33,7 @@ Pending spawn ownership must remain held even after failed scope cleanup or a la
 
 ## Keep the proof in sync
 
-The current coverage record is synced to the real fix commit `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`. It names covered files and symbols and records exact hashes. Review every relevant change to `PersistentDesk.setAudio`, `stop`, `start`, `runAttempt`, `finished`, `observe`, `command`, `ChildOwnership`, the audio state schemas, or Effect process/scope behavior.
+The current coverage record is synced to integration commit `9b51479061fa48fbfffb8271541c1cf475a7e101`. It names covered files and symbols and records exact hashes, including the tuner payload schema. Review every relevant change to `PersistentDesk.setAudio`, `stop`, `start`, `runAttempt`, `finished`, `observe`, `command`, `ChildOwnership`, the audio state schemas, or Effect process/scope behavior. The replay validates its synthetic tuner observation with the real schema. Tuner DSP, preview timing, and browser modal ownership remain outside this lifecycle model.
 
 Map every changed await and ownership transfer to model actions. Preserve separate child acquisition and handle publication, and distinguish physical exit from asynchronous public-view updates. Review the synthetic process/transport assumptions and rerun the real-code witnesses. Only then advance the sync commit, source hashes and dependency version in `coverage.json` to the reviewed revision. Updating hashes alone does not repair model drift.
 
