@@ -2,6 +2,18 @@
 
 The Street studio displays Figma-derived character drawings as rigid, held sprites. A prepared visual score supplies every actor, placement, drawing and state change. The C++ sampler evaluates that score through the same WASM module used by the offline exporter.
 
+## Prepare both aspect ratios
+
+Deliver every new scene and animatic in both **16:9** and **4:3**. Author a Figma frame for each aspect. Current review canvases are 1280×720 and 960×720 respectively. These are provisional working dimensions. Final delivery resolutions and physical CRT output remain unconfirmed.
+
+Use the same native sprite grid and integer actor scale in corresponding shots. Frame the camera, world, ground contacts, actor anchors, UI and key props for each aspect. Do not stretch sprites or derive the 4:3 version by blindly cropping the center of a finished 16:9 render. Source cels retain their native canvases and pivots.
+
+The handoff includes both frame IDs, dimensions, camera cuts, actor placements and fit decisions. For renderer intake, normalize and prepare each layout separately, with its own exported background and prepared scene. Each compiled aspect needs its own exact-cast fit profile and verification. A 16:9 fit approval does not cover changed 4:3 anchors or bounds. The existing commands process one prepared scene per invocation; they do not generate an alternate composition automatically.
+
+Keep the same performance inputs, event times and review cadence across the pair. Record narrative review timing separately from song timing. Existing approved movies keep their current pins until a requested replacement is verified.
+
+## Prepare a score
+
 Build without practice audio:
 
 ```sh
@@ -46,13 +58,20 @@ Idle characters use simple dances; normal performance uses vigorous dances; `!` 
 
 Characters keep dancing between labeled hits. Each actor advances sequentially through its source keys, with natural drawing deadlines and written accents on a quarter-count grid. The first change after an anchoring beat waits at least half a counted beat. Later changes may occur a quarter beat apart. Forward subdivision notation `&e3a&` means 1&, 2e, 3, 3a, and 4&. Parenthesized beats establish silent anchors. Renderers hold complete drawings between accepted changes. They apply PNG-canvas pivots once, preserve alpha during grayscale conversion, and use nearest-neighbor scaling.
 
-Export a clean movie with the same sampler:
+## Export both versions
+
+Export both prepared versions with the same sampler. Use a new output directory for each aspect:
 
 ```sh
-node --import tsx scripts/export-street-preview.ts --scene /private/tmp/street-scene.json --asset-root /private/tmp/street-package --output /private/tmp/street-review --fps 30
+node --import tsx scripts/export-street-preview.ts --scene /private/tmp/street-scene-16x9.json --asset-root /private/tmp/street-package --output /private/tmp/street-review-16x9 --fps 30
+node --import tsx scripts/export-street-preview.ts --scene /private/tmp/street-scene-4x3.json --asset-root /private/tmp/street-package --output /private/tmp/street-review-4x3 --fps 30
 ```
 
 The output directory must be new. It receives a PNG sequence, `street-preview.mp4`, `contact-sheet.png`, and a receipt containing timing, sampled frames, asset hashes, and input provenance. Export uses a half-open time interval and includes no audio or review controls.
+
+Review the actual exports for both aspects. Check dimensions, pixel scale, camera cuts, contacts, foreground occlusion, UI and key-prop visibility. Inspect decoded frames around transitions and at the ending. Keep both receipts and share links labelled by aspect. A resting Figma screenshot or a resized copy does not verify the paired movies.
+
+## Verify the result
 
 Verify changed behavior:
 
