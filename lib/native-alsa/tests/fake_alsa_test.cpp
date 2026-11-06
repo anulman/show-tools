@@ -8,7 +8,11 @@
 
 static void require(bool condition) { if (!condition) std::abort(); }
 
-struct snd_pcm_t { int direction; };
+struct snd_pcm_t { int direction; int state; };
+static snd_pcm_t* capture_pcm = nullptr;
+static snd_pcm_t* playback_pcm = nullptr;
+static int capture_drops = 0, playback_drops = 0, playback_drains = 0;
+static bool async_drain = false;
 struct snd_pcm_hw_params_t { int format; unsigned channels, rate; unsigned long period, buffer; };
 static std::int32_t written[4];
 static int recovery_calls = 0;
@@ -18,7 +22,7 @@ static bool mismatch_rate = false;
 static int current_format = SND_PCM_FORMAT_S32_LE;
 static int read_error = 0;
 static int write_error = 0;
-int snd_pcm_open(snd_pcm_t** pcm, const char*, int direction, int) { if (direction == SND_PCM_STREAM_PLAYBACK && fail_playback) return -ENOENT; *pcm = new snd_pcm_t{direction}; return 0; }
+int snd_pcm_open(snd_pcm_t** pcm, const char*, int direction, int) { if (direction == SND_PCM_STREAM_PLAYBACK && fail_playback) return -ENOENT; *pcm = new snd_pcm_t{direction, SND_PCM_STATE_SETUP}; if (direction == SND_PCM_STREAM_CAPTURE) capture_pcm = *pcm; else playback_pcm = *pcm; return 0; }
 int snd_pcm_close(snd_pcm_t* pcm) { ++close_count; delete pcm; return 0; }
 int snd_pcm_hw_params_malloc(snd_pcm_hw_params_t** p) { *p = new snd_pcm_hw_params_t; return 0; }
 void snd_pcm_hw_params_free(snd_pcm_hw_params_t* p) { delete p; }
@@ -50,8 +54,11 @@ snd_pcm_sframes_t snd_pcm_writei(snd_pcm_t*, const void* data, snd_pcm_uframes_t
   return 1;
 }
 int snd_pcm_recover(snd_pcm_t*, int, int) { ++recovery_calls; return 0; }
-int snd_pcm_drop(snd_pcm_t*) { return 0; }
-int snd_pcm_prepare(snd_pcm_t*) { return 0; }
+int snd_pcm_drop(snd_pcm_t* pcm) { pcm->state = SND_PCM_STATE_SETUP; if (pcm->direction == SND_PCM_STREAM_CAPTURE) ++capture_drops; else ++playback_drops; return 0; }
+int snd_pcm_drain(snd_pcm_t* pcm) { require(pcm == playback_pcm && capture_pcm->state == SND_PCM_STATE_SETUP); ++playback_drains; pcm->state = async_drain ? SND_PCM_STATE_DRAINING : SND_PCM_STATE_SETUP; return async_drain ? -EAGAIN : 0; }
+int snd_pcm_nonblock(snd_pcm_t*, int) { return 0; }
+snd_pcm_state_t snd_pcm_state(snd_pcm_t* pcm) { return pcm->state; }
+int snd_pcm_prepare(snd_pcm_t* pcm) { if (pcm->state == SND_PCM_STATE_RUNNING || pcm->state == SND_PCM_STATE_DRAINING) return -EBUSY; pcm->state = SND_PCM_STATE_SETUP; return 0; }
 const char* snd_strerror(int) { return "fake failure"; }
 
 
@@ -80,6 +87,19 @@ int main() {
   require(recovery_calls == 0);
   require(pcm->recover(native_alsa::Direction::Capture, -EPIPE) == 0 && recovery_calls == 1);
   require(pcm->drop() == 0 && pcm->prepare() == 0);
+  capture_pcm->state = playback_pcm->state = SND_PCM_STATE_RUNNING;
+  require(pcm->prepare() == -EBUSY);
+  async_drain = true;
+  const int capture_before = capture_drops, playback_before = playback_drops;
+  require(pcm->finish() == 1 && capture_drops == capture_before + 1 && playback_drops == playback_before && playback_drains == 1);
+  require(pcm->finish() == 1 && playback_drains == 1);
+  playback_pcm->state = SND_PCM_STATE_SETUP;
+  require(pcm->finish() == 0 && playback_drains == 1);
+  require(pcm->prepare() == 0);
+  capture_pcm->state = playback_pcm->state = SND_PCM_STATE_RUNNING;
+  require(pcm->finish() == 1);
+  require(pcm->drop() == 0 && playback_drops == playback_before + 1);
+  require(pcm->prepare() == 0);
   pcm.reset();
   require(close_count == 4);
   read_error = 0; write_error = 0;

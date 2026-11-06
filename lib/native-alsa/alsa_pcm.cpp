@@ -21,6 +21,7 @@ struct AlsaPcm::Impl {
 #if defined(__linux__)
   snd_pcm_t* capture = nullptr;
   snd_pcm_t* playback = nullptr;
+  bool draining = false;
   std::vector<std::int32_t> capture_int;
   std::vector<std::int32_t> playback_int;
   std::vector<float> capture_float;
@@ -145,7 +146,33 @@ int AlsaPcm::drop() {
 #if defined(__linux__)
   const int capture = snd_pcm_drop(impl_->capture);
   const int playback = snd_pcm_drop(impl_->playback);
-  return capture < 0 ? capture : playback;
+  const int mode = impl_->draining ? snd_pcm_nonblock(impl_->playback, 0) : 0;
+  impl_->draining = false;
+  return capture < 0 ? capture : playback < 0 ? playback : mode;
+#else
+  return -ENOSYS;
+#endif
+}
+int AlsaPcm::finish() {
+#if defined(__linux__)
+  if (!impl_->draining) {
+    int rc = snd_pcm_drop(impl_->capture);
+    if (rc < 0) return rc;
+    rc = snd_pcm_nonblock(impl_->playback, 1);
+    if (rc < 0) return rc;
+    impl_->draining = true;
+    rc = snd_pcm_drain(impl_->playback);
+    if (rc < 0 && rc != -EAGAIN) return rc;
+    if (rc == -EAGAIN) return 1;
+  } else {
+    const auto state = snd_pcm_state(impl_->playback);
+    if (state == SND_PCM_STATE_DRAINING || state == SND_PCM_STATE_RUNNING) return 1;
+    if (state != SND_PCM_STATE_SETUP) return state == SND_PCM_STATE_XRUN ? -EPIPE : -EIO;
+  }
+  const int rc = snd_pcm_nonblock(impl_->playback, 0);
+  if (rc < 0) return rc;
+  impl_->draining = false;
+  return 0;
 #else
   return -ENOSYS;
 #endif

@@ -3,6 +3,7 @@
 typedef struct snd_pcm_t snd_pcm_t;
 typedef struct snd_pcm_hw_params_t snd_pcm_hw_params_t;
 typedef int snd_pcm_format_t;
+typedef int snd_pcm_state_t;
 typedef long snd_pcm_sframes_t;
 typedef unsigned long snd_pcm_uframes_t;
 enum { SND_PCM_STREAM_CAPTURE, SND_PCM_STREAM_PLAYBACK, SND_PCM_ACCESS_RW_INTERLEAVED, SND_PCM_FORMAT_S32_LE, SND_PCM_FORMAT_FLOAT_LE };
@@ -29,5 +30,9 @@ snd_pcm_sframes_t snd_pcm_readi(snd_pcm_t*, void*, snd_pcm_uframes_t);
 snd_pcm_sframes_t snd_pcm_writei(snd_pcm_t*, const void*, snd_pcm_uframes_t);
 int snd_pcm_recover(snd_pcm_t*, int, int);
 int snd_pcm_drop(snd_pcm_t*);
+enum { SND_PCM_STATE_SETUP, SND_PCM_STATE_RUNNING, SND_PCM_STATE_DRAINING, SND_PCM_STATE_XRUN };
+int snd_pcm_drain(snd_pcm_t*);
+int snd_pcm_nonblock(snd_pcm_t*, int);
+snd_pcm_state_t snd_pcm_state(snd_pcm_t*);
 int snd_pcm_prepare(snd_pcm_t*);
 const char* snd_strerror(int);

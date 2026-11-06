@@ -41,6 +41,8 @@ class AlsaPcm {
   long write(const float* stereo, std::size_t frames);
   int recover(Direction direction, int error);
   int drop();
+  // Returns 1 while playback drains, 0 when stopped, or a negative error.
+  int finish();
   int prepare();
   const Parameters& capture_parameters() const;
   const Parameters& playback_parameters() const;

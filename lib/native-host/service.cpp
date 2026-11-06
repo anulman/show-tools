@@ -3,6 +3,7 @@
 #include "spsc_queue.h"
 #ifdef NATIVE_ALSA_HOST
 #include "alsa_pcm.h"
+#include "alsa_run.h"
 #endif
 #include <algorithm>
 #include <array>
@@ -123,6 +124,9 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #endif
 ) {
   Instrument instrument(config);
+#ifdef NATIVE_ALSA_HOST
+  AlsaRun alsa_run;
+#endif
   std::vector<float> input(block,input_level);
   uint64_t revision=0, run=0; unsigned tick=0;
   auto publish=[&](Observation& obs) { observe(instrument,obs,revision); obs.run=run; };
@@ -142,18 +146,20 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
         case 0: rc=0; break;
         case 1:
 #ifdef NATIVE_ALSA_HOST
-          if(instrument.lifecycle()!=Lifecycle::Prepared) break;
-          if(device->prepare()<0) { shared.device_failed=true; break; }
+          rc=alsa_run.start(instrument,*device,{a[0],int(a[1]),int(a[2]),int(a[3]),int(a[4]),int(a[5])});
+          if(rc==-2) shared.device_failed=true;
+#else
+          rc=instrument.start({a[0],int(a[1]),int(a[2]),int(a[3]),int(a[4]),int(a[5])})?0:-1;
 #endif
-          rc=instrument.start({a[0],int(a[1]),int(a[2]),int(a[3]),int(a[4]),int(a[5])})?0:-1; break;
+          break;
         case 2: instrument.stop();
 #ifdef NATIVE_ALSA_HOST
-          if(device->drop()<0) { shared.device_failed=true; break; }
+          if(alsa_run.drop(*device)<0) { shared.device_failed=true; break; }
 #endif
           rc=0; break;
         case 3: rc=instrument.control(int(a[0]),a[1]);
 #ifdef NATIVE_ALSA_HOST
-          if(rc==0 && int(a[0])==4 && device->drop()<0) { shared.device_failed=true; rc=-1; }
+          if(rc==0 && int(a[0])==4 && alsa_run.drop(*device)<0) { shared.device_failed=true; rc=-1; }
 #endif
           break;
         case 4: rc=instrument.select(int(a[0])); break;
@@ -219,15 +225,20 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
     }
     Request* request=nullptr;
     for(unsigned i=0;i<16 && shared.commands.pop(request);++i) { process(request,false); shared.results.push(request); }
-    if(!stepped && (instrument.lifecycle()==Lifecycle::Running || instrument.pending())) {
+    if(!stepped && (instrument.lifecycle()==Lifecycle::Running || instrument.pending()
+#ifdef NATIVE_ALSA_HOST
+        || alsa_run.active()
+#endif
+        )) {
       const auto previous_lifecycle=instrument.lifecycle();
 #ifdef NATIVE_ALSA_HOST
       if(instrument.pending()) {
         if(instrument.write([](void* d,const float* p,uint32_t n)->int64_t { return static_cast<native_alsa::AlsaPcm*>(d)->write(p,n); },device.get())<0) shared.device_failed=true;
-      } else {
+      } else if(instrument.lifecycle()==Lifecycle::Running) {
         auto frames=device->read(input.data(),block);
         if(frames<0 || (frames>0 && instrument.render(input.data(),uint32_t(frames))<0)) shared.device_failed=true;
       }
+      if(!shared.device_failed.load() && alsa_run.complete(instrument,*device)<0) shared.device_failed=true;
       if(shared.device_failed.load()) instrument.stop();
 #else
       if(instrument.pending()) instrument.write(discard,nullptr);
