@@ -10,6 +10,7 @@ import type { Observation } from './gateway.js';
 import { SongSchema, NativeEventSchema } from './native-schema.js';
 import { prepareInstalledPackage, type validateInstalledPackage } from './prepare.js';
 import type { SessionProfile } from './session-profile.js';
+import { requireLegacyMonitorInactive } from './legacy-monitor.js';
 import { AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
   type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome } from './session-schema.js';
 
@@ -107,8 +108,10 @@ export class PersistentDesk implements DeskController {
     const socket = join(directory, 'host.sock');
     const native = this.profile.native;
     const driver = native.driver;
+    if (driver.kind === 'alsa' && driver.requireInactiveUserService) yield* requireLegacyMonitorInactive(driver.requireInactiveUserService);
     const args = [socket, String(native.sampleRate), String(native.blockFrames), String(native.maxVoices), String(native.maxSeconds),
-      ...(driver.kind === 'fake' ? [String(driver.inputLevel)] : [driver.captureDevice, driver.playbackDevice, String(driver.captureChannels), String(driver.inputChannel), String(driver.periodFrames), String(driver.bufferFrames), driver.format]),
+      ...(driver.kind === 'fake' ? [String(driver.inputLevel)] : [`hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, `hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, String(driver.captureChannels), String(driver.inputChannel), String(driver.periodFrames), String(driver.bufferFrames), driver.format,
+        '--usb-identity', driver.identity.byId, driver.identity.usbSerial, driver.identity.usbVendor, driver.identity.usbProduct, driver.identity.alsaCardId, String(driver.identity.pcmDevice), driver.identity.monitorOff]),
       '--owner-pid', String(process.pid)];
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const child = yield* spawner.spawn(ChildProcess.make(native.executable, args, { shell: false, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', killSignal: 'SIGTERM', forceKillAfter: 1000 }));
