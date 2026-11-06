@@ -19,6 +19,18 @@ npm run typecheck
 
 `freeze.py` updates the inactive template's checker and signer hashes and its three-file installation manifest. A source edit requires fresh pins and review. Routine app releases cannot update the installed checker, signer or grant.
 
+## Run the operator bootstrap in one command
+
+`operator-bootstrap.py` is a separate operator-only wrapper. It does not run through the restricted SSH gateway. The final reviewed command first places its exact hash-pinned bytes in `/root/show-tools-bootstrap-89b1999/operator-bootstrap.py`, owned by root with mode 0600, and then invokes Python with `-B -I`. Its complete source and command must be independently reviewed before execution.
+
+The wrapper reconstructs only six fixed, already-reviewed source files from exact mailbox message IDs. Whole-message hashes, fixed byte ranges and complete file hashes govern reconstruction. The user-owned SQLite database is opened read-only with bounded queries, a VM-step budget and an ordinary-table schema check. No unrelated rows are enumerated or printed.
+
+The operator command installs the inactive protected files, runs the verified initializer as UID and GID 1000, then checks actual protected file hashes and ownership, the unchanged SSH/bridge boundary, account identity and a valid genesis-only ledger. Only those checks allow activation of the exact reviewed policy. Existing authorization history, partial state or drift stops the command without repair, reset or automatic revocation. Pi must still independently inspect the final real state and record active-grant recognition before any signed deployment.
+
+The operator also explicitly requests one-time persistence. The wrapper validates the current enabled-unit/default-target graph, creates only the named pending web enablement link as UID 1000, preserves the existing 0775 user-unit directories and enables linger for `anulman`. Linger persists this user's whole manager, including the reviewed existing agent sockets. It does not isolate persistence to this app. The web unit does not yet exist, so the link is reported as pending installation, not as a running service. No app deployment, service start or restart, native enable or musical Start is requested by the wrapper. Future agents still cannot change linger or unit enablement under the unchanged grant.
+
+A failure after activation reports actual grant state separately from persistence status. Do not repeat an uncertain operation blindly. Inspect and reconcile the reported state. An identical unused bootstrap may be retried; a previously used ledger is preserved and rejected by this one-time wrapper.
+
 ## Bootstrap the protected files once
 
 These steps require the operator's explicit approval of the frozen bundle. Agents must not execute them under development or routine deployment consent.
