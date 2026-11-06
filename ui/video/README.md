@@ -4,9 +4,7 @@ The Street studio displays Figma-derived character drawings as rigid, held sprit
 
 ## Prepare both aspect ratios
 
-Deliver every new scene and animatic in both **16:9** and **4:3**. Author a Figma frame for each aspect. Current review canvases are 1280×720 and 960×720 respectively. These are provisional working dimensions. Final delivery resolutions and physical CRT output remain unconfirmed.
-
-Use the same native sprite grid and integer actor scale in corresponding shots. Frame the camera, world, ground contacts, actor anchors, UI and key props for each aspect. Do not stretch sprites or derive the 4:3 version by blindly cropping the center of a finished 16:9 render. Source cels retain their native canvases and pivots.
+Follow the [shared director guide](../../docs/video-directors/README.md#compose-every-scene-in-both-aspect-ratios) for paired compositions, native pixel scale, and provisional review dimensions.
 
 The handoff includes both frame IDs, dimensions, camera cuts, actor placements and fit decisions. For renderer intake, normalize and prepare each layout separately, with its own exported background and prepared scene. Each compiled aspect needs its own exact-cast fit profile and verification. A 16:9 fit approval does not cover changed 4:3 anchors or bounds. The existing commands process one prepared scene per invocation; they do not generate an alternate composition automatically.
 
@@ -69,7 +67,7 @@ node --import tsx scripts/export-street-preview.ts --scene /private/tmp/street-s
 
 The output directory must be new. It receives a PNG sequence, `street-preview.mp4`, `contact-sheet.png`, and a receipt containing timing, sampled frames, asset hashes, and input provenance. Export uses a half-open time interval and includes no audio or review controls.
 
-Review the actual exports for both aspects. Check dimensions, pixel scale, camera cuts, contacts, foreground occlusion, UI and key-prop visibility. Inspect decoded frames around transitions and at the ending. Keep both receipts and share links labelled by aspect. A resting Figma screenshot or a resized copy does not verify the paired movies.
+Verify each actual export against its prepared scene and fit profile. Inspect decoded frames around transitions and at the ending. Keep separate receipts and share links labelled by aspect. The [shared review requirements](../../docs/video-directors/README.md#compose-every-scene-in-both-aspect-ratios) apply to both movies.
 
 ## Verify the result
 
