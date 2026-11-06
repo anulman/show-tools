@@ -13,19 +13,30 @@
 #include <sstream>
 #include <string>
 
+bool interrupt_next_poll = false;
+extern "C" int __real_poll(pollfd*, nfds_t, int);
+extern "C" int __wrap_poll(pollfd* fds, nfds_t count, int timeout) {
+  if (interrupt_next_poll) { interrupt_next_poll = false; raise(SIGTERM); }
+  return __real_poll(fds, count, timeout);
+}
 namespace {
 void require(bool value, const char* message) { if (!value) { std::fprintf(stderr, "%s\n", message); std::abort(); } }
 void send(int fd, const void* value, size_t bytes) { require(write(fd, value, bytes) == ssize_t(bytes), "write synthetic runtime input"); }
 struct Child {
   int key[2], mouse[2], led[2], commands[2], output[2];
   pid_t pid;
-  Child(bool held = false, bool bench = false) {
+  Child(bool held = false, bool bench = false, bool queued = false, bool interrupt_poll = false) {
     for (auto pair : {key, mouse, led, commands, output}) require(pipe2(pair, O_NONBLOCK | O_CLOEXEC) == 0, "create owned fixture pipe");
+    if (queued) {
+      event(key[1], EV_KEY, KEY_TAB, 1, 10); event(key[1], EV_KEY, KEY_TAB, 0, 20);
+      event(mouse[1], EV_SYN, SYN_DROPPED, 0, 12); event(mouse[1], EV_REL, REL_Y, 11, 15);
+    }
     pid = fork(); require(pid >= 0, "fork owned runtime fixture");
     if (!pid) {
       close(key[1]); close(mouse[1]); close(led[0]); close(commands[1]); close(output[0]);
       require(dup2(output[1], STDOUT_FILENO) >= 0, "redirect fixture stdout"); close(output[1]);
-      int code = peripheral_host::run_linux_host({key[0], mouse[0], led[1], commands[0]}, 7, 0, held, bench);
+      interrupt_next_poll = interrupt_poll;
+      int code = peripheral_host::run_linux_host({key[0], mouse[0], led[1], commands[0]}, 7, 0, held, bench, queued ? 1000020000 : 0);
       std::cout.flush(); _exit(code);
     }
     close(key[0]); close(mouse[0]); close(led[1]); close(commands[0]); close(output[1]);
@@ -53,8 +64,8 @@ struct Child {
     send(fd, &event, sizeof(event));
   }
   void command(const std::string& value) { send(commands[1], value.data(), value.size()); }
-  void finish(int expected, bool signal = false) {
-    if (signal) kill(pid, SIGTERM); else { close(commands[1]); commands[1] = -1; }
+  void finish(int expected, bool signal = false, bool leave_idle = false) {
+    if (signal) kill(pid, SIGTERM); else if (!leave_idle) { close(commands[1]); commands[1] = -1; }
     int status = 0; bool done = false;
     for (int attempt = 0; attempt < 3000; ++attempt) { if (waitpid(pid, &status, WNOHANG) == pid) { done = true; break; } usleep(1000); }
     require(done && WIFEXITED(status) && WEXITSTATUS(status) == expected, "owned runtime exits with expected result"); pid = -1;
@@ -103,8 +114,18 @@ void protocol_and_failures() {
   char byte = 0; send(partial.key[1], &byte, 1);
   partial.finish(1); require(partial.report()[2] == 0, "partial event fails closed");
 }
+void startup_and_signal_barriers() {
+  Child buffered(false, true, true);
+  require(!buffered.available(buffered.output[0], 30) && !buffered.available(buffered.led[0], 30), "buffered pre-ready press/release and rotation do not activate");
+  buffered.event(buffered.key[1], EV_KEY, KEY_TAB, 1, 30);
+  require(buffered.report()[2] == 255 && buffered.line().find("\"down\":true") != std::string::npos, "fresh post-cutoff press activates normally");
+  buffered.finish(0, true); require(buffered.report()[2] == 0, "buffered fixture shuts down dark");
+  Child signaled(false, false, false, true);
+  signaled.finish(0, false, true);
+  require(signaled.report()[2] == 0, "SIGTERM immediately before idle poll still exits and clears");
+}
 }
 int main() {
-  held_and_order(); protocol_and_failures();
+  held_and_order(); protocol_and_failures(); startup_and_signal_barriers();
   std::puts("Linux runtime pipe fixtures passed. No hardware or audio opened.");
 }

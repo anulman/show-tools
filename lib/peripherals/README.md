@@ -248,6 +248,13 @@ partial records, input overflow and `SYN_DROPPED` fail the session and attempt t
 clear its owned LED. Reconnect after releasing the button. An initially held
 button needs a fresh release and press before activation. Keyboard auto-repeat
 does not add activations.
+Queued observations at or before the initial monotonic cutoff are discarded,
+so device discovery cannot replay an earlier press or rotation. This includes
+the startup queue reset that Linux can issue when changing an evdev clock.
+See the [kernel evdev implementation](https://github.com/torvalds/linux/blob/master/drivers/input/evdev.c).
+The runtime's
+bounded poll wait permits shutdown signals to reach cleanup even when all
+inputs are idle. That service wait does not advance musical time or LED phase.
 
 `peripheral-host --bench-held 0 --confirm-wiring` provides the same audio-free
 hold-to-light test for the confirmed output-1 wiring. It sends brightness-only

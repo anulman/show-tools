@@ -144,11 +144,13 @@ int main(int argc, char** argv) {
     if (ioctl(devices.keyboard.fd, EVIOCGKEY(sizeof(held.data)), held.data.data()) < 0) {
       std::cerr << "Cannot read initial held-button state. Nothing written.\n"; return 1;
     }
+    timespec cutoff{};
+    if (clock_gettime(CLOCK_MONOTONIC, &cutoff) < 0 || cutoff.tv_sec > (INT64_MAX - 999999999) / 1000000000) return 1;
     int flags = fcntl(STDIN_FILENO, F_GETFL), output_flags = fcntl(STDOUT_FILENO, F_GETFL);
     if ((!bench && (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0))
       || output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) return 1;
     int result = peripheral_host::run_linux_host({devices.keyboard.fd, devices.mouse.fd, devices.output.fd, STDIN_FILENO},
-      double(session), uint32_t(channel), held.has(KEY_TAB), bench);
+      double(session), uint32_t(channel), held.has(KEY_TAB), bench, int64_t(cutoff.tv_sec) * 1000000000 + cutoff.tv_nsec);
     if (flags >= 0) fcntl(STDIN_FILENO, F_SETFL, flags);
     fcntl(STDOUT_FILENO, F_SETFL, output_flags);
     return result;

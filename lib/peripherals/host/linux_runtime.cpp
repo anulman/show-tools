@@ -75,7 +75,7 @@ struct Host {
     return std::cout.good();
   }
 };
-bool drain(int fd, unsigned source, std::vector<LinuxObservation>& batch) {
+bool drain(int fd, unsigned source, int64_t cutoff, std::vector<LinuxObservation>& batch) {
   size_t observed = 0;
   for (;;) {
     input_event events[32];
@@ -87,22 +87,24 @@ bool drain(int fd, unsigned source, std::vector<LinuxObservation>& batch) {
     if (observed > 512) { std::cerr << "I-PAC raw input backlog exceeded 512 records.\n"; return false; }
     for (size_t index = 0; index < size_t(bytes) / sizeof(input_event); ++index) {
       const auto& event = events[index];
+      if (event.time.tv_sec < 0 || event.time.tv_sec > (std::numeric_limits<int64_t>::max() - 999999999) / 1000000000
+        || event.time.tv_usec < 0 || event.time.tv_usec > 999999) return false;
+      int64_t time = int64_t(event.time.tv_sec) * 1000000000 + int64_t(event.time.tv_usec) * 1000;
+      if (time <= cutoff) continue;
       if (event.type == EV_SYN && event.code == SYN_DROPPED) { std::cerr << "I-PAC SYN_DROPPED: lost rotation cannot be recovered. Reconnect after releasing the button.\n"; return false; }
       bool key = source == 0 && event.type == EV_KEY && event.code == KEY_TAB;
       bool motion = source == 1 && event.type == EV_REL && event.code == REL_Y;
       if (!key && !motion) continue;
       if (key && event.value == 2) continue;
-      if ((key && event.value != 0 && event.value != 1) || (motion && (event.value < -32768 || event.value > 32767))
-        || event.time.tv_sec < 0 || event.time.tv_sec > (std::numeric_limits<int64_t>::max() - 999999999) / 1000000000
-        || event.time.tv_usec < 0 || event.time.tv_usec > 999999) return false;
+      if ((key && event.value != 0 && event.value != 1) || (motion && (event.value < -32768 || event.value > 32767))) return false;
       if (batch.size() == 256) { std::cerr << "I-PAC input backlog exceeded 256 observations.\n"; return false; }
-      batch.push_back({source, int64_t(event.time.tv_sec) * 1000000000 + int64_t(event.time.tv_usec) * 1000,
+      batch.push_back({source, time,
         key ? LinuxInputKind::Button : LinuxInputKind::Motion, event.value});
     }
   }
 }
 }
-int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool initially_held, bool bench) {
+int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool initially_held, bool bench, int64_t startup_cutoff_ns) {
   Host host{handles, session, 0, channel, bench};
   if (!host.inputs || !host.delivery || pp_begin(host.inputs.get(), session, initially_held ? 0 : 1, initially_held ? 1 : 0) != 0) return 1;
   running = 1;
@@ -117,12 +119,12 @@ int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool 
   LinuxInputOrder last;
   while (running && !failed) {
     pollfd pollers[]{{handles.keyboard, POLLIN, 0}, {handles.mouse, POLLIN, 0}, {handles.commands, short(bench ? 0 : POLLIN), 0}};
-    int result = poll(pollers, bench ? 2 : 3, -1);
+    int result = poll(pollers, bench ? 2 : 3, 250);
     if (result < 0 && errno == EINTR) continue;
     if (result < 0) { failed = true; break; }
     if ((pollers[0].revents | pollers[1].revents) & (POLLHUP | POLLERR | POLLNVAL)) { disconnected = true; break; }
     std::vector<LinuxObservation> batch;
-    if (!drain(handles.keyboard, 0, batch) || !drain(handles.mouse, 1, batch) || !order_linux_input(batch, last)) {
+    if (!drain(handles.keyboard, 0, startup_cutoff_ns, batch) || !drain(handles.mouse, 1, startup_cutoff_ns, batch) || !order_linux_input(batch, last)) {
       std::cerr << "I-PAC input gap, invalid record or ambiguous cross-interface event order. Reconnect.\n"; failed = true; break;
     }
     for (const auto& value : batch) {
