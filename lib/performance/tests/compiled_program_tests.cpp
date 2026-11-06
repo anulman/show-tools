@@ -594,7 +594,6 @@ void unified_button_and_light_priority() {
     auto song = disjoint_handoff_table();
     if (swapped) {
       std::swap(song[13], song[14]);
-      // Swap only physical cue bindings, preserving voice identity and resources.
       for (int id = 0; id < 4; ++id) {
         auto& button = song[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS * 2 + id * PF_COMPILED_CUE_FIELDS];
         button = button == 1 ? 2 : 1;
