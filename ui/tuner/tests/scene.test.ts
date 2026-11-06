@@ -22,11 +22,11 @@ function pitched(note: TunerState['targets'][number]): TunerState {
 }
 function frame(state: TunerState | null) { return tunerSceneFrame({ state, timeSeconds: 2, aspect: '16:9' }); }
 
-test('ordered native targets occupy the clockwise 300-degree arc with distinct tonics', () => {
+test('ordered native targets occupy the clockwise 270-degree arc with distinct tonics', () => {
   const actual = frame(idle);
   assert.deepEqual(actual.notches.map(notch => notch.note), targets);
-  assert.equal(actual.notches[0]?.clockAngle, 210);
-  assert.equal(actual.notches.at(-1)?.clockAngle, 510);
+  assert.equal(actual.notches[0]?.clockAngle, 225);
+  assert.equal(actual.notches.at(-1)?.clockAngle, 495);
   assert.ok(actual.notches.every((notch, index) => index === 0 || notch.clockAngle > (actual.notches[index - 1]?.clockAngle ?? 0)));
   assert.ok((actual.notches[0]?.position.x ?? Infinity) < actual.center.x);
   assert.ok((actual.notches.at(-1)?.position.x ?? -Infinity) > actual.center.x);
@@ -77,7 +77,7 @@ test('native spelling and supplied chromatic target count are preserved', () => 
   const chromatic = Array.from({ length: 13 }, (_, index) => ({ midi: 48 + index, letter: 'C', accidental: 0, octave: 3 }));
   const actual = frame({ ...idle, scale: 'chromatic', targets: chromatic });
   assert.equal(actual.notches.length, 13);
-  assert.equal(actual.notches.at(-1)?.clockAngle, 510);
+  assert.equal(actual.notches.at(-1)?.clockAngle, 495);
 });
 
 test('explicit seeks are deterministic and do not retain a previous hit', () => {
@@ -98,5 +98,53 @@ test('long accidental labels clear the notches in the chromatic layout', () => {
     const overlaps = left < notch.position.x + 2 && left + width > notch.position.x - 2
       && top < notch.position.y + 2 && top + 7 > notch.position.y - 2;
     assert.equal(overlaps,false,`Label ${notch.clockAngle} touches its notch`);
+  }
+});
+
+test('each interval has three quarter-spaced dots with one dot beyond each endpoint', () => {
+  const arcDegrees = 270;
+  for (const count of [8,13]) {
+    const targets = Array.from({ length:count }, (_, index) => ({ midi:48+index, letter:'C', accidental:0, octave:3 }));
+    const actual = tunerSceneFrame({ state:{ ...idle, targets }, timeSeconds:0, aspect:'4:3' });
+    const start = 360 - arcDegrees / 2;
+    const interval = arcDegrees / (count - 1);
+    assert.equal(actual.dots.length,count === 8 ? 23 : 38);
+    assert.equal(actual.notches.length,count);
+    assert.equal(actual.notches[0]?.clockAngle,start);
+    assert.equal(actual.notches.at(-1)?.clockAngle,start+arcDegrees);
+    assert.equal(actual.dots[0]?.clockAngle,start-interval/4);
+    assert.equal(actual.dots.at(-1)?.clockAngle,start+arcDegrees+interval/4);
+    for (let index=0;index<count-1;index++) {
+      const first = start+interval*index;
+      const between = actual.dots.filter(dot => dot.clockAngle>first && dot.clockAngle<first+interval);
+      assert.equal(between.length,3);
+      for (const [part,dot] of between.entries()) assert.ok(Math.abs(dot.clockAngle-(first+interval*(part+1)/4))<1e-9);
+    }
+  }
+});
+
+test('decorative dots preserve native targets and do not change with live pitch or progress', () => {
+  const input = { timeSeconds:0, aspect:'16:9' } as const;
+  const observations: readonly TunerState[] = [pitched(targets[0]),pitched(targets[7]),{ ...idle, step:7, complete:true },{ ...idle, pitch:{ kind:'reference' } },{ ...idle, listening:false, pitch:{ kind:'off' } }];
+  const before = tunerSceneFrame({ ...input, state:idle });
+  for (const state of observations) {
+    const after = tunerSceneFrame({ ...input, state });
+    assert.deepEqual(after.dots,before.dots);
+    assert.deepEqual(after.notches.map(notch=>notch.note),targets);
+  }
+  assert.deepEqual(tunerSceneFrame({ ...input, state:null }).dots,[]);
+});
+
+test('dots retain unique integer pixel positions and the same scale in both aspects', () => {
+  const targets = Array.from({ length:13 }, (_, index) => ({ midi:48+index, letter:'C', accidental:0, octave:3 }));
+  const input = { state:{ ...idle, targets }, timeSeconds:0 };
+  const wide = tunerSceneFrame({ ...input, aspect:'16:9' });
+  const narrow = tunerSceneFrame({ ...input, aspect:'4:3' });
+  assert.equal(new Set(wide.dots.map(dot=>`${dot.position.x},${dot.position.y}`)).size,38);
+  for (const [index,dot] of wide.dots.entries()) {
+    const other = narrow.dots[index]; assert.ok(other);
+    assert.ok(Number.isInteger(dot.position.x) && Number.isInteger(dot.position.y));
+    assert.equal(dot.position.x-other.position.x,40); assert.equal(dot.position.y,other.position.y);
+    for (const notch of wide.notches) assert.ok(Math.abs(dot.position.x-notch.position.x)>2 || Math.abs(dot.position.y-notch.position.y)>2);
   }
 });

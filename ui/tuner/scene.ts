@@ -2,7 +2,7 @@ import type { TunerNote, TunerState } from '../../lib/tuner/model.js';
 
 export type TunerSceneAspect = '16:9' | '4:3';
 export const tunerScenePalette = {
-  stage: '#0B101B', idle: '#263443', live: '#FFF0BE', trail: '#65BAC3', label: '#BDD0DE',
+  stage: '#0B101B', idle: '#263443', live: '#FFF0BE', trail: '#65BAC3', label: '#BDD0DE', dot: '#516575',
 } as const;
 
 // One bit is one source pixel. Labels use the native note spelling, including octaves.
@@ -50,17 +50,28 @@ export function tunerSceneFrame({ state, timeSeconds, aspect }: TunerSceneInput)
     ? state.targets.findIndex(note => note.midi === pitch.note.midi) : -1;
   const hitIndex = matched >= 0 ? matched : null;
   const targets = state?.targets ?? [];
-  const notches = targets.map((note, index) => {
-    const clockAngle = targets.length > 1 ? 210 + 300 * index / (targets.length - 1) : 210;
+  const arcDegrees = 270;
+  const startAngle = 225;
+  const interval = targets.length > 1 ? arcDegrees / (targets.length - 1) : 0;
+  const radial = (clockAngle: number, radius: number): Point => {
     const angle = clockAngle * Math.PI / 180;
-    const radial = (radius: number): Point => ({
+    return {
       x: Math.round(center.x + radius * Math.sin(angle)),
       y: Math.round(center.y - radius * Math.cos(angle)),
-    });
+    };
+  };
+  const dotAngles = targets.length > 1 ? [
+    startAngle - interval / 4,
+    ...targets.slice(1).flatMap((_, index) => [1,2,3].map(part => startAngle + interval * (index + part / 4))),
+    startAngle + arcDegrees + interval / 4,
+  ] : [];
+  const dots = dotAngles.map(clockAngle => ({ clockAngle, position:radial(clockAngle,57) }));
+  const notches = targets.map((note, index) => {
+    const clockAngle = startAngle + interval * index;
     const light: 'live' | 'trail' | 'idle' = hitIndex === index ? 'live' : hitIndex !== null && index < hitIndex ? 'trail' : 'idle';
-    return { note, label: tunerSceneNoteLabel(note), clockAngle, position: radial(57), labelPosition: radial(72), light };
+    return { note, label: tunerSceneNoteLabel(note), clockAngle, position: radial(clockAngle,57), labelPosition: radial(clockAngle,72), light };
   });
-  return { width, height, center, timeSeconds, hitIndex, notches };
+  return { width, height, center, timeSeconds, hitIndex, notches, dots, arcDegrees };
 }
 export type BallAsset = {
   readonly image: CanvasImageSource;
@@ -86,6 +97,8 @@ export function paintTunerScene(input: TunerSceneInput & {
   context.fillStyle = tunerScenePalette.stage;
   context.fillRect(0, 0, frame.width, frame.height);
   context.drawImage(ball.image, Math.floor(frame.center.x - width / 2), Math.floor(frame.center.y - height / 2), width, height);
+  context.fillStyle = tunerScenePalette.dot;
+  for (const dot of frame.dots) context.fillRect(dot.position.x,dot.position.y,1,1);
   for (const notch of frame.notches) {
     context.fillStyle = tunerScenePalette[notch.light];
     // Deliberate stepped 4×4 cluster; no stroked path or subpixel transform.
