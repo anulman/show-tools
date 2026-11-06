@@ -19,16 +19,16 @@ LEAF = "session-" + SOURCE[:7]
 ELF = b"\x7fELF\x02\x01" + bytes(12) + b"\x3e\x00"
 
 
-def package(source=SOURCE, omit=None, schema=1):
+def package(source=SOURCE, omit=None, schema=1, runtime=ELF):
     files = {path: b"fixture" for path in stage.REQUIRED}
     files["song/manifest.json"] = b"{}"
     files["song/effects.json"] = b"[]"
     files["licenses/NOTICE"] = b"fixture license"
     files["native/native_alsa_host"] = ELF
-    files["runtime/node"] = ELF
+    files["runtime/node"] = runtime
     files["native/source-revision.txt"] = SOURCE.encode()
     sources = sorted(path.removeprefix("provenance/source/") for path in files if path.startswith("provenance/source/"))
-    files["provenance/source.json"] = json.dumps({"schemaVersion": 1, "source": {"revision": source, "tree": "a" * 40}, "reviewed": {"revision": source, "tree": "a" * 40}, "native": {"revision": SOURCE}, "nativeSourcesEquivalent": True, "files": sources}).encode()
+    files["provenance/source.json"] = json.dumps({"schemaVersion": 1, "source": {"revision": source, "tree": "a" * 40}, "reviewed": {"revision": source, "tree": "a" * 40}, "native": {"revision": SOURCE}, "runtime": {"nodeExecutableSha256": hashlib.sha256(runtime).hexdigest()}, "nativeSourcesEquivalent": True, "files": sources}).encode()
     if omit:
         del files[omit]
     records = [{"path": path, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for path, data in sorted(files.items())]
@@ -65,13 +65,18 @@ def promote_worker(extracted, target, barrier, results):
 
 
 class StagingTests(unittest.TestCase):
+    def setUp(self):
+        pin = patch.object(stage, "NODE_SHA256", hashlib.sha256(ELF).hexdigest())
+        pin.start()
+        self.addCleanup(pin.stop)
+
     def execute(self, data, expected_hash=None, expected_source=SOURCE, twice=False, expanded=None):
         with tempfile.TemporaryDirectory(prefix="stage-test-") as directory:
             root = Path(directory).resolve()
             archive_path = root / "input.tar.gz"
             archive_path.write_bytes(data)
             digest = expected_hash or hashlib.sha256(data).hexdigest()
-            with patch.object(stage, "MAX_EXPANDED", expanded or stage.MAX_EXPANDED):
+            with patch.object(stage, "MAX_EXPANDED", expanded or stage.MAX_EXPANDED), patch.object(stage, "NODE_SHA256", hashlib.sha256(ELF).hexdigest()):
                 try:
                     result = stage.stage(archive_path, digest, len(data), expected_source, root)
                 except Exception:
@@ -184,6 +189,10 @@ class StagingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Linux x86-64"):
             self.execute(archive(files))
 
+    def test_pinned_node_hash_rejects_rehashed_replacement(self):
+        with self.assertRaisesRegex(RuntimeError, "Pinned Node executable mismatch"):
+            self.execute(archive(package(runtime=ELF + b"replacement")))
+
     def test_rejects_changed_existing_release_without_overwriting(self):
         with tempfile.TemporaryDirectory(prefix="stage-test-") as directory:
             root = Path(directory).resolve()
@@ -191,7 +200,8 @@ class StagingTests(unittest.TestCase):
             source = root / "input.tar.gz"
             source.write_bytes(data)
             digest = hashlib.sha256(data).hexdigest()
-            stage.stage(source, digest, len(data), SOURCE, root)
+            with patch.object(stage, "NODE_SHA256", hashlib.sha256(ELF).hexdigest()):
+                stage.stage(source, digest, len(data), SOURCE, root)
             installed = root / "releases" / LEAF / "gateway/server.mjs"
             installed.write_bytes(b"changed")
             with self.assertRaisesRegex(RuntimeError, "mismatch"):
@@ -263,7 +273,8 @@ class StagingTests(unittest.TestCase):
                 self.assertFalse(process.is_alive())
                 self.assertEqual(process.exitcode, 0)
             self.assertEqual(sorted(results.get(timeout=1) for _ in processes), ["already-staged", "staged-only"])
-            stage.validate_release(target, SOURCE)
+            with patch.object(stage, "NODE_SHA256", hashlib.sha256(ELF).hexdigest()):
+                stage.validate_release(target, SOURCE)
             self.assertEqual(sum(candidate.exists() for candidate in candidates), 1)
 
 

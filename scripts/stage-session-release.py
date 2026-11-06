@@ -16,6 +16,7 @@ MAX_MEMBERS = 2048
 MAX_JSON = 1024 * 1024
 MAX_CHECKSUMS = 128 * 1024
 CHUNK = 1024 * 1024
+NODE_SHA256 = "94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c99b919629a90"
 REQUIRED = {
     "native/native_alsa_host", "runtime/node", "gateway/server.mjs",
     "gateway/prepare.mjs", "gateway/session-cli.mjs", "bin/show-tools-session",
@@ -238,6 +239,8 @@ def validate_release(extracted, expected_source):
         raise RuntimeError("Source review provenance mismatch")
     if provenance.get("nativeSourcesEquivalent") is not True or provenance.get("native", {}).get("revision") != manifest.get("nativeRevision") or small_bytes(extracted / "native/source-revision.txt", 128).decode().strip() != manifest.get("nativeRevision"):
         raise RuntimeError("Native source provenance mismatch")
+    if files["runtime/node"][1] != NODE_SHA256 or provenance.get("runtime", {}).get("nodeExecutableSha256") != NODE_SHA256:
+        raise RuntimeError("Pinned Node executable mismatch")
     sources = provenance.get("files")
     if not isinstance(sources, list) or len(sources) != len(set(sources)) or set(sources) != {path.removeprefix("provenance/source/") for path in files if path.startswith("provenance/source/")}:
         raise RuntimeError("Source review file set mismatch")

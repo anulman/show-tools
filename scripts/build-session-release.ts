@@ -21,7 +21,10 @@ const runtime = resolve(options['node-runtime']);
 const song = resolve(options['song-package']);
 const output = resolve(options.out);
 const sha256 = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
-if (execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error('Commit or remove source changes before building a release');
+const assertCommittedSource = () => {
+  if (execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error('Commit or remove source changes before building a release');
+};
+assertCommittedSource();
 const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 if (basename(output) !== `show-tools-session-release-${sourceRevision.slice(0, 7)}`) throw new Error('Output directory must identify the exact source revision');
 const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
@@ -46,7 +49,9 @@ if (sha256(nodeBytes) !== '94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c9
 validateInstalledPackage(await readFile(join(song, 'manifest.json')), await readFile(join(song, 'song.pfp')),
   JSON.parse(await readFile(join(song, 'effects.json'), 'utf8')));
 await mkdir(output);
+execFileSync('bash', ['lib/beat-tracker/scripts/build-manual-wasm.sh'], { cwd: root, stdio: 'inherit' });
 execFileSync(process.execPath, ['--import', 'tsx', 'scripts/build-ui.ts'], { cwd: root, stdio: 'inherit' });
+assertCommittedSource();
 await Promise.all([
   mkdir(join(output, 'native')), mkdir(join(output, 'song')),
   cp(join(root, 'dist'), join(output, 'static'), { recursive: true }),
@@ -60,11 +65,13 @@ await chmod(join(output, 'native/native_alsa_host'), 0o755);
 await cp(join(runtime, 'LICENSE'), join(output, 'runtime/NODE-LICENSE'));
 await cp(join(root, 'package-lock.json'), join(output, 'provenance/package-lock.json'));
 await cp(join(root, 'docs/implementation/session-cli.md'), join(output, 'provenance/session-cli.md'));
+for (const name of ['manual-clock-build.json', 'manual-clock-compiler.txt']) await cp(join(root, 'ui/practice/wasm', name), join(output, 'provenance', name));
 await buildSessionBundles(root, output);
 const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
 const reviewSources = new Set(git('ls-files', '-z', '--', 'lib/remote-performance', 'lib/native-host', 'lib/native-alsa',
   'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches', 'scripts/build-session-release.ts',
-  'scripts/session-bundles.ts', 'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py', 'package.json', 'package-lock.json').split('\0').filter(Boolean));
+  'scripts/session-bundles.ts', 'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
+  'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', 'package.json', 'package-lock.json').split('\0').filter(Boolean));
 for (const name of ['server.mjs', 'session-cli.mjs', 'prepare.mjs']) {
   const inputs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
     JSON.parse(await readFile(join(output, 'provenance', `${name}.inputs.json`), 'utf8')));
