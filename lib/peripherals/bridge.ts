@@ -151,6 +151,8 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	const bootstrap = decodeDeskBootstrap(await link.json('/api/session'));
 	const audio = bootstrap.view.audio;
 	if (audio.kind !== 'ready') throw new Error('Enable hardware audio in the desk before connecting the I-PAC');
+	if (audio.performance.state.phase === 'playing' || audio.performance.state.phase === 'count-in')
+		throw new Error('Stop the transport before attaching the I-PAC; the running performance was left unchanged');
 	const target: NativeTarget = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
 	const session = randomBytes(6).readUIntBE(0, 6) + 1;
 	const incarnation = randomBytes(6).readUIntBE(0, 6) + 1;
@@ -202,7 +204,7 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 		const configured = decodeNativeOutcome(await link.json('/api/command', {
 			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'configureJiggle', args: config.jiggle,
 		}));
-		if (configured.outcome !== 'applied') throw new Error('Stop the transport before attaching the I-PAC or changing jiggle thresholds');
+		if (configured.outcome !== 'applied') throw new Error(`Jiggle setup ${configured.outcome}: ${configured.error ?? 'native acknowledgement unavailable'}`);
 		relay.start();
 		const fresh = decodeView(await link.json('/api/status'));
 		if (fresh.serverEpoch !== bootstrap.view.serverEpoch) throw new Error('Gateway restarted during I-PAC attachment');

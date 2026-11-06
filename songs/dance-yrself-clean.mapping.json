@@ -32,14 +32,14 @@
     { "voiceId": "bing-bong", "retention": "layer", "gain": 1 }
   ],
   "layerGroups": [
-    { "id": "drums-claps-main", "voiceId": "drums-claps", "armCells": ["B18", "D18"] },
-    { "id": "whistle-main", "voiceId": "whistle", "armCells": ["AT20", "AV20"] },
-    { "id": "bing-bong-main", "voiceId": "bing-bong", "armCells": ["F21", "H21"] }
+    { "id": "drums-claps-main", "voiceId": "drums-claps", "armCells": ["B18"] },
+    { "id": "whistle-main", "voiceId": "whistle", "armCells": ["AT20"] },
+    { "id": "bing-bong-main", "voiceId": "bing-bong", "armCells": ["F21"] }
   ],
   "variantRules": [{ "voiceId": "cowbell", "row": 11, "fromBar": 1, "sampledOnly": true }],
   "variantReuses": [
-    { "cell": "CT11", "notation": "&e3a'", "sourceArmCell": "CE19", "endCount": 3.5 },
-    { "cell": "FJ11", "notation": "&e3a'", "sourceArmCell": "CE19", "endCount": 3.5 }
+    { "cell": "CT11", "notation": "&e3a'", "sourceArmCell": "CB19", "sourceBar": 82, "endCount": 3.5 },
+    { "cell": "FJ11", "notation": "&e3a'", "sourceArmCell": "CB19", "sourceBar": 82, "endCount": 3.5 }
   ],
   "overrides": [],
   "deferredRows": []

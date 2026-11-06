@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { migrateMusicXmlSongV2, readMusicXmlSong, writeMusicXmlSong } from '../musicxml-song.js';
 import type { CatalogDocument } from '../../voice-catalog/model.js';
+import { frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.js';
 
 async function fixture() {
-  return readMusicXmlSong(await readFile(new URL('../../../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8'));
+  return readMusicXmlSong(await frozenCutoverMusicXml());
 }
 
 function oldProfile(xml: string): string {
@@ -41,4 +42,13 @@ test('migration refuses unknown legacy fields, unsupported profiles and invalid 
   await assert.rejects(migrateMusicXmlSongV2(legacy.replace('&quot;releaseGridBeats&quot;:0.25', '&quot;unexpected&quot;:1,&quot;releaseGridBeats&quot;:0.25')), /unexpected/);
   await assert.rejects(migrateMusicXmlSongV2(legacy.replaceAll('show-tools-song-v2', 'show-tools-song-v0')), /Migration requires/);
   await assert.rejects(migrateMusicXmlSongV2('<!DOCTYPE x>' + legacy), /DTD/);
+});
+
+test('v2 migration rejects slice and source-bar instructions introduced after that profile', async () => {
+  const current = await readFile(new URL('../../../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8');
+  await assert.rejects(migrateMusicXmlSongV2(oldProfile(current)));
+  const legacy = oldProfile(await frozenCutoverMusicXml());
+  const withSourceBar = legacy.replace('&quot;sourceArmCell&quot;', '&quot;sourceBar&quot;:82,&quot;sourceArmCell&quot;');
+  assert.notEqual(withSourceBar, legacy);
+  await assert.rejects(migrateMusicXmlSongV2(withSourceBar), /sourceBar/);
 });

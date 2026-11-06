@@ -5,6 +5,8 @@ import { compiledCaptureFixture as fixture } from './fixtures/compiled-capture.j
 import { encodeCompiledProgram, compiledProgramBytes } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
+import { frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.js';
+import { readMusicXmlSong } from '../musicxml-song.js';
 import { PF as LIGHT } from '../light-abi.js';
 
 const module = await WebAssembly.compile(await readFile(new URL('../../../ui/practice/wasm/manual-clock.wasm', import.meta.url)));
@@ -369,8 +371,9 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
   });
 }
 
-test('DYC missing Bing Bong finish matches the written finish through bar 10 beat 3 and later playback', async () => {
-  const { default: song } = await import('../../../songs/dance-yrself-clean.js');
+test('historical DYC missing Bing Bong finish preserves its partial-bar capture and later playback', async () => {
+  const { song: compiled } = await readMusicXmlSong(await frozenCutoverMusicXml());
+  const song = { compiled, chart: compiled.chart };
   assert(song.compiled?.executable);
   const program = Array.from(encodeCompiledProgram(song.compiled));
   for (const rate of [44100, 48000]) {
@@ -405,7 +408,9 @@ test('DYC missing Bing Bong finish matches the written finish through bar 10 bea
         assert(!missed.events.some(event => event.type === 'fault'), 'missing a finish never faults the transport');
         frame += count;
       }
-      const bing = automatic.compiledTake(3);
+      const bingIndex = song.compiled.takes.findIndex(take => take.voiceId === 'bing-bong' && take.begin.bar === 7);
+      assert(bingIndex >= 0);
+      const bing = automatic.compiledTake(bingIndex);
       assert.equal(bing.ready, true);
       assert(Math.abs(bing.frames - 6 * framesPerCount) <= 1, 'source capture ends at bar 8 beat 3');
       assert.equal(bing.period, Math.ceil(8 * framesPerCount), 'two silent-source counts complete the original two-bar phrase');
@@ -416,8 +421,9 @@ test('DYC missing Bing Bong finish matches the written finish through bar 10 bea
   }
 });
 
-test('DYC short practice loops discard unfinished source spans instead of overflowing across wraps', async () => {
-  const { default: song } = await import('../../../songs/dance-yrself-clean.js');
+test('historical DYC short practice loops discard unfinished source spans instead of overflowing across wraps', async () => {
+  const { song: compiled } = await readMusicXmlSong(await frozenCutoverMusicXml());
+  const song = { compiled, chart: compiled.chart };
   assert(song.compiled?.executable);
   for (const endBar of [1, 7]) {
     const rate = 8000;
@@ -443,8 +449,16 @@ test('DYC short practice loops discard unfinished source spans instead of overfl
       assert.equal(native.state().phase, 'playing');
       assert.equal(native.state().error, null);
       assert.equal(native.state().recording, null);
-      assert.equal(native.compiledTake(endBar === 1 ? 0 : 3).ready, false, 'incomplete prefix never becomes a published take');
-      if (endBar === 7) assert(native.compiledTake(2).ready, 'earlier complete Bing Bong layer survives the truncated replacement');
+      const unfinished = song.compiled.takes.findIndex(take => endBar === 1
+        ? take.voiceId === 'drums-claps' && take.begin.bar === 1
+        : take.voiceId === 'bing-bong' && take.begin.bar === 7);
+      assert(unfinished >= 0);
+      assert.equal(native.compiledTake(unfinished).ready, false, 'incomplete prefix never becomes a published take');
+      if (endBar === 7) {
+        const earlier = song.compiled.takes.findIndex(take => take.voiceId === 'bing-bong' && take.begin.bar === 5);
+        assert(earlier >= 0);
+        assert(native.compiledTake(earlier).ready, 'earlier complete Bing Bong layer survives the truncated replacement');
+      }
     } finally { native.dispose(); }
   }
 });

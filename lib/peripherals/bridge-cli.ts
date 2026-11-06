@@ -3,7 +3,7 @@ import { decodePeripheralBridgeConfig, runPeripheralBridge } from './bridge.js';
 
 export const PERIPHERAL_HELP = `Usage: show-tools peripheral connect --config FILE
 
-Connect the local I-PAC to an already enabled hardware-audio session.
+Connect the local I-PAC to an enabled, stopped hardware-audio session.
 Run from the terminal granted Input Monitoring. Ctrl+C releases the button,
 clears the owned LED and returns the input interfaces to the operating system.
 Config names the gateway origin, private token file, optional TLS certificate,

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import sourceInput from '../../../songs/dance-yrself-clean.source.json';
-import mapping from '../../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 import { importSheetMusicXml } from '../../performance/sheet-musicxml.js';
 import { readMusicXmlSong, writeMusicXmlSong } from '../../performance/musicxml-song.js';
 import { parseSongSource } from '../../performance/song-source.js';

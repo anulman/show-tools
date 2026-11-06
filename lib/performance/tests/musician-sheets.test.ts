@@ -10,7 +10,7 @@ import { parseSongSource } from '../song-source.js';
 import { compileSheetsSong, decodeSongMapping } from '../compiled-song.js';
 
 async function inputs() {
-  const [source, mapping] = await Promise.all(['source', 'mapping'].map(async suffix =>
+  const [source, mapping] = await Promise.all(['source', 'cutover.mapping'].map(async suffix =>
     JSON.parse(await readFile(new URL(`../../../songs/dance-yrself-clean.${suffix}.json`, import.meta.url), 'utf8'))));
   const input = { source: parseSongSource(source), mapping: decodeSongMapping(mapping) };
   return { ...input, musicxml: (await importSheetMusicXml(input)).xml };

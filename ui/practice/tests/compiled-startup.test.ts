@@ -13,7 +13,7 @@ const module = await WebAssembly.compile(await readFile(new URL('../wasm/manual-
 const sources = await Promise.all(['../runtime/beat-worklet.js', '../runtime/performance-worklet.js', '../practice-worklet.ts']
   .map(async path => (await sourceForVM(new URL(path, import.meta.url))).replace(/^import .*;\n/gm, '').replace(/export class /g, 'class ')));
 
-for (const sampleRate of [44100, 48000]) test(`complete DYC worklet prepares its initial venue and twelve takes at ${sampleRate} Hz`, () => {
+for (const sampleRate of [44100, 48000]) test(`complete DYC worklet prepares its initial venue and eleven takes at ${sampleRate} Hz`, () => {
   const configurations = initialVoiceEffects().map(configuration => configuration.profile === 0
     ? { ...configuration, effects: [{ kind: 'slapback', delayMs: 140, feedback: .2, wet: .4 }] } satisfies typeof configuration : configuration);
   const messages: { type: string; message?: string }[] = [];
@@ -35,7 +35,7 @@ for (const sampleRate of [44100, 48000]) test(`complete DYC worklet prepares its
     const native = processor.native;
     const initialHeap = native.memory.buffer;
     assert.equal(initialHeap.byteLength, 256 * 1024 * 1024, 'the complete song fits the fixed production heap');
-    assert.equal(native.state().compiledTakes?.length, 12);
+    assert.equal(native.state().compiledTakes?.length, 11);
     assert.deepEqual(native.voiceEffects().map(({ profile, prepared, revision, effects }) => ({ profile, prepared, revision, effects })),
       configurations.map(configuration => ({ ...configuration, prepared: true, revision: 1 })));
     assert.doesNotThrow(() => native.prepareVoiceEffects(configurations), 'the usual Start acknowledgment reuses the prepared banks');
