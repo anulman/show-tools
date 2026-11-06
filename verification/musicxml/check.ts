@@ -131,8 +131,16 @@ async function verifyDomain() {
 }
 
 if (process.argv[2] === '--witness') {
-  await witness(process.argv[3]);
-  process.stdout.write(JSON.stringify({ status: 'PASS-witness', property: process.argv[3] }) + '\n');
+  const property = process.argv[3];
+  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : null;
+  try {
+    await witness(property);
+    process.stdout.write(JSON.stringify({ status: 'PASS-witness', property }) + '\n');
+  } catch (cause) {
+    if (!(cause instanceof assert.AssertionError) || marker === null || !cause.message.includes(marker)) throw cause;
+    process.stdout.write(JSON.stringify({ status: 'FAIL-witness-property', property, marker, assertionCode: cause.code }) + '\n');
+    process.exitCode = 1;
+  }
 } else {
   assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices');
   process.stdout.write(JSON.stringify(await verifyDomain()) + '\n');

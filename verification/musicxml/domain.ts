@@ -49,7 +49,7 @@ export function scoreInput(example: ScoreCase): { source: SongSource; mapping: S
   const source: SongSource = { sourceVersion: 1, spreadsheetId: 'verificationabcdefghijklmnop', sheetId: 101,
     sheetName: 'Verification', range: 'A1:F21', values,
     notes: { A18: 'Pad 0', A19: 'Pad 1', A20: 'Pad 2', A21: 'Pad 3' } };
-  const mapping: SongMapping = { mappingVersion: 5, notationVersion: 'dyc-v1', songId: 'verification',
+  const mapping: SongMapping = { mappingVersion: 6, notationVersion: 'dyc-v1', songId: 'verification',
     spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName,
     titleCell: 'B1', bpmCell: 'F2', sectionRow: 4, barRow: 5, leadInColumn: 2, startBar: 1,
     endBar: example.cells.length, meter: example.meter,

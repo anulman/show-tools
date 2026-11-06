@@ -11,7 +11,7 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 
 ## Covered source and sync record
 
-`verification/musicxml/coverage.json` records exact file hashes and source sync commit `99c840928bf4beaccfe79905545823efad83fcd2`. It covers:
+`verification/musicxml/coverage.json` records exact file hashes and source sync commit `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`. It covers:
 
 - `lib/performance/musicxml-song.ts`: `semanticDigest`, `writeMusicXmlSong`, `readMusicXmlSong`, and `compileMusicXmlSong`.
 - `lib/performance/sheet-musicxml.ts`: `importSheetMusicXml`.
@@ -22,7 +22,7 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 
 ## Interpret failures
 
-The runner verifies source hashes, runs the full Cartesian domain, and then requires two actual-source mutants in a temporary copy to fail their named properties. Both restored witnesses must pass afterward. It never changes production files or connects to live services.
+The runner verifies source hashes, runs the full Cartesian domain, and then requires two actual-source mutants in a temporary copy to fail their named properties. Both restored witnesses must pass afterward. Mutant acceptance requires the exact structured property-failure result emitted by a named assertion, exit code 1, and empty stderr. It never changes production files or connects to live services.
 
 `BOUND_CASE_FAILURE` names an input whose current implementation violates the stated contract. Read its cause and replay that score input from `domain.ts`. Preserve the evidence and report the finding. Do not change product code or weaken the rule unless the task authorizes the corresponding behavior change.
 
@@ -37,3 +37,5 @@ If the new behavior is intended, update the grammar, expectations, mutation witn
 Preserve round-trip program/report/voice meaning, archive independence, displayed-action agreement, and semantic identity changes. The 6/8 cases count six eighth-note chart and BPM beats; the grammar makes no phase assumption about pedal onset.
 
 The current domain fixes four pad parts and varies one reference row plus optional live vocals, one to three bars, two meters, three per-bar tokens, two text classes, two stop commands, three voice states, and four archive states. Changing supported semantics or widening the claimed domain requires an explicit contract change and a complete rerun. Do not describe these bounds as all songs or all XML.
+
+The source-review table in `verification/musicxml/README.md` maps the v3/schema-6 migration and new capture paths. This finite grammar does not cover rotation inactivity, `clb`, capture slices, source-bar reuse, sequential slice continuation, or `migrateMusicXmlSongV2`. Whole-file hashes require review of those changes without claiming exhaustive coverage of those branches.

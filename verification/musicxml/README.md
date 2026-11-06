@@ -50,13 +50,31 @@ There are `3 + 3² + 3³ = 39` reference-row words. The score product has `39 ×
 - Removing the displayed-command/typed-action equality check must fail `DISPLAY_ACTION_AGREEMENT`.
 - Omitting saved voices from `semanticDigest` must fail `VOICE_SEMANTIC_IDENTITY`.
 
-Each witness passes before its mutation, fails for the named property after mutation, and passes after restoring the original source. A process crash, parse error, or unrelated failure does not count as a caught mutant. Every witness starts in a fresh Node process, so a module cache cannot hide the source change. The temporary copy is removed and all covered production hashes are checked again. Production source is never mutated.
+Each witness passes before its mutation, fails for the named property after mutation, and passes after restoring the original source. A caught mutant must exit with code 1, emit an exact structured `FAIL-witness-property` result from its named `AssertionError`, and produce no stderr. A process crash, parse error, or unrelated failure does not count as a caught mutant. Every witness starts in a fresh Node process, so a module cache cannot hide the source change. The temporary copy is removed and all covered production hashes are checked again. Production source is never mutated.
 
 `coverage.json` binds the covered files and package lock to the reviewed source commit. The runner rejects drift rather than silently claiming that a model of old code verifies new code. The project skill explains how to reconcile intended changes.
 
-## Verified milestone
+## Verified milestones
 
 At source commit `99c840928bf4beaccfe79905545823efad83fcd2` on Node 25.6.0, the complete command passed all 7,488 canonical cases, 624 voice-identity groups, 312 action-identity pairs, and 3,744 equivalent 6/8 tempo cases. Both real-source mutants failed their named properties and both restored witnesses passed. The case fingerprint was `55b7e6ad8beff1de84a787a72d85ee02133f06c91a09df891e64410ece299ce4`. The scoped TypeScript check and 24 existing MusicXML regression tests also passed. These are observed results for the recorded source, not permission to skip a future rerun.
+
+At source commit `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0` on Node 25.6.0, maintenance passed the same complete domain: 7,488 canonical cases, 624 voice-identity groups, 312 action-identity pairs, and 3,744 equivalent tempo cases. Both actual-source mutants failed with the required structured property result, and each pristine and restored witness passed. Production hashes remained unchanged. The current fingerprint is `f2d4e6cbbd1e772ed53efb433af054fee36e76d39ee498a47d0dd3dfaa3cbe1b`. The scoped TypeScript check, skill validator, 23 tests across `musicxml-song.test.ts` and `sheet-musicxml.test.ts`, and four `jiggle-migration.test.ts` regressions passed.
+
+## Source review after the profile migration
+
+The maintenance review compared every file in `coverage.json` between `99c840928bf4beaccfe79905545823efad83fcd2` and `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`. Only `compiled-song.ts` and `musicxml-song.ts` changed. Their only intervening change commit was `5ddf7c68c6e25cf2fd0432d20fa3e650094eaef0`, "Connect I-PAC practice controls and import reusable DYC bar views (#113)". The other nine covered files, including the package lock, are byte-identical. Release packaging changes in #118 do not touch these files.
+
+| Covered change | Classification and mapping |
+| --- | --- |
+| Mapping and compiled schemas advance from 5 to 6. The canonical profile advances from v2 to v3, including the profile value hashed by `semanticDigest`. | Intentional format change. The commit's migration entries, `docs/architecture.md`, and `jiggle-migration.test.ts` establish that the normal reader accepts the current profile and legacy documents require explicit migration. The fixture now supplies `mappingVersion: 6`. All seven semantic properties and every grammar bound stay unchanged. The changed profile changes the case fingerprint. |
+| `validRotationGrid` becomes `validInactivityBeats`. `RotationSchema` is exported. Rotation metadata, validation, compilation, and inspection use `inactivityBeats`. | Intentional promise change for rotation. The commit and the inactivity authoring test in `compiled-song.test.ts` confirm the new meaning. No effect on this grammar, which has no rotation rule or rotation-live part. The finite check does not establish either release policy. |
+| `sourceBar` becomes optional in reuse metadata. Selection windows gain `slice`, with source-window validation and capture-graph support for the final captured bar. | Intentional new grammar. `capture-slices.test.ts` and `docs/architecture.md` describe immutable parents and per-bar views. No effect on this domain, which has no takes, selections, or reuse instructions. |
+| `parsedCue` recognizes `clb`. Capture compilation produces whole-bar selections and records their phrases. Variant reuse resolves source slices. Variant rules prefer sequential matching slices and remember the prior view. Inspection prints source slices. | Intentional new capture and playback behavior. The same commit, architecture guide, and capture-slice test provide the evidence. These branches are unreachable for the stop-only finite grammar. They require separate coverage before any exhaustive claim about them. |
+| `migrateMusicXmlSongV2` and `canonicalize` are added, with legacy schemas, metadata replacement, and parsed-node XML rewriting. New imports support these functions. | New authoring migration outside this verifier's entry points. The normal read and write properties continue to use current-profile documents. The four `jiggle-migration.test.ts` regressions pass separately. They do not extend the finite proof to migration inputs. |
+
+The original command failed with `SOURCE_DRIFT`. Bypassing the hash gate exposed an obsolete fixture on the first generated input: the schema expected mapping version 6. Both failures were verification drift. No product bug was found in this review or the finite-domain run. No semantic property was weakened, and no input was removed.
+
+Whole-file hashes force review when any branch changes. They do not imply exhaustive verification of every function in those files. In particular, rotation inactivity, `clb`, capture slices, source-bar reuse, sequential continuation, and v2 migration remain outside the finite grammar.
 
 ## Scope limits
 

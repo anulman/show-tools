@@ -60,7 +60,11 @@ try {
     try {
       const broken = run(temporary, mutant.witness);
       assert.notEqual(broken.status, 0, `MUTANT_SURVIVED: ${mutant.name}`);
-      assert(broken.stderr.includes(mutant.marker), `WRONG_MUTANT_FAILURE: ${mutant.name}\n${broken.stderr}`);
+      assert.equal(broken.status, 1, `WRONG_MUTANT_FAILURE: ${mutant.name}\n${broken.stderr}`);
+      assert.equal(broken.stderr, '', `WRONG_MUTANT_FAILURE: ${mutant.name}\n${broken.stderr}`);
+      const failure: unknown = JSON.parse(broken.stdout);
+      assert.deepEqual(failure, { status: 'FAIL-witness-property', property: mutant.witness,
+        marker: mutant.marker, assertionCode: 'ERR_ASSERTION' }, `WRONG_MUTANT_FAILURE: ${mutant.name}`);
       outcomes.push({ name: mutant.name, witness: mutant.witness, status: 'CAUGHT-real-source-mutation', expectedFailure: mutant.marker });
     } finally { await writeFile(join(temporary, sourceFile), original); }
     const restored = run(temporary, mutant.witness);
