@@ -24,4 +24,4 @@ node --import tsx --test ui/tuner/tests/*.test.ts
 npm run typecheck
 ```
 
-`scene.ts` accepts an already decoded `BallAsset`. It owns no URLs, audio, subscription, timer, animation loop or resize observer. The product panel supplies the asset verified against `assets/video/tuner/manifest.json`; its build owns the offline URL. The isolated fixture copies its own verified bytes into `/ui/tuner/assets/`. Synthetic review does not establish microphone accuracy, shared-audio lifecycle behavior or physical CRT output.
+`scene.ts` accepts an already decoded `BallAsset`. It owns no URLs, audio, subscription, timer, animation loop or resize observer. The product panel supplies the asset verified against `assets/video/tuner/manifest.json`; its build owns the offline URL. The isolated fixture copies its own verified bytes into `ui/tuner/assets/` under the build directory. It resolves that path relative to the review document, preserving any managed release prefix. Synthetic review does not establish microphone accuracy, shared-audio lifecycle behavior or physical CRT output.

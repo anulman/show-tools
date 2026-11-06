@@ -52,7 +52,7 @@ stateSelect.value = parameters.get('state') ?? 'middle';
 if (!(stateSelect.value in reviewStates)) stateSelect.value = 'middle';
 aspectSelect.value = parameters.get('aspect') === '4:3' ? '4:3' : '16:9';
 
-const bytes = await fetch('/ui/tuner/assets/disco-ball.png').then(response => {
+const bytes = await fetch(new URL(`../ui/tuner/assets/${ballSource.file}`, document.baseURI)).then(response => {
   if (!response.ok) throw new Error('Missing approved disco ball');
   return response.arrayBuffer();
 });
