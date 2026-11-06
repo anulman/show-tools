@@ -80,7 +80,11 @@ test('fresh ALSA enables verify the legacy service before any native spawn, and 
     const fake = new PersistentDesk(base, installedPackage().installed);
     try {
       fake.setAudio('on');
-      await until(() => fake.snapshot().audio.kind === 'ready' ? true : undefined);
+      await until(() => {
+        const audio = fake.snapshot().audio;
+        if (audio.kind === 'fault') throw new Error(audio.error);
+        return audio.kind === 'ready' ? true : undefined;
+      }, () => `Fake engine did not become ready: ${JSON.stringify(fake.snapshot().audio)}`);
     } finally { await fake.close(); }
   } finally {
     await controller.close();
