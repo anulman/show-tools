@@ -77,7 +77,11 @@ After a venue edit retains an older take, the first new capture uses the refresh
 
 `control({ id: 'tempo' })` uses the shared native hit path; no key or device is implicitly mapped to it. `1p*` uses that same path with beat hint 1 after playback readiness preflight. Phase, serial, and epoch remain unchanged. The existing bounded six-interval median policy is retained without rephasing; isolated hits may produce no new BPM estimate. `tempo-hit` events and `tempoHitInfo()` expose actual-frame provenance. Cached loops remain unit-rate; arbitrary live tempo stretching is not claimed.
 
-The current artifact also preserves six AF part identities and ten explicit DYC rotation windows. Four capture voice indices remain unchanged. Native six-profile preparation keeps independent revisions and exposes actual ordered graph readback. Backup rotation stops feeding source at the next quarter-count grid boundary strictly after the latest accepted movement, limited by its written interval; signed values remain observable while direction does not change audio activation.
+The current artifact preserves six AF part identities and ten explicit DYC
+rotation windows. Four capture voice indices remain unchanged. Native six-profile
+preparation keeps independent revisions and exposes actual ordered graph readback.
+Backup processing stops feeding source after a full quarter-count without
+meaningful jiggle, capped by its written interval; signed motion remains observable.
 
 Mappings and compiled JSON use version 6, numeric packets use version 6, and the
 engine handshake is ABI 8. `rotationRule.inactivityBeats: 0.25` means a full

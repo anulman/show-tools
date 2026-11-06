@@ -29,7 +29,13 @@ Each performed Cowbell bar supplies a source slice identified by its normalized 
 
 Selections carry an explicit source beginning, exclusive end and loop period in chart counts. C++ observes their exact frame boundaries and captures the source rack state at each slice beginning. Playback references immutable parent PCM and starts from that captured history; it never copies PCM, replays a long prefix on the audio thread or adds fake operator cues. Changing views keeps the running effect history and loop phase. Independent slice starts restore their original boundary state.
 
-The original frozen cutover fixture and verifier remain unchanged. Staged import evidence belongs in temporary working storage until promotion, following [data retention](../data-retention.md).
+The frozen source retains its original musical instructions. The verifier
+explicitly projects versioned fields and native window rows to the historical
+layout before checking the original cutover hashes and nine handout pages.
+Staged import evidence belongs in temporary working storage until promotion,
+following [data retention](../data-retention.md). A final public fetch before the
+combined handoff matched the canonical compiled song and musician report exactly,
+including all 468 notes.
 
 The initial unsupported import failed closed with 98 diagnostics. After implementing the confirmed semantics and updating stale mappings, native and WASM complete-song execution passed at 44.1 and 48 kHz. Independent PCM checks cover slice heads, evolving loops, omitted source, retained tails, phase-preserving switches and allocation-free playback. The canonical song retains five parent takes, eleven complete Cowbell bar views and one shortened view reused at two positions; the earlier fixed cutover fixture remains separate.
 

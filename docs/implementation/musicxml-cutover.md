@@ -96,7 +96,13 @@ Regression coverage includes complete-chart bounds, dynamically added voice rows
 
 ## Explicit jiggle inactivity migration
 
-Profile v3, compiled schema 6, mapping version 6 and native packet 6 name the jiggle release interval `inactivityBeats`. A nonzero accepted motion keeps the effect active for that full count-beat interval after the latest motion, capped by its authored window. This deliberately replaces v2's next-grid release; .25 now means a full quarter count of inactivity. Standard MusicXML notation and every other performance instruction remain unchanged.
+Profile v3, compiled schema 6, mapping version 6 and native packet 6 name the
+jiggle release interval `inactivityBeats`. Meaningful motion confirmed by native
+travel/reversal thresholds keeps the effect active for that full count-beat
+interval, capped by its authored window. This replaces v2's next-grid release;
+.25 means a full quarter count of inactivity. The explicit v2 migration preserves
+standard notation and other performance instructions. Separately, the latest DYC
+import uses parent captures and bar-slice selection windows for authored `clb`.
 
 The normal reader rejects v2 documents. Migrate them explicitly to a new file:
 
