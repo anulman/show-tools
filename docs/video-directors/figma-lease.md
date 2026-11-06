@@ -33,6 +33,18 @@ Inspect every tool response. A thrown transport error, missing response, or retu
 
 After completed calls, verify the exact owner record before releasing. Never remove another session's lease. If acquisition was busy, do not release anything.
 
+## Recover a response-size rejection
+
+The connector's observed return-value limit is 48,000 bytes. This is separate from its 50,000-character input-code limit. The wrapper's input preflight cannot predict exported images or the size of a computed result.
+
+For bulk verification, request small, explicit groups of node IDs and return compact metadata. Aim for at most 24,000 UTF-8 bytes of JSON per group to leave headroom. Keep exported image bytes in the tool's artifact outputs rather than embedding base64 in the JSON return. Record requested IDs and verify that the returned IDs and artifacts cover that exact group. A partial image set is incomplete verification. Do not truncate receipts or omit required source, pixel, or framing checks to fit a response.
+
+A return-size error occurs after the script has run. Preserve its complete error, debug UUID, exact executed script, and current owner record. The wrapper remains held until Chief reconciles that evidence. Do not infer non-execution from a response-size rejection.
+
+In the Tribulations read-only verification incident, the connector explicitly reported `safeToRetryWithoutCanvasRead: true` and that canvas edits were not committed. After confirming the exact live owner, Chief cleared only that same bounded read batch for smaller groups. This recovery did not authorize reimporting sources or replaying mutations. For a mutation or uncertain response, establish actual canvas state and the connector's explicit disposition before deciding whether to retry. An error message alone does not waive product checks.
+
+After a cleared read batch, regenerate the guarded caller under the still-matching lease and export smaller groups. If ownership changed, stop and reacquire through the normal protocol. Send a repeated or ambiguous failure to Chief instead of retrying the entire batch or interrupting the operator.
+
 ## Verify without touching the shared file
 
 Run the regression tests from your checkout:
