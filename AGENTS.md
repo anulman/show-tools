@@ -29,3 +29,5 @@ This repository uses the Effect TypeScript library.
 Before writing any Effect code, first read `node_modules/effect/AGENTS.md` completely, and follow the links in the file when required.
 
 If you need to learn more about particular Effect APIs and concepts that the guide does not cover, search through the source code in `node_modules/effect/src`.
+
+Use `./show-tools ui preview [--session NAME]` (or `npm start`) for local practice previews, and `./show-tools ui live --publish origin/main` for a verified merged live build. Never start ad hoc static servers or invent another port after a collision. Use `ui status`, `ui stop`, and `ui shutdown` for manager-owned listeners. Preserve legacy listeners until the operator confirms practice is idle and their ownership is verified. See `docs/ui-manager.md`.

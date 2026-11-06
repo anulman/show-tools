@@ -3,9 +3,11 @@ import { cp, mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import { sourceInfo } from '../lib/ui-host/snapshot.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = resolve(root, 'dist');
+const source = await sourceInfo(root);
 await rm(output, { recursive: true, force: true });
 const result = await build({
   absWorkingDir: root,
@@ -76,4 +78,7 @@ await writeFile(worker, (await readFile(worker, 'utf8'))
   .replace('"__BUILD_MODULE_FILES__"', JSON.stringify(offlineFiles)));
 await writeFile(resolve(output, 'ui/practice/offline-manifest.json'), JSON.stringify({ cacheId, files: offlineFiles }, null, 2));
 await writeFile(resolve(output, 'build-meta.json'), JSON.stringify(result.metafile, null, 2));
+const finalSource = await sourceInfo(root);
+if (source.revision !== finalSource.revision || source.tree !== finalSource.tree || source.dirty !== finalSource.dirty) throw new Error('Source identity changed during the UI build. Rebuild before publishing.');
+await writeFile(resolve(output, 'build-info.json'), JSON.stringify({ version: 1, source }, null, 2));
 process.stdout.write('Built the practice desk and deterministic Sheets extension in dist/ui/practice/.\n');
