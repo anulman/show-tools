@@ -89,6 +89,8 @@ For a rigid-part or contact crop, verify that the selected region contains the i
 
 Verify the rendered result too. Use integer pixel scales and aligned anchors, and prevent interpolation from smearing clean source pixels. When the authoring tool cannot preserve raster sampling, a lossless conversion of an already approved pixel master into native pixel geometry is an option. That conversion does not replace repainting. Decode the actual video and inspect close-ups as well as the scene. A source-art pass does not excuse blurred delivery.
 
+For an uploaded raster replacement, use the companion pixel-storyboard skill's [image-readiness gate](../pixel-storyboard/references/image-readiness.md) before changing the visible actor. Prove the source image fill and complete registered pixels first; then verify actual placed scale/visibility separately. A successful upload request or source-only pass cannot establish delivery.
+
 Promote a family to finished only when both its repaint/style review and its export review pass. Record this status with the exact artwork version so scripts can refuse unreviewed assets. Report an unfinished family as a concept instead of calling it a finished sprite sheet or video.
 
 Put the candidates and synthesized final in the chosen review workspace. In Figma, use the current review area and give the final concrete pose components or an editable rig. Record an explicit sequence, beat phases, cycle length, and the intended starting tempo. Keep the cast-specific dance separate from the underlying artwork and musical clock.

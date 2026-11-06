@@ -23,6 +23,8 @@ State what the viewer should read in each shot or action. Use the operator's mar
 
 Compose scenes with separate cels for the world, character, props, foreground or accumulated material, and optional effects. Keep optional snowfall, lights and HUD elements independently controllable. Reuse these cels across camera studies and effect-on/effect-off versions. Do not repaint an entire scene to remove snowfall or change one pose. Scene frameworks are reusable treatments, not a fixed list of worlds.
 
+Before replacing a visible actor with an uploaded raster, use the [image-readiness gate](references/image-readiness.md). Upload and register the source first, verify its actual nonempty full RGBA export, then recheck that same live source in the replacement call. A created component or successful upload response cannot prove a populated image fill. Keep the working actor until the gate passes; afterwards inspect the actual placed export for scale and visibility.
+
 ## Draw start, end, then middle
 
 1. **Establish the starting pose.** Show the actual initial action and facing. Check character identity, scale and support. A running start carries momentum that an upright idle cannot supply.
