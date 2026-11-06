@@ -1,0 +1,13 @@
+{
+  "sourceCommit": "09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0",
+  "files": {
+    "lib/performance/src/compiled_program.cpp": "13742a0a4fc7b2606574c9002599d72df1eb5b4c13857f72b36e9bf4a0a8a381",
+    "lib/performance/src/compiled_program.h": "171abee22fa15fe4de176bda82ca0731b7c6f944c3a1fcfb500e751ae1694f85",
+    "lib/performance/include/performance_engine.h": "9ef1603aa567d8c0e22986ed67bcb1dde05ab8d891df74da329c0c4671373f9f",
+    "lib/performance/tests/compiled_program_tests.cpp": "db5b849dbcfd935e5ee8fb5bd619a07cffdd520fa6f1d22d30c986e63357d448",
+    "lib/patches/src/patch_engine.cpp": "73aa8ffb9ea38e7788295896ce6030ea25597556eeb24ae9182235240a4d488a",
+    "lib/patches/include/patch_engine.h": "b8a0de87d0900535b75df30e9c7aae60e913085a7d73b010db788b57aca38ea2",
+    "lib/performance/src/performance_engine.cpp": "6136267ee7dd36e381ea2bfb9ae6e26830f99f6c54bb48d7d310aacf583a43c5",
+    "lib/performance/include/performance_light_output.h": "5ca26325f4fcfa44de4e2bc3898a147e488e078b3340829c8ada40699b464265"
+  }
+}

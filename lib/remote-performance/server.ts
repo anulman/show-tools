@@ -31,9 +31,10 @@ export async function serveProfile(input: SessionProfile) {
   let shutdown: Promise<void> | undefined;
   return { server, controller, close() {
     return shutdown ??= (async () => {
-      await controller.close();
-      server.closeAllConnections();
-      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      try { await controller.close(); } finally {
+        server.closeAllConnections();
+        await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      }
     })();
   } };
 }

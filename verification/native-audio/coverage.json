@@ -1,0 +1,23 @@
+{
+  "revision": "09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0",
+  "files": {
+    "lib/remote-performance/controller.ts": "ebc16497d220594dcbb3c3709c87e2237a295fbab28c385a051b420f9373be97",
+    "lib/remote-performance/session-schema.ts": "5d049bc8dd664c0db8e4e0bd24f06ba0f9fb405ea6ad706016b31abc57960e58",
+    "lib/remote-performance/native-schema.ts": "01c72ce1f1ef8e8faa91f12a506ffa882dcdbc481e9bb159936e49233ee8e56a",
+    "lib/performance/light-abi.ts": "b6f699c8d325315ab157dca027ea6f4ba3a77ce17dc2006a5da4447824bea09b"
+  },
+  "symbols": [
+    "PersistentDesk.setAudio",
+    "PersistentDesk.stop",
+    "PersistentDesk.start",
+    "PersistentDesk.runAttempt",
+    "PersistentDesk.finished",
+    "PersistentDesk.observe",
+    "PersistentDesk.command",
+    "AudioStateSchema",
+    "ChildOwnership"
+  ],
+  "effectVersion": "4.0.6",
+  "platformNodeVersion": "4.0.6",
+  "platformNodeSharedVersion": "4.0.6"
+}
