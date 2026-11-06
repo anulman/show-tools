@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { Effect, Layer, Schema, Sink, Stream } from 'effect';
 import { ChildProcessSpawner } from 'effect/process';
 import { NativeStateSchema } from '../../lib/remote-performance/native-schema.js';
+import { lightFixture } from '../../lib/remote-performance/tests/light-fixture.js';
 import { installedPackage, sessionProfile } from '../../lib/remote-performance/tests/session-fixture.js';
 import type { Observation } from '../../lib/remote-performance/gateway.js';
 import type { NativeOutcome } from '../../lib/remote-performance/session-schema.js';
@@ -114,7 +115,7 @@ async function fixture(options: ReplayOptions) {
     prepare: async () => { prepareCalls++; await prepared.promise; },
     Instrument: class extends ReplayInstrument {
       constructor() {
-        super({ type: 'session', song: song.song, state, revision: '1', hostEpoch: `native-${children.length}` }, commandDone, () => { commandCalls++; });
+        super({ type: 'session', song: song.song, state, lights: lightFixture(), revision: '1', hostEpoch: `native-${children.length}` }, commandDone, () => { commandCalls++; });
         instruments.push(this);
       }
       override snapshot() { return readback.ready ? super.snapshot() : null; }
