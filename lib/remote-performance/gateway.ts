@@ -1,9 +1,11 @@
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
+import { realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { extname, resolve, sep } from 'node:path';
+import { Schema } from 'effect';
+import { NativeTargetSchema, AudioGoalSchema, type DeskController, type AudioDecision, type NativeOutcome } from './session-schema.js';
 import { isPriorityCommand } from './commands.js';
 
 export interface Observation {
@@ -27,13 +29,18 @@ export interface GatewayConfig {
 }
 
 export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
-type Session = { highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome> }> };
+type Session = { highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
 const MAX_SESSIONS = 128;
 const MAX_RESULTS = 256;
 const MAX_BODY = 64 * 1024;
 const MAX_CLIENTS = 128;
 const MAX_EVENT_BUFFER = 4 * 1024 * 1024;
-const commands = new Set(['start', 'stop', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile']);
+const requestFields = { sessionId: Schema.NonEmptyString, sequence: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })) };
+const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,
+  command: Schema.Literals(['start', 'stop', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile']),
+  args: Schema.Record(Schema.String, Schema.Unknown), target: NativeTargetSchema,
+}));
+const decodeAudio = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields, goal: AudioGoalSchema }));
 
 function json(response: ServerResponse, status: number, value: unknown) {
 	response.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' });
@@ -52,17 +59,13 @@ async function readBody(request: IncomingMessage): Promise<unknown> {
 	return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-function object(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 const contentTypes: Record<string, string> = {
 	'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
 	'.css': 'text/css; charset=utf-8', '.json': 'application/json', '.wasm': 'application/wasm',
 	'.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon',
 };
 
-export function createGateway(config: GatewayConfig, instrument: Instrument) {
+export function createGateway(config: GatewayConfig, controller: DeskController) {
 	if (config.token.length < 32) throw new Error('Token must contain at least 32 bytes');
 	const origin = new URL(config.origin);
 	if (origin.origin !== config.origin) throw new Error('Origin must be an exact origin');
@@ -78,7 +81,7 @@ export function createGateway(config: GatewayConfig, instrument: Instrument) {
 		}
 		client.write(data);
 	};
-	const unsubscribe = instrument.subscribe((observation) => {
+	const unsubscribe = controller.subscribe((observation) => {
 		const data = Buffer.from(`data: ${JSON.stringify(observation)}\n\n`);
 		for (const client of clients) send(client, data);
 	});
@@ -98,15 +101,15 @@ export function createGateway(config: GatewayConfig, instrument: Instrument) {
 			if (!authenticated(request)) return json(response, 401, { error: 'Unauthorized' });
 			if (request.headers.origin && request.headers.origin !== config.origin) return json(response, 403, { error: 'Invalid origin' });
 			if (request.method === 'GET' && path === '/api/session') {
-				const snapshot = instrument.snapshot();
-				if (!snapshot) return json(response, 503, { error: 'Host unavailable' });
+				const snapshot = controller.snapshot();
 				if (sessions.size >= MAX_SESSIONS) return json(response, 503, { error: 'Session capacity reached' });
 				const sessionId = randomBytes(32).toString('hex');
 				const session: Session = { highWater: 0, inFlight: 0, attached: false, results: new Map() };
 				sessions.set(sessionId, session);
 				setTimeout(() => { if (!session.attached) sessions.delete(sessionId); }, 30_000).unref();
-				return json(response, 200, { ...snapshot, sessionId });
+				return json(response, 200, { view: snapshot, sessionId });
 			}
+			if (request.method === 'GET' && path === '/api/status') return json(response, 200, controller.snapshot());
 			if (request.method === 'GET' && path === '/api/events') {
 				if (clients.size >= MAX_CLIENTS) return json(response, 503, { error: 'Observer capacity reached' });
 				const sessionId = request.headers['x-session-id'];
@@ -117,31 +120,31 @@ export function createGateway(config: GatewayConfig, instrument: Instrument) {
 				clients.add(response);
 				request.on('close', () => { clients.delete(response); sessions.delete(sessionId as string); });
 				response.on('error', () => { clients.delete(response); response.destroy(); });
-				const snapshot = instrument.snapshot();
-				if (snapshot) send(response, Buffer.from(`data: ${JSON.stringify(snapshot)}\n\n`));
+				const snapshot = controller.snapshot();
+				if (snapshot) send(response, Buffer.from(`data: ${JSON.stringify({ type: 'desk', view: snapshot })}\n\n`));
 				return;
 			}
-			if (request.method === 'POST' && path === '/api/command') {
+			if (request.method === 'POST' && (path === '/api/command' || path === '/api/audio')) {
 				if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
-				let body: unknown;
-				try { body = await readBody(request); } catch { return json(response, 400, { error: 'Invalid body' }); }
-				if (!object(body) || typeof body.sessionId !== 'string' || !Number.isSafeInteger(body.sequence) || Number(body.sequence) < 1 || typeof body.command !== 'string' || !commands.has(body.command) || !object(body.args)) {
-					return json(response, 400, { error: 'Invalid command' });
-				}
+				let body: ReturnType<typeof decodeCommand> | ReturnType<typeof decodeAudio>;
+				try { const input = await readBody(request); body = path === '/api/audio' ? decodeAudio(input) : decodeCommand(input); }
+				catch { return json(response, 400, { error: 'Invalid body' }); }
 				const session = sessions.get(body.sessionId);
 				if (!session) return json(response, 409, { error: 'Session expired' });
 				const sequence = Number(body.sequence);
-				const requestKey = JSON.stringify([body.command, body.args]);
+				const requestKey = JSON.stringify([path, body]);
 				const retained = session.results.get(sequence);
 				if (retained) {
 					if (retained.request !== requestKey) return json(response, 409, { error: 'Command identity reused' });
 					return json(response, 200, await retained.result);
 				}
 				if (sequence <= session.highWater) return json(response, 409, { error: 'Command expired' });
-				if (session.inFlight >= MAX_RESULTS + (isPriorityCommand(body) ? 1 : 0)) return json(response, 503, { error: 'Command capacity reached' });
+				if (!("goal" in body && body.goal === 'off') && session.inFlight >= MAX_RESULTS + (isPriorityCommand(body) ? 1 : 0)) return json(response, 503, { error: 'Command capacity reached' });
 				session.highWater = sequence;
 				session.inFlight++;
-				const result: Promise<Outcome> = instrument.command({ command: body.command, args: body.args }).catch(
+				const result: Promise<Outcome | AudioDecision | NativeOutcome> = ('goal' in body
+					? Promise.resolve(controller.setAudio(body.goal))
+					: controller.command(body.target, { command: body.command, args: body.args })).catch(
 					() => ({ outcome: 'unknown' } as const),
 				).finally(() => { session.inFlight--; });
 				session.results.set(sequence, { request: requestKey, result });
@@ -153,11 +156,11 @@ export function createGateway(config: GatewayConfig, instrument: Instrument) {
 		if (request.method !== 'GET' && request.method !== 'HEAD') return json(response, 405, { error: 'Method not allowed' });
 		let relative: string;
 		try { relative = decodeURIComponent(path); } catch { return json(response, 400, { error: 'Invalid path' }); }
-		const root = resolve(config.staticRoot);
+		const root = await realpath(config.staticRoot);
 		const file = resolve(root, `.${relative.endsWith('/') ? `${relative}index.html` : relative}`);
 		if (!file.startsWith(root + sep)) return json(response, 404, { error: 'Not found' });
 		try {
-			if (!(await stat(file)).isFile()) return json(response, 404, { error: 'Not found' });
+			if (!(await realpath(file)).startsWith(root + sep) || !(await stat(file)).isFile()) return json(response, 404, { error: 'Not found' });
 			response.writeHead(200, { 'content-type': contentTypes[extname(file)] ?? 'application/octet-stream', 'x-content-type-options': 'nosniff' });
 			if (request.method === 'HEAD') return response.end();
 			createReadStream(file).on('error', () => response.destroy()).pipe(response);

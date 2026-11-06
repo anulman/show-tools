@@ -11,7 +11,7 @@ export class NativeInstrument implements Instrument {
 	private readonly waiters = new Set<() => void>();
 	private closed = false;
 
-	constructor(private readonly path: string) { this.connect(); }
+	constructor(private readonly path: string, private readonly options: { disconnected?: () => void } = {}) { this.connect(); }
 	private connect() {
 		if (this.closed) return;
 		const connection = new HostConnection(this.path, (frame) => {
@@ -36,7 +36,9 @@ export class NativeInstrument implements Instrument {
 			this.current = null;
 			this.publish({ type: 'gap', hostEpoch: connection.processEpoch });
 			this.notify();
-			if (!this.closed) setTimeout(() => this.connect(), 1000).unref();
+			if (!this.closed) {
+				this.options.disconnected?.();
+			}
 		});
 		this.connection = connection;
 	}

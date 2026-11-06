@@ -23,6 +23,10 @@
 #include <unistd.h>
 #include <poll.h>
 #include <signal.h>
+#ifdef __linux__
+#include <sys/prctl.h>
+#endif
+#include <limits>
 
 using namespace native_host;
 namespace {
@@ -328,11 +332,28 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
 }
 }
 int main(int argc,char** argv) {
+  pid_t owner_pid=0;
+  if(argc>=3 && std::string(argv[argc-2])=="--owner-pid") {
+    char* end=nullptr; auto value=std::strtol(argv[argc-1],&end,10);
+    if(end==argv[argc-1] || *end || value<=1 || value>std::numeric_limits<pid_t>::max() || pid_t(value)!=getppid()) {
+      std::cerr<<"owner PID must match the actual parent\n"; return 2;
+    }
+    owner_pid=pid_t(value); argc-=2;
+#ifdef __linux__
+    if(prctl(PR_SET_PDEATHSIG,SIGKILL)<0 || getppid()!=owner_pid)return 1;
+#else
+    std::thread([owner_pid] {
+      while(getppid()==owner_pid)std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      _exit(1);
+    }).detach();
+#endif
+  }
+
 #ifdef NATIVE_ALSA_HOST
-  if(argc!=13) { std::cerr<<"usage: native_alsa_host SOCKET SAMPLE_RATE BLOCK_FRAMES MAX_VOICES MAX_SECONDS CAPTURE_DEVICE PLAYBACK_DEVICE CAPTURE_CHANNELS INPUT_CHANNEL PERIOD_FRAMES BUFFER_FRAMES s32|float\n"; return 2; }
+  if(argc!=13) { std::cerr<<"usage: native_alsa_host SOCKET SAMPLE_RATE BLOCK_FRAMES MAX_VOICES MAX_SECONDS CAPTURE_DEVICE PLAYBACK_DEVICE CAPTURE_CHANNELS INPUT_CHANNEL PERIOD_FRAMES BUFFER_FRAMES s32|float [--owner-pid PID]\n"; return 2; }
   bool stepped=false;
 #else
-  if(argc!=7 && !(argc==8 && std::string(argv[7])=="--step")) { std::cerr<<"usage: native_fake_host SOCKET SAMPLE_RATE BLOCK_FRAMES MAX_VOICES MAX_SECONDS INPUT_LEVEL [--step]\n"; return 2; }
+  if(argc!=7 && !(argc==8 && std::string(argv[7])=="--step")) { std::cerr<<"usage: native_fake_host SOCKET SAMPLE_RATE BLOCK_FRAMES MAX_VOICES MAX_SECONDS INPUT_LEVEL [--step] [--owner-pid PID]\n"; return 2; }
   bool stepped=argc==8;
 #endif
   char* end=nullptr;

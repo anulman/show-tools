@@ -1,27 +1,48 @@
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
+import { resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { createGateway } from './gateway.js';
-import { NativeInstrument } from './instrument.js';
+import { PersistentDesk } from './controller.js';
+import { validateInstalledPackage } from './prepare.js';
+import { decodeSessionProfile, type SessionProfile } from './session-profile.js';
 
-const values = process.argv.slice(2);
-const options = new Map<string, string>();
-for (let index = 0; index < values.length; index += 2) {
-	const key = values[index], value = values[index + 1];
-	if (!key.startsWith('--') || !value || options.has(key)) throw new Error('Expected unique --name value arguments');
-	options.set(key, value);
+export async function serveProfile(input: SessionProfile) {
+  const profile = decodeSessionProfile(input);
+  const root = await realpath(profile.staticRoot);
+  const privateFile = async (path: string) => {
+    const actual = await realpath(path);
+    const info = await stat(actual);
+    if (actual === root || actual.startsWith(root + sep)) throw new Error('Secrets must be outside the static root');
+    if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) throw new Error('Secret files must be caller-owned and private');
+    return readFile(actual);
+  };
+  const runtime = resolve(profile.runtimeRoot);
+  if (runtime === root || runtime.startsWith(root + sep)) throw new Error('Runtime root must be outside the static root');
+  const [tokenFile, manifest, packet, effects, tls] = await Promise.all([
+    privateFile(profile.tokenFile), readFile(profile.package.manifest), readFile(profile.package.packet), readFile(profile.package.effects, 'utf8'),
+    profile.tls ? Promise.all([readFile(profile.tls.cert), privateFile(profile.tls.key)]).then(([cert, key]) => ({ cert, key })) : undefined,
+  ]);
+  const installed = validateInstalledPackage(manifest, packet, JSON.parse(effects));
+  const controller = new PersistentDesk(profile, installed);
+  const server = createGateway({ host: profile.host, port: profile.port, origin: profile.origin,
+    token: Buffer.from(tokenFile.toString('utf8').trim()), staticRoot: root, tls }, controller);
+  try {
+    await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(profile.port, profile.host, () => { server.removeListener('error', reject); resolve(); }); });
+  } catch (error) { await controller.close(); throw error; }
+  let shutdown: Promise<void> | undefined;
+  return { server, controller, close() {
+    return shutdown ??= (async () => {
+      await controller.close();
+      server.closeAllConnections();
+      await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+    })();
+  } };
 }
-const allowed = new Set(['--socket', '--host', '--port', '--origin', '--token-file', '--static-root', '--cert', '--key']);
-for (const key of options.keys()) if (!allowed.has(key)) throw new Error(`Unknown option ${key}`);
-function required(name: string) { const value = options.get(name); if (!value) throw new Error(`Missing ${name}`); return value; }
-const host = required('--host');
-const port = Number(required('--port'));
-if (!Number.isSafeInteger(port) || port < 1 || port > 65535) throw new Error('Invalid port');
-const cert = options.get('--cert'), key = options.get('--key');
-if (!!cert !== !!key) throw new Error('Supply both --cert and --key');
-const tls = cert && key ? { cert: await readFile(cert), key: await readFile(key) } : undefined;
-const token = Buffer.from((await readFile(required('--token-file'), 'utf8')).trim());
-const instrument = new NativeInstrument(required('--socket'));
-const server = createGateway({ host, port, origin: required('--origin'), token, staticRoot: required('--static-root'), tls }, instrument);
-server.listen(port, host);
-const stop = () => { instrument.close(); server.close(); };
-process.once('SIGINT', stop);
-process.once('SIGTERM', stop);
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
+  if (process.argv.length !== 4 || process.argv[2] !== '--profile') throw new Error('Usage: server --profile FILE');
+  const app = await serveProfile(decodeSessionProfile(JSON.parse(await readFile(process.argv[3], 'utf8'))));
+  const stop = () => { void app.close().catch(() => { process.exitCode = 1; }); };
+  process.once('SIGINT', stop);
+  process.once('SIGTERM', stop);
+}
