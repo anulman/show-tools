@@ -216,7 +216,7 @@ The native `peripheral-probe` provides explicit `list`, `listen`, and guarded `l
 
 ## Verify the compact voice desk
 
-Use each voice footer to edit an ordered stack while stopped. Native applied readback owns the summary; unsaved drafts must remain visibly unapplied. Verify changing one voice leaves another voice and its compatible capture banks unchanged. Existing retained takes keep their recorded graph. Test the serial backup Slapback and Chorus stack with nonzero rotations inside a marked interval, strict next-quarter-count grid release, tempo changes, window exit, and Stop. Zero and duplicate observations cannot extend the grid deadline. Physical knob mapping remains an installation task.
+Use each voice footer to edit an ordered stack while stopped. Native applied readback owns the summary; unsaved drafts must remain visibly unapplied. Verify changing one voice leaves another voice and its compatible capture banks unchanged. Existing retained takes keep their recorded graph. Test the serial backup Slapback and Chorus stack with nonzero rotations inside a marked interval, full quarter-count inactivity release, tempo changes, window exit, and Stop. Zero and duplicate observations cannot extend the inactivity deadline. Physical knob mapping remains an installation task.
 
 Check Space on a focused effect disclosure or button before checking the body-level transport shortcut. Escape must still Panic while editing. Capture desktop and 390px screenshots from the integrated app, including expanded two-stage backup settings. Keep pad targets stable during count-in and recording. The layout comparison and verification contract are in [the desk rehab guide](implementation/practice-desk-rehab.md).
 

@@ -21,13 +21,13 @@ await writeFile(join(output, 'dance-yrself-clean.musicxml'), dyc.xml, { flag: 'w
 for (const id of ['drunk-girls', 'i-can-change']) {
   const input: unknown = JSON.parse(await readFile(`songs/${id}.chart.json`, 'utf8'));
   const chart = importSheetChart(input);
-  const song = decodeCompiledSong({ schemaVersion: 5, notationVersion: 'dyc-v1', id, title: chart.title,
+  const song = decodeCompiledSong({ schemaVersion: 6, notationVersion: 'dyc-v1', id, title: chart.title,
     ticksPerQuarter: 960, meter: { numerator: 4, denominator: 4 },
     source: { spreadsheetId: chart.spreadsheetId, sheetId: chart.sheetId, sheetName: chart.sheetName, range: 'A1:A1', digest: '' },
     mappingDigest: '', chart, voices: [], parts: [], rotation: null, cueWindow: null, cues: [], takes: [], selections: [], playback: [],
     diagnostics: [], executable: false });
   const cells = chart.bars.map(bar => ({ cell: `${columnName(bar.column)}1`, bar: bar.bar, text: '', reading: { kind: 'blank' } satisfies { kind: 'blank' } }));
-  const report: MusicXmlReport = normalizeSheetMusicalAnnotations({ profile: 'show-tools-song-v2', title: chart.title, sourceDigest: '', mappingDigest: '', meter: song.meter,
+  const report: MusicXmlReport = normalizeSheetMusicalAnnotations({ profile: 'show-tools-song-v3', title: chart.title, sourceDigest: '', mappingDigest: '', meter: song.meter,
     bpmPerChartCount: chart.bpm, measureCount: chart.bars.length, selectedLabelCells: ['A1'], nativeCompilationExecutable: false,
     compilerDiagnostics: [], conventions: ['Timing-only song. Performance instructions and instrumental detail are unspecified.'],
     sections: chart.sections, vocalCues: [], parts: [{ id: 'P-form', name: 'Form', labelCell: 'A1', managed: false, cells }] });

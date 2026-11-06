@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { canonicalSongJson, type CompiledSong } from '../lib/performance/compiled-song.js';
-import { compiledProgramBytes } from '../lib/performance/compiled-native.js';
+import { encodeCompiledProgram } from '../lib/performance/compiled-native.js';
 import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
 import { createMusicianSheets } from '../lib/performance/musician-sheets.js';
 
@@ -35,13 +35,26 @@ function digest(input: string | Uint8Array): string {
 
 export function compiledMeaningDigest(song: CompiledSong): string {
   const { mappingDigest: _mappingDigest, source, ...meaning } = song;
-  return digest(canonicalSongJson({ ...meaning, source: { ...source, digest: '' } }));
+  const rotation = meaning.rotation ? (() => {
+    const { inactivityBeats, ...fields } = meaning.rotation;
+    return { ...fields, releaseGridBeats: inactivityBeats };
+  })() : null;
+  return digest(canonicalSongJson({ ...meaning, schemaVersion: 5, rotation, source: { ...source, digest: '' } }));
 }
 
 export async function verifyMusicXmlCutover(musicxml: string) {
   const { song } = await readMusicXmlSong(musicxml);
   assert.equal(compiledMeaningDigest(song), baseline.song, `Compiled song differs from pre-cutover ${baseline.commit}. Only source and mapping digests may change.`);
-  assert.equal(digest(compiledProgramBytes(song)), baseline.native, 'Native instruction bytes changed during MusicXML migration.');
+  assert.equal(song.schemaVersion, 6, 'The current compiled schema must be explicit.');
+  const program = encodeCompiledProgram(song);
+  assert.equal(program[1], 6, 'The inactivity packet must use native version 6.');
+  // The historical fixture proves the original MusicXML cutover. Project only
+  // the explicitly migrated version marker; every instruction field stays pinned.
+  program[1] = 5;
+  const bytes = new Uint8Array(program.length * 8);
+  const view = new DataView(bytes.buffer);
+  program.forEach((value, index) => view.setFloat64(index * 8, value, true));
+  assert.equal(digest(bytes), baseline.native, 'Native instructions beyond the explicit v6 jiggle migration changed.');
   const sheets = await createMusicianSheets({ musicxml });
   const actualSheets = sheets.map(sheet => ({ name: sheet.name, labelCell: sheet.labelCell, pages: sheet.pages.map(digest) }));
   assert.deepEqual(actualSheets, baseline.sheets, 'Musician-sheet pages changed during MusicXML migration.');
