@@ -44,7 +44,8 @@ test('profile server starts off without native executable and SSE bootstraps the
     while (!data.includes('\n\n')) data += (await reader.read()).value;
     assert.equal(decodeDeskPublication(JSON.parse(data.slice(6))).type, 'desk');
     await reader.cancel();
-    const result = await fetch(`${profile.origin}/api/audio`, { method: 'POST', headers, body: JSON.stringify({ sessionId: bootstrap.sessionId, sequence: 1, goal: 'on' }) });
+    const controlSession = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
+    const result = await fetch(`${profile.origin}/api/audio`, { method: 'POST', headers, body: JSON.stringify({ sessionId: controlSession.sessionId, sequence: 1, goal: 'on' }) });
     assert.equal((await result.json()).outcome, 'accepted');
     await until(() => app.controller.snapshot().audio.kind === 'fault' ? true : undefined);
     assert.equal((await fetch(`${profile.origin}/api/status`, { headers })).status, 200);

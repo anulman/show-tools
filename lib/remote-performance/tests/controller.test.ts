@@ -5,6 +5,7 @@ import { chmod, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { compiledCaptureFixture } from '../../performance/tests/fixtures/compiled-capture.js';
 import { PersistentDesk } from '../controller.js';
 import { prepareHost } from '../prepare.js';
 import { HostConnection } from '../host-connection.js';
@@ -121,4 +122,29 @@ test('native managed host exits after its actual parent crashes and rejects forg
     if (nativePid) { try { process.kill(nativePid, 'SIGKILL'); } catch {} }
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test('transport Stop retains a captured take while terminate and re-enable discard it', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'capture-desk-'));
+  const controller = new PersistentDesk(sessionProfile(directory), installedPackage(await compiledCaptureFixture()).installed);
+  const ready = () => { const audio = controller.snapshot().audio; return audio.kind === 'ready' ? audio : undefined; };
+  try {
+    controller.setAudio('on');
+    const initial = await until(ready);
+    const target = { attempt: initial.attempt, hostEpoch: initial.performance.hostEpoch };
+    assert.equal((await controller.command(target, { command: 'start', args: { bpm: 240, countInBars: 1, startBar: 1, endBar: 4, loop: false } })).outcome, 'applied');
+    assert.equal((await controller.command(target, { command: 'control', args: { control: { id: 'R1' }, commandId: 'capture' } })).outcome, 'applied');
+    await until(() => ready()?.performance.state.compiledTakes?.[0]?.ready ? true : undefined, 'Synthetic take never committed');
+    const stopped = await controller.command(target, { command: 'stop', args: {} });
+    assert.equal(stopped.outcome, 'applied');
+    if (stopped.outcome !== 'applied') throw new Error('Stop failed');
+    assert.equal(stopped.state.compiledTakes?.[0]?.ready, true);
+    assert.ok((stopped.state.compiledTakes?.[0]?.frames ?? 0) > 0);
+    controller.setAudio('off');
+    await until(() => controller.snapshot().audio.kind === 'off' ? true : undefined);
+    controller.setAudio('on');
+    const replacement = await until(ready);
+    assert.notEqual(replacement.performance.hostEpoch, target.hostEpoch);
+    assert.ok(replacement.performance.state.compiledTakes?.every(take => !take.ready && take.frames === 0));
+  } finally { await controller.close(); await rm(directory, { recursive: true, force: true }); }
 });

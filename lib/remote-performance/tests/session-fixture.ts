@@ -8,13 +8,13 @@ import { decodeSessionProfile } from '../session-profile.js';
 import { NativeTargetSchema, DeskViewSchema, type DeskController } from '../session-schema.js';
 import { Schema } from 'effect';
 
-export function installedPackage() {
-  if (!song.compiled) throw new Error('Missing compiled song');
-  const packet = Buffer.from(compiledProgramBytes(song.compiled));
+export function installedPackage(compiled = song.compiled) {
+  if (!compiled) throw new Error('Missing compiled song');
+  const packet = Buffer.from(compiledProgramBytes(compiled));
   const configurations = Array.from({ length: 6 }, (_, profile) => ({ profile, effects: [] }));
   const hash = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
-  const manifest = Buffer.from(JSON.stringify({ id: song.id, description: song.description, compiled: song.compiled, practice: song.practice,
-    takeCount: song.compiled.takes.length, packetSha256: hash(packet), profilesSha256: hash(encodeInitialProfiles(configurations)) }));
+  const manifest = Buffer.from(JSON.stringify({ id: compiled.id, description: song.description, compiled, practice: { startBar: 1, endBar: compiled.chart.bars.length },
+    takeCount: compiled.takes.length, packetSha256: hash(packet), profilesSha256: hash(encodeInitialProfiles(configurations)) }));
   return { manifest, packet, configurations, installed: validateInstalledPackage(manifest, packet, configurations) };
 }
 export function sessionProfile(directory: string) {
