@@ -143,12 +143,13 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   const registration = { waiting: waiting ? worker : null, active: {}, addEventListener(type, callback) { registrationEvents.set(type, callback); } };
   const serviceWorker = { controller: controlled ? {} : null, ready: Promise.resolve(), async register() { return registration; }, addEventListener(type, callback) { events.set(type, callback); } };
   const context = {
-    URLSearchParams, remote: false, navigator: { serviceWorker },
+    URLSearchParams, remote: false, mode: 'browser', changingAudioMode: false,
+    browserModeBusy: () => false, canChangeAudioMode: () => true, navigator: { serviceWorker },
     voiceCatalog: { busy: false },
     document: { querySelector() { return editorOpen ? {} : null; }, addEventListener(type, callback) { documentEvents.set(type, callback); } },
     window: { isSecureContext: true, addEventListener(type, callback) { windowEvents.set(type, callback); } },
     location: { search: '', reload() { reloads++; } },
-    elements: { 'offline-status': { textContent: '' } },
+    elements: { 'offline-status': { textContent: '' }, 'audio-mode-select': { disabled: false } },
     state: { phase: 'playing' }, chart: undefined, starting: false, switching: false, effectsApplying: false, preparing: null, outputCapture: 'idle',
     offlineUpdate: { kind: 'current' },
     isRunning() { return context.state.phase === 'playing' || context.state.phase === 'count-in'; },
