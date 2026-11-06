@@ -47,7 +47,7 @@ export function createTunerDial() {
   }
   const resize = new ResizeObserver(schedule);
   resize.observe(element);
-  image.src = `/ui/practice/assets/tuner/${ballManifest.file}`;
+  image.src = new URL(`./assets/tuner/${ballManifest.file}`, document.baseURI).href;
   void image.decode().then(() => {
     if (disposed) return;
     if (image.naturalWidth !== ballManifest.width || image.naturalHeight !== ballManifest.height) {

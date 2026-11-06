@@ -35,7 +35,7 @@ function fixture() {
   let imageSource = '';
   const context = vm.createContext({
     ballManifest: { file: 'disco-ball.png', width: 70, height: 70, scale: 1 },
-    document: { createElement: () => new Node() },
+    document: { createElement: () => new Node(), baseURI: 'http://fixture.test/releases/build/ui/practice/' }, URL,
     Image: class {
       naturalWidth = 70;
       naturalHeight = 70;
@@ -73,7 +73,7 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 test('dial waits for the image and paints at integer sizes in both aspects', async () => {
   const dial = fixture();
   assert.equal(dial.frames.size, 0);
-  assert.equal(dial.imageSource, '/ui/practice/assets/tuner/disco-ball.png');
+  assert.equal(dial.imageSource, 'http://fixture.test/releases/build/ui/practice/assets/tuner/disco-ball.png');
   dial.load(); await tick(); dial.flush();
   assert.equal(dial.paints.length, 1);
   assert.equal(dial.paints[0]?.aspect, '16:9');
