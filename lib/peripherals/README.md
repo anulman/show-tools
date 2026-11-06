@@ -223,3 +223,25 @@ stdout and both input streams are bounded. A silently stalled network stream
 currently has no automatic fail-dark watchdog. Physical beat alignment remains
 subject to network latency. The bridge never guesses an LED enable mask.
 
+
+## Hold-to-light wiring test without audio
+
+Build `peripheral-host`, then run this from the terminal granted Input Monitoring
+for the confirmed Tab switch and physical LED output 1, SDK channel 0:
+
+```sh
+/path/to/peripheral-host --bench-held 0 --confirm-wiring
+```
+
+The host clears only that output, then lights it at brightness 255 while a fresh
+Tab press is held and clears it on release. An initially held or unknown switch
+must be released before a fresh press is admitted. Repeated held reports do not
+produce extra activations. Ctrl+C ends the test and attempts to clear the owned
+output. Disconnect or a failed USB write ends the process. Physical darkness
+after unplugging cannot be guaranteed by software.
+
+This is a wiring test. It opens no microphone, audio device, performance engine,
+or network connection, and it generates no cue timing. It sends brightness
+reports only and preserves the unknown eight-output enable mask. A disabled
+channel therefore remains disabled. It does not monitor the other three button
+or LED mappings, which still require individual observation.
