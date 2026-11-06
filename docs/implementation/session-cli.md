@@ -16,9 +16,9 @@ The repository launcher accepts these commands on the configured application hos
 ./show-tools session stop --profile /absolute/path/session.json
 ```
 
-Without `--profile`, the CLI reads `~/.config/show-tools/session.json`. A missing or invalid profile fails without choosing a target. The profile schema in `lib/remote-performance/session-profile.ts` defines the required server, package, native, token, and network paths.
+Without `--profile`, the CLI reads `$XDG_CONFIG_HOME/show-tools/session.json`. If `XDG_CONFIG_HOME` is absent or relative, the configuration directory defaults to `~/.config`. A missing or invalid profile fails without choosing a target. The profile schema in `lib/remote-performance/session-profile.ts` defines the required server, package, native, token, and network paths.
 
-`install` writes the named unit under `~/.config/systemd/user/` and reloads the user manager. Repeating installation accepts identical content. Installation refuses a different existing unit, and start or stop refuses a foreign loaded unit or drop-ins. Upgrades require a separate reviewed replacement. Installation starts no server and opens no audio devices.
+`install` writes the named unit under `$XDG_CONFIG_HOME/systemd/user/`, with the same `~/.config` fallback. It then reloads the user manager. Repeating installation accepts identical content. Installation refuses a different existing unit, and start or stop refuses a foreign loaded unit or drop-ins. Upgrades require a separate reviewed replacement. Installation starts no server and opens no audio devices.
 
 `install --enable` explicitly enables the unit for future user-manager starts. Installation never changes user lingering. Start and status report the host's `Linger` value. `Linger=no` does not guarantee survival after the last logout. That persistence needs a separately provisioned host setting. An unavailable `loginctl` produces `Linger=unknown`.
 
@@ -38,7 +38,7 @@ The unit uses `KillMode=control-group`, a 15-second stop deadline, and `Restart=
 
 ## Verification
 
-The process tests run the real CLI with an isolated home, fake `systemctl` and `loginctl`, and authenticated loopback HTTP. They exercise a fake managed server that survives the invoking CLI process and ends on stop. They never contact live DBus or audio hardware.
+The process tests run the real CLI with an isolated XDG configuration directory, fake `systemctl` and `loginctl`, and authenticated loopback HTTP. They exercise a fake managed server that survives the invoking CLI process and ends on stop. They never contact live DBus or audio hardware.
 
 ```sh
 node --import tsx --test lib/remote-performance/tests/session-cli.test.ts

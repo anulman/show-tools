@@ -1,5 +1,4 @@
 import { readFile, realpath } from 'node:fs/promises';
-import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { NodeServices } from '@effect/platform-node';
@@ -7,11 +6,11 @@ import { Console, Effect, Schema } from 'effect';
 import { Command, Flag } from 'effect/cli';
 import { decodeSessionProfile } from './session-profile.js';
 import { createSessionClient, DeskUnavailableError } from './session-client.js';
-import { createSessionService } from './session-service.js';
+import { createSessionService, sessionConfigDirectory } from './session-service.js';
 import type { DeskView } from './session-schema.js';
 
 class SessionCommandError extends Schema.TaggedError<SessionCommandError>()('SessionCommandError', { message: Schema.String }) {}
-const profileFlag = Flag.String('profile').pipe(Flag.withDefault(join(homedir(), '.config', 'show-tools', 'session.json')));
+const profileFlag = Flag.String('profile').pipe(Flag.withDefault(join(sessionConfigDirectory(), 'show-tools', 'session.json')));
 const enableFlag = Flag.Boolean('enable').pipe(Flag.withDefault(false), Flag.withDescription('Explicitly enable this service for future user-manager starts'));
 
 async function context(path: string) {

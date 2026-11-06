@@ -1,5 +1,5 @@
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { NodeServices } from '@effect/platform-node';
 import { Effect, Stream } from 'effect';
@@ -26,10 +26,14 @@ export function renderSessionUnit(profile: SessionProfile, profilePath: string) 
   return `# Managed by show-tools session install. Do not edit this unit.\n[Unit]\nDescription=Show Tools performance desk\n\n[Service]\nType=exec\nExecStart=${unitArgument(profile.server.nodeExecutable)} ${unitArgument(profile.server.entrypoint)} --profile ${unitArgument(resolve(profilePath))}\nRestart=no\nKillMode=control-group\nTimeoutStopSec=15s\nSendSIGKILL=yes\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
 }
 
+export function sessionConfigDirectory(env: NodeJS.ProcessEnv = process.env) {
+  return env.XDG_CONFIG_HOME && isAbsolute(env.XDG_CONFIG_HOME) ? env.XDG_CONFIG_HOME : join(homedir(), '.config');
+}
+
 export function createSessionService(profile: SessionProfile, profilePath: string, {
-  run = execute, home = homedir(),
-}: { run?: Execute; home?: string } = {}) {
-  const unitPath = join(home, '.config', 'systemd', 'user', profile.serviceName);
+  run = execute, configDirectory = sessionConfigDirectory(),
+}: { run?: Execute; configDirectory?: string } = {}) {
+  const unitPath = join(configDirectory, 'systemd', 'user', profile.serviceName);
   const expected = renderSessionUnit(profile, profilePath);
   const systemctl = async (...args: string[]) => run('systemctl', ['--user', ...args]);
   async function checked(...args: string[]) {
