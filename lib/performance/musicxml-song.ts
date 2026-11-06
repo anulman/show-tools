@@ -1,7 +1,7 @@
 import { MusicXmlValidationError } from './musicxml-errors.js';
 export { MusicXmlValidationError } from './musicxml-errors.js';
 import { Schema } from 'effect';
-import { XMLParser, XMLValidator } from 'fast-xml-parser';
+import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser';
 import { CompiledSongSchema, SongMappingSchema, RotationSchema, decodeCompiledSong, type CompiledSong } from './compiled-song.js';
 import { SongSourceSchema, type SongSource } from './song-source.js';
 import type { MusicXmlReport, MusicXmlCell, MusicalAnnotations } from './musicxml-model.js';
@@ -465,6 +465,7 @@ export async function compileMusicXmlSong(input: string): Promise<CompiledSong> 
 export async function migrateMusicXmlSongV2(input: string): Promise<string> {
   if (new TextEncoder().encode(input).byteLength > maximumBytes) throw new MusicXmlValidationError('Canonical MusicXML exceeds the 16 MiB limit.');
   if (/<!DOCTYPE|<!ENTITY/i.test(input)) throw new MusicXmlValidationError('MusicXML DTD and entity declarations are not supported.');
+  if (XMLValidator.validate(input) !== true) throw new MusicXmlValidationError('Invalid MusicXML syntax.');
   const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false,
     parseAttributeValue: false, trimValues: false, isArray: name => name === 'miscellaneous-field' });
   const Fields = Schema.Struct({ 'score-partwise': Schema.Struct({ identification: Schema.Struct({ miscellaneous: Schema.Struct({
@@ -506,8 +507,19 @@ export async function migrateMusicXmlSongV2(input: string): Promise<string> {
       } : {}) }));
     }
   }
-  const converted = input.replace(/<miscellaneous-field name="([^"]+)">[\s\S]*?<\/miscellaneous-field>/g,
-    (element, name: string) => replacements.has(name) ? `<miscellaneous-field name="${name}">${xml(replacements.get(name) ?? '')}</miscellaneous-field>` : element);
+  const decodeNodes = Schema.decodeUnknownSync(list(Schema.Record(Schema.String, Schema.Unknown)));
+  const nodes = decodeNodes(new XMLParser({ preserveOrder: true, ignoreAttributes: false, attributeNamePrefix: '',
+    parseTagValue: false, parseAttributeValue: false, trimValues: false }).parse(input));
+  const attributes = Schema.decodeUnknownSync(Schema.Struct({ name: Schema.String }));
+  const rewrite = (elements: typeof nodes, path: readonly string[]): typeof nodes => elements.map(element => {
+    const [name, ...rest] = path;
+    if (name) return Object.hasOwn(element, name) ? { ...element, [name]: rewrite(decodeNodes(element[name]), rest) } : element;
+    if (!Object.hasOwn(element, 'miscellaneous-field')) return element;
+    const replacement = replacements.get(attributes(element[':@']).name);
+    return replacement === undefined ? element : { ...element, 'miscellaneous-field': [{ '#text': replacement }] };
+  });
+  const converted = new XMLBuilder({ preserveOrder: true, ignoreAttributes: false, attributeNamePrefix: '' })
+    .build(rewrite(nodes, ['score-partwise', 'identification', 'miscellaneous']));
   return canonicalize(await readMusicXmlSong(converted));
 }
 

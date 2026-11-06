@@ -42,6 +42,7 @@ test('migration refuses unknown legacy fields, unsupported profiles and invalid 
   await assert.rejects(migrateMusicXmlSongV2(legacy.replace('&quot;releaseGridBeats&quot;:0.25', '&quot;unexpected&quot;:1,&quot;releaseGridBeats&quot;:0.25')), /unexpected/);
   await assert.rejects(migrateMusicXmlSongV2(legacy.replaceAll('show-tools-song-v2', 'show-tools-song-v0')), /Migration requires/);
   await assert.rejects(migrateMusicXmlSongV2('<!DOCTYPE x>' + legacy), /DTD/);
+  await assert.rejects(migrateMusicXmlSongV2(legacy.replace('</identification>', '')), /MusicXML/);
 });
 
 test('v2 migration rejects slice and source-bar instructions introduced after that profile', async () => {
@@ -51,4 +52,18 @@ test('v2 migration rejects slice and source-bar instructions introduced after th
   const withSourceBar = legacy.replace('&quot;sourceArmCell&quot;', '&quot;sourceBar&quot;:82,&quot;sourceArmCell&quot;');
   assert.notEqual(withSourceBar, legacy);
   await assert.rejects(migrateMusicXmlSongV2(withSourceBar), /sourceBar/);
+});
+
+test('legacy metadata migration follows XML nodes across equivalent attribute formatting', async () => {
+  const current = await frozenCutoverMusicXml();
+  const legacy = oldProfile(current);
+  const expected = await migrateMusicXmlSongV2(legacy);
+  for (const formatted of [
+    legacy.replaceAll('name="show-tools:profile"', "name='show-tools:profile'"),
+    legacy.replace(/<miscellaneous-field name="([^"]+)">/g, (_element, name: string) => `<miscellaneous-field\n name = '${name}' >`),
+    legacy.replaceAll('</miscellaneous-field>', '</miscellaneous-field >'),
+  ]) {
+    assert.notEqual(formatted, legacy);
+    assert.equal(await migrateMusicXmlSongV2(formatted), expected);
+  }
 });
