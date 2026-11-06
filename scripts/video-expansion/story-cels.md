@@ -20,3 +20,5 @@ A successful run atomically replaces `canonical-receipt.json`. The receipt binds
 This receipt certifies source pixels and the recorded structure. Independent identity, style, anatomy and motion reviews remain separate. A composed scene and its actual Figma timeline export require their own verification. The helpers do not add renderer support or adopt an artwork catalog.
 
 Run the focused CLI regressions with `node --import tsx --test scripts/tests/story-cels.test.ts`. The repository's `npm test` command includes these tests.
+
+For uploaded raster sources replacing visible actors, use `figma-image-readiness.ts` and the [image-readiness workflow](../../skills/pixel-storyboard/references/image-readiness.md). Its snapshot plus full registered RGBA comparison produces a live precondition to prepend to the authorized replacement code. Missing fills, blank exports, wrong targets or source changes block replacement. Actual placed scale and per-aspect scene exports remain separate checks. Run `node --import tsx --test scripts/tests/figma-image-readiness.test.ts`.
