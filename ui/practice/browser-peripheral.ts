@@ -39,6 +39,7 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
   let connectedReady: () => void = () => {};
   let failedReady: (error: unknown) => void = () => {};
   const ready = new Promise<void>((resolve, reject) => { connectedReady = resolve; failedReady = reject; });
+  void ready.catch(() => {});
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let lease: string | undefined, stopped = false, active = false, sending = false;
   let pending: readonly number[] | undefined;
@@ -50,19 +51,21 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     if (!response.ok) throw new Error(`Local peripheral connection failed (${response.status})`);
     return response;
   };
-  const stop = () => {
+  const shutdown = (intentional: boolean) => {
     if (stopped) return;
     stopped = true; active = false; pending = undefined;
     clearInterval(heartbeat);
-    failedReady(new Error('Local peripheral connection closed')); 
+    failedReady(new Error('Local peripheral connection closed'));
     audio.endpoint.port.removeEventListener('message', light);
     window.removeEventListener('keydown', suppressTab, true);
     window.removeEventListener('pagehide', stop);
     abort.abort();
     if (lease) void fetch('/api/peripheral/clear', { method: 'POST', headers, body: JSON.stringify({ lease }), keepalive: true }).catch(() => {});
-    void controls.finally(async () => { if (!audio.disposed) { await audio.endpoint.request('practice.peripheral-lights', { enabled: false }); await audio.control({ id: 'cueButton', value: 0 }); } }).catch(error => globalThis.reportError?.(error));
+    void controls.finally(async () => { if (!audio.disposed) { await audio.endpoint.request('practice.peripheral-lights', { enabled: false }); await audio.control({ id: 'cueButton', value: 0 }); } }).catch(error => { if (!intentional && !audio.disposed) globalThis.reportError?.(error); });
     status('Controller disconnected. Reconnect the local controller session to resume.');
   };
+  const stop = () => shutdown(true);
+  const fail = (error: unknown) => { if (!stopped) { shutdown(false); globalThis.reportError?.(error); } };
   async function pump() {
     if (sending || !active || !lease) return;
     sending = true;
@@ -71,14 +74,14 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
         const values = pending; pending = undefined;
         await post('light', { lease, values });
       }
-    } catch (error) { stop(); globalThis.reportError?.(error); }
+    } catch (error) { fail(error); }
     finally { sending = false; }
   }
   function light(event: Event) {
     if (!(event instanceof MessageEvent)) return;
     if (!active || !event.data || typeof event.data !== 'object' || !('lights' in event.data)) return;
     try { pending = lightMessage(event.data).lights; void pump(); }
-    catch (error) { stop(); globalThis.reportError?.(error); }
+    catch (error) { fail(error); }
   }
   function suppressTab(event: KeyboardEvent) { if (active && event.code === 'Tab') event.preventDefault(); }
   async function receive(value: unknown) {
@@ -89,7 +92,7 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
       await audio.endpoint.request('practice.peripheral-lights', { enabled: true });
       if (stopped) return;
       active = true; connectedReady();
-      heartbeat = setInterval(() => { void post('heartbeat', { lease }).catch(error => { stop(); globalThis.reportError?.(error); }); }, 500);
+      heartbeat = setInterval(() => { void post('heartbeat', { lease }).catch(fail); }, 500);
       status('Controller connected. Button and spinner use this browser audio engine.');
       return;
     }
@@ -105,7 +108,7 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
       try { await audio.control(control); }
       catch (error) {
         if (control.id === 'cueButton' && control.value === 0) throw error;
-        globalThis.reportError?.(error);
+        if (!stopped) globalThis.reportError?.(error);
       }
     });
     await controls;
@@ -129,6 +132,6 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
         while ((end = text.indexOf('\n')) >= 0) { const line = text.slice(0, end); text = text.slice(end + 1); await receive(JSON.parse(line)); }
       }
     } finally { reader.releaseLock(); }
-  })().catch(error => { if (!stopped) { stop(); globalThis.reportError?.(error); } });
+  })().catch(fail);
   return { stop, ready };
 }

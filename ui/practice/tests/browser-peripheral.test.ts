@@ -59,6 +59,9 @@ test('browser client forwards actual publications and ordered physical controls 
     input.write({ type: 'button', session: 51, sequence: 3, down: false });
     await until(() => controls.length === 4);
     assert.deepEqual(controls.slice(1), [{ id: 'cueButton', value: 1 }, { id: 'knob', value: -9 }, { id: 'cueButton', value: 0 }]);
+    values[PF.LIGHT_SEQUENCE] = 2;
+    port.dispatchEvent(new MessageEvent('message', { data: { lights: values } }));
+    windowEvents.dispatchEvent(new Event('pagehide'));
     client.stop();
     await until(() => writes.at(-1) === 'clear' && controls.length === 5);
     const count = writes.length;
