@@ -304,6 +304,14 @@ gateway/native fake host and synthetic child process without opening USB. Verify
 the physical LED and motion thresholds from the permissioned terminal before
 declaring the installed instrument ready.
 
+For a direct Linux connection, build the `peripheral-host` target and first run
+its read-only `--inspect` command. The [Linux helper contract](../lib/peripherals/README.md#connect-the-i-pac-directly-to-linux)
+describes sole-device qualification, explicit access prerequisites and input-gap
+behavior. `peripheral_linux_order` tests timestamp merging on Mac and Linux.
+`peripheral_linux_runtime` runs real poll/read/write paths against owned pipes on
+Linux, including held feedback, native light delivery and failure cleanup. These
+tests open no USB or audio devices and do not replace physical acceptance.
+
 ### Verify capture parents and the playing view
 
 Take readback appends `PF_TAKE_SELECTION` at field 9; `PF_TAKE_FIELDS` is 10 in the unreleased ABI 8 interface. A playing take reports its actual native selection index only when it belongs to that active selection. Idle and releasing readback use -1, decoded as `selectionIndex: null`. Keep browser/WASM and remote snapshot schemas together when changing this layout.

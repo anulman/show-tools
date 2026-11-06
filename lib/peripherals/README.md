@@ -181,8 +181,7 @@ disables delivery until a fresh bind. Only brightness reports are written:
 unknown peer enable masks are preserved. A disabled physical channel may need
 separately verified enable-mask initialization; this helper never guesses it.
 The 5 ms run-loop wait services IO and does not advance musical time or animate
-lights. This target is currently implemented for macOS; Linux device hosting
-remains a separate adapter.
+lights. The Linux helper implements the same protocol through evdev and hidraw.
 
 Enable hardware audio and leave transport stopped, then run from the permissioned
 terminal:
@@ -222,6 +221,39 @@ same native target, and closes the helper. Release failures are reported. Native
 stdout and both input streams are bounded. A silently stalled network stream
 currently has no automatic fail-dark watchdog. Physical beat alignment remains
 subject to network latency. The bridge never guesses an LED enable mask.
+
+### Connect the I-PAC directly to Linux
+
+Build `lib/peripherals` on the EliteDesk, then run `peripheral-host --inspect`
+from the build directory. Inspection opens read-only handles and sends no LED
+reports. It requires one `d209:0410` USB device with unique Tab, relative-Y and
+validated LED interfaces under the same USB parent. The helper discovers actual
+evdev and hidraw paths on each launch and retains the qualified handles. It
+checks the USB instance again before starting.
+
+The operating-system account needs read access to the selected evdev devices
+and read/write access to the selected hidraw device. Permission failures identify
+the inaccessible paths. The helper does not use sudo, change permissions, install
+udev rules, or take an exclusive input grab.
+
+Use the same `peripheral connect` configuration with the Linux helper path and
+the already confirmed SDK channel. Tab maps to the existing cue button and raw
+relative Y retains its signed counts. No other switch or LED mapping is inferred.
+The current engine publishes one logical LED, not an invented four-button map.
+
+Both evdev interfaces must support monotonic event timestamps. The helper merges
+bounded available batches by those timestamps and preserves order within each
+interface. Ambiguous equal timestamps across interfaces, timestamp regressions,
+partial records, input overflow and `SYN_DROPPED` fail the session and attempt to
+clear its owned LED. Reconnect after releasing the button. An initially held
+button needs a fresh release and press before activation. Keyboard auto-repeat
+does not add activations.
+
+`peripheral-host --bench-held 0 --confirm-wiring` provides the same audio-free
+hold-to-light test for the confirmed output-1 wiring. It sends brightness-only
+reports and preserves enable masks. Compile and pipe fixtures establish adapter
+behavior without devices; visible Linux LED response and physical cue timing
+remain unverified until the controller is moved and tested.
 
 
 ## Hold-to-light wiring test without audio

@@ -245,8 +245,11 @@ authored bar until accepted. The compiled program derives warning eligibility
 from its current timeline and accepted cue state, honoring the practice range
 without a separate mutable light state or changing cue execution. Native snapshots and remote SSE carry the complete image unchanged. The
 delivery gate owns freshness and successful-write commit, and sends brightness
-reports for its explicit mapping. Mac Input Monitoring, real USB delivery and a
-future Linux peripheral adapter remain separate from fake-host verification.
+reports for its explicit mapping. The Linux device helper discovers qualified
+evdev and hidraw interfaces under one USB parent and uses the same framed input
+and output protocol as the Mac helper. It never advances the musical clock.
+Mac Input Monitoring, Linux device permissions, real USB delivery and physical
+timing remain separate from fake-host verification.
 
 Compiled take readback includes the actual native playing selection index. The desk uses that index to describe a source-bar view independently of its parent recording. Current DYC's Cowbell has two parent captures and eleven reusable bar identities; its shortened bar-82 admission reuses that same identity. Whole-bar views and shortened views both bound source admission, so the selected view's source span relative to its loop period determines the Trimmed annotation. An absent native selection stays visibly unavailable rather than being inferred from the displayed chart position.
 
