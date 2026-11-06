@@ -1,0 +1,42 @@
+name: Native performance host
+
+on:
+  pull_request:
+    paths:
+      - 'lib/native-host/**'
+      - 'lib/native-alsa/**'
+      - 'lib/performance/**'
+      - 'lib/sequencer/**'
+      - 'lib/sampler/**'
+      - 'lib/beat-tracker/**'
+      - 'lib/patches/**'
+      - '.github/workflows/native-host.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux ALSA development files
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libasound2-dev
+      - name: Build and test the audio device boundary
+        run: |
+          cmake -S lib/native-alsa -B build/native-alsa -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-alsa --parallel
+          ctest --test-dir build/native-alsa --output-on-failure
+      - name: Build and test the native performance host
+        run: |
+          cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-host --parallel
+          ctest --test-dir build/native-host --output-on-failure
