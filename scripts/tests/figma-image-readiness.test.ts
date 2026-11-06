@@ -94,6 +94,8 @@ test('wrong file identity fails before any other Figma access in every emitted s
 });
 
 test('failed, oversized, malformed or incomplete envelopes cannot produce a guard', async () => {
+  await assert.rejects(prepareSingle({ target, expectedPng: await png(pixels), replacementPageId: target.pageId,
+    readSource: async () => envelope({ padding: 'é'.repeat(20_000) }) }), /response exceeds its reserved budget/);
   for (const response of [undefined, { isError: true, content: [] }, { content: [] }, envelope({}),
     { content: [{ type: 'text', text: '{' }] }, envelope({ padding: 'x'.repeat(40_000) })]) {
     await assert.rejects(prepareSingle({ target, expectedPng: await png(pixels), replacementPageId: target.pageId,
@@ -266,6 +268,8 @@ test('a bad second source cannot prepare any replacement and source sets are bou
 
 test('the complete guarded script budget includes the caller replacement before a code value is returned', async () => {
   const image = await png(pixels), fixture = figmaFixture(image);
+  await assert.rejects(prepareImageReplacement({ sources: [{ target, expectedPng: image }], replacementPageId: target.pageId,
+    replacementCode: '/*' + 'é'.repeat(15_000) + '*/', readSource: async code => envelope(await execute(code, fixture.figma)) }), /complete guarded replacement exceeds/);
   await assert.rejects(prepareImageReplacement({ sources: [{ target, expectedPng: image }], replacementPageId: target.pageId,
     replacementCode: '/*' + 'x'.repeat(30_000) + '*/', readSource: async code => envelope(await execute(code, fixture.figma)) }), /complete guarded replacement exceeds/);
   let reads = 0;
