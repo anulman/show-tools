@@ -4,7 +4,7 @@ Read `docs/architecture.md` for current ownership and audio flow. Use `docs/deve
 
 Use TypeScript for new JavaScript scripting. Keep browser UIs under `ui/` and low-level audio modules and hardware services under `lib/`. The practice desk is the supported browser UI. Do not restore the retired demo pages.
 
-The complete musical engine runs in shared C++ under `lib/performance/`, `lib/sequencer/`, `lib/sampler/`, and `lib/beat-tracker/`. It owns clock advancement, transport, sequencing, chart actions, capture, playback, mixing, and click generation. Browser worklets pass blocks and controls to `pf_process()` through TypeScript bridges. Keep musical decisions and DSP in C++; do not restore JavaScript beat handlers or scheduling fallbacks. Song scripts supply declarative instructions. Native device hosting, compiled-song loading, and hardware controls remain future work.
+The complete musical engine runs in shared C++ under `lib/performance/`, `lib/sequencer/`, `lib/sampler/`, and `lib/beat-tracker/`. It owns clock advancement, transport, sequencing, chart actions, capture, playback, mixing, and click generation. Browser worklets pass blocks and controls to `pf_process()` through TypeScript bridges. Keep musical decisions and DSP in C++; do not restore JavaScript beat handlers or scheduling fallbacks. Song scripts supply declarative instructions. Native device hosting and compiled-song loading use the same engine through the persistent hardware desk. Physical hardware input integration remains separate from browser and network control.
 
 Commit each verified milestone during implementation.
 

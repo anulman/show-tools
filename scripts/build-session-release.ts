@@ -19,6 +19,7 @@ const runtime = resolve(options['node-runtime']);
 const song = resolve(options['song-package']);
 const output = resolve(options.out);
 const sha256 = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
+if (execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error('Commit or remove source changes before building a release');
 const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
 const nativeRevision = (await readFile(join(native, 'source-revision.txt'), 'utf8')).trim();
 execFileSync('git', ['diff', '--exit-code', nativeRevision, sourceRevision, '--', 'lib/native-host', 'lib/native-alsa',
