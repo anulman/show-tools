@@ -16,6 +16,8 @@ namespace native_alsa {
 
 struct AlsaPcm::Impl {
   Config config;
+  Parameters capture_parameters{};
+  Parameters playback_parameters{};
 #if defined(__linux__)
   snd_pcm_t* capture = nullptr;
   snd_pcm_t* playback = nullptr;
@@ -34,7 +36,7 @@ AlsaPcm::~AlsaPcm() = default;
 
 #if defined(__linux__)
 namespace {
-int configure(snd_pcm_t* pcm, const Config& config, unsigned channels) {
+int configure(snd_pcm_t* pcm, const Config& config, unsigned channels, Parameters& actual) {
   snd_pcm_hw_params_t* params = nullptr;
   int rc = snd_pcm_hw_params_malloc(&params);
   if (rc < 0) return rc;
@@ -47,6 +49,21 @@ int configure(snd_pcm_t* pcm, const Config& config, unsigned channels) {
       (rc = snd_pcm_hw_params_set_period_size(pcm, params, config.period_frames, 0)) >= 0 &&
       (rc = snd_pcm_hw_params_set_buffer_size(pcm, params, config.buffer_frames)) >= 0) {
     rc = snd_pcm_hw_params(pcm, params);
+  }
+  snd_pcm_format_t format{};
+  snd_pcm_uframes_t period = 0, buffer = 0;
+  unsigned rate = 0, actual_channels = 0;
+  int direction = 0;
+  if (rc >= 0 && (rc = snd_pcm_hw_params_current(pcm, params)) >= 0 &&
+      (rc = snd_pcm_hw_params_get_format(params, &format)) >= 0 &&
+      (rc = snd_pcm_hw_params_get_channels(params, &actual_channels)) >= 0 &&
+      (rc = snd_pcm_hw_params_get_rate(params, &rate, &direction)) >= 0 &&
+      (rc = snd_pcm_hw_params_get_period_size(params, &period, &direction)) >= 0 &&
+      (rc = snd_pcm_hw_params_get_buffer_size(params, &buffer)) >= 0) {
+    const auto expected_format = config.format == SampleFormat::S32LE ? SND_PCM_FORMAT_S32_LE : SND_PCM_FORMAT_FLOAT_LE;
+    if (format != expected_format || rate != config.sample_rate || actual_channels != channels ||
+        period != config.period_frames || buffer != config.buffer_frames) rc = -EINVAL;
+    else actual = {rate, actual_channels, period, buffer, config.format};
   }
   snd_pcm_hw_params_free(params);
   return rc;
@@ -72,9 +89,9 @@ std::unique_ptr<AlsaPcm> AlsaPcm::open(const Config& config, std::string& error)
   auto impl = std::make_unique<Impl>();
   impl->config = config;
   int rc = snd_pcm_open(&impl->capture, config.capture_device.c_str(), SND_PCM_STREAM_CAPTURE, 0);
-  if (rc >= 0) rc = configure(impl->capture, config, config.capture_channels);
+  if (rc >= 0) rc = configure(impl->capture, config, config.capture_channels, impl->capture_parameters);
   if (rc >= 0) rc = snd_pcm_open(&impl->playback, config.playback_device.c_str(), SND_PCM_STREAM_PLAYBACK, 0);
-  if (rc >= 0) rc = configure(impl->playback, config, 2);
+  if (rc >= 0) rc = configure(impl->playback, config, 2, impl->playback_parameters);
   if (rc < 0) { error = snd_strerror(rc); return nullptr; }
   if (config.format == SampleFormat::S32LE) {
     impl->capture_int.resize(static_cast<std::size_t>(config.max_block_frames) * config.capture_channels);
@@ -142,5 +159,8 @@ int AlsaPcm::prepare() {
   return -ENOSYS;
 #endif
 }
+
+const Parameters& AlsaPcm::capture_parameters() const { return impl_->capture_parameters; }
+const Parameters& AlsaPcm::playback_parameters() const { return impl_->playback_parameters; }
 
 }  // namespace native_alsa

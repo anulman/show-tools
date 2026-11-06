@@ -2,6 +2,7 @@
 #include <stddef.h>
 typedef struct snd_pcm_t snd_pcm_t;
 typedef struct snd_pcm_hw_params_t snd_pcm_hw_params_t;
+typedef int snd_pcm_format_t;
 typedef long snd_pcm_sframes_t;
 typedef unsigned long snd_pcm_uframes_t;
 enum { SND_PCM_STREAM_CAPTURE, SND_PCM_STREAM_PLAYBACK, SND_PCM_ACCESS_RW_INTERLEAVED, SND_PCM_FORMAT_S32_LE, SND_PCM_FORMAT_FLOAT_LE };
@@ -18,6 +19,12 @@ int snd_pcm_hw_params_set_rate(snd_pcm_t*, snd_pcm_hw_params_t*, unsigned, int);
 int snd_pcm_hw_params_set_period_size(snd_pcm_t*, snd_pcm_hw_params_t*, snd_pcm_uframes_t, int);
 int snd_pcm_hw_params_set_buffer_size(snd_pcm_t*, snd_pcm_hw_params_t*, snd_pcm_uframes_t);
 int snd_pcm_hw_params(snd_pcm_t*, snd_pcm_hw_params_t*);
+int snd_pcm_hw_params_current(snd_pcm_t*, snd_pcm_hw_params_t*);
+int snd_pcm_hw_params_get_format(const snd_pcm_hw_params_t*, snd_pcm_format_t*);
+int snd_pcm_hw_params_get_channels(const snd_pcm_hw_params_t*, unsigned*);
+int snd_pcm_hw_params_get_rate(const snd_pcm_hw_params_t*, unsigned*, int*);
+int snd_pcm_hw_params_get_period_size(const snd_pcm_hw_params_t*, snd_pcm_uframes_t*, int*);
+int snd_pcm_hw_params_get_buffer_size(const snd_pcm_hw_params_t*, snd_pcm_uframes_t*);
 snd_pcm_sframes_t snd_pcm_readi(snd_pcm_t*, void*, snd_pcm_uframes_t);
 snd_pcm_sframes_t snd_pcm_writei(snd_pcm_t*, const void*, snd_pcm_uframes_t);
 int snd_pcm_recover(snd_pcm_t*, int, int);

@@ -1,21 +1,14 @@
-# Native audio host foundations
+# Native performance host
 
-This module supplies a preallocated PCM pump, a stopped instrument lifecycle, bounded single-producer queues, and private message framing for the future native device service. It links the existing shared C++ performance engine without changing its ABI or musical behavior. It does not yet provide a daemon, network producer, or working remote performance desk.
-
-`AudioPump` clears four planar stem buffers, processes mono input through `pf_process_stems()`, and sums sample/click and processed-live stems once into interleaved stereo. Partial writes retain the unwritten suffix. Rendering again before that suffix is consumed rejects, so a device retry cannot advance musical time twice. Stop discards pending output.
-
-`Instrument` gives one caller ownership of the engine and pump. Song and effect preparation run while stopped. Song replacement prepares a candidate engine before replacing the previous one, so an invalid packet preserves the prior instrument. Configuration and preparation may allocate. The prepared processing path uses existing storage.
-
-The device boundary is separate in [native-alsa](../native-alsa/README.md). Device identifiers, channels, format, buffers, and recovery policy require explicit configuration. No hardware settings, real-time priority, latency guarantee, or deployment service is established by these libraries.
-
-## Build without device access
-
-Use a C++17 compiler and CMake 3.20 or newer.
+`native_fake_host` runs the engine with synthetic input for offline development. `--step` advances audio only on explicit test commands. `native_alsa_host` connects the same engine and IPC service to ALSA capture and playback on Linux. It requires explicit device names, rate, channel count and input index, block size, period and buffer sizes, and sample format. Choose stable device names for the installation and verify them on the target machine.
 
 ```sh
-cmake -S lib/native-host -B /tmp/show-tools-native-host -DCMAKE_BUILD_TYPE=Release
-cmake --build /tmp/show-tools-native-host --parallel
-ctest --test-dir /tmp/show-tools-native-host --output-on-failure
+cmake -S lib/native-host -B /tmp/native-host-build
+cmake --build /tmp/native-host-build
+ctest --test-dir /tmp/native-host-build --output-on-failure
+/tmp/native-host-build/native_alsa_host SOCKET SAMPLE_RATE BLOCK_FRAMES MAX_VOICES MAX_SECONDS CAPTURE_DEVICE PLAYBACK_DEVICE CAPTURE_CHANNELS INPUT_CHANNEL PERIOD_FRAMES BUFFER_FRAMES s32|float
 ```
 
-Tests exercise actual engine PCM, capture, effects, playback, variable block sizes, short writes, stopped replacement, message bounds, and queue ordering. They open no audio devices. The CI workflow builds both native modules on Linux and macOS. Linux requires ALSA development headers and compiles the actual device implementation. macOS uses the unavailable-device stub and simulated ALSA tests. Neither path establishes physical Scarlett operation.
+The socket directory must be private and owned by the caller. The audio owner reads the selected capture channel, processes frames in the native engine, and writes stereo playback. Stop and panic discard pending host and device output. Device errors terminate the host. The gateway can reconnect while a run remains active. Opening or running the ALSA host accesses the selected physical devices. Building and testing it do not.
+
+The ALSA backend's dependency and license are described in [its README](../native-alsa/README.md). Hardware configuration and physical audio behavior require separate verification on the target machine.

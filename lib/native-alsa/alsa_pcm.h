@@ -21,6 +21,14 @@ struct Config {
   SampleFormat format;
 };
 
+struct Parameters {
+  unsigned sample_rate;
+  unsigned channels;
+  unsigned long period_frames;
+  unsigned long buffer_frames;
+  SampleFormat format;
+};
+
 class AlsaPcm {
  public:
   static std::unique_ptr<AlsaPcm> open(const Config& config, std::string& error);
@@ -34,6 +42,8 @@ class AlsaPcm {
   int recover(Direction direction, int error);
   int drop();
   int prepare();
+  const Parameters& capture_parameters() const;
+  const Parameters& playback_parameters() const;
 
  private:
   struct Impl;

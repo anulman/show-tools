@@ -1,7 +1,8 @@
 import { renderVoiceAvatar } from './voice-avatar.js';
 import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
-import { PracticeAudio } from './audio.js';
+import type { PracticeAudio } from './audio.js';
+import { RemoteSession } from './remote-session.js';
 import type { MonitoringRelationship } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
 import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, VoiceEffectConfiguration } from '../../lib/performance/model.js';
@@ -88,8 +89,10 @@ let song: SongScript | undefined;
 let songGeneration = 0;
 let switching = false;
 let outputCapture: 'idle' | 'starting' | 'waiting' | 'recording' | 'stopping' = 'idle';
-let audio: PracticeAudio | undefined;
-let preparing: Promise<PracticeAudio> | null = null;
+const remote = new URLSearchParams(location.search).has('remote');
+type PerformanceSession = PracticeAudio | RemoteSession;
+let audio: PerformanceSession | undefined;
+let preparing: Promise<PerformanceSession> | null = null;
 let starting = false;
 let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorker } | { kind: 'pending' } | { kind: 'reloading' } = { kind: 'current' };
 let transportGeneration = 0;
@@ -101,6 +104,7 @@ let chartFollower: ReturnType<typeof createChartFollower> | undefined;
 let chartFollowOptIn = false;
 const voiceCatalog = installVoiceCatalog(requiredElement('#voice-library-root', HTMLElement), {
   drafts: voiceEffects,
+  remote,
   isBusy: () => isRunning() || starting || switching || effectsApplying || Boolean(preparing) || outputCapture !== 'idle',
   onError: showError,
   onBusyChange: () => render(state),
@@ -155,13 +159,15 @@ function cueLabel(cue: string): string {
 
 async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[]) {
   if (audio) return audio;
+  if (remote) throw new Error('Remote session is disconnected. Refresh to reconnect.');
   if (!song || switching) throw new Error('The song script is still loading. Try again in a moment.');
   if (!window.isSecureContext) throw new Error('Audio needs HTTPS on your phone, or localhost on this computer. See Setup & notes.');
   if (preparing) return preparing;
   elements.start.disabled = true;
   startLabel.textContent = 'Preparing audio…';
   const generation = songGeneration;
-  preparing = PracticeAudio.create({ chart: song.chart, program: song.program, compiled: song.compiled, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() }).then(async instance => {
+  const currentSong = song;
+  preparing = import('./audio.js').then(({ PracticeAudio }) => PracticeAudio.create({ chart: currentSong.chart, program: currentSong.program, compiled: currentSong.compiled, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() })).then(async instance => {
     if (generation !== songGeneration) {
       await instance.dispose();
       throw new Error('The song changed while audio was preparing.');
@@ -212,9 +218,17 @@ async function applyVoiceEffects(profile: number) {
   effectsApplying = true; render(state);
   try {
     const configurations = voiceEffects.configurations(profile);
-    await voiceCatalog.saveDrafts();
-    const instance = await ensureAudio(configurations);
-    await instance.configureVoiceEffects(configurations);
+    if (remote) {
+      const instance = await ensureAudio(configurations);
+      if (!(instance instanceof RemoteSession)) throw new Error('Remote session is unavailable.');
+      const selected = configurations.find(configuration => configuration.profile === profile);
+      if (!selected) throw new Error('Voice profile is unavailable.');
+      await instance.configureVoiceProfile(profile, selected.effects);
+    } else {
+      await voiceCatalog.saveDrafts();
+      const instance = await ensureAudio(configurations);
+      await instance.configureVoiceEffects(configurations);
+    }
   } finally { effectsApplying = false; render(state); }
 }
 
@@ -238,11 +252,16 @@ async function startPractice() {
   const endBar = Number(elements['end-bar'].value);
   if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Choose a tempo between 40 and 240 BPM.');
   if (!Number.isInteger(endBar) || endBar < startBar || endBar > playableBars(chart)) throw new Error(`Choose an end bar from ${startBar} to ${playableBars(chart)}. Partial bars are not sequenced yet.`);
+  if (remote) {
+    const instance = await ensureAudio();
+    await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar, loop: elements.loop.checked, automatic: false });
+    return;
+  }
   const effects = song?.compiled ? voiceEffects.configurations() : initialVoiceEffects('dry');
   const generation = ++transportGeneration;
   starting = true;
   render(state);
-  let instance: PracticeAudio | undefined;
+  let instance: PerformanceSession | undefined;
   let startedRecording = false;
   let microphoneGeneration: number | undefined;
   try {
@@ -274,9 +293,13 @@ async function stopPerformance(command: 'stop' | 'panic', commandId?: string) {
   releasePresses();
   const instance = audio;
   if (!instance) return;
+  if (remote) {
+    await (command === 'stop' ? instance.stop() : instance.control({ id: 'mushroom' }, { commandId }));
+    return;
+  }
   const results = await Promise.allSettled([
     command === 'stop' ? instance.stop() : instance.control({ id: 'mushroom' }, { commandId }),
-    instance.disableMicrophone(),
+    ...(remote ? [] : [instance.disableMicrophone()]),
   ]);
   const failure = results.find(result => result.status === 'rejected');
   if (failure?.status === 'rejected') {
@@ -365,7 +388,7 @@ function mountVoiceRows() {
     if (part.role.kind === 'pad') {
       const pad = pads.get(part.role.buttonId);
       if (pad) {
-        voiceEffects.mount(part, pad.shell, () => voiceCatalog.openProfile(part.profile));
+        voiceEffects.mount(part, pad.shell, remote ? undefined : () => voiceCatalog.openProfile(part.profile));
         voiceAvatars.set(part.profile, { root: requiredElement('.performance-avatar', HTMLElement, pad.button), name: part.name });
       }
       continue;
@@ -391,7 +414,7 @@ function mountVoiceRows() {
       }
       tools.append(rotations);
     }
-    main.append(identity, tools); shell.append(main); voiceEffects.mount(part, shell, () => voiceCatalog.openProfile(part.profile)); elements['live-voices'].append(shell);
+    main.append(identity, tools); shell.append(main); voiceEffects.mount(part, shell, remote ? undefined : () => voiceCatalog.openProfile(part.profile)); elements['live-voices'].append(shell);
   }
   elements['live-voices'].hidden = !liveVoiceStates.size;
 }
@@ -402,10 +425,11 @@ function render(next: Partial<PracticeState>) {
   beginOutputRecording(state.phase);
   if (ended) {
     finishOutputRecording();
-    if (audio) void audio.disableMicrophone().catch(showError);
+    if (audio && !remote) void audio.disableMicrophone().catch(showError);
   }
   applyPendingPracticeUpdate();
   if (!chart) return;
+  if (remote && state.click !== undefined && document.activeElement !== elements.click) elements.click.checked = state.click;
   const running = isRunning();
   const displayBar = state.bar || Number(elements['start-section'].value) || 1;
   const currentBar = chart.bars[displayBar - 1];
@@ -420,8 +444,8 @@ function render(next: Partial<PracticeState>) {
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
   elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
-  elements['song-select'].disabled = voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
-  elements['record-demo'].disabled = voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
+  elements['song-select'].disabled = remote || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
+  elements['record-demo'].disabled = remote || voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
   const effectsLocked = running || starting || switching || Boolean(preparing) || effectsApplying || outputCapture !== 'idle';
   voiceEffects.render(state.voiceEffects, effectsLocked);
   voiceCatalog.update({ bar: state.bar, voiceEffects: state.voiceEffects });
@@ -433,9 +457,9 @@ function render(next: Partial<PracticeState>) {
     if (applied?.rotationEligible) label.textContent += applied.rotationRemainingBeats > 0 ? ` · ${applied.rotationRemainingBeats.toFixed(2)} BEAT` : ' · KNOB CUE';
   }
   for (const button of rotationControls) button.disabled = !running || !audio || !state.voiceEffects?.some(voice => voice.rotationEligible);
-  elements['monitor-relationship'].disabled = !audio?.microphone || starting;
+  elements['monitor-relationship'].disabled = remote || !audio?.microphone || starting;
   elements['monitor-relationship'].value = audio?.monitoringRelationship || 'unknown';
-  elements['monitor-hint'].textContent = audio?.monitoringRelationship === 'different-devices' || audio?.monitoringRelationship === 'same-usb-interface'
+  elements['monitor-hint'].textContent = remote ? 'Audio and monitoring run on the host. Remote recording is unavailable.' : audio?.monitoringRelationship === 'different-devices' || audio?.monitoringRelationship === 'same-usb-interface'
     ? 'Confirmed setup. Live monitoring follows the active voice. Downloads include processed voice.'
     : audio?.monitoringRelationship === 'same-non-usb'
       ? 'Same non-USB device confirmed. Live monitoring stays off. Downloads include processed voice.'
@@ -515,6 +539,7 @@ function finishOutputRecording() {
 }
 
 async function toggleOutputRecording() {
+  if (remote) throw new Error('Remote recording is unavailable.');
   if (voiceCatalog.busy) return;
   if (outputCapture === 'starting' || outputCapture === 'stopping') return;
   if (outputCapture === 'waiting' || recorder?.state === 'recording') { finishOutputRecording(); render(state); return; }
@@ -591,6 +616,7 @@ elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic
 elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording));
 elements['monitor-relationship'].addEventListener('change', () => act(() => {
   if (!audio) throw new Error('Start the microphone before confirming the monitoring setup.');
+  if (audio instanceof RemoteSession) throw new Error('Monitoring belongs to the remote host');
   audio.setMonitoringRelationship(monitoringRelationship(elements['monitor-relationship'].value));
 }));
 elements.click.addEventListener('change', () => act(async () => {
@@ -675,7 +701,8 @@ for (const entry of SONGS) {
   elements['song-select'].append(option);
 }
 elements.start.disabled = true;
-async function switchSong(id: string, imported?: CompiledSong, source?: SongSource): Promise<void> {
+async function switchSong(id: string, imported?: CompiledSong, source?: SongSource, remoteSong?: SongScript): Promise<void> {
+  if (remote && !remoteSong) throw new Error('Songs are loaded on the remote host.');
   if (voiceCatalog.busy) throw new Error('Wait for the voice library save before switching songs.');
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
@@ -685,23 +712,27 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
   render(state);
   releasePresses();
   const previousAudio = audio;
-  audio = undefined;
+  if (!remoteSong) audio = undefined;
   try {
-    if (previousAudio) await previousAudio.stop();
-    if (previousAudio) await previousAudio.dispose();
+    if (previousAudio && !remoteSong) await previousAudio.stop();
+    if (previousAudio && !remoteSong) await previousAudio.dispose();
     if (preparing) await preparing.catch(() => {});
-    const loaded: SongScript = imported ? {
+    const loaded: SongScript = remoteSong ?? (imported ? {
       id: imported.id, chart: imported.chart, program: { lengthBeats: imported.chart.beatsPerBar, events: [] }, compiled: imported, source,
       practice: { startBar: imported.chart.bars[0]?.bar || 1, endBar: imported.chart.annotatedThroughBar },
       description: 'Chart-compiled performance. Source cells and native instructions are available below.',
-    } : await loadSong(id);
+    } : await loadSong(id));
     if (generation !== songGeneration) return;
     song = loaded;
     chart = loaded.chart;
-    state = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', recording: null, microphone: false,
+    if (!remoteSong) state = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', recording: null, microphone: false,
       looping: [], error: null, channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
     mountVoiceRows();
     await voiceCatalog.load(loaded).catch(showError);
+    if (remoteSong && ![...elements['song-select'].options].some(option => option.value === loaded.id)) {
+      const option = document.createElement('option'); option.value = loaded.id; option.textContent = loaded.chart.title;
+      elements['song-select'].append(option);
+    }
     elements['song-select'].value = loaded.id;
     document.title = `${loaded.chart.title} · Practice desk`;
     elements.bpm.value = String(loaded.chart.bpm);
@@ -737,7 +768,47 @@ const chartPanel = installChartPanel(chartSource, {
     await switchSong(compiled.id, compiled, source);
   },
 });
-await act(() => switchSong('dance-yrself-clean'));
+function syncRemoteTransport(current: PracticeState) {
+  elements.bpm.value = String(current.bpm);
+  const start = String(current.startBar);
+  if (![...elements['start-section'].options].some(option => option.value === start)) {
+    const option = document.createElement('option'); option.value = start; option.textContent = `Bar ${start}`;
+    elements['start-section'].append(option);
+  }
+  elements['start-section'].value = start;
+  elements['end-bar'].min = start;
+  elements['end-bar'].value = String(current.endBar);
+  elements.loop.checked = current.loop;
+  elements.click.checked = current.click;
+}
+
+if (remote) {
+  elements['offline-status'].textContent = 'Audio runs on the remote host.';
+  chartSource.hidden = true;
+  await act(async () => {
+    const token = window.prompt('Enter the remote performance token');
+    if (!token) throw new Error('A token is required to connect. Refresh to try again.');
+    const session = await RemoteSession.create(token);
+    await switchSong(session.song.id, undefined, undefined, session.song);
+    audio = session;
+    syncRemoteTransport(session.snapshot());
+    for (const voice of session.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);
+    session.subscribe(render);
+    session.onEvent(event => { postPerformanceEvent(event); if (event.type === 'control' && event.applied === false && event.error) showError(new Error(event.error)); });
+    let manifest = JSON.stringify(session.song);
+    void session.listen(next => {
+      const updated = JSON.stringify(next);
+      if (updated === manifest) return;
+      manifest = updated;
+      void switchSong(next.id, undefined, undefined, next).then(() => {
+        syncRemoteTransport(session.snapshot());
+        for (const voice of session.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);
+        render(session.snapshot());
+      }).catch(showError);
+    });
+    elements['recording-hint'].textContent = 'Remote recording is unavailable.';
+  });
+} else await act(() => switchSong('dance-yrself-clean'));
 
 if (new URLSearchParams(location.search).has('test')) {
   window.practiceDesk = { get audio() { return audio; }, get state() { return state; }, get chart() { return chart; } };
@@ -757,7 +828,7 @@ function applyPendingPracticeUpdate() {
 
 document.addEventListener('close', () => applyPendingPracticeUpdate(), true);
 
-if ('serviceWorker' in navigator && window.isSecureContext && !new URLSearchParams(location.search).has('test')) {
+if (!remote && 'serviceWorker' in navigator && window.isSecureContext && !new URLSearchParams(location.search).has('test')) {
   let hadController = Boolean(navigator.serviceWorker.controller);
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     if (!navigator.serviceWorker.controller) return;
@@ -786,6 +857,6 @@ if ('serviceWorker' in navigator && window.isSecureContext && !new URLSearchPara
 
 declare global {
   interface Window {
-    practiceDesk?: { readonly audio: PracticeAudio | undefined; readonly state: DisplayState; readonly chart: Chart | undefined };
+    practiceDesk?: { readonly audio: PerformanceSession | undefined; readonly state: DisplayState; readonly chart: Chart | undefined };
   }
 }

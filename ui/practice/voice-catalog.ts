@@ -13,6 +13,7 @@ import { initialVoiceEffects, type createVoiceEffectsEditor } from './voice-effe
 type Drafts = ReturnType<typeof createVoiceEffectsEditor>;
 export function installVoiceCatalog(root: HTMLElement, options: {
   drafts: Drafts;
+  remote?: boolean;
   apply: (configurations: readonly VoiceEffectConfiguration[]) => Promise<void>;
   isBusy: () => boolean;
   onError: (error: unknown) => void;
@@ -57,7 +58,7 @@ export function installVoiceCatalog(root: HTMLElement, options: {
       return row ? options.drafts.configurations().find(item => item.profile === row.profile)?.effects ?? [] : document.voices.find(voice => voice.id === id)?.effects ?? [];
     },
   });
-  const ready = createCatalogClient().then(async value => {
+  const ready = options.remote ? Promise.resolve().then(() => { availability = 'Voice library is unavailable in remote mode.'; }) : createCatalogClient().then(async value => {
     client = value; document = await value.snapshot(); availability = undefined;
   }).catch(error => { client?.close(); client = undefined; availability = `Voice library unavailable: ${error instanceof Error ? error.message : String(error)}`; }).finally(() => update(current));
   function update(state: Pick<PracticeState, 'bar' | 'voiceEffects'>) {

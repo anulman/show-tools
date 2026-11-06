@@ -5,11 +5,15 @@ on:
     paths:
       - 'lib/native-host/**'
       - 'lib/native-alsa/**'
+      - 'lib/remote-performance/**'
       - 'lib/performance/**'
       - 'lib/sequencer/**'
       - 'lib/sampler/**'
       - 'lib/beat-tracker/**'
       - 'lib/patches/**'
+      - 'ui/practice/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/native-host.yml'
   workflow_dispatch:
 
@@ -40,3 +44,22 @@ jobs:
           cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-host --parallel
           ctest --test-dir build/native-host --output-on-failure
+
+  controls:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Build fake native host for IPC tests
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes libasound2-dev
+          cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-host --target native_fake_host --parallel
+      - run: npm run typecheck
+      - name: Test remote controls without hardware
+        run: node --import tsx --test --test-concurrency=4 lib/remote-performance/tests/*.test.ts ui/practice/tests/remote-session.test.ts

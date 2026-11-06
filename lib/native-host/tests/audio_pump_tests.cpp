@@ -64,6 +64,19 @@ int main() {
   require(instrument.render(test_input.data(), 127) == 0 && instrument.pending() == 127);
   instrument.stop();
   require(instrument.pending() == 0 && instrument.lifecycle() == native_host::Lifecycle::Prepared);
+  require(instrument.start({120, 0, 1, 1, 0, 0}));
+  Sink tail{{}, 17};
+  while (instrument.lifecycle() == native_host::Lifecycle::Running) {
+    require(instrument.render(test_input.data(), 509) == 0);
+    if (instrument.lifecycle() == native_host::Lifecycle::Running)
+      while (instrument.pending()) require(instrument.write(write_short, &tail) > 0);
+  }
+  require(instrument.lifecycle() == native_host::Lifecycle::Prepared && instrument.pending() == 509);
+  require(!instrument.start({120, 0, 1, 1, 0, 0}));
+  while (instrument.pending()) require(instrument.write(write_short, &tail) > 0);
+  require(instrument.prepare_profiles(profiles));
+  require(instrument.start({120, 0, 1, 1, 0, 0}));
+  instrument.stop();
   Engine engine;
   AudioPump pump(engine.value, 509);
   std::array<float, 509> input{}; input.fill(.25f);

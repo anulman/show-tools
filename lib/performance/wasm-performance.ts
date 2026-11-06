@@ -1,14 +1,12 @@
 import { SampleEngine, SampleRecorder } from '../sampler/wasm-sampler.js';
 import { AudioSequenceEngine } from '../sequencer/wasm-sequencer.js';
 import { CONTROL_IDS } from './model.js';
-import type { ChannelId, ChartControls, CompiledTakeState, Control, CueAction, LiveEffectDefinition, LiveEffectsState, VoiceEffectConfiguration, VoiceEffectsState, PadLight, Phase, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
+import type { ChannelId, ChartControls, CompiledTakeState, Control, CueAction, LiveEffectDefinition, LiveEffectsState, VoiceEffectConfiguration, VoiceEffectsState, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
 import { PF } from './wasm-abi.js';
+import { decodeNativeState, decodeNativeTempo, decodeNativeVoices, decodeNativeLiveEffects, decodeNativeEvent, decodeNativeTake } from './native-observation.js';
 import { ST } from '../sampler/wasm-abi.js';
 
 const BLOCK = 8192;
-const PHASES: readonly Phase[] = ['idle', 'count-in', 'playing', 'ended'];
-const STATUSES: readonly PracticeState['channels'][number]['status'][] = ['empty', 'ready', 'armed', 'recording', 'stopping', 'looping'];
-const PLAYBACK_STATES: readonly CompiledTakeState['playback'][] = ['idle', 'playing', 'releasing'];
 type Options = { api: WebAssembly.Exports; sampleRate: number; mode?: number; maxVoices?: number; maxSeconds?: number; clickGain?: number;
   bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program; compiledProgram?: readonly number[]; initialVoiceEffects?: readonly VoiceEffectConfiguration[] };
 
@@ -202,10 +200,7 @@ export class NativePerformance {
   }
   tempoHitInfo(): TempoHitState {
     const info = this.query('pf_tempo_info');
-    return { count: info[PF.TEMPO_COUNT], latest: info[PF.TEMPO_COUNT] ? {
-      frame: info[PF.TEMPO_FRAME], beatHint: info[PF.TEMPO_HINT] === 1 ? 1 : null,
-      source: info[PF.TEMPO_SOURCE] === 1 ? 'chart' : 'pedal', estimated: info[PF.TEMPO_ESTIMATED] === 1, bpm: info[PF.TEMPO_BPM],
-    } : null };
+    return decodeNativeTempo(info);
   }
   prepareLiveEffects(effects: readonly LiveEffectDefinition[]) {
     this.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects })));
@@ -263,25 +258,14 @@ export class NativePerformance {
     return this.voiceEffects();
   }
   voiceEffects(): readonly VoiceEffectsState[] {
-    const activity: readonly VoiceEffectsState['activity'][] = ['standby', 'live', 'tail', 'capture'];
-    return Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => {
-      const data = Array.from(this.query('pf_voice_info', profile));
-      const effects = Array.from({ length: data[PF.VOICE_STAGE_COUNT] }, (_, stage): LiveEffectDefinition => {
-        const effect = this.query('pf_voice_effect_info', profile, stage);
-        if (effect[PF.VOICE_EFFECT_TYPE] === PF.EFFECT_SLAPBACK) return { kind: 'slapback', delayMs: effect[PF.VOICE_EFFECT_PARAMETER_0], feedback: effect[PF.VOICE_EFFECT_PARAMETER_1], wet: effect[PF.VOICE_EFFECT_PARAMETER_2] };
-        if (effect[PF.VOICE_EFFECT_TYPE] === PF.EFFECT_CHORUS) return { kind: 'chorus', rateHz: effect[PF.VOICE_EFFECT_PARAMETER_0], depthMs: effect[PF.VOICE_EFFECT_PARAMETER_1], baseDelayMs: effect[PF.VOICE_EFFECT_PARAMETER_2], wet: effect[PF.VOICE_EFFECT_PARAMETER_3] };
-        throw new Error('Unknown native voice effect');
-      });
-      return { profile, effects, prepared: data[PF.VOICE_PREPARED] === 1, revision: data[PF.VOICE_REVISION], activity: activity[data[PF.VOICE_ACTIVITY]] ?? 'standby',
-        rotationEligible: data[PF.VOICE_ROTATION_ELIGIBLE] === 1, rotationRemainingBeats: data[PF.VOICE_ROTATION_REMAINING] };
-    });
+    const info = Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => Array.from(this.query('pf_voice_info', profile)));
+    const effects = info.map((data, profile) => Array.from({ length: data[PF.VOICE_STAGE_COUNT] }, (_, stage) => Array.from(this.query('pf_voice_effect_info', profile, stage))));
+    return decodeNativeVoices(info, effects);
   }
   liveEffects(): LiveEffectsState {
-    const data = this.query('pf_live_info');
-    const stageCount = data[PF.LIVE_STAGE_COUNT];
-    return { prepared: data[PF.LIVE_PREPARED] === 1, active: data[PF.LIVE_ACTIVE] === 1,
-      revision: data[PF.LIVE_REVISION], stageCount, captureSupported: data[PF.LIVE_CAPTURE_SUPPORTED] === 1 };
+    return decodeNativeLiveEffects(this.query('pf_live_info'));
   }
+
   selectChannel(id: ChannelId) { this.call('pf_select', this.handle, this.channel(id)); }
   setAutomatic(value: boolean) { this.call('pf_set_automatic', this.handle, this.boolean(value, 'Automatic')); }
   setClick(value: boolean) { this.call('pf_set_click', this.handle, this.boolean(value, 'Click')); }
@@ -308,31 +292,14 @@ export class NativePerformance {
   }
 
   decode(data: ArrayLike<number>, channelData?: ArrayLike<number>): PracticeState {
-    const phase = PHASES[data[PF.PHASE]];
-    if (!phase) throw new Error('Invalid native transport phase');
-    const channels = CONTROL_IDS.map((id, index) => {
-      const info = channelData ? Array.from({ length: PF.CHANNEL_FIELDS }, (_, field) => channelData[index * PF.CHANNEL_FIELDS + field]) : Array.from(this.query('pf_channel_info', index));
-      const status = STATUSES[info[PF.CHANNEL_STATUS]];
-      if (!status) throw new Error('Invalid native channel status');
-      const light: PadLight = info[PF.CHANNEL_LIGHT] === PF.RELEASING ? { kind: 'releasing', remainingMs: info[PF.CHANNEL_RELEASE_MS] }
-        : { kind: info[PF.CHANNEL_LIGHT] === PF.CUE ? 'cue' : info[PF.CHANNEL_LIGHT] === PF.STEADY ? 'steady' : 'off' };
-      return { id, gain: info[PF.CHANNEL_GAIN], muted: info[PF.CHANNEL_MUTED] === 1, looping: info[PF.CHANNEL_LOOPING] === 1, ready: info[PF.CHANNEL_READY] === 1, status, light };
-    });
-    const active = channels.find(channel => channel.status === 'recording')
-      ?? channels.find(channel => channel.status === 'armed') ?? channels.find(channel => channel.status === 'stopping');
-    const recording = active && (active.status === 'armed' || active.status === 'recording' || active.status === 'stopping') ? { id: active.id, status: active.status } : null;
-    return { phase, bar: data[PF.BAR_NUMBER] < 0 ? null : data[PF.BAR_NUMBER], beat: data[PF.BEAT_NUMBER] < 0 ? null : data[PF.BEAT_NUMBER], countInRemaining: data[PF.COUNT_IN_REMAINING], bpm: data[PF.BPM],
-      startBar: data[PF.START_BAR], endBar: data[PF.END_BAR], loop: data[PF.LOOP] === 1, automatic: data[PF.AUTOMATIC] === 1, click: data[PF.CLICK] === 1, selectedChannel: CONTROL_IDS[data[PF.SELECTED_CHANNEL]],
-      runId: this.runId, seq: data[PF.SEQUENCE], channels, looping: channels.filter(channel => channel.looping).map(channel => channel.id), recording, microphone: data[PF.MICROPHONE] === 1, error: data[PF.ERROR] ? this.message(data[PF.ERROR]) : null };
+    const channels = channelData ?? CONTROL_IDS.flatMap((_, index) => Array.from(this.query('pf_channel_info', index)).slice(0, PF.CHANNEL_FIELDS));
+    return decodeNativeState(data, channels, this.runId, code => this.message(code));
   }
   state(): PracticeState {
     const state = { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), voiceEffects: this.voiceEffects(), tempoHits: this.tempoHitInfo() };
     if (!this.compiledTakeCount) return state;
     const compiledTakes = Array.from({ length: this.compiledTakeCount }, (_, index): CompiledTakeState => {
-      const take = this.compiledTake(index);
-      const playback = PLAYBACK_STATES[take.playbackState];
-      if (!playback) throw new Error('Invalid native take playback state');
-      return { index, ready: take.ready, frames: take.frames, period: take.period, playback, sourceEndFrames: take.sourceEndFrames };
+      return decodeNativeTake(this.query('pf_compiled_take_info', index), index);
     });
     return { ...state, compiledTakes };
   }
@@ -356,21 +323,9 @@ export class NativePerformance {
     const rows = new Float64Array(this.memory.buffer, this.eventPointer, count * PF.EVENT_FIELDS);
     return Array.from({ length: count }, (_, index): PracticeEvent => {
       const event = rows.subarray(index * PF.EVENT_FIELDS, (index + 1) * PF.EVENT_FIELDS);
-      const type = event[PF.EVENT_TYPE] === PF.BEAT ? 'beat' : event[PF.EVENT_TYPE] === PF.CONTROL ? 'control' : event[PF.EVENT_TYPE] === PF.FAULT ? 'fault' : event[PF.EVENT_TYPE] === PF.TEMPO_HIT ? 'tempo-hit' : 'state';
-      const state = this.decode(event.subarray(PF.EVENT_STATE, PF.EVENT_CHANNELS), event.subarray(PF.EVENT_CHANNELS));
-      const result: PracticeEvent = { v: 1, runId: this.runId, seq: event[PF.EVENT_SEQUENCE], type, state };
-      if (event[PF.EVENT_FRAME] >= 0) { result.frame = event[PF.EVENT_FRAME]; result.sampleRate = event[PF.EVENT_RATE]; }
-      if (event[PF.EVENT_ERROR]) result.error = this.message(event[PF.EVENT_ERROR]);
-      if (type === 'control') {
-        const id = event[PF.EVENT_CONTROL];
-        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : id === 6 ? { id: 'tempo' } : { id: CONTROL_IDS[id] };
-        result.applied = event[PF.EVENT_APPLIED] === 1;
-        const commandId = this.commandIds.get(result.seq);
-        if (commandId) { result.commandId = commandId; this.commandIds.delete(result.seq); }
-      }
-      if (type === 'tempo-hit') result.tempoHit = { beatHint: event[PF.EVENT_VALUE] === 1 ? 1 : null,
-        source: event[PF.EVENT_CONTROL] === 1 ? 'chart' : 'pedal', estimated: event[PF.EVENT_APPLIED] === 1 };
-      if (event[PF.EVENT_CUE] >= 0) result.cueIndex = event[PF.EVENT_CUE];
+      const result = decodeNativeEvent(event, this.runId, code => this.message(code));
+      const commandId = this.commandIds.get(result.seq);
+      if (commandId) { result.commandId = commandId; this.commandIds.delete(result.seq); }
       return result;
     });
   }

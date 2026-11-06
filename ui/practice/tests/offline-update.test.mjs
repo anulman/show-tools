@@ -143,7 +143,7 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   const registration = { waiting: waiting ? worker : null, active: {}, addEventListener(type, callback) { registrationEvents.set(type, callback); } };
   const serviceWorker = { controller: controlled ? {} : null, ready: Promise.resolve(), async register() { return registration; }, addEventListener(type, callback) { events.set(type, callback); } };
   const context = {
-    URLSearchParams, navigator: { serviceWorker },
+    URLSearchParams, remote: false, navigator: { serviceWorker },
     voiceCatalog: { busy: false },
     document: { querySelector() { return editorOpen ? {} : null; }, addEventListener(type, callback) { documentEvents.set(type, callback); } },
     window: { isSecureContext: true, addEventListener(type, callback) { windowEvents.set(type, callback); } },

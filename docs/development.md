@@ -140,21 +140,21 @@ Begin with [the native performance guide](../lib/performance/README.md), `lib/pe
 
 Choose an audio-device backend and give one thread ownership of the performance engine. Clear each output block, pass microphone PCM to `pf_process()`, and route the rendered channels to the device. Do not also call `bt_process()` or dispatch `sq_on_beat()` on the borrowed component handles. The performance engine owns those calls.
 
-Use `pf_load_compiled_bytes()` to load the compiler's portable `.pfp` artifact while stopped. Browser song modules use the same numeric tables through `pf_configure_compiled()`. No JavaScript runtime is required to execute those instructions. The device service remains future work.
+Use `pf_load_compiled_bytes()` to load the compiler's portable `.pfp` artifact while stopped. Browser song modules use the same numeric tables through `pf_configure_compiled()`. No JavaScript runtime is required to execute those instructions. The native host accepts the packet and explicit effect profiles while stopped.
 
 Drain native events on the engine's owning thread into a bounded host queue. Add run IDs and chart metadata and publish copied records outside the device callback. Do not query the engine concurrently from an observer thread. Preserve source audio-frame timestamps. A relay receipt is not a musical boundary.
 
 Keep reset and fresh-audio operations that may allocate outside the processing callback. Audit native device buffers, command queues, and lifecycle behavior directly. Preserve capture bounds, commit-and-autoplay, replacement capture, channel gain and mute, explicit stops, and song position when adding the host.
 
-Add hardware inputs as domain controls, including debounce and knob mapping. Keep the EliteDesk focused on audio and hardware. Serve browser UIs elsewhere. Implement the hardware producer and browser hardware adapter explicitly; neither is already supplied by starting the relay.
+Add hardware inputs as domain controls, including debounce and knob mapping. Keep the EliteDesk focused on audio and hardware. The remote gateway can serve the practice desk from that host. Implement the hardware producer and browser hardware adapter explicitly; neither is already supplied by starting the relay.
 
 Use this starting brief for a new session.
 
-> Read AGENTS.md, docs/architecture.md, docs/development.md, lib/performance/README.md, and lib/relay/README.md. Use the existing complete C++ performance engine. Connect native audio devices, load compiled song instructions, and add hardware controls. Give one thread ownership of the engine and let pf_process execute musical timing and rendering. Preserve browser behavior through conformance checks. Keep UI hosting off the audio machine by default and flag copyleft choices. Commit each verified milestone.
+> Read AGENTS.md, docs/architecture.md, docs/development.md, lib/performance/README.md, and lib/relay/README.md. Use the existing complete C++ performance engine. Validate the native audio host and add hardware controls. Give one thread ownership of the engine and let pf_process execute musical timing and rendering. Preserve browser behavior through conformance checks. Keep audio on the host and flag copyleft choices. Commit each verified milestone.
 
 ## Verify and report the changed behavior
 
-Run the common checks from the worktree root.
+Build the fake native host at `build/native-host/native_fake_host` before `npm test`, or set `NATIVE_FAKE_HOST` to its built path. The default suite includes the real native IPC vertical test and fails if the executable is missing. Run the common checks from the worktree root.
 
 ```sh
 npm run typecheck
@@ -235,3 +235,9 @@ Verify explicit prefix views with dry and effected PCM at 44.1 and 48 kHz. Place
 Use the [pixel-storyboard skill](../skills/pixel-storyboard/SKILL.md) for scene composition, character actions and tween studies. The [operator instructions](../skills/pixel-storyboard/references/operator-guide.md) explain the review sequence. Establish the starting and ending poses, then draw the middle and split the remaining gaps. Even a complete-motion request follows that sequence.
 
 Keep art authoring and musical execution separate. A Figma held-pose animatic tests drawings and provisional timing. It does not establish live PE synchronization or runtime promotion. Verify the actual Figma export and preserve independently accepted pose, face, finish and timing decisions. The skill's [Maestro case](../skills/pixel-storyboard/references/maestro-case.md) records the evidence behind this workflow.
+
+## Verify the remote practice instrument
+
+Build and test `lib/native-host` with CMake. On Linux, install the ALSA development headers in the build environment to compile the device-backed host. The native host tests include fake PCM and Unix socket integration. Then run `node --import tsx --test --test-concurrency=4 lib/remote-performance/tests/*.test.ts ui/practice/tests/remote-session.test.ts` with `NATIVE_FAKE_HOST` pointing to the built `native_fake_host`, or build it at `build/native-host/native_fake_host`. The vertical test requires local Unix and loopback sockets.
+
+Package a registered compiled song with `node --import tsx lib/remote-performance/package-song.ts SONG_ID EFFECTS.json NEW_DIRECTORY`. The new directory contains the derived `manifest.json`, `song.pfp`, and the explicit six-profile `effects.json`. Prepare a stopped host with `node --import tsx lib/remote-performance/prepare.ts SOCKET MANIFEST.json SONG.pfp EFFECTS.json`. The manifest carries the validated compiled presentation and binds the packet and encoded profiles. Preparation regenerates the native packet from that compiled artifact and rejects mismatches before contacting the host. Manifests are limited to 1 MiB. Remote effect edits name one profile and its expected revision; the gateway combines that edit with the current host readback and the native host rejects conflicting writes. This does not provision a device, certificate, token, or deployment. See `lib/native-host/README.md` for explicit daemon arguments.
