@@ -59,7 +59,7 @@ test('real manager reuses ownership, pins builds, retains reservations, and refu
     const target = { kind: 'preview', worktree: f.repo, worktreeKey: await worktreeKey(f.repo), session: 'practice' } satisfies import('../model.js').Target;
     const served = await call(f.config, { command: 'serve', target, snapshot: first.id }); assert(served.ok, JSON.stringify(served));
     const row = served.statuses[0].registration; const origin = `http://127.0.0.1:${row.port}`;
-    const initial = await fetch(origin + '/ui/practice/', { redirect: 'manual' });
+    const initial = await fetch(origin + '/', { redirect: 'manual' });
     assert.equal(initial.status, 302); assert.equal(await (await fetch(origin + initial.headers.get('location'))).text(), 'one');
     const promoted = await call(f.config, { command: 'serve', target, snapshot: second.id }); assert(promoted.ok);
     assert.equal(await (await fetch(origin + `/__build/${first.id}/ui/practice/index.html`)).text(), 'one');
@@ -90,7 +90,8 @@ test('CLI starts/reuses/stops the assigned origin and reservations survive manag
       `const {runUiCli}=await import(${JSON.stringify(cli)}); await runUiCli(JSON.parse(process.argv[1]),process.argv[2]);`, JSON.stringify(args), f.repo], {
       cwd: process.cwd(), env: { ...process.env, SHOW_TOOLS_UI_STATE: join(f.root, 'state'), SHOW_TOOLS_UI_LIVE_PORT: String(f.config.livePort), SHOW_TOOLS_UI_PREVIEW_FIRST: String(f.config.previewFirst), SHOW_TOOLS_UI_PREVIEW_LAST: String(f.config.previewLast) },
     });
-    await invoke(['preview']);
+    const printed = await invoke(['preview']);
+    assert.match(printed.stdout, /http:\/\/127\.0\.0\.1:\d+\/  /);
     const initial = await call(f.config, { command: 'status' }); assert(initial.ok);
     await invoke(['preview']);
     const reused = await call(f.config, { command: 'status' }); assert(reused.ok);
@@ -136,5 +137,30 @@ test('a different worktree recreated at the same path cannot inherit the prior o
     const stale = await call(f.config, { command: 'serve', target: first, snapshot: build.id }); assert(!stale.ok);
     const next = await call(f.config, { command: 'serve', target: replacement, snapshot: build.id }); assert(next.ok);
     assert.notEqual(next.statuses.find(item => item.registration.id === identity(replacement))?.registration.port, port);
+  } finally { await f.cleanup(); }
+});
+
+
+test('snapshot receipt fields cannot relabel a verified artifact', async () => {
+  const f = await fixture();
+  try {
+    const build = await f.build('receipt');
+    const path = join(f.config.stateRoot, 'snapshots', build.id, 'snapshot.json');
+    await writeFile(path, JSON.stringify({ ...build, cacheId: 'f'.repeat(64) }));
+    const { loadSnapshot } = await import('../snapshot.js');
+    await assert.rejects(loadSnapshot(f.config.stateRoot, build.id), /receipt does not match/);
+    await writeFile(path, JSON.stringify({ ...build, source: { ...build.source, revision: 'f'.repeat(40) } }));
+    await assert.rejects(loadSnapshot(f.config.stateRoot, build.id), /receipt does not match/);
+  } finally { await f.cleanup(); }
+});
+
+
+test('concurrent stale-lock recovery cannot remove a newly acquired startup lock', async () => {
+  const f = await fixture();
+  try {
+    await mkdir(join(f.config.controlDirectory, 'starting'), { recursive: true, mode: 0o700 });
+    await writeFile(join(f.config.controlDirectory, 'starting/owner.json'), JSON.stringify({ version: 1, nonce: 'abandoned-start', pid: 99999999 }));
+    const owners = await Promise.all(Array.from({ length: 8 }, () => ensureManager(f.config)));
+    assert.equal(new Set(owners.map(owner => owner.owner.pid)).size, 1);
   } finally { await f.cleanup(); }
 });

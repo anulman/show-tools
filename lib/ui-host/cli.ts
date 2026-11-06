@@ -17,7 +17,7 @@ const HELP = `Usage: show-tools ui preview [--session NAME] [--build]
        show-tools ui gc
 
 Preview origins belong permanently to a worktree and session (default: worktree).
-Live stays at http://127.0.0.1:8084. Publishing builds a clean merged revision
+Live stays at http://127.0.0.1:8084/. Publishing builds a clean merged revision
 in isolation. Existing pages keep their pinned build; reopen the stable URL to
 use the published build. Stop/shutdown only affect this manager's static servers.
 `;
@@ -48,7 +48,7 @@ async function publish(config: Config, worktree: string, revision: string) {
 function print(statuses: readonly Status[]) {
   for (const { registration: row, runtime } of statuses) {
     const label = row.target.kind === 'live' ? 'live' : `${row.target.worktree} [${row.target.session}]`;
-    console.log(`${runtime.kind.padEnd(7)} http://127.0.0.1:${row.port}/ui/practice/  ${label}`);
+    console.log(`${runtime.kind.padEnd(7)} http://127.0.0.1:${row.port}/  ${label}`);
     console.log(`  id ${row.id}`);
     if (runtime.kind === 'serving') console.log(`  revision ${runtime.build.source.revision}${runtime.build.source.dirty ? ' (dirty)' : ''}  cache ${runtime.build.cacheId}\n  snapshot ${runtime.build.id}`);
     if (runtime.kind === 'blocked') console.log(`  ${runtime.error}`);

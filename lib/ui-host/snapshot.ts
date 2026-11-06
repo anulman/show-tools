@@ -79,6 +79,8 @@ export async function importBuild(directory: string, stateRoot: string): Promise
 export async function loadSnapshot(stateRoot: string, id: string): Promise<Snapshot> {
   const snapshot = decode(SnapshotSchema, JSON.parse(await readFile(join(stateRoot, 'snapshots', id, 'snapshot.json'), 'utf8')));
   if (snapshot.id !== id || await digestTree(join(stateRoot, 'snapshots', id, 'files')) !== snapshot.artifactDigest) throw new Error('Snapshot identity does not match its files');
-  await verifyBuild(join(stateRoot, 'snapshots', id, 'files'));
+  const { info, manifest } = await verifyBuild(join(stateRoot, 'snapshots', id, 'files'));
+  const expected = createHash('sha256').update(JSON.stringify(info.source)).update('\0').update(snapshot.artifactDigest).digest('hex');
+  if (expected !== id || JSON.stringify(info.source) !== JSON.stringify(snapshot.source) || manifest.cacheId !== snapshot.cacheId) throw new Error('Snapshot receipt does not match its verified build');
   return snapshot;
 }

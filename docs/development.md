@@ -85,7 +85,7 @@ The full build compiles the C++ performance engine, clock, sequencer, and sample
 
 The manager prints the worktree’s permanent URL and actual build revision/cache identity. `npm start` runs the same command. Use `--session NAME` for a separate browser library within the same worktree. Do not launch ad hoc static servers or choose another port when one is occupied; the manager fails closed and leaves its existing owner untouched.
 
-After a reviewed merge, `./show-tools ui live --publish origin/main` builds that merged revision in an isolated checkout and publishes it at `http://127.0.0.1:8084/ui/practice/`. `ui live` reuses the last publication. This does not fetch automatically. Follow the [UI manager guide](ui-manager.md) before the first handover from a legacy server.
+After a reviewed merge, `./show-tools ui live --publish origin/main` builds that merged revision in an isolated checkout and publishes it at `http://127.0.0.1:8084/`. `ui live` reuses the last publication. This does not fetch automatically. Follow the [UI manager guide](ui-manager.md) before the first handover from a legacy server.
 
 For browser-only changes, run `npm run build:ui` after the first full build. Run `./show-tools ui preview` after rebuilding, then reopen its printed stable URL. Existing pages keep their pinned release. That command needs the generated `ui/practice/wasm/manual-clock.wasm` to exist and replaces `dist/`; it does not rebuild C++.
 

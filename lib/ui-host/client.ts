@@ -93,7 +93,14 @@ export async function ensureManager(config: Config) {
         if (Date.now() >= deadline) throw new Error('UI startup ownership is incomplete; its lock was left untouched.');
         await new Promise(resolve => setTimeout(resolve, 50)); continue;
       }
-      if (!alive(locked.pid)) { await rm(lock, { recursive: true }); continue; }
+      if (!alive(locked.pid)) {
+        const retired = join(config.controlDirectory, 'retired-start-' + createHash('sha256').update(JSON.stringify(locked)).digest('hex'));
+        try { await rename(lock, retired); }
+        catch (cause) {
+          if (!(cause instanceof Error && 'code' in cause && ['ENOENT', 'EEXIST', 'ENOTEMPTY'].includes(String(cause.code)))) throw cause;
+        }
+        continue;
+      }
       if (Date.now() >= deadline) throw new Error('The existing UI manager owner has not become ready; it was left untouched');
       await new Promise(resolve => setTimeout(resolve, 50));
     }
