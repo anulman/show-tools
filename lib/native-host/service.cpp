@@ -343,13 +343,40 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
 }
 }
 int main(int argc,char** argv) {
+#ifdef NATIVE_ALSA_HOST
+  const int positional = 13;
+  bool stepped=false;
+  std::optional<native_alsa::UsbIdentity> usb_identity;
+#else
+  const int positional = argc > 7 && std::string(argv[7]) == "--step" ? 8 : 7;
+  bool stepped=positional==8;
+#endif
+  if (argc < positional) { std::cerr << "Missing native host arguments\n"; return 2; }
   pid_t owner_pid=0;
-  if(argc>=3 && std::string(argv[argc-2])=="--owner-pid") {
-    char* end=nullptr; auto value=std::strtol(argv[argc-1],&end,10);
-    if(end==argv[argc-1] || *end || value<=1 || value>std::numeric_limits<pid_t>::max() || pid_t(value)!=getppid()) {
-      std::cerr<<"owner PID must match the actual parent\n"; return 2;
-    }
-    owner_pid=pid_t(value); argc-=2;
+  for (int index = positional; index < argc;) {
+    const std::string option=argv[index];
+    if (option == "--owner-pid") {
+      if (owner_pid || index + 1 >= argc) return 2;
+      char* end=nullptr; auto value=std::strtol(argv[index+1],&end,10);
+      if(end==argv[index+1] || *end || value<=1 || value>std::numeric_limits<pid_t>::max() || pid_t(value)!=getppid()) {
+        std::cerr<<"owner PID must match the actual parent\n"; return 2;
+      }
+      owner_pid=pid_t(value); index+=2;
+#ifdef NATIVE_ALSA_HOST
+    } else if (option == "--usb-identity") {
+      if (usb_identity || index + 7 >= argc) return 2;
+      char* end=nullptr;
+      const auto device=std::strtoul(argv[index+6],&end,10);
+      if (end==argv[index+6] || *end || device>31) return 2;
+      usb_identity=native_alsa::UsbIdentity{argv[index+1],argv[index+2],argv[index+3],argv[index+4],argv[index+5],unsigned(device),argv[index+7]};
+      index+=8;
+#endif
+    } else { std::cerr << "Unknown or duplicate native host option\n"; return 2; }
+  }
+#ifdef NATIVE_ALSA_HOST
+  if (owner_pid && !usb_identity) { std::cerr << "Managed ALSA requires USB identity\n"; return 2; }
+#endif
+  if (owner_pid) {
 #ifdef __linux__
     if(prctl(PR_SET_PDEATHSIG,SIGKILL)<0 || getppid()!=owner_pid)return 1;
 #else
@@ -359,14 +386,6 @@ int main(int argc,char** argv) {
     }).detach();
 #endif
   }
-
-#ifdef NATIVE_ALSA_HOST
-  if(argc!=13) { std::cerr<<"usage: native_alsa_host SOCKET SAMPLE_RATE BLOCK_FRAMES MAX_VOICES MAX_SECONDS CAPTURE_DEVICE PLAYBACK_DEVICE CAPTURE_CHANNELS INPUT_CHANNEL PERIOD_FRAMES BUFFER_FRAMES s32|float [--owner-pid PID]\n"; return 2; }
-  bool stepped=false;
-#else
-  if(argc!=7 && !(argc==8 && std::string(argv[7])=="--step")) { std::cerr<<"usage: native_fake_host SOCKET SAMPLE_RATE BLOCK_FRAMES MAX_VOICES MAX_SECONDS INPUT_LEVEL [--step] [--owner-pid PID]\n"; return 2; }
-  bool stepped=argc==8;
-#endif
   char* end=nullptr;
   double rate=std::strtod(argv[2],&end); if(*end || !std::isfinite(rate) || rate<8000 || rate>192000)return 2;
   unsigned long block=std::strtoul(argv[3],&end,10); if(*end || block<1 || block>16384)return 2;
@@ -378,7 +397,7 @@ int main(int argc,char** argv) {
   auto channels=number(argv[8]), input=number(argv[9]), period=number(argv[10]), buffer=number(argv[11]);
   std::string format=argv[12];
   if(channels<1 || channels>64 || input>=channels || period<1 || period>16384 || buffer<period || buffer>1048576 || (format!="s32" && format!="float")) return 2;
-  native_alsa::Config device_config{argv[6],argv[7],unsigned(rate),unsigned(channels),unsigned(input),unsigned(period),unsigned(buffer),uint32_t(block),format=="s32" ? native_alsa::SampleFormat::S32LE : native_alsa::SampleFormat::FloatLE};
+  native_alsa::Config device_config{argv[6],argv[7],unsigned(rate),unsigned(channels),unsigned(input),unsigned(period),unsigned(buffer),uint32_t(block),format=="s32" ? native_alsa::SampleFormat::S32LE : native_alsa::SampleFormat::FloatLE, usb_identity};
   std::string error; auto device=native_alsa::AlsaPcm::open(device_config,error);
   if(!device) { std::cerr<<"ALSA open failed: "<<error<<"\n"; return 1; }
   double level=0;

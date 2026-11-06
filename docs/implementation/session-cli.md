@@ -46,3 +46,11 @@ npm run typecheck
 ```
 
 Actual systemd group cleanup and physical audio-device release require the verified deployment handoff on an explicitly assigned idle host.
+
+## Managed ALSA admission
+
+An ALSA driver profile supplies `identity` with `byId`, `usbSerial`, `usbVendor`, `usbProduct`, `alsaCardId`, `pcmDevice`, and `monitorOff`. Vendor and product are four lowercase hexadecimal digits. `monitorOff` names a MIXER BOOLEAN with one value that must be off. Capture and playback device strings are derived from the identity, rather than independently configurable aliases. Fake audio remains a separate driver variant.
+
+The optional `requireInactiveUserService` accepts only the known legacy `scarlett-monitor.service`. On each fresh ALSA enable, the controller reads its user-manager state and requires loaded, inactive/dead, MainPID zero and an empty control group. Missing, partial, active or unreadable state refuses enable. The bounded, cancelable check never stops or changes that service. Fake audio does not contact systemd for this check.
+
+Native code verifies serial and Direct Monitor at device acquisition, including the actual opened PCM handles. It never changes mixer state or falls back to another card. Unknown identity, a busy device or an enabled monitor produces an audio fault while HTTP remains available. Repeated Enable while audio is already ready preserves that engine and its takes.

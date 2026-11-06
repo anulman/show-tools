@@ -30,7 +30,7 @@ export function deskFixture(overrides: Partial<DeskController> = {}): DeskContro
   return { snapshot: () => view, command: async () => ({ outcome: 'unknown' }), subscribe: () => () => {},
     setAudio: () => ({ outcome: 'accepted', view }), close: async () => {}, ...overrides };
 }
-export async function until<T>(read: () => T | undefined, message = 'condition timed out'): Promise<T> {
+export async function until<T>(read: () => T | undefined, message: string | (() => string) = 'condition timed out'): Promise<T> {
   for (let count = 0; count < 800; count++) { const value = read(); if (value !== undefined) return value; await new Promise(resolve => setTimeout(resolve, 10)); }
-  throw new Error(message);
+  throw new Error(typeof message === 'string' ? message : message());
 }

@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
+import { setTimeout as delay } from 'node:timers/promises';
 import { encodeInitialProfiles } from './commands.js';
-import { HostConnection } from './host-connection.js';
+import { HostConnection, HostUnavailable } from './host-connection.js';
 import { compiledProgramBytes } from '../performance/compiled-native.js';
 import { PF } from '../performance/wasm-abi.js';
 import { parseManifest } from './observation.js';
@@ -25,21 +26,40 @@ export function validateInstalledPackage(manifest: Buffer, packet: Buffer, confi
 }
 
 export async function prepareInstalledPackage(socket: string, installed: ReturnType<typeof validateInstalledPackage>, signal?: AbortSignal) {
-	let resolveReady!: () => void;
-	let rejectReady!: (error: Error) => void;
-	const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
-	const connection = new HostConnection(socket, (frame) => { if (frame.tag === 5) queueMicrotask(resolveReady); }, () => rejectReady(new Error('Host disconnected before preparation')));
+	const deadline = new AbortController();
+	let connection: HostConnection | undefined;
 	let rejectCanceled!: (error: Error) => void;
 	const canceled = new Promise<never>((_, reject) => { rejectCanceled = reject; });
-	const abort = () => { connection.close(); rejectCanceled(new Error('Preparation canceled')); };
-	const timer = setTimeout(() => { connection.close(); rejectCanceled(new Error('Preparation timed out')); }, 5000);
+	const cancel = (error: Error) => { deadline.abort(error); connection?.close(); rejectCanceled(error); };
+	const abort = () => cancel(new Error('Preparation canceled'));
+	const timer = setTimeout(() => cancel(new Error('Preparation timed out')), 5000);
 	signal?.addEventListener('abort', abort, { once: true });
 	if (signal?.aborted) abort();
+	async function connectPreparedHost(): Promise<HostConnection> {
+		for (;;) {
+			deadline.signal.throwIfAborted();
+			let resolveReady!: () => void;
+			let rejectReady!: (error: Error) => void;
+			const ready = new Promise<void>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+			const opened = new HostConnection(socket, frame => { if (frame.tag === 5) queueMicrotask(resolveReady); }, rejectReady);
+			connection = opened;
+			try {
+				await Promise.race([ready, canceled]);
+				deadline.signal.throwIfAborted();
+				return opened;
+			} catch (error) {
+				opened.close();
+				if (!(error instanceof HostUnavailable) || deadline.signal.aborted) throw error;
+			}
+			await delay(10, undefined, { signal: deadline.signal });
+		}
+	}
 	try {
-		await Promise.race([ready, canceled]);
+		connection = await Promise.race([connectPreparedHost(), canceled]);
+		deadline.signal.throwIfAborted();
 		const result = await Promise.race([connection.command(installed.operation), canceled]);
 		if (result.length !== 16 || result.readUInt32LE(0) !== 0) throw new Error(`Host rejected preparation (${result.length === 16 ? result.readInt32LE(4) : 'invalid result'})`);
-	} finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); connection.close(); }
+	} finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); connection?.close(); }
 }
 
 export async function prepareHost(socket: string, manifest: Buffer, packet: Buffer, configurations: unknown, signal?: AbortSignal) {
