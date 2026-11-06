@@ -285,5 +285,24 @@
     "commit": "fd8e53fe55acc9aa81dbbd4d429a57bf914b32f3",
     "state": "unmerged-authoring-branch",
     "note": "The three MusicXML paths and cutover guide are verified in this authoring revision; they are absent from merged main1620a50. These are pending branch references, not merged renderer inputs."
-  }
+  },
+  "utilitySessions": [
+    {
+      "utilityId": "tuner",
+      "title": "Director - Tuner",
+      "directorThreadId": "01a1b245-a5ec-70e1-b723-1c1bb7174b65",
+      "pageId": "638:22337",
+      "pageName": "Director · Tuner",
+      "tunerUIThreadId": "01a1afa6-fa89-7572-8e19-e7994e69162f",
+      "status": "composing",
+      "source": {
+        "kind": "native-tuner-telemetry",
+        "interface": "lib/tuner/model.ts#TunerPort"
+      },
+      "pageVerification": {
+        "kind": "director-creation-receipt",
+        "figmaSessionId": "91b3a34f-8acd-4892-b051-7131f58c5405"
+      }
+    }
+  ]
 }
