@@ -50,6 +50,12 @@ npm run typecheck
 
 CAD Python checks require the environment from `hardware/cad/requirements.lock`. Missing verification dependencies are a Chief recovery task. Expected negative fixtures do not require operator notifications. Unexpected product blocks encountered while carrying out an operator request do.
 
+For compiled physical cue feedback, `ctest --test-dir BUILD -R 'cue_lights|compiled_program'
+--output-on-failure` exercises the native two-count warning, full-bar acceptance,
+count-in, practice bounds, loops, tempo changes, priority, and allocation-free
+readback. Build `lib/performance` with CMake first. These tests verify engine
+publications; physical USB delivery and visible LED behavior remain separate checks.
+
 ## Give each session its own checkout
 
 Create separate worktrees before running agents concurrently. This separates source edits, the Git index, dependencies, and generated `dist/` files.

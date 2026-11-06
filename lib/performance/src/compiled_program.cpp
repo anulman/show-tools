@@ -357,6 +357,20 @@ int Program::available_bank(int id) const noexcept {
   for (int bank = 0; bank < 2; ++bank) if (bank != take.latest && !(active_capture_.take == id && active_capture_.bank == bank) && take.cache[bank] && take.cache[bank]->revision() == prepared_revision_[take.voice] && take.playback[bank] && take.playback[bank]->state() == patches::PlaybackState::idle) return bank;
   return -1;
 }
+bool Program::cue_warning(int end_bar) const noexcept {
+  if (phase_ != PF_COUNT_IN && phase_ != PF_PLAYING) return false;
+  for (int id = 0; id < cue_count_; ++id) {
+    const Cue& cue = cues_[id];
+    if (cue.used || cue.bar > end_bar) continue;
+    if (cue.cue < 0) {
+      if (cue.bar == bar_ && (cue.bar == 0 || cue.bar >= start_)) return true;
+    } else if (cue.bar >= start_) {
+      double at = (cue.bar - 1) * beats_ + cue.cue;
+      if (query_position_ >= at - 2 && query_position_ <= at) return true;
+    }
+  }
+  return false;
+}
 bool Program::has_capture() const noexcept {
   if (active_capture_.take >= 0) return true;
   for (int button = 0; button < PF_CHANNELS; ++button) if (pending_[button].reserved_take >= 0) return true;

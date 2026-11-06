@@ -970,7 +970,7 @@ void pf_light_output(pf_engine* engine, double* out) {
     playing = playing || sample[ST_VOICE_CHANNEL] >= 0;
   }
   if (engine->cue_button_held) level = 1;
-  else if (capturing) {
+  else if (capturing || (engine->compiled && engine->compiled->cue_warning(engine->end))) {
     constexpr double tau = 6.2831853071795864769;
     level = .7 * (1 + std::cos(tau * clock[BT_S_PHASE])) / 2;
   } else if (playing) level = .7;

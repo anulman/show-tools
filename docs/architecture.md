@@ -238,8 +238,12 @@ cues. Device detach releases held state through the same attempt/host-epoch fenc
 leaving musical transport alone.
 
 The complete light getter samples continuous native count-beat time. Held
-brightness overrides recording's beat pulse, which overrides playing's steady
-level. Native snapshots and remote SSE carry the complete image unchanged. The
+brightness overrides actionable compiled cue warnings and recording's beat pulse,
+which override playing's steady level. A timed warning begins two chart counts
+before the authored cue and ends at that cue; full-bar warnings last within the
+authored bar until accepted. The compiled program derives warning eligibility
+from its current timeline and accepted cue state, honoring the practice range
+without a separate mutable light state or changing cue execution. Native snapshots and remote SSE carry the complete image unchanged. The
 delivery gate owns freshness and successful-write commit, and sends brightness
 reports for its explicit mapping. Mac Input Monitoring, real USB delivery and a
 future Linux peripheral adapter remain separate from fake-host verification.
