@@ -90,3 +90,11 @@ The enclosure needs internal room for the existing daisy chains. The stated cabl
 On November 4, 2026, the operator accepted an approximately 0.9-inch straight mounting hole and confirmed that no counterbore is required. The existing 23 mm hole is approximately 0.906 inches. The operator measured the threaded-body region with the supplied nut at approximately 7/8 inch diameter and the upper mounting flange at approximately 1 1/8 inches. The flange rests on the 4 mm roof and the stock nut clamps beneath it. These approximate part measurements and design acceptance do not establish a completed physical fit test.
 
 On November 4, the operator reported that the mushroom assembly needs at least 1 7/8 inches of internal space and chose a 2-inch minimum for clearance. These correspond to 47.625 mm and 50.8 mm. The selected Leo candidate has 55 mm of central vertical clearance from the cover's inside floor to the roof underside, exceeding the chosen minimum by 4.2 mm. Its height remains unchanged; this local height check does not establish connector bending space or complete physical fit.
+
+## EliteDesk audio interface
+
+Pi's read-only inspection on November 6, 2026 identifies the Focusrite Scarlett Solo USB by serial `Y7PZ8TB58373E7`, USB vendor `1235`, and product `8211`. Its stable control link is `/dev/snd/by-id/usb-Focusrite_Scarlett_Solo_USB_Y7PZ8TB58373E7-00`. The observed ALSA card ID is `USB`, hardware device `0`. Card index `1` and USB bus address are current observations and can change after reconnect.
+
+The approved trial negotiated capture and playback at 48,000 Hz, `S32_LE`, two channels, 256-frame periods, and 1,024-frame buffers. Capture channel `0` is physical microphone input `1`. The operator has level-checked the microphone and speakers and requests unity gain.
+
+The named MIXER control `Direct Monitor Playback Switch` is BOOLEAN with one value and was read as off. Its observed numid is not a stable identifier. The separate user unit `scarlett-monitor.service` was loaded but inactive/dead, with MainPID `0` and no control group. Application audio admission must check device identity and this monitoring policy on every fresh enable. It must not change another service or the mixer implicitly.

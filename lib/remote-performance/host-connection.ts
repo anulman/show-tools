@@ -12,27 +12,36 @@ export class HostDisconnected extends Error {
 	constructor() { super('Host connection lost; command outcome is unknown'); }
 }
 
+export class HostUnavailable extends Error {
+	constructor(readonly code: 'ENOENT' | 'ECONNREFUSED') { super(`Host is not listening (${code})`); }
+}
+
 export class HostConnection {
 	private readonly socket: Socket;
 	private readonly decoder = new FrameDecoder();
 	private identity: Buffer | undefined;
 	private ready = false;
 	private sequence = 0;
+	private connected = false;
+	private unavailable: HostUnavailable | undefined;
 	private readonly pending = new Map<number, { resolve: (payload: Buffer) => void; reject: (error: Error) => void }>();
 	get processEpoch() { return this.identity?.subarray(0, 16).toString('hex') ?? ''; }
 
-	constructor(path: string, private readonly observe: (frame: Frame) => void, private readonly disconnected: () => void = () => {}) {
+	constructor(path: string, private readonly observe: (frame: Frame) => void, private readonly disconnected: (reason: HostUnavailable | HostDisconnected) => void = () => {}) {
 		this.socket = connect(path);
+		this.socket.once('connect', () => { this.connected = true; });
 		this.socket.on('data', (chunk) => {
 			try { for (const frame of this.decoder.push(Buffer.from(chunk))) this.receive(frame); }
 			catch { this.socket.destroy(); }
 		});
-		this.socket.on('error', () => {});
+		this.socket.on('error', error => {
+			if (!this.connected && 'code' in error && (error.code === 'ENOENT' || error.code === 'ECONNREFUSED')) this.unavailable = new HostUnavailable(error.code);
+		});
 		this.socket.on('close', () => {
 			this.ready = false;
 			for (const command of this.pending.values()) command.reject(new HostDisconnected());
 			this.pending.clear();
-			this.disconnected();
+			this.disconnected(this.unavailable ?? new HostDisconnected());
 			this.identity = undefined;
 		});
 	}

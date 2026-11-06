@@ -8,3 +8,5 @@ output/
 
 ui/video/wasm/
 ui/video/evidence/
+
+__pycache__/

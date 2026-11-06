@@ -127,7 +127,11 @@ test('native managed host exits after its actual parent crashes and rejects forg
 test('transport Stop retains a captured take while terminate and re-enable discard it', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'capture-desk-'));
   const controller = new PersistentDesk(sessionProfile(directory), installedPackage(await compiledCaptureFixture()).installed);
-  const ready = () => { const audio = controller.snapshot().audio; return audio.kind === 'ready' ? audio : undefined; };
+  const ready = () => {
+    const audio = controller.snapshot().audio;
+    if (audio.kind === 'fault') throw new Error(audio.error);
+    return audio.kind === 'ready' ? audio : undefined;
+  };
   try {
     controller.setAudio('on');
     const initial = await until(ready);
@@ -143,7 +147,7 @@ test('transport Stop retains a captured take while terminate and re-enable disca
     controller.setAudio('off');
     await until(() => controller.snapshot().audio.kind === 'off' ? true : undefined);
     controller.setAudio('on');
-    const replacement = await until(ready);
+    const replacement = await until(ready, () => `Replacement engine did not become ready: ${JSON.stringify(controller.snapshot().audio)}`);
     assert.notEqual(replacement.performance.hostEpoch, target.hostEpoch);
     assert.ok(replacement.performance.state.compiledTakes?.every(take => !take.ready && take.frames === 0));
   } finally { await controller.close(); await rm(directory, { recursive: true, force: true }); }

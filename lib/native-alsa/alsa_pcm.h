@@ -2,12 +2,23 @@
 
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace native_alsa {
 
 enum class SampleFormat { S32LE, FloatLE };
 enum class Direction { Capture, Playback };
+
+struct UsbIdentity {
+  std::string by_id;
+  std::string serial;
+  std::string vendor;
+  std::string product;
+  std::string card_id;
+  unsigned pcm_device;
+  std::string monitor_off;
+};
 
 struct Config {
   std::string capture_device;
@@ -19,6 +30,7 @@ struct Config {
   unsigned buffer_frames;
   unsigned max_block_frames;
   SampleFormat format;
+  std::optional<UsbIdentity> identity = std::nullopt;
 };
 
 struct Parameters {
