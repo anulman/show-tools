@@ -156,6 +156,8 @@ Use this starting brief for a new session.
 
 ## Verify and report the changed behavior
 
+For [the shared-session tuner](implementation/tuner.md), run the native and WASM tuner tests, then build the desk and run `node --import tsx scripts/build-tuner-check.ts`. Open `/tuner-check/index.html?test=1` on the isolated static server and click **Run shared tuner checks**. This fixture supplies synthetic C3 input through the desk's own context and counts context creation and microphone acquisition. Verify the displayed result in a real browser. It does not test an installed microphone. Include tuner changes in native release source-equivalence checks and Linux CI triggers.
+
 Build the fake native host at `build/native-host/native_fake_host` before `npm test`, or set `NATIVE_FAKE_HOST` to its built path. The default suite includes the real native IPC vertical test and fails if the executable is missing. Run the common checks from the worktree root.
 
 ```sh
@@ -173,6 +175,10 @@ For audio changes, inspect rendered PCM and exercise the browser path that users
 Record which checks ran and what remains unverified. After the complete performance migration, the default suite passed 169 tests with two optional follower skips. The follower-enabled suite passed all 171 tests. Both WASM builds, typecheck, browser build, and layout checks passed. The native CMake target passed all three component tests. AddressSanitizer, undefined-behavior, and float-cast-overflow checks also passed. Separate worklet tests verified click PCM frame by frame, reset and mute tails, analyzer isolation, and bounded telemetry.
 
 Chrome verified the production adapter with synthetic microphone input. Four native lead-in clicks remained audible with song click off. Capture retained exactly two bars as 88,200 frames at 44,100 Hz, autoplay began on bar 3, MP3 export decoded into two audible channels, and Stop left zero active voices. Physical microphone quality, phone behavior, the complete installed extension path, and EliteDesk device behavior remain separate verification tasks.
+
+## Verify performance contracts
+
+Use the [formal verification guide](../verification/README.md) when changing native audio lifecycle, capture publication and handoff, or canonical MusicXML meaning. `npm run verify:formal` runs all three packages sequentially after the documented checker setup. Each package checks its declared bounds, actual-code witnesses, and deliberate source mutations. Read the package contract before advancing a source synchronization record. A bounded model pass does not prove every implementation trace or physical audio behavior.
 
 ## Keep the handoff current
 
@@ -297,3 +303,7 @@ declaring the installed instrument ready.
 Take readback appends `PF_TAKE_SELECTION` at field 9; `PF_TAKE_FIELDS` is 10 in the unreleased ABI 8 interface. A playing take reports its actual native selection index only when it belongs to that active selection. Idle and releasing readback use -1, decoded as `selectionIndex: null`. Keep browser/WASM and remote snapshot schemas together when changing this layout.
 
 Run the take-presentation and remote-schema UI tests, `capture-slices.test.ts` at both audio rates, and native compiled-program tests. Current DYC has five capture parents: Cowbell uses two captures with eleven distinct reusable source-bar views. Its shortened bar-82 view is another admission window over the same source bar. A whole-bar slice has a native source cutoff too; display Trimmed only when the selected source span is shorter than its loop period. Derive the playing source bar from native `selectionIndex`, never the chart's displayed current bar. Keep frozen historical doubling tests alongside current-chart tests.
+
+## Verify proposed host delegation without touching the host
+
+The [delegation guide](../lib/remote-performance/delegation/README.md) separates local source preparation from the operator's one-time root bootstrap. Run `node --import tsx --test lib/remote-performance/tests/delegation.test.ts` for temporary-key signatures, unchanged-mailbox fixtures, claim races, replay and audit failures. The existing remote controls CI command includes this wrapper. These checks neither contact the host nor use its production private key. Any frozen checker change needs regenerated pins and independent bootstrap review; an application deployment cannot update the installed authority.

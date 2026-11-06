@@ -1,0 +1,17 @@
+{
+  "syncCommit": "9b51479061fa48fbfffb8271541c1cf475a7e101",
+  "files": {
+    "lib/performance/musicxml-song.ts": "603af1210fb041fcee30e78a0a4264ea44d2d8ebd53fd92f77ae3e784b38c2b0",
+    "lib/performance/sheet-musicxml.ts": "e20668333a28bcf746e98eabac54fa8158e099dc53b965b6892cea4b4d9295d9",
+    "lib/performance/compiled-song.ts": "7fc7c47e8869708224abb27bdb463c1697f1aca9bcc87ce9b12b55a2807b4740",
+    "lib/performance/song-source.ts": "a68139ca0d84af478a8d536b9ffa530ad620cefd2358ab4b06b9a5404b36c0ee",
+    "lib/performance/sheet-musical-annotations.ts": "06b45c504611bddfb79f239ff20f95722fdf9184d43ced03bec2570ff8a51e1d",
+    "lib/performance/sheet-stage-notation.ts": "27c4274a77175324c103756d3dbc833eeb3248fa42a508d8d17db61683f232ab",
+    "lib/performance/score-xml.ts": "63b94b4cc19e4cfe09842d97e37d36550865588bd08c385a3a182006c4c9d8b4",
+    "lib/performance/columns.ts": "47aa13445d945bf31f7ba8c599d3c5ef5f20c9c9629c7ba02321fc846be50766",
+    "lib/voice-catalog/sheet-voices.ts": "687b9efe47ce579c0a7d761315af2b734db3fc0255f2425273c1dd43eab720dd",
+    "lib/voice-catalog/model.ts": "c7021f9b57780e8fde33e50aa6fbdcfc1759b2fd8474a01376ab8863af0ecf41",
+    "package-lock.json": "a094cbe140ca5384c42eff39345bc4d4346fe11ade3296bec534bb44943f1be6"
+  },
+  "scope": "Finite grammar actual TypeScript MusicXML semantic verification; source changes require review and rerun before advancing this record."
+}

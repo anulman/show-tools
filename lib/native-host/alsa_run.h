@@ -7,30 +7,46 @@ class AlsaRun {
  public:
   template<class Device>
   int start(Instrument& instrument, Device& device, const Start& start) {
-    if (active_ || instrument.lifecycle() != Lifecycle::Prepared || instrument.pending()) return -1;
-    if (device.prepare() < 0) return -2;
+    if (finishing_ || !instrument.can_start()) return -1;
+    if (active_) {
+      if (device.drop() < 0) return -2;
+      active_ = false;
+    }
+    if (!active_ && device.prepare() < 0) return -2;
     if (!instrument.start(start)) return -1;
     active_ = true;
     return 0;
   }
 
   template<class Device>
+  int utility(Instrument& instrument, Device& device) {
+    if (finishing_) return -1;
+    if (active_ || !instrument.audio_needed()) return 0;
+    if (instrument.pending()) return -1;
+    if (device.prepare() < 0) return -1;
+    active_ = true;
+    return 0;
+  }
+
+  template<class Device>
   int complete(Instrument& instrument, Device& device) {
-    if (!active_ || instrument.lifecycle() == Lifecycle::Running || instrument.pending()) return 0;
+    if (!active_ || instrument.audio_needed() || instrument.pending()) return 0;
     if (instrument.lifecycle() == Lifecycle::Faulted) return -1;
+    finishing_ = true;
     int result = device.finish();
     if (result < 0) return -1;
-    if (result == 0) active_ = false;
+    if (result == 0) { active_ = false; finishing_ = false; }
     return 0;
   }
 
   template<class Device>
   int drop(Device& device) {
-    active_ = false;
+    active_ = false; finishing_ = false;
     return device.drop();
   }
+  bool can_activate() const { return !finishing_; }
   bool active() const { return active_; }
  private:
-  bool active_ = false;
+  bool active_ = false, finishing_ = false;
 };
 }

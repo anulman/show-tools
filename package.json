@@ -22,7 +22,11 @@
     "build:video": "node --import tsx scripts/build-video-motion.ts && node --import tsx scripts/build-video.ts",
     "test:video": "node --import tsx --test lib/video/tests/*.test.ts ui/video/tests/*.test.ts",
     "test:figma-exports": "node --import tsx --test scripts/video-expansion/design-system/*.test.mts",
-    "test:cad-commands": "node --import tsx --test hardware/cad/tests/candidate-command.test.ts"
+    "test:cad-commands": "node --import tsx --test hardware/cad/tests/candidate-command.test.ts",
+    "verify:formal:native": "node --import tsx verification/native-audio/verify.ts",
+    "verify:formal:capture": "node --import tsx verification/capture/verify.ts",
+    "verify:formal:musicxml": "node --import tsx verification/musicxml/verify.ts",
+    "verify:formal": "npm run verify:formal:native && npm run verify:formal:capture && npm run verify:formal:musicxml"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.6",

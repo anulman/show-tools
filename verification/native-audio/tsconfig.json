@@ -1,0 +1,4 @@
+{
+  "extends": "../../tsconfig.json",
+  "include": ["./replay.ts", "./verify.ts", "../../lib/remote-performance/tests/controller-ownership.test.ts"]
+}

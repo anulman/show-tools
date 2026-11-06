@@ -10,12 +10,14 @@
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./style.css">
   <link rel="stylesheet" href="./voice-library.css">
+  <link rel="stylesheet" href="../tuner/panel.css">
 </head>
 <body>
 <main id="practice-desk" class="desk">
   <header class="topline">
     <a class="brand" href="./">SHOW TOOLS</a><span class="brand-divider" aria-hidden="true">/</span>
     <select id="song-select" aria-label="Song"></select>
+    <button id="open-tuner" type="button" class="secondary">Tuner</button>
   </header>
   <div class="audio-mode">
     <label for="audio-mode-select">Audio mode</label>
@@ -62,6 +64,10 @@
   <section id="chart-source" class="chart-source" aria-label="Chart source and inspection"></section>
   <footer><span id="offline-status">Local audio.</span><a href="./README.md">Setup &amp; notes ↗</a></footer>
 </main>
+<dialog id="tuner-dialog" aria-label="Tuner" class="tuner-dialog">
+  <button id="close-tuner" type="button" class="tuner-close">Close tuner</button>
+  <div id="tuner-root"></div>
+</dialog>
 <script type="module" src="./app.js"></script>
 </body>
 </html>

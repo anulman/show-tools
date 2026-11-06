@@ -1,9 +1,11 @@
 import { PerformanceProcessor } from './runtime/performance-worklet.js';
 import type { ChannelId, ChannelSettings, Control, LiveEffectDefinition, VoiceEffectConfiguration, StartOptions } from '../../lib/performance/model.js';
+import type { TunerCommand } from '../../lib/tuner/model.js';
 
 type PracticeMessage = { id: number } & (
   | { command: 'practice.start'; payload: StartOptions & { runId: string } }
   | { command: 'practice.stop'; payload?: object }
+  | { command: 'practice.tuner'; payload: { command: TunerCommand } }
   | { command: 'practice.effects'; payload: { effects: readonly LiveEffectDefinition[] } }
   | { command: 'practice.voice-effects'; payload: { configurations: readonly VoiceEffectConfiguration[] } }
   | { command: 'practice.control'; payload: { control: Control; commandId?: string } }
@@ -15,7 +17,7 @@ type PracticeMessage = { id: number } & (
 export class PracticeProcessor extends PerformanceProcessor {
   nativeMode() { return 2; }
   practiceState() { return this.native.state(); }
-  performanceState() { return { ...super.performanceState(), practice: this.native.state() }; }
+  performanceState() { return { ...super.performanceState(), practice: this.native.state(), tuner: this.native.tunerState() }; }
   publishNativeEvents() {
     for (const event of this.native.events()) this.performancePort?.postMessage({ event, state: this.performanceState() });
   }
@@ -27,6 +29,7 @@ export class PracticeProcessor extends PerformanceProcessor {
       switch (command) {
         case 'practice.start': this.native.start(message.payload); break;
         case 'practice.stop': this.native.stop(); break;
+        case 'practice.tuner': this.native.tunerCommand(message.payload.command); break;
         case 'practice.effects': this.native.prepareLiveEffects(message.payload.effects); break;
         case 'practice.voice-effects': this.native.prepareVoiceEffects(message.payload.configurations); break;
         case 'practice.control': this.native.control(message.payload.control, message.payload.commandId); break;

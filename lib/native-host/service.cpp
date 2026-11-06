@@ -52,6 +52,7 @@ struct Observation {
   std::array<double,PF_COMPILED_MAX_TAKES*PF_TAKE_FIELDS> takes{};
   std::array<double,PF_TEMPO_FIELDS> tempo{};
   std::array<double,PF_LIGHT_FIELDS> lights{};
+  std::array<double,PF_TUNER_FIELDS> tuner{};
 };
 struct Request { uint64_t connection=0, order=0; uint32_t sequence=0; uint16_t op=0; std::array<double,6> args{}; Bytes manifest,packet; std::array<uint8_t,32> digest{}; std::array<uint32_t,6> counts{},revisions{}; std::vector<pf_effect_definition> effects; int status=1,code=0; Observation observation; };
 void observe(Instrument& instrument,Observation& out,uint64_t revision) {
@@ -63,11 +64,12 @@ void observe(Instrument& instrument,Observation& out,uint64_t revision) {
   pf_live_info(e,out.live.data());
   pf_tempo_info(e,out.tempo.data());
   pf_light_output(e,out.lights.data());
+  pf_tuner_info(e,out.tuner.data());
 }
 struct Presentation { Bytes manifest; std::array<uint8_t,32> digest{}; };
 Bytes snapshot(const Observation& state,const Presentation& presentation) {
   Bytes out; out.reserve(22000+presentation.manifest.size()); put64(out,state.revision); put64(out,state.run); put32(out,uint32_t(presentation.manifest.size())); out.insert(out.end(),presentation.manifest.begin(),presentation.manifest.end()); out.insert(out.end(),presentation.digest.begin(),presentation.digest.end());
-  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); array(out,state.lights); return out;
+  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); array(out,state.lights); array(out,state.tuner); return out;
 }
 int64_t discard(void*,const float*,uint32_t frames) { return frames; }
 }
@@ -85,6 +87,15 @@ bool parse(Request& request,const Bytes& data) {
     if((request.op==3 || request.op==4 || request.op==5 || request.op==6 || request.op==7) && !integer(request.args[0])) return false;
     if(request.op==5 && !integer(request.args[2]))return false;
     return true;
+  }
+  if(request.op==13) {
+    if(left!=32)return false;
+    for(int i=0;i<4;++i) {
+      request.args[i]=f64(p+i*8);
+      if(!std::isfinite(request.args[i]) || std::floor(request.args[i])!=request.args[i])return false;
+    }
+    return request.args[0]>=0 && request.args[0]<=PF_TUNER_SILENCE && request.args[1]>=0 && request.args[1]<=UINT32_MAX
+      && request.args[2]>=0 && request.args[2]<=115 && request.args[3]>=0 && request.args[3]<=2;
   }
   if(request.op==12) {
     if(left!=16)return false;
@@ -176,6 +187,15 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           if(rc==0 && int(a[0])==4 && alsa_run.drop(*device)<0) { shared.device_failed=true; rc=-1; }
 #endif
           break;
+        case 13:
+#ifdef NATIVE_ALSA_HOST
+          if(int(a[0])!=PF_TUNER_CLOSE && int(a[0])!=PF_TUNER_SILENCE && !alsa_run.can_activate())break;
+#endif
+          rc=instrument.tuner(int(a[0]),uint32_t(a[1]),int(a[2]),int(a[3]));
+#ifdef NATIVE_ALSA_HOST
+          if(rc>=0 && int(a[0])!=PF_TUNER_CLOSE && int(a[0])!=PF_TUNER_SILENCE && alsa_run.utility(instrument,*device)<0) { shared.device_failed=true; rc=-1; }
+#endif
+          break;
         case 12: rc=instrument.set_jiggle_thresholds(a[0],a[1]); break;
         case 4: rc=instrument.select(int(a[0])); break;
         case 5: rc=instrument.set_channel(int(a[0]),a[1],int(a[2])); break;
@@ -190,9 +210,9 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           break;
         }
         case 11: {
-          if(!stepped || instrument.lifecycle()!=Lifecycle::Running)break;
+          if(!stepped || !instrument.audio_needed())break;
           uint32_t remaining=uint32_t(a[0]); rc=0;
-          while(remaining && instrument.lifecycle()==Lifecycle::Running) { auto frames=std::min(remaining,block); if(instrument.render(input.data(),frames)<0 || instrument.write(discard,nullptr)<0) { rc=-1; break; } remaining-=frames; drain(); }
+          while(remaining && instrument.audio_needed()) { auto frames=std::min(remaining,block); if(instrument.render(input.data(),frames)<0 || instrument.write(discard,nullptr)<0) { rc=-1; break; } remaining-=frames; drain(); }
           break;
         }
         case 10: {
@@ -240,7 +260,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
     }
     Request* request=nullptr;
     for(unsigned i=0;i<16 && shared.commands.pop(request);++i) { process(request,false); shared.results.push(request); }
-    if(!stepped && (instrument.lifecycle()==Lifecycle::Running || instrument.pending()
+    if(!stepped && (instrument.audio_needed() || instrument.pending()
 #ifdef NATIVE_ALSA_HOST
         || alsa_run.active()
 #endif
@@ -249,7 +269,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #ifdef NATIVE_ALSA_HOST
       if(instrument.pending()) {
         if(instrument.write([](void* d,const float* p,uint32_t n)->int64_t { return static_cast<native_alsa::AlsaPcm*>(d)->write(p,n); },device.get())<0) shared.device_failed=true;
-      } else if(instrument.lifecycle()==Lifecycle::Running) {
+      } else if(instrument.audio_needed()) {
         auto frames=device->read(input.data(),block);
         if(frames<0 || (frames>0 && instrument.render(input.data(),uint32_t(frames))<0)) shared.device_failed=true;
       }
@@ -262,9 +282,9 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
       drain();
       if(previous_lifecycle!=instrument.lifecycle()) { ++revision; Observation state; publish(state); shared.observations.push(state); }
     }
-    if(++tick==10) { tick=0; if(!stepped && instrument.lifecycle()==Lifecycle::Running) { ++revision; Observation state; publish(state); shared.observations.push(state); } }
+    if(++tick==10) { tick=0; if(!stepped && instrument.engine()) { ++revision; Observation state; publish(state); shared.observations.push(state); } }
 #ifdef NATIVE_ALSA_HOST
-    if(instrument.lifecycle()!=Lifecycle::Running) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if(!instrument.audio_needed() && !instrument.pending()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
 #else
     next+=std::chrono::nanoseconds(int64_t(1000000000.0*block/config.sample_rate));
     std::this_thread::sleep_until(next);

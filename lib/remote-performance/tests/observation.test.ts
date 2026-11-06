@@ -4,6 +4,7 @@ import song from '../../../songs/dance-yrself-clean.js';
 import { test } from 'node:test';
 import { PF } from '../../performance/wasm-abi.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
+import { tunerImageFixture } from './tuner-fixture.js';
 import { lightFixture } from './light-fixture.js';
 import { decodeSnapshot, parseManifest } from '../observation.js';
 
@@ -13,6 +14,14 @@ function counted(values: number[]) {
 	values.forEach((value, index) => bytes.writeDoubleLE(value, 4 + index * 8));
 	return bytes;
 }
+
+test('an unprepared native host has no tuner observation yet', () => {
+  const arrays = [PF.FIELDS, PF.CHANNELS * PF.CHANNEL_FIELDS, PF.VOICE_PROFILES * PF.VOICE_FIELDS,
+    PF.VOICE_PROFILES * PF.MAX_LIVE_EFFECTS * PF.VOICE_EFFECT_FIELDS, PF.LIVE_FIELDS,
+    PF.COMPILED_MAX_TAKES * PF.TAKE_FIELDS, PF.TEMPO_FIELDS, LIGHT.LIGHT_FIELDS, PF.TUNER_FIELDS];
+  const payload = Buffer.concat([Buffer.alloc(52), ...arrays.map(length => counted(Array(length).fill(0)))]);
+  assert.equal(decodeSnapshot(payload, 'unprepared'), null);
+});
 
 test('validates manifest digest and decodes copied native arrays', async () => {
 	assert.ok(song.compiled);
@@ -27,7 +36,7 @@ test('validates manifest digest and decodes copied native arrays', async () => {
 	const lights = lightFixture(.7);
 	const arrays = [state, Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), Array(PF.VOICE_PROFILES * PF.VOICE_FIELDS).fill(0),
 		Array(PF.VOICE_PROFILES * PF.MAX_LIVE_EFFECTS * PF.VOICE_EFFECT_FIELDS).fill(0), Array(PF.LIVE_FIELDS).fill(0),
-		Array(PF.COMPILED_MAX_TAKES * PF.TAKE_FIELDS).fill(0), Array(PF.TEMPO_FIELDS).fill(0), lights];
+		Array(PF.COMPILED_MAX_TAKES * PF.TAKE_FIELDS).fill(0), Array(PF.TEMPO_FIELDS).fill(0), lights, tunerImageFixture()];
 	const payload = Buffer.concat([header, manifest, digest, ...arrays.map(counted)]);
 	const decoded = decodeSnapshot(payload, 'run');
 	assert.deepEqual(decoded?.lights, lights);

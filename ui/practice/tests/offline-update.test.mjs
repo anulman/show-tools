@@ -128,6 +128,7 @@ test('another practice window prevents forced activation until it closes', async
 
 const appSource = await sourceForVM(new URL('../app.ts', import.meta.url));
 const updateSource = appSource.slice(appSource.indexOf('function applyPendingPracticeUpdate()'));
+const tunerSyncSource = appSource.slice(appSource.indexOf('function syncTunerSession()'), appSource.indexOf('requiredElement("#open-tuner"'));
 const renderSource = appSource.slice(appSource.indexOf('function render('), appSource.indexOf('function beginOutputRecording('));
 
 async function updateHarness({ controlled = true, waiting = true } = {}) {
@@ -143,6 +144,7 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   const serviceWorker = { controller: controlled ? {} : null, ready: Promise.resolve(), async register() { return registration; }, addEventListener(type, callback) { events.set(type, callback); } };
   const context = {
     URLSearchParams, remote: false, mode: 'browser', changingAudioMode: false,
+    tunerPanel: undefined, tunerSession: undefined, audio: undefined,
     browserModeBusy: () => false, canChangeAudioMode: () => true, navigator: { serviceWorker },
     voiceCatalog: { busy: false },
     document: { querySelector() { return editorOpen ? {} : null; }, addEventListener(type, callback) { documentEvents.set(type, callback); } },
@@ -155,7 +157,7 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
     beginOutputRecording() {}, finishOutputRecording() {},
   };
   vm.createContext(context);
-  vm.runInContext(`${renderSource}\n${updateSource}`, context);
+  vm.runInContext(`${tunerSyncSource}\n${renderSource}\n${updateSource}`, context);
   await new Promise(resolve => setImmediate(resolve));
   return { context, messages, registration, registrationEvents, windowEvents, worker,
     get reloads() { return reloads; },

@@ -1,4 +1,3 @@
-import type { PracticeState, SongScript } from '../performance/model.js';
 import { encodeCommand, isPriorityCommand } from './commands.js';
 import { HostConnection } from './host-connection.js';
 import { decodeEvent, decodeSnapshot } from './observation.js';
@@ -6,7 +5,7 @@ import type { Instrument, Observation, Outcome } from './gateway.js';
 
 export class NativeInstrument implements Instrument {
 	private connection: HostConnection | null = null;
-	private current: { revision: bigint; song: SongScript; state: PracticeState; lights: number[] } | null = null;
+	private current: ReturnType<typeof decodeSnapshot> = null;
 	private readonly listeners = new Set<(observation: Observation) => void>();
 	private readonly waiters = new Set<() => void>();
 	private closed = false;
@@ -22,8 +21,8 @@ export class NativeInstrument implements Instrument {
 				const changed = !this.current || JSON.stringify(this.current.song) !== JSON.stringify(next.song);
 				this.current = next;
 				this.publish(changed
-					? { type: 'session', song: next.song, state: next.state, lights: next.lights, revision: next.revision.toString(), hostEpoch: connection.processEpoch }
-					: { type: 'state', state: next.state, lights: next.lights, revision: next.revision.toString(), hostEpoch: connection.processEpoch });
+					? { type: 'session', song: next.song, state: next.state, lights: next.lights, tuner: next.tuner, revision: next.revision.toString(), hostEpoch: connection.processEpoch }
+					: { type: 'state', state: next.state, lights: next.lights, tuner: next.tuner, revision: next.revision.toString(), hostEpoch: connection.processEpoch });
 				this.notify();
 			} else if (frame.tag === 6) {
 				this.publish({ type: 'event', event: decodeEvent(frame.payload, connection.processEpoch), hostEpoch: connection.processEpoch });
@@ -45,7 +44,7 @@ export class NativeInstrument implements Instrument {
 	private notify() { for (const waiter of this.waiters) waiter(); }
 	private publish(value: Observation) { for (const listener of this.listeners) listener(value); }
 	snapshot(): Observation | null {
-		return this.current && { type: 'session', song: this.current.song, state: this.current.state, lights: this.current.lights, revision: this.current.revision.toString(), hostEpoch: this.connection?.processEpoch };
+		return this.current && { type: 'session', song: this.current.song, state: this.current.state, lights: this.current.lights, tuner: this.current.tuner, revision: this.current.revision.toString(), hostEpoch: this.connection?.processEpoch };
 	}
 	subscribe(listener: (value: Observation) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
 	async command(input: unknown): Promise<Outcome> {
@@ -63,7 +62,7 @@ export class NativeInstrument implements Instrument {
 		if (status > 3) throw new Error('Invalid host result status');
 		if (status !== 0) return { outcome: 'rejected', error: status === 3 ? 'Host is busy' : `Native command rejected (${code})` };
 		const readback = await this.waitForRevision(connection, revision);
-		return { outcome: 'applied', state: readback.state, lights: readback.lights, revision: readback.revision.toString(), hostEpoch: connection.processEpoch };
+		return { outcome: 'applied', state: readback.state, lights: readback.lights, tuner: readback.tuner, revision: readback.revision.toString(), hostEpoch: connection.processEpoch };
 	}
 	private waitForRevision(connection: HostConnection, revision: bigint) {
 		return new Promise<NonNullable<NativeInstrument['current']>>((resolve, reject) => {

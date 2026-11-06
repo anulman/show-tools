@@ -1,15 +1,19 @@
+import { tunerFixture } from '../../../lib/remote-performance/tests/tuner-fixture.js';
 import { lightFixture } from '../../../lib/remote-performance/tests/light-fixture.js';
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { loadSong } from '../../../songs/index.js';
 import { RemoteDesk } from '../remote-session.js';
+import vm from 'node:vm';
+import { sourceForVM } from '../../../scripts/source-for-vm.js';
+import type { TunerCommand, TunerState } from '../../../lib/tuner/model.js';
 
 const song = await loadSong('dance-yrself-clean');
 const state = { phase: 'idle', bar: null, beat: null, countInRemaining: 0, bpm: 120, startBar: 1, endBar: 4, loop: true,
   automatic: false, click: false, selectedChannel: 'L1', runId: 'run', seq: 0,
   channels: ['L1', 'L2', 'R1', 'R2'].map(id => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })),
   looping: [], recording: null, microphone: false, error: null };
-const performance = { hostEpoch: 'host', revision: '1', state, lights: lightFixture() };
+const performance = { hostEpoch: 'host', revision: '1', state, tuner: tunerFixture(), lights: lightFixture() };
 const off = { serverEpoch: 'server', revision: '1', song, audio: { kind: 'off' } };
 const ready = { ...off, revision: '3', audio: { kind: 'ready', attempt: 'attempt', performance } };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
@@ -137,3 +141,91 @@ test('opening an already playing desk observes current state without changing au
     assert.deepEqual(requests, ['GET /api/session', 'GET /api/events']);
   } finally { await desk.dispose(); globalThis.fetch = previous; }
 });
+
+
+test('tuner telemetry publishes independently of practice state and invalidation fences commands', async () => {
+  await fixture(async ({ desk, publish, calls }) => {
+    await publish({ type: 'desk', view: ready });
+    const session = desk.performance();
+    const seen: boolean[] = [];
+    session.tuner.subscribe(value => seen.push(value.listening));
+    const tuner = { ...performance.tuner, revision: 1, listening: true, pitch: { kind: 'unvoiced' } };
+    await publish({ type: 'native', serverEpoch: 'server', revision: '4', attempt: 'attempt', performance: { ...performance, revision: '4', tuner } });
+    assert.deepEqual(seen, [false, true]);
+    assert.equal(session.snapshot().phase, 'idle');
+    assert.equal(session.tuner.snapshot().revision, 1);
+    await session.tuner.command({ kind: 'listen', expectedRevision: 1, enabled: false });
+    assert.equal(calls.at(-1)?.body.command, 'tuner');
+    assert.deepEqual(calls.at(-1)?.body.args, { kind: 'listen', expectedRevision: 1, enabled: false });
+    await publish({ type: 'desk', view: { ...off, revision: '5' } });
+    await assert.rejects(session.tuner.command({ kind: 'cue', expectedRevision: 1 }), /stale/);
+    assert.throws(() => session.tuner.snapshot(), /stale/);
+    assert.throws(() => session.tuner.subscribe(() => {}), /stale/);
+  });
+});
+
+class Node {
+  children: Node[] = [];
+  parent: Node | null = null;
+  style = { left: '' };
+  classList = { add() {} };
+  textContent = '';
+  value = '';
+  hidden = false;
+  disabled = false;
+  append(...nodes: Node[]) { for (const node of nodes) { node.parent = this; this.children.push(node); } }
+  replaceChildren(...nodes: Node[]) { this.children = []; this.append(...nodes); }
+  setAttribute() {}
+  addEventListener() {}
+  remove() { if (this.parent) this.parent.children = this.parent.children.filter(node => node !== this); }
+}
+
+const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+const wrapper = source.slice(source.indexOf('function sharedTuner('), source.indexOf('requiredElement("#open-tuner"'));
+const unavailableStart = source.indexOf('if (!connected || status.kind !== "ready")');
+assert.ok(unavailableStart >= 0);
+const unavailable = source.slice(unavailableStart, source.indexOf('let session;', unavailableStart));
+const panelSource = (await sourceForVM(new URL('../../tuner/panel.ts', import.meta.url))).replace('export function mountTuner', 'function mountTuner');
+
+for (const reason of ['off', 'fault', 'disconnected']) {
+  for (const pendingClose of [false, true]) {
+    test(`tuner detaches and closes when remote audio is ${reason}${pendingClose ? ' during close' : ''}`, async () => {
+      const state: TunerState = { revision: 1, root: 48, scale: 'major', step: 0,
+        targets: [{ midi: 48, letter: 'C', accidental: 0, octave: 3 }], complete: false,
+        listening: true, preview: { kind: 'silent' }, pitch: { kind: 'warming' } };
+      let subscriptions = 0;
+      let closeCommands = 0;
+      const session = { tuner: {
+        snapshot: () => state,
+        subscribe(listener: (value: TunerState) => void) { subscriptions++; listener(state); return () => { subscriptions--; }; },
+        command(command: TunerCommand) {
+          assert.equal(command.kind, 'close');
+          closeCommands++;
+          return new Promise<TunerState>(() => {});
+        },
+      } };
+      const root = new Node();
+      const context = vm.createContext({ root, audio: session, tunerSession: session, tunerPort: null, tunerPanel: null,
+        document: { createElement: () => new Node() }, isRunning: () => false, starting: false, outputCapture: 'idle',
+        connected: reason !== 'disconnected', status: { kind: reason === 'fault' ? 'fault' : 'off' },
+        transportGeneration: 0, releasePresses() {}, chartFollower: null, renderHardwareUnavailable() {} });
+      vm.runInContext(`${panelSource}\n${wrapper}\n
+        tunerPort = sharedTuner(audio);
+        tunerPanel = mountTuner(root, { connect: async () => tunerPort });
+        tunerPanel.setSession(tunerPort);
+        function disconnect() { ${unavailable} }
+      `, context);
+      const closing = pendingClose ? vm.runInContext('tunerPanel.close()', context) : null;
+      if (pendingClose) await new Promise(resolve => setImmediate(resolve));
+      vm.runInContext('disconnect()', context);
+      const closed = closing ?? vm.runInContext('tunerPanel.close()', context);
+      const result = await Promise.race([Promise.resolve(closed).then(() => 'closed'),
+        new Promise(resolve => setTimeout(() => resolve('timeout'), 100))]);
+      assert.equal(result, 'closed');
+      assert.equal(context.audio, undefined);
+      assert.equal(root.children.length, 0);
+      assert.equal(subscriptions, 0);
+      assert.equal(closeCommands, pendingClose ? 1 : 0, 'unavailable sessions receive no new close command');
+    });
+  }
+}

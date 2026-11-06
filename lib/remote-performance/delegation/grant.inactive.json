@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "grantId": "show-tools-host-user-v1",
+  "version": 1,
+  "active": false,
+  "expiresAt": null,
+  "principal": {
+    "id": "show-tools-pi",
+    "sshKeyFingerprint": "SHA256:Hs0pgUC/Wrw+FyKxWFATPcmKFZNI+tETqhyBs5z++FU",
+    "sshPublicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPo2Th5j5NFoyux/SW8CM2m4sR8GIlqWBozuWoZ7qI4A",
+    "sourceIPv4": "100.91.87.3",
+    "signatureNamespace": "show-tools-deploy-v1"
+  },
+  "target": {
+    "id": "proxmox/anulman/show-tools-web",
+    "hostname": "proxmox",
+    "uid": 1000,
+    "gid": 1000,
+    "repo": "anulman/show-tools",
+    "service": "show-tools-web.service",
+    "profile": "/home/anulman/.config/show-tools/session.json",
+    "unitFile": "/home/anulman/.config/systemd/user/show-tools-web.service",
+    "operatorCli": "/home/anulman/.local/bin/show-tools-session",
+    "stagingRoot": "/home/anulman/.local/share/show-tools/staging",
+    "releaseRoot": "/home/anulman/.local/share/show-tools/releases",
+    "releaseNamePattern": "^session-[a-f0-9]{7,40}$",
+    "runtimeRoot": "/run/user/1000/show-tools",
+    "credentialDirectory": "/home/anulman/.config/show-tools/credentials",
+    "credentialCopies": [
+      {
+        "from": "/home/anulman/.cache/show-tools/run-b0d59ad.TpFQk1/token",
+        "to": "/home/anulman/.config/show-tools/credentials/token"
+      },
+      {
+        "from": "/home/anulman/.cache/show-tools/run-b0d59ad.TpFQk1/tls.crt",
+        "to": "/home/anulman/.config/show-tools/credentials/tls.crt"
+      },
+      {
+        "from": "/home/anulman/.cache/show-tools/run-b0d59ad.TpFQk1/tls.key",
+        "to": "/home/anulman/.config/show-tools/credentials/tls.key"
+      }
+    ],
+    "network": {
+      "bind": "100.93.139.99",
+      "port": 8443,
+      "origin": "https://proxmox.tail54fc55.ts.net:8443",
+      "certificateDomain": "proxmox.tail54fc55.ts.net"
+    },
+    "audioAssignment": {
+      "byId": "/dev/snd/by-id/usb-Focusrite_Scarlett_Solo_USB_Y7PZ8TB58373E7-00",
+      "usbSerial": "Y7PZ8TB58373E7",
+      "usbVendorId": "1235",
+      "usbProductId": "8211",
+      "alsaCardId": "USB",
+      "pcmDevice": 0,
+      "captureChannels": 2,
+      "inputChannel": 0,
+      "playbackChannels": 2,
+      "directMonitor": {
+        "interface": "MIXER",
+        "name": "Direct Monitor Playback Switch",
+        "type": "BOOLEAN",
+        "count": 1,
+        "requiredValue": false
+      },
+      "startup": {
+        "sampleRate": 48000,
+        "format": "s32",
+        "blockFrames": 256,
+        "periodFrames": 256,
+        "bufferFrames": 1024,
+        "maxVoices": 32,
+        "maxSeconds": 30
+      },
+      "softwareGains": "unity",
+      "parallelDryMonitorAllowed": false,
+      "legacyMonitorService": "scarlett-monitor.service",
+      "legacyMonitorMustBeInactive": true,
+      "cardIndexPolicy": "resolve-current-from-by-id-and-verify-both-opened-PCM-handles",
+      "fallbackAllowed": false
+    }
+  },
+  "allowedActions": [
+    "stage",
+    "install",
+    "configure",
+    "status",
+    "web-start",
+    "web-stop",
+    "rollback"
+  ],
+  "artifactOrigin": {
+    "scheme": "http",
+    "host": "100.91.87.3",
+    "port": 18742,
+    "objectPattern": "^/show-tools-session-release-[a-f0-9]{7,40}\\.tar\\.gz$",
+    "redirects": false,
+    "ambientProxy": false,
+    "maxArchiveBytes": 104857600,
+    "maxExpandedBytes": 268435456,
+    "maxMembers": 2048,
+    "memberCountMeaning": "raw-tar-headers-including-pax-and-directories"
+  },
+  "constraints": {
+    "requireReviewedImmutableArtifacts": true,
+    "requireSourceArchiveProfileUnitPins": true,
+    "requireHostVerifiedEvidence": true,
+    "requireIdleForDisruptiveActions": true,
+    "unknownPerformanceState": "deny-disruptive-action",
+    "nativeAcceptanceAllowed": false,
+    "automaticMusicalStartAllowed": false,
+    "webStartsWithNativeDisabled": true,
+    "unitEnableAllowed": false,
+    "lingerAllowed": false,
+    "restartAutomatically": false,
+    "appDependencies": "verified-bundled-only-no-install-hooks",
+    "credentialCopy": "exact-pairs-only-create-new-never-overwrite-or-rotate",
+    "keepRetainedCredentialOriginals": true,
+    "credentialIssuanceAllowed": false,
+    "credentialRotationAllowed": false,
+    "credentialOutputAllowed": false,
+    "systemPackagesAllowed": false,
+    "sudoGrantsAllowed": false,
+    "sshChangesAllowed": false,
+    "sharedNetworkChangesAllowed": false,
+    "hypervisorOrGuestChangesAllowed": false,
+    "storageAdministrationAllowed": false,
+    "deleteReleasesOrBackupsAllowed": false
+  },
+  "requestLimits": {
+    "maxAgeSeconds": 900,
+    "clockSkewSeconds": 60,
+    "maxPayloadBytes": 8192,
+    "maxSignatureBytes": 2048
+  },
+  "audit": {
+    "path": "/home/anulman/.local/state/show-tools-mailbox/authorization.jsonl",
+    "maxBytes": 8388608,
+    "onFailure": "deny"
+  },
+  "checkerSha256": "ff28dab2fc95eb4b4e7937a547529d4edd110874f87fd5e7de19d47f6d654d7d",
+  "signersSha256": "d5a1cc72bb6b0631907c7cad1b1285ecb26d4c712fd858bcc2d7588968798de8"
+}

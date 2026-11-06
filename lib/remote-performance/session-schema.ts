@@ -1,4 +1,5 @@
 import { Schema } from 'effect';
+import { TunerStateSchema } from '../tuner/schema.js';
 import { NativeEventSchema, NativeStateSchema, SongSchema, LightPublicationSchema } from './native-schema.js';
 
 const id = Schema.NonEmptyString.check(Schema.isMaxLength(256));
@@ -14,6 +15,7 @@ export const NativePerformanceSchema = Schema.Struct({
   revision: NativeRevisionSchema,
   state: NativeStateSchema,
   lights: LightPublicationSchema,
+  tuner: TunerStateSchema,
 });
 export const AudioStateSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('off') }),

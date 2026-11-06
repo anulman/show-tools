@@ -1,3 +1,4 @@
+import { tunerFixture } from './tuner-fixture.js';
 import { lightFixture } from './light-fixture.js';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -35,7 +36,7 @@ async function fixture() {
   let badStop = false;
   let audioFault = false;
   const view = () => ({ serverEpoch: 'server', revision: '1', song,
-    audio: kind === 'ready' ? { kind, attempt: 'attempt', performance: { hostEpoch: 'native', revision: '1', lights: lightFixture(), state: { ...state, phase } } }
+    audio: kind === 'ready' ? { kind, attempt: 'attempt', performance: { hostEpoch: 'native', revision: '1', tuner: tunerFixture(), lights: lightFixture(), state: { ...state, phase } } }
       : kind === 'fault' ? { kind, error: 'Synthetic native failure' } : kind === 'starting' || kind === 'stopping' ? { kind, attempt: 'attempt' } : { kind } });
   const server = createServer(async (req, res) => {
     if (!authorized || req.headers.authorization !== `Bearer ${token}` || req.headers.origin !== origin) { res.writeHead(401).end(); return; }

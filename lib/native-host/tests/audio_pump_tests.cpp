@@ -148,6 +148,54 @@ int main() {
   require(instrument.write(StatefulDevice::write, &device) > 0);
   require(instrument.control(4, 0) == 0);
   require(run.drop(device) == 0 && instrument.pending() == 0 && device.drops == 2 && device.drains == 1);
+  instrument.stop();
+  require(run.drop(device) == 0);
+  std::array<double, PF_TUNER_FIELDS> tuner{};
+  pf_tuner_info(instrument.engine(), tuner.data());
+  auto revision = [&] { pf_tuner_info(instrument.engine(), tuner.data()); return uint32_t(tuner[PF_TUNER_REVISION]); };
+  require(instrument.tuner(0, revision(), 60, 0) == 0);
+  require(instrument.tuner(1, revision(), 0, 0) == 0);
+  require(instrument.lifecycle() == native_host::Lifecycle::Prepared && instrument.audio_needed());
+  const auto prepares = device.prepares;
+  require(run.utility(instrument, device) == 0 && device.prepares == prepares + 1);
+  device.read();
+  Sink cue{{}, 17};
+  while (instrument.audio_needed()) {
+    require(instrument.render(test_input.data(), 509) == 0);
+    while (instrument.pending()) {
+      require(run.complete(instrument, device) == 0);
+      require(instrument.write(write_short, &cue) > 0);
+    }
+  }
+  require(std::any_of(cue.samples.begin(), cue.samples.end(), [](float value) { return std::abs(value) > .01f; }));
+  device.playback = StatefulDevice::State::Running;
+  require(run.complete(instrument, device) == 0 && !run.active());
+  const auto stale = revision();
+  require(instrument.tuner(3, stale, 1, 0) == 0);
+  require(run.utility(instrument, device) == 0);
+  device.read();
+  require(instrument.render(test_input.data(), 509) == 0);
+  require(instrument.tuner(2, stale, 0, 0) < 0);
+  require(instrument.tuner(2, revision(), 0, 0) == 0);
+  revision(); require(tuner[PF_TUNER_STEP] == 1);
+  require(instrument.write(StatefulDevice::write, &device) > 0);
+  require(run.complete(instrument, device) == 0 && instrument.pending() > 0);
+  require(instrument.control(4, 0) == 0 && !instrument.audio_needed() && instrument.pending() == 0);
+  require(run.drop(device) == 0);
+  require(instrument.tuner(1, stale, 0, 0) < 0);
+  require(instrument.tuner(1, revision(), 0, 0) == 0);
+  require(run.utility(instrument, device) == 0);
+  device.read();
+  require(instrument.render(test_input.data(), 128) == 0);
+  require(instrument.write(StatefulDevice::write, &device) > 0 && instrument.pending() > 0);
+  const auto before_start_prepares = device.prepares;
+  const auto before_start_drops = device.drops;
+  require(run.start(instrument, device, start) == 0);
+  require(instrument.pending() == 0 && device.prepares == before_start_prepares + 1 && device.drops == before_start_drops + 1);
+  revision(); require(tuner[PF_TUNER_PREVIEW_KIND] == 0 && tuner[PF_TUNER_LISTENING] == 0);
+  require(instrument.tuner(PF_TUNER_CLOSE, revision(), 0, 0) == 0 && instrument.lifecycle() == native_host::Lifecycle::Running);
+  instrument.stop();
+  require(run.drop(device) == 0);
   Engine engine;
   AudioPump pump(engine.value, 509);
   std::array<float, 509> input{}; input.fill(.25f);

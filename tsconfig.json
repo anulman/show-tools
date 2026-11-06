@@ -14,6 +14,6 @@
     "esModuleInterop": true,
     "isolatedModules": true
   },
-  "include": ["ui/practice/**/*.ts", "ui/sheets-musicxml/**/*.ts", "lib/ui-host/**/*.ts", "lib/relay/**/*.ts", "lib/remote-performance/**/*.ts", "lib/voice-catalog/**/*.ts", "lib/peripherals/**/*.ts", "lib/performance/**/*.ts", "scripts/**/*.ts", "scripts/video-expansion/design-system/**/*.mts", "ui/video/**/*.ts", "lib/video/**/*.ts", "hardware/cad/**/*.ts"],
+  "include": ["ui/practice/**/*.ts", "ui/tuner/**/*.ts", "lib/tuner/**/*.ts", "ui/sheets-musicxml/**/*.ts", "lib/ui-host/**/*.ts", "lib/relay/**/*.ts", "lib/remote-performance/**/*.ts", "lib/voice-catalog/**/*.ts", "lib/peripherals/**/*.ts", "lib/performance/**/*.ts", "scripts/**/*.ts", "scripts/video-expansion/design-system/**/*.mts", "ui/video/**/*.ts", "lib/video/**/*.ts", "hardware/cad/**/*.ts"],
   "exclude": ["dist", "node_modules", "lib/peripherals/build"]
 }
