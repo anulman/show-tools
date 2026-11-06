@@ -1,75 +1,86 @@
 # Prepare the native audio host handoff
 
-The EliteDesk needs a native audio adapter before it can run the shared engine against an audio interface. The operator's milestone is a performance desk served locally by the EliteDesk, reachable from a laptop or phone, with all audio on the EliteDesk. The operator authorizes autonomous development through merge. This handoff defines the work and evidence required for that adapter. It does not authorize installation, guest changes, service changes, or live audio.
+The native host, control gateway, and remote performance desk are implemented. Hardware mode lets a laptop or phone control one native instrument while audio remains on the EliteDesk. Browser mode keeps the existing local WASM practice path. Implementation and synthetic verification do not establish an installed or approved live deployment.
 
-## Track completion in verified steps
+The operator authorizes autonomous development through merge. The restricted SSH mailbox grants messaging only. Host installation, guest or network changes, dry-monitor takeover, and live audio still need a concrete plan and operator approval.
 
-- [x] Read the current architecture, hardware inventory, and native engine contract.
-- [x] Build the native library and run its seven CTest tests on the Mac baseline.
-- [x] Verify the restricted mailbox host key and receive an explicit reply to `hello-001`.
-- [ ] Collect the physical host and Proxmox inventory through the on-device agent.
-- [ ] Implement and test the device adapter in an isolated checkout.
-- [ ] Review an integrated source revision, device routing, recovery, and resource proposal.
-- [ ] Obtain authorization for dry-monitor takeover and the live device test.
-- [ ] Verify real capture, processing, playback, restart, and reconnect against approved limits.
+## Track implementation and device verification separately
 
-Use higher rigor for device ownership and host changes than for repository edits. A successful fixture or relay startup cannot satisfy the real-device step. The throughput checkpoint is to resolve machine identity, existing workloads, and audio ownership first, then build the smallest full-duplex adapter. Keep UI work and network delivery out of that first audio milestone.
+- [x] Collect a bounded, read-only EliteDesk inventory through Pi's existing access.
+- [x] Implement the native engine owner, fake PCM host, ALSA device path, and private Unix socket.
+- [x] Implement the authenticated gateway and the desk's Hardware and Browser modes.
+- [x] Verify synthetic PCM, native IPC, gateway commands, and remote-session regressions locally.
+- [x] Verify the native foundation on Linux and macOS CI in [PR #103](https://github.com/anulman/show-tools/pull/103).
+- [ ] Complete integrated remote-feature CI and the actual browser acceptance run.
+- [ ] Select a reviewed release revision, staging route, runtime, and device configuration.
+- [ ] Obtain approval for installation, the exact dry-monitor takeover, and the live device test.
+- [ ] Verify real capture, playback, frame continuity, restart, and reconnect against agreed limits.
 
-## Identify the source and deployment status
+The current local verification includes 13 passing native CTest tests and a full suite with 529 passing tests and two explicit skips. These exercise fake devices and local IPC. The foundation's Linux build compiles the ALSA path; it does not open a Scarlett. Final browser acceptance and integrated remote CI remain separate checks.
 
-The repository is `git@github.com:anulman/show-tools.git`, also available as `https://github.com/anulman/show-tools`. Use separately authorized repository access. Do not send credentials through the mailbox.
+## Keep ownership at the implemented boundaries
 
-The local native build baseline is `d7cbde29b2c5469e5bde7e78d29658be43d6dcea`. Chief reports that GitHub main `1db0898afa49a1b45997c295d09ac3c66643deeb` contains the same engine with later documentation and skill changes. Verify the selected revision when preparing an artifact. Neither revision supplies a live device service.
-
-Performance Engine supplied `fd8e53fe55acc9aa81dbbd4d429a57bf914b32f3` as an unmerged MusicXML compiler reference. It is not an approved deployment revision. Inspect its `docs/implementation/musicxml-cutover.md` for the proposed canonical song handoff, but do not silently substitute it for main. Chief, PE, and Hardware Manager must select and test an integrated source revision before deployment.
-
-Read `AGENTS.md`, `docs/architecture.md`, `docs/development.md`, `docs/hardware-inventory.md`, `docs/data-retention.md`, and `lib/performance/README.md` at the selected revision. Shared C++ owns musical decisions and DSP. Browser UI stays under `ui/`; device services belong under `lib/`. Commit verified milestones. Do not start operator-managed Sheets or Chrome CDP services. The local-server milestone supersedes the older workstream instruction to host the web UI elsewhere.
-
-## Separate existing targets from missing services
-
-| Component | Verified source state | Startup or build contract |
+| Component | Implemented responsibility | Verification limit |
 | --- | --- | --- |
-| `performance_engine` | Reusable native C++ library | Build with CMake 3.20 or newer and a C++17 compiler using the performance guide. It has no service startup command. |
-| `compiled_song_host` | Offline synthetic test executable | It verifies compiled instructions and PCM. It has no ALSA backend. |
-| Native audio adapter | Missing | Backend, daemon entry point, service unit, packaging, and restart policy require implementation and review. |
-| Practice desk | Browser WASM instrument; remote mode needs implementation | Build with `npm ci` and `npm run build`. `npm start` serves static files on loopback port 8082. The new milestone serves controls locally from the EliteDesk without browser audio. |
-| Relay | Optional standalone API, unused by current practice | `npm run start:relay` defaults to loopback port 8082. Its native producer is missing. This is not a deployed clock contract. |
-| Database sidecar | Target ownership, not a running authority service | Destination, migration, synchronization, and independent backup remain separate work. |
+| `lib/performance/` | Shared C++ clock, transport, chart actions, capture, playback, mixing, click, and effects | Native and WASM fixtures do not establish device deadlines. |
+| `lib/native-host/` | Persistent instrument, one audio owner, commands, copied observations, and private socket | `native_fake_host` uses synthetic input; `native_alsa_host` requires explicit installation settings. |
+| `lib/native-alsa/` | ALSA capture and stereo playback, selected input channel, PCM conversion, bounded transfers, and device lifecycle | Simulated boundary tests open no physical hardware. |
+| `lib/remote-performance/` | Authenticated HTTP commands, SSE observations, static desk serving, and native socket connection | It is a control gateway, not an audio engine or a musical scheduler. |
+| `ui/practice/` | Hardware mode attaches to the host; Browser mode uses local WASM | Hardware mode does not construct browser audio, acquire a microphone, or record a browser demo. |
 
-The baseline contains no Dockerfile, Compose deployment, or systemd service file found by the inventory search. Do not invent container startup commands. Node and Emscripten are browser/compiler tooling dependencies, not requirements for a C++ audio callback. The manual native engine excludes aubio and libsndfile.
+The gateway validates the song manifest, regenerated native packet, and explicit six-profile effects before stopped preparation. The native owner preserves the current instrument if replacement preparation fails. See [the development guide](../development.md#verify-the-remote-practice-instrument) for packaging, preparation, and test commands. Release artifact packaging and transfer belong to the later deployment step.
 
-## Preserve audio and clock ownership
+Clients observe the host's current song and applied state. Attaching, refreshing, or detaching a client does not stop or reconfigure the instrument. The mode selector reloads the desk and blocks switching while Browser audio is busy. Leaving Hardware mode only detaches that browser.
 
-One local engine owner calls `pf_process_stems()` with mono float microphone input and four caller-cleared, nonoverlapping planar float outputs. These are sample/click left and right plus processed-live left and right. Mix the two stems exactly once into stereo device output. `pf_process()` discards the live stem and is insufficient for this monitoring path. Never add a parallel dry monitor.
+Commands return the native owner's applied result. Process epoch, run identity, and publication revision distinguish current state from stale observations. A lost connection can leave an in-flight result unknown. Neither client nor gateway replays that action. Reconnection obtains current state rather than reconstructing musical time from network receipt.
 
-Use the negotiated device sample rate when creating the engine. Select the confirmed physical microphone channel explicitly. The adapter owns device enumeration, format conversion, routing, and audio IO. C++ owns clock advancement, transport, sequencing, capture, playback, mixing, click, and effects. No network or wall-clock beat scheduler may advance the performance.
+The existing relay under `lib/relay/` remains separate from this gateway. The remote desk does not depend on its producer lease or its port defaults. Physical keyboard and I-PAC integration, Video clock delivery, and a configured database sidecar remain separate work.
 
-Prepare songs, racks, capture banks, and scratch storage before processing. Scratch must cover the negotiated maximum block size, and each call passes the actual frame count. There is no fixed hardware requirement for 128 frames. The audio path must avoid allocation, reclamation, logging sinks, file IO, and blocking network IO. Apply controls through the owning thread and publish copied event records through a bounded queue outside audio processing.
+## Preserve the audio contract
 
-Preserve original sequence, frame, sample rate, run, and epoch evidence. Chart positions wrap and cannot substitute for a monotonic clock. Define overflow, stale-command, fault, and reconnect behavior with PE. Network protocol, presentation latency, and transport cadence remain unselected.
+One owner calls `pf_process_stems()` with mono float microphone input and four caller-cleared, nonoverlapping planar outputs. These contain sample/click left and right plus processed-live left and right. The host mixes those stems once into stereo device output. It does not add a parallel dry monitor. C++ advances time and executes musical decisions.
 
-## Record device evidence without promoting it to a latency claim
+The ALSA host requires explicit capture and playback names, sample rate, format, capture channel count, microphone channel, maximum block size, period size, and buffer size. It disables ALSA rate resampling and rejects unsupported parameters. Stable device identity replaces an assumed card number or `default` device. See the [native host guide](../../lib/native-host/README.md) and [ALSA guide](../../lib/native-alsa/README.md) for the actual interface and dependency license.
 
-The explicit `hello-001` reply reports Debian 13 with Proxmox and a Scarlett Solo 3rd Gen using host `snd_usb_audio`. Pi reports working ALSA capture, playback, and full-duplex bring-up at 48 kHz, `S32_LE`, and two hardware channels. It identifies microphone input 1 and stereo output. These are Pi-reported facts, not measurements performed by this Codex session. Confirm the machine's identity and its relation to the EliteDesk before using them as EliteDesk inventory.
+Preparation allocates while stopped. Processing uses prepared buffers, retains unwritten output across short writes, and publishes copied records outside the audio owner. Natural completion writes the final block and drains device playback before accepting another Start. Stop and Panic discard pending output, including during that drain. Device errors terminate the host; automatic device reopening is not implemented.
 
-Use stable device identity rather than an assumed card number or default device. Pi reports a temporary dry-monitor user service that currently uses the hardware. Its exact unit, account, invocation, configuration, and stop/restart procedure are still unknown. Query them read-only. Before takeover, obtain authorization, stop that exact service, confirm hardware release, and start only the approved engine. For rollback, stop the engine and restore the captured prior service state. Do not execute that sequence until the operator approves the concrete commands.
+No production CPU reservation, RT priority, affinity, locked-memory budget, buffer size, or latency target is approved. Preserve engine frame, sample rate, sequence, epoch, and run evidence during device tests. Chart position wraps and is not a monotonic clock. The implemented control protocol does not establish a synchronized Video or network clock protocol.
 
-The production backend, requested and negotiated period, buffer size, PCM conversion, output clipping policy, xrun recovery, disconnect behavior, and sample-rate fallback policy need implementation evidence and review. No measured CPU minimum, RT priority, affinity, governor setting, locked-memory budget, or latency target exists in this handoff.
+## Use the bounded inventory without filling its gaps
 
-## Declare ports, data, and secrets only when used
+Pi completed `handoff-001` and `handoff-002` with read-only commands under existing access on November 5, 2026. The following facts are Pi-reported observations, not measurements performed directly by this Codex session.
 
-The proposed native adapter has no implemented network listener. The existing optional relay uses `SHOW_TOOLS_TOKEN` and optional TLS certificate and key paths. Secret names and configuration roles are enough for a handoff. Do not send secret values. Neither the relay nor static server default port establishes the production network layout.
+| Area | Reported observation | Remaining limit |
+| --- | --- | --- |
+| Machine | Bare-metal `proxmox`, HP EliteDesk 800 G4 DM 35W, Debian 13, Proxmox VE 9.2; i5-8500T with six cores and about 16 GiB RAM | Momentary free memory is not reservation accounting or an approved workload allocation. |
+| Storage | One 238.5 GiB NVMe disk; 40 GiB ext4 root and an LVM partition with a visible thin pool; 208 GiB of visible virtual guest disks | Privilege failures leave storage IDs, thin data and metadata occupancy, and physical free capacity unverified. VM or LXC compute is a separate choice from LVM storage. |
+| Guests and backups | Six running container units were visible; full guest configuration and backup queries were denied | Current allocations, USB assignments, backup schedule, successful guest backups, and restore readiness remain unknown. No guest is selected for show-tools. |
+| Scarlett | Solo 3rd Gen `1235:8211`, host `snd_usb_audio`; stable by-id name is visible; advertised stereo `S32_LE` includes 48 kHz | Earlier Pi-session full-duplex bring-up is not production-host verification, measured latency, or sustained xrun evidence. |
+| Build tools | No compiler, CMake, Git, or ALSA development headers on the node | Linux CI supplies build evidence, not a target-node toolchain or authorized installation. |
+| Runtime | Pi's user-local Node v22.23.3 exists; no Docker or Podman runtime was found on the node | Do not silently depend on Pi's managed runtime or assume guest-runtime capabilities. |
 
-Compiled artifacts and capture buffers belong to the selected engine run. Operator authoring data needs an independent, consistent SQLite backup and a verified restore. Host, destination, cadence, and retention remain operator decisions. Live PCM capture and demo export persistence are separate from authoring data. Do not infer that browser MediaRecorder or MP3 export exists in the native host.
+The gateway's Node executable and dependency installation need a reviewed runtime choice. Select the release revision from the integrated, tested branch. Historical `d7cbde2` and `1db0898` establish earlier engine baselines, not the new deployment artifact. The unmerged `fd8e53f` MusicXML reference is not adopted by this handoff.
 
-## Prove the smallest practice session
+The mailbox is not an artifact channel. A separately approved pull or transfer route, immutable release identity, hashes, dependency manifest, and Linux build provenance are still required before staging executable code. Do not send binaries or credentials as mailbox content.
 
-First prove a repository-only adapter path that loads a validated program while stopped, prepares authored voice graphs, and processes explicit input through capture, commit, playback, and Stop. Verify input-channel conversion, stereo stem summation, frame advancement, command ordering, invalid-load preservation, bounded publication, and fault handling without devices. Keep this test independent of a network relay.
+## Review dry-monitor takeover before executing it
 
-After the operator approves the live test, use the recorded interface identity and negotiated parameters. Demonstrate microphone input through the native effects route, chart-driven capture and playback, click, and Stop or Panic. Verify that output contains one processed-live path, with no parallel dry-monitor process. Measure xruns and frame continuity under the approved workload. Exercise disconnect and restart against the reviewed policy before enabling autostart or network clock delivery.
+Pi identified `scarlett-monitor.service` in user `anulman`'s systemd manager. During inventory it was inactive, dead, and static, with no lingering user manager. Its wrapper is `/home/anulman/.local/bin/scarlett-monitor`; its Python implementation is a temporary dry monitor, not the production host. Pi observed Direct Monitor off and both ALSA streams stopped. Unprivileged process visibility does not establish global exclusive ownership.
 
-Local baseline evidence is the Release build and seven passing CTest tests in `/private/tmp/show-tools-elitedesk-native-check`. This verifies Mac PCM processing only. Linux builds, real-device capture/playback through the production adapter, CPU and memory sizing, callback deadlines, restart, reconnect, and network delivery are not yet verified.
+For an approved live test, first capture the current service and hardware state again. The proposed wrapper commands are `scarlett-monitor status` and `scarlett-monitor off` at that absolute path. Confirm device release before starting the selected native host. For rollback, stop that exact host, verify device release and Direct Monitor off, and restore the prior monitor state. Run `scarlett-monitor on` only if restoring the captured state requires it and the operator confirms safe output volume. Do not invent a future engine service name.
 
-## Assign the owners
+Software Stop cannot mute independently enabled physical Direct Monitor. Keep one processed-live route and test Stop and Panic before increasing output level. Service installation, enabled state, autostart, user-manager lifetime, and restart policy remain deployment decisions.
 
-Hardware Manager coordinates the physical installation and operator decisions. Hardware - EliteDesk owns read-only host inventory, Proxmox and storage planning, the device adapter, deployment packaging, and host recovery. Performance Engine owns shared C++ semantics, ABI, song compilation, and clock contracts. Chief selects the reviewed integrated deployment artifact. Pi owns on-device infrastructure coordination and prepares privileged actions for operator approval. The restricted SSH key grants mailbox access only.
+## Establish Tailscale access first
+
+The initial access plan uses Tailscale. Pi reports DNS name `proxmox.tail54fc55.ts.net` and a matching `CertDomains` entry. That is capability information only. This work has issued no certificate and installed no gateway listener. The report does not establish a reachable performance URL.
+
+The gateway accepts explicit bind address, port, allowed origin, token-file path, static-root path, and optional certificate and key paths. Select those values in the deployment proposal and verify HTTPS and authentication from the actual laptop or phone. Keep secret values out of the handoff and mailbox. LAN access is a later phase; its endpoint, trust, and network policy are unselected. Do not change Proxmox management networking or reuse unrelated homelab credentials.
+
+## Finish with a real practice session
+
+After release and takeover approval, demonstrate remote Start, pads, signed knob movement, effects edits while stopped, and Stop or Panic against the actual native audio host. Confirm microphone channel selection, stereo routing, one processed-live path, and no browser audio or dry-monitor process. Verify actual frame continuity and xruns under the agreed workload, then exercise disconnect, host exit, and restart behavior before enabling autostart.
+
+Operator authoring data still needs a consistent SQLite backup independent of Git and a tested restore. Host, destination, cadence, and retention remain unconfigured. Browser demo recording and MP3 export do not imply a native recording service. Follow [the retention policy](../data-retention.md).
+
+Hardware Manager coordinates the physical installation and operator decisions. Hardware - EliteDesk owns host inventory, device adapters, deployment packaging, and recovery. Performance Engine owns shared C++ semantics, ABI, song compilation, and clock contracts. Chief coordinates reviewed integration artifacts. Pi coordinates on-device infrastructure and prepares scoped actions for operator approval.
