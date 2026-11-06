@@ -59,12 +59,12 @@ def strict_json(raw):
                       parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite JSON')))
 
 
-def ancestors(path, root_only=False, exact_mode=None):
+def ancestors(path, root_only=False, exact_mode=None, allow_group_write=False):
     for parent in reversed(path.parents):
         info = parent.lstat()
         require(stat.S_ISDIR(info.st_mode), 'symlink or non-directory ancestor')
         require(info.st_uid == 0 if root_only else info.st_uid in (0, 1000), 'unexpected ancestor owner')
-        require(not info.st_mode & (0o022 if root_only else 0o002), 'writable ancestor')
+        require(not info.st_mode & (0o002 if allow_group_write else 0o022), 'writable ancestor')
         if exact_mode is not None:
             require(info.st_gid == 0 and stat.S_IMODE(info.st_mode) == exact_mode, 'protected ancestry mode drift')
 
@@ -101,7 +101,7 @@ def trusted_tools():
 def boundary():
     for filename, (mode, expected) in BOUNDARY.items():
         path = Path(filename)
-        ancestors(path)
+        ancestors(path, allow_group_write=True)
         require(digest(read_file(path, 1000, 1000, mode)) == expected, 'bridge or SSH boundary drift')
 
 
