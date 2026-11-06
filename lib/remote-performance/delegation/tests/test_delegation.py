@@ -490,13 +490,14 @@ class Delegation(unittest.TestCase):
 
     def test_production_claim_rechecks_after_waiting_for_lock(self):
         raw = self.message()
-        for cause in ('expired', 'revoked'):
+        for cause in ('valid', 'expired', 'revoked', 'changed-grant'):
             with self.subTest(cause=cause):
                 path = self.ledger()
                 now = [self.now]
                 current_grant = [self.grant_raw]
                 waiting = threading.Event()
                 errors = []
+                output = io.StringIO()
                 real_flock = check.fcntl.flock
                 def acquire(fd, operation):
                     if operation == check.fcntl.LOCK_EX:
@@ -511,21 +512,30 @@ class Delegation(unittest.TestCase):
                         errors.append(error)
                 with path.open('r+b', buffering=0) as held:
                     real_flock(held.fileno(), check.fcntl.LOCK_EX)
-                    with patch.object(check, 'CHECKER', Path(check.__file__)), patch.object(check, 'protected_file', protected), patch.object(check, 'open_ledger', lambda: path.open('r+b', buffering=0)), patch.object(check, 'validate_ledger_fd'), patch.object(check.os, 'getuid', return_value=1000), patch.object(check.os, 'geteuid', return_value=1000), patch.object(check.os, 'getgid', return_value=1000), patch.object(check.socket, 'gethostname', return_value='proxmox'), patch.object(check.time, 'time', lambda: now[0]), patch.object(check.fcntl, 'flock', acquire), patch.object(check.sys, 'stdin', types.SimpleNamespace(buffer=io.BytesIO(raw))):
+                    with patch.object(check, 'CHECKER', Path(check.__file__)), patch.object(check, 'SIGNERS', self.signer_path), patch.object(check, 'protected_file', protected), patch.object(check, 'open_ledger', lambda: path.open('r+b', buffering=0)), patch.object(check, 'validate_ledger_fd'), patch.object(check.os, 'getuid', return_value=1000), patch.object(check.os, 'geteuid', return_value=1000), patch.object(check.os, 'getgid', return_value=1000), patch.object(check.socket, 'gethostname', return_value='proxmox'), patch.object(check.time, 'time', lambda: now[0]), patch.object(check.fcntl, 'flock', acquire), patch.object(check.sys, 'stdin', types.SimpleNamespace(buffer=io.BytesIO(raw))), patch.object(check.sys, 'stdout', output):
                         worker = threading.Thread(target=run)
                         worker.start()
                         self.assertTrue(waiting.wait(2), 'claimant did not reach the held ledger lock')
                         if cause == 'expired':
                             now[0] = self.plan['expiresAt'] + 1
-                        else:
+                        elif cause == 'revoked':
                             current_grant[0] = check.canonical(dict(self.grant, active=False, version=2))
+                        elif cause == 'changed-grant':
+                            current_grant[0] = check.canonical(dict(self.grant, version=2))
                         real_flock(held.fileno(), check.fcntl.LOCK_UN)
                         worker.join(5)
                         self.assertFalse(worker.is_alive())
-                self.assertEqual(len(errors), 1)
-                self.assertIsInstance(errors[0], check.Rejected)
                 rows = [json.loads(line) for line in path.read_bytes().splitlines()[1:]]
-                self.assertEqual([row['operation'] for row in rows], ['deny'])
+                if cause == 'valid':
+                    self.assertEqual(errors, [])
+                    self.assertEqual([row['operation'] for row in rows], ['claim'])
+                    self.assertEqual(json.loads(output.getvalue())['receipt']['outcome'], 'claimed')
+                else:
+                    self.assertEqual(len(errors), 1)
+                    self.assertIsInstance(errors[0], check.Rejected)
+                    self.assertEqual(str(errors[0]), {'expired': 'stale or future request',
+                        'revoked': 'grant inactive', 'changed-grant': 'current grant mismatch'}[cause])
+                    self.assertEqual([row['operation'] for row in rows], ['deny'])
 
 
     def test_operator_install_corrects_new_directory_mode_under_private_umask(self):
