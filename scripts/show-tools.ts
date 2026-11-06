@@ -11,10 +11,12 @@ import { chiefHandoff, commandFailureExitCode, formatCommandFailure, parseComman
 
 export const HELP = `Usage: show-tools sheets [SONG_SLUG_OR_SET_LIST_NUMBER] [--no-cdp] [--skip-open]
        show-tools songs
+       show-tools session <install|start|stop|status|audio> [--profile FILE]
 
 Commands:
   chart          Fetch, compile, and inspect mapped performance charts
   sheets [song]  Run Sheets following; open the set list or a song's lead-in
+  session        Manage the persistent web desk and optional native audio
   songs          List song slugs and 1-indexed set-list numbers
 
 Options:
@@ -147,6 +149,10 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
 
 export async function main(args = process.argv.slice(2)) {
   try {
+    if (args[0] === 'session') {
+      await (await import('../lib/remote-performance/session-cli.js')).runSessionCli(args.slice(1));
+      return;
+    }
     if (args[0] === 'chart') {
       const json = args.includes('--json'), output: string[] = [];
       try {
