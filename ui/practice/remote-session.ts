@@ -9,11 +9,16 @@ async function readJson(response: Response): Promise<unknown> {
   return JSON.parse(text);
 }
 
+export type RemoteConnection =
+  | { readonly kind: 'connecting' }
+  | { readonly kind: 'connected' }
+  | { readonly kind: 'disconnected'; readonly error: string };
+
 export class RemoteDesk {
   private readonly listeners = new Set<(view: DeskView) => void>();
   private readonly abort = new AbortController();
   private sequence = 0;
-  private connected = false;
+  private connectionState: RemoteConnection = { kind: 'connecting' };
   private disposed = false;
   private endpoint: RemoteSession | undefined;
   private constructor(private readonly token: string, private readonly sessionId: string, private latest: DeskView) { this.updateEndpoint(); }
@@ -24,9 +29,10 @@ export class RemoteDesk {
     return new RemoteDesk(token, bootstrap.sessionId, bootstrap.view);
   }
   snapshot() { return this.latest; }
+  get connection(): RemoteConnection { return this.connectionState; }
   subscribe(listener: (view: DeskView) => void) { this.listeners.add(listener); listener(this.latest); return () => this.listeners.delete(listener); }
   performance() {
-    if (!this.connected || !this.endpoint) throw new Error('Hardware audio is unavailable. Enable audio and wait for ready.');
+    if (this.connectionState.kind !== 'connected' || !this.endpoint) throw new Error('Hardware audio is unavailable. Enable audio and wait for ready.');
     return this.endpoint;
   }
   private updateEndpoint() {
@@ -44,14 +50,15 @@ export class RemoteDesk {
     for (const listener of this.listeners) listener(view);
   }
   private disconnect(error: unknown) {
-    this.connected = false; this.endpoint?.invalidate(); this.endpoint = undefined; this.abort.abort();
-    if (!this.disposed) { this.latest = { ...this.latest, audio: { kind: 'fault', error: error instanceof Error ? error.message : String(error) } }; for (const listener of this.listeners) listener(this.latest); }
+    this.connectionState = { kind: 'disconnected', error: error instanceof Error ? error.message : String(error) };
+    this.endpoint?.invalidate(); this.endpoint = undefined; this.abort.abort();
+    if (!this.disposed) for (const listener of this.listeners) listener(this.latest);
   }
   async listen() {
     try {
       const response = await fetch('/api/events', { headers: { Authorization: `Bearer ${this.token}`, 'X-Session-Id': this.sessionId }, signal: this.abort.signal, cache: 'no-store' });
       if (!response.ok || !response.body) throw new Error(`Remote events failed (${response.status})`);
-      this.connected = true;
+      this.connectionState = { kind: 'connected' };
       this.observe(this.latest);
       const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
       let pending = '';
@@ -81,7 +88,7 @@ export class RemoteDesk {
     } catch (error) { if (!this.disposed) this.disconnect(error); }
   }
   private async post(route: string, body: object) {
-    if (!this.connected || this.disposed) throw new Error('Remote desk is disconnected. Reconnect to the desk.');
+    if (this.connectionState.kind !== 'connected' || this.disposed) throw new Error('Remote desk is disconnected. Reconnect to the desk.');
     const response = await fetch(route, { method: 'POST', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ sessionId: this.sessionId, sequence: ++this.sequence, ...body }) });
     if (!response.ok) throw new Error(`Remote request failed (${response.status}); outcome unknown.`);
     return readJson(response);
@@ -107,7 +114,7 @@ export class RemoteDesk {
     endpoint.observe(result);
     return endpoint.snapshot();
   }
-  async dispose() { this.disposed = true; this.connected = false; this.abort.abort(); this.endpoint?.invalidate(); this.listeners.clear(); }
+  async dispose() { this.disposed = true; this.connectionState = { kind: 'disconnected', error: 'Detached from desk' }; this.abort.abort(); this.endpoint?.invalidate(); this.listeners.clear(); }
 }
 
 export class RemoteSession {

@@ -7,6 +7,7 @@ import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 import type { PracticeAudio } from './audio.js';
 import { RemoteDesk, RemoteSession } from './remote-session.js';
+import type { RemoteConnection } from './remote-session.js';
 import type { DeskView } from '../../lib/remote-performance/session-schema.js';
 import type { MonitoringRelationship } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
@@ -849,11 +850,17 @@ if (remote) {
     await switchSong(desk.snapshot().song.id, undefined, undefined, { remoteSong: desk.snapshot().song });
     desk.subscribe(view => {
       const status = view.audio;
-      hardwareCard.dataset.audio = status.kind;
-      hardwareStatus.textContent = status.kind === 'fault' ? `Audio fault · ${status.error}` : `Audio ${status.kind}`;
-      enableAudio.disabled = status.kind !== 'off' && status.kind !== 'fault';
-      terminateAudio.disabled = status.kind === 'off' || status.kind === 'fault' || status.kind === 'stopping';
-      if (status.kind !== 'ready') {
+      const connection = desk.connection;
+      const connected = connection.kind === 'connected';
+      hardwareCard.dataset.connection = connection.kind;
+      hardwareCard.dataset.audio = connected ? status.kind : '';
+      hardwareStatus.textContent = connection.kind === 'disconnected' ? 'Connection lost; audio may still be running. Reconnect to the desk.'
+        : connection.kind === 'connecting' ? 'Connecting to desk…'
+        : status.kind === 'fault' ? `Audio fault · ${status.error}`
+        : status.kind === 'ready' ? 'Audio on' : `Audio ${status.kind}`;
+      enableAudio.disabled = !connected || (status.kind !== 'off' && status.kind !== 'fault');
+      terminateAudio.disabled = !connected || status.kind === 'off' || status.kind === 'fault' || status.kind === 'stopping';
+      if (!connected || status.kind !== 'ready') {
         audio = undefined;
         transportGeneration++;
         starting = false;
@@ -883,7 +890,7 @@ if (remote) {
 } else await act(() => switchSong('dance-yrself-clean'));
 
 if (new URLSearchParams(location.search).has('test')) {
-  window.practiceDesk = { get audio() { return remote ? undefined : audio; }, get state() { return remote && !audio ? undefined : state; }, get chart() { return chart; }, get hardware() { return remoteDesk?.snapshot(); } };
+  window.practiceDesk = { get audio() { return remote ? undefined : audio; }, get state() { return remote && !audio ? undefined : state; }, get chart() { return chart; }, get hardware() { return remoteDesk?.snapshot(); }, get connection() { return remoteDesk?.connection; } };
 }
 
 function applyPendingPracticeUpdate() {
@@ -929,6 +936,6 @@ if (!remote && 'serviceWorker' in navigator && window.isSecureContext && !new UR
 
 declare global {
   interface Window {
-    practiceDesk?: { readonly audio: PerformanceSession | undefined; readonly state: DisplayState | undefined; readonly chart: Chart | undefined; readonly hardware: DeskView | undefined };
+    practiceDesk?: { readonly audio: PerformanceSession | undefined; readonly state: DisplayState | undefined; readonly chart: Chart | undefined; readonly hardware: DeskView | undefined; readonly connection: RemoteConnection | undefined };
   }
 }

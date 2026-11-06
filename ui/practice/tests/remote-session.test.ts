@@ -65,7 +65,9 @@ test('native patches retain song, reject old revisions and filter stale attempt 
     assert.equal(events, 0);
     await publish({ type: 'gap' });
     await assert.rejects(session.stop(), /stale/);
-    assert.equal(desk.snapshot().audio.kind, 'fault');
+    assert.equal(desk.snapshot().audio.kind, 'ready');
+    assert.equal(desk.connection.kind, 'disconnected');
+    await assert.rejects(desk.terminateAudio(), /disconnected/);
   });
 });
 
@@ -93,4 +95,44 @@ test('editing one ready remote profile uses its observed revision without replac
     await desk.performance().configureVoiceProfile(1, effects);
     assert.deepEqual(calls[0]?.body.args, { profile: 1, effects, expectedRevision: 2 });
   });
+});
+
+test('opening an already playing desk observes current state without changing audio or transport', async () => {
+  const previous = globalThis.fetch;
+  const playing = { ...ready, audio: { ...ready.audio, performance: { ...performance, state: { ...state, phase: 'playing', bar: 2, beat: 3 } } } };
+  const requests: string[] = [];
+  let stream: ReadableStreamDefaultController<Uint8Array> | undefined;
+  globalThis.fetch = async (input, init) => {
+    requests.push(`${init?.method ?? 'GET'} ${input}`);
+    if (String(input) === '/api/session') return Response.json({ sessionId: 'session', view: playing });
+    if (String(input) === '/api/events') return new Response(new ReadableStream({ start(controller) { stream = controller; } }));
+    assert.fail('Opening the desk must not send a mutation');
+  };
+  const desk = await RemoteDesk.connect('secret');
+  try {
+    assert.equal(desk.connection.kind, 'connecting');
+    const observed: string[] = [];
+    desk.subscribe(() => observed.push(desk.connection.kind));
+    void desk.listen(); await tick();
+    const session = desk.performance();
+    assert.equal(session.snapshot().phase, 'playing');
+    assert.equal(session.snapshot().bar, 2);
+    stream?.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ type: 'native', serverEpoch: 'server', revision: '4', attempt: 'attempt', performance: { ...playing.audio.performance, revision: '2', state: { ...playing.audio.performance.state, beat: 4 } } })}\n\n`));
+    await tick();
+    assert.equal(desk.performance(), session);
+    assert.equal(session.snapshot().beat, 4);
+    assert.deepEqual(requests, ['GET /api/session', 'GET /api/events']);
+    const lastObserved = desk.snapshot();
+    stream?.close(); await tick();
+    assert.equal(desk.snapshot(), lastObserved);
+    assert.equal(desk.snapshot().audio.kind, 'ready');
+    assert.equal(session.snapshot().phase, 'playing');
+    assert.equal(desk.connection.kind, 'disconnected');
+    assert.deepEqual(observed, ['connecting', 'connected', 'connected', 'disconnected']);
+    assert.throws(() => desk.performance(), /unavailable/);
+    await assert.rejects(session.stop(), /stale/);
+    await assert.rejects(desk.enableAudio(), /disconnected/);
+    await assert.rejects(desk.terminateAudio(), /disconnected/);
+    assert.deepEqual(requests, ['GET /api/session', 'GET /api/events']);
+  } finally { await desk.dispose(); globalThis.fetch = previous; }
 });
