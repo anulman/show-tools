@@ -11,7 +11,24 @@ export interface MusicXmlCell {
   text: string;
   reading: CellReading;
 }
+export type VocalEligibility =
+  | { kind: 'lyric' }
+  | { kind: 'inactive'; reason: 'blank' | 'notation' }
+  | { kind: 'unresolved'; message: string };
+export type StageCellAnnotation =
+  | { cell: string; eligibility: VocalEligibility; kind: 'resolved'; active: boolean; emphasis: 'normal' | 'special' | 'ultra'; sampled: boolean; accents: number[]; anchor: number | null }
+  | { cell: string; eligibility: VocalEligibility; kind: 'unresolved'; message: string };
+
+export interface MusicalAnnotations {
+  stageCells: StageCellAnnotation[];
+  activities: { cell: string; kind: 'rest' | 'playing' }[];
+  feels: { partId: string; startBar: number; endBar: number; text: 'Funky' | 'Extra funky' }[];
+  vocals: ({ cell: string; kind: 'text' } | { cell: string; kind: 'count-and'; countOffset: number; andOffset: number })[];
+  instrumentDisplays: { cell: string; text: string }[];
+}
+
 export interface MusicXmlReport {
+  annotations: MusicalAnnotations;
   profile: string;
   title: string;
   sourceDigest: string;

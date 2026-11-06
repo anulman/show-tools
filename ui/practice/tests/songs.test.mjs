@@ -14,13 +14,13 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   assert.equal(loaded[2].chart.sections[0].label, 'Intro 1');
   assert.equal(loaded[1].chart.bars[7].bar, 8, 'a starred source bar stays numbered');
   assert.equal(loaded[1].chart.bars[7].partial, false, 'starred section changes are not partial bars');
-  assert.notDeepEqual(loaded[0].program, loaded[1].program);
-  assert.notDeepEqual(loaded[1].program, loaded[2].program);
+  assert.equal(loaded[1].compiled, undefined);
+  assert.equal(loaded[2].compiled, undefined);
   assert.equal(loaded[0].compiled.chart, loaded[0].chart, 'DYC exposes the compiled source chart');
   assert(loaded[0].compiled.cues.length > 0, 'DYC provides compiled chart instructions');
-  for (const song of loaded.slice(1)) assert(song.program.controls);
+  for (const song of loaded) assert.equal(song.program.controls, undefined);
   for (const song of loaded) {
-    assert.match(song.description, /Chart/);
+    assert.match(song.description, /chart/i);
     assert.deepEqual(song.program.events, [], 'songs do not auto-play synthetic samples');
     for (const event of song.program.events) assert(event.atBeat >= 0 && event.atBeat < song.program.lengthBeats);
   }

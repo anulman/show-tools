@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { Schema } from 'effect';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
-import { literalInstrumentCue, musicianFeelRanges, sectionFeelSummary } from '../musician-annotations.js';
+import { instrumentCue, musicianFeelRanges, sectionFeelSummary } from '../musician-annotations.js';
 import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { createMusicianSheets } from '../musician-sheets.js';
 import { parseSongSource } from '../song-source.js';
@@ -111,6 +111,7 @@ test('DYC musician outputs condense rests while preserving every bar, active wri
 
 test('focused parts preserve complete source metadata and bar durations with readable arrangement and lyric cues', async () => {
   const input = await inputs(), song = await compileSheetsSong(input.source, input.mapping);
+  const { report: canonicalReport } = await importSheetMusicXml(input);
   for (const sheet of await createMusicianSheets(input)) {
     const doc = parsed(sheet.xml);
     assert.equal(doc.part.length, 1);
@@ -136,7 +137,9 @@ test('focused parts preserve complete source metadata and bar durations with rea
     const row = Number(sheet.labelCell.slice(1)) - 1;
     for (const bar of song.chart.bars) {
       const raw = input.source.values[row]?.[bar.column - 1] ?? '';
-      if (literalInstrumentCue(raw)) assert.ok(words.some(word => word.bar === bar.bar && word.id.startsWith('chart-') && word['#text'] === raw));
+      const cell = canonicalReport.parts.find(part => part.labelCell === sheet.labelCell)?.cells.find(cell => cell.bar === bar.bar);
+      const display = cell ? instrumentCue(cell.cell, canonicalReport) : '';
+      if (display) assert.ok(words.some(word => word.bar === bar.bar && word.id.startsWith('chart-') && word['#text'] === display));
     }
     const rehearsals = doc.part[0].measure.flatMap(measure => (measure.direction ?? []).flatMap(direction => {
       const rehearsal = direction['direction-type'].rehearsal;

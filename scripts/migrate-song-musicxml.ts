@@ -1,3 +1,5 @@
+import { columnName } from '../lib/performance/columns.js';
+import { normalizeSheetMusicalAnnotations } from '../lib/performance/sheet-musical-annotations.js';
 import { resolve, join } from 'node:path';
 import type { MusicXmlReport } from '../lib/performance/musicxml-model.js';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
@@ -24,11 +26,11 @@ for (const id of ['drunk-girls', 'i-can-change']) {
     source: { spreadsheetId: chart.spreadsheetId, sheetId: chart.sheetId, sheetName: chart.sheetName, range: 'A1:A1', digest: '' },
     mappingDigest: '', chart, voices: [], parts: [], rotation: null, cueWindow: null, cues: [], takes: [], selections: [], playback: [],
     diagnostics: [], executable: false });
-  const cells = chart.bars.map(bar => ({ cell: `A${bar.bar}`, bar: bar.bar, text: '', reading: { kind: 'blank' } satisfies { kind: 'blank' } }));
-  const report: MusicXmlReport = { profile: 'show-tools-song-v1', title: chart.title, sourceDigest: '', mappingDigest: '', meter: song.meter,
+  const cells = chart.bars.map(bar => ({ cell: `${columnName(bar.column)}1`, bar: bar.bar, text: '', reading: { kind: 'blank' } satisfies { kind: 'blank' } }));
+  const report: MusicXmlReport = normalizeSheetMusicalAnnotations({ profile: 'show-tools-song-v2', title: chart.title, sourceDigest: '', mappingDigest: '', meter: song.meter,
     bpmPerChartCount: chart.bpm, measureCount: chart.bars.length, selectedLabelCells: ['A1'], nativeCompilationExecutable: false,
     compilerDiagnostics: [], conventions: ['Timing-only song. Performance instructions and instrumental detail are unspecified.'],
-    sections: chart.sections, vocalCues: [], parts: [{ id: 'P-form', name: 'Form', labelCell: 'A1', managed: false, cells }] };
+    sections: chart.sections, vocalCues: [], parts: [{ id: 'P-form', name: 'Form', labelCell: 'A1', managed: false, cells }] });
   const archive = parseSongSource({ sourceVersion: 1, spreadsheetId: chart.spreadsheetId, sheetId: chart.sheetId, sheetName: chart.sheetName,
     range: 'A1:A1', values: [], notes: {} });
   await writeFile(join(output, `${id}.musicxml`), await writeMusicXmlSong({ song, report, source: archive, mapping: input }), { flag: 'wx' });

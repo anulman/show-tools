@@ -88,10 +88,12 @@ test('bound-script package is deterministic, exposes top-level functions and rea
     }
     const calls: string[] = [];
     let activeSheetId = input.source.sheetId;
+    let activeValues = input.source.values.map(row => [...row]);
+    let activeRange = input.source.range;
     const sheet = {
       getSheetId: () => activeSheetId, getName: () => input.source.sheetName,
       getActiveRangeList: () => ({ getRanges: () => [{ getRow: () => 11, getNumRows: () => 2 }] }),
-      getRange: (range: string) => { calls.push(range); return { getDisplayValues: () => input.source.values, getNotes: () => notes }; },
+      getDataRange: () => { calls.push('used-range'); return { getDisplayValues: () => activeValues, getNotes: () => notes, getNumRows: () => activeValues.length, getNumColumns: () => Math.max(...activeValues.map(row => row.length)), getA1Notation: () => activeRange }; },
     };
     const context = vm.createContext({ SpreadsheetApp: {
       getActiveSpreadsheet: () => ({ getId: () => input.source.spreadsheetId, getActiveSheet: () => sheet }),
@@ -103,8 +105,14 @@ test('bound-script package is deterministic, exposes top-level functions and rea
     const converted = await prepareSelectedMusicXml(payload);
     assert.deepEqual(converted.report.selectedLabelCells, ['A11', 'A12']);
     assert.equal(converted.xml, (await prepareSelectedMusicXml({ source: input.source, selection: [{ firstRow: 11, lastRow: 12 }] })).xml);
-    assert.ok(calls.includes(input.source.range));
+    assert.ok(calls.includes('used-range'));
     assert.ok(calls.some(call => call.endsWith('/showMusicXmlExport')));
+    activeValues.push(['AF - New instrument']);
+    activeRange = 'A1:HL31';
+    const expanded: unknown = JSON.parse(vm.runInContext('JSON.stringify(getMusicXmlSelection())', context));
+    const expandedSong = await prepareSelectedMusicXml(expanded);
+    assert.equal(expandedSong.report.parts.length, 9, 'The complete master discovers voices beyond the old frozen row extent.');
+    assert.ok(expandedSong.report.parts.some(part => part.name === 'New instrument'));
     activeSheetId = 999;
     const before = calls.length;
     assert.throws(() => vm.runInContext('getMusicXmlSelection()', context), /supports only/);

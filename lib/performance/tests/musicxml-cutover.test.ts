@@ -98,3 +98,32 @@ test('a displayed performance command cannot contradict its executable applicati
   assert.notEqual(edited, xml);
   await assert.rejects(readMusicXmlSong(edited));
 });
+
+
+test('every bundled song exposes the canonical instructions, metadata and source view', async () => {
+  const { SONGS } = await import('../../../songs/index.js');
+  const { musicXmlSourceView } = await import('../musicxml-source-view.js');
+  for (const entry of SONGS) {
+    const xml = await readFile(new URL(`../../../songs/${entry.id}.musicxml`, import.meta.url), 'utf8');
+    const document = await readMusicXmlSong(xml);
+    const { default: script } = await entry.load();
+    assert.deepEqual(script.compiled, document.song.executable ? document.song : undefined);
+    assert.deepEqual(script.chart, document.song.chart);
+    assert.deepEqual(script.voiceMetadata, document.voices ?? undefined);
+    assert.deepEqual(script.source, musicXmlSourceView(document));
+    assert.equal(script.program.controls, undefined);
+  }
+});
+
+
+test('displayed commands cannot silently enter the timing-only practice path', async () => {
+  const { musicXmlSongScript } = await import('../../../songs/load-musicxml.js');
+  const xml = await readFile(new URL('../../../songs/drunk-girls.musicxml', import.meta.url), 'utf8');
+  const blank = await readMusicXmlSong(xml);
+  assert.equal(musicXmlSongScript(blank).compiled, undefined);
+  const edited = xml.replace('<measure number="1">', '<measure number="1"><direction><direction-type><words id="command-R1-1">rb</words></direction-type></direction>');
+  const document = await readMusicXmlSong(edited);
+  const script = musicXmlSongScript(document);
+  assert.equal(script.chart.bars[0].cues.R1, 'rb');
+  assert.equal(script.compiled?.executable, false);
+});

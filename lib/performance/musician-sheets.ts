@@ -1,6 +1,6 @@
 import type { MusicXmlReport } from './musicxml-model.js';
 import { readMusicXmlSong } from './musicxml-song.js';
-import { musicianFeelRanges, sectionFeelSummary, vocalAnnotation, literalInstrumentCue, type VocalAnnotation } from './musician-annotations.js';
+import { musicianFeelRanges, sectionFeelSummary, vocalAnnotation, instrumentCue, type VocalAnnotation } from './musician-annotations.js';
 import { scoreXmlText as xml, stableMusicXmlJson } from './score-xml.js';
 import { planMusicianRows, parseMusicianReuse, musicianRepeatCandidates, type MusicianRow, type SectionReference } from './musician-sheet-plan.js';
 
@@ -51,7 +51,7 @@ function present(row: MusicianRow, report: MusicXmlReport, firstOnPage: boolean,
   const vocals = row.kind === 'staff' ? cues.map((cue): PlacedVocal => {
     const x = staffStart + (cue.bar - start) * measureWidth + 23;
     const right = staffStart + (cue.bar - start + 1) * measureWidth;
-    const annotation = vocalAnnotation(cue);
+    const annotation = vocalAnnotation(cue, report);
     return { cue: annotation, x, lines: annotation.kind === 'text' ? wrap(cue.text, Math.max(8, Math.floor((right - x - 5) / 4.7))) : [] };
   }) : [];
   const cueLines = row.kind === 'staff' ? [] : wrap(cueText, 46);
@@ -144,7 +144,7 @@ function svgPage(page: System[], pageIndex: number, pageCount: number, part: Par
     for (const [i, cell] of row.cells.entries()) {
       const x = staffStart + i * measureWidth;
       body.push(`<g data-bar="${cell.bar}"><text x="${x + 4}" y="${vocalY}" font-size="7" fill="#555">${cell.bar}</text><line x1="${x}" y1="${staffY}" x2="${x}" y2="${staffY + 24}" stroke="#777" stroke-width=".55"/>`);
-      if (literalInstrumentCue(cell.text)) body.push(`<text data-source-cell="${cell.cell}" x="${x + 4}" y="${staffY + 41}" font-size="8" fill="#444">${xml(literalInstrumentCue(cell.text))}</text>`);
+      if (instrumentCue(cell.cell, report)) body.push(`<text data-source-cell="${cell.cell}" x="${x + 4}" y="${staffY + 41}" font-size="8" fill="#444">${xml(instrumentCue(cell.cell, report))}</text>`);
       body.push('</g>');
     }
     body.push(`<line x1="${staffEnd}" y1="${staffY}" x2="${staffEnd}" y2="${staffY + 24}" stroke="#444" stroke-width=".7"/></g>`);
@@ -172,7 +172,7 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
     if (section) body += `<direction><direction-type><rehearsal>${xml(section.label)}</rehearsal></direction-type></direction>`;
     if (system?.label && !section) body += direction(system.label, `section-${cell.bar}`, 'above');
     for (const cue of report.vocalCues.filter(cue => cue.bar === cell.bar)) {
-      const annotation = vocalAnnotation(cue);
+      const annotation = vocalAnnotation(cue, report);
       if (annotation.kind === 'count-and') {
         body += direction('Vocal cue: 3', `vocal-${cue.cell}-count`, 'above', annotation.countOffset);
         body += direction('Vocal cue: > &', `vocal-${cue.cell}-and`, 'above', annotation.andOffset);
@@ -183,8 +183,8 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
       const summary = sectionFeelSummary(system.row.section, feels);
       if (summary) body += direction(summary, `feel-${cell.bar}`, 'above');
     }
-    if (literalInstrumentCue(cell.text)) body += direction(literalInstrumentCue(cell.text), `chart-${cell.cell}`, 'below');
-    body += `<note${cell.text.trim() ? ' print-object="no"' : ''}><rest measure="yes"/><duration>${report.meter.numerator * 960 * 4 / report.meter.denominator}</duration></note>`;
+    if (instrumentCue(cell.cell, report)) body += direction(instrumentCue(cell.cell, report), `chart-${cell.cell}`, 'below');
+    body += `<note${report.annotations.activities.some(activity => activity.cell === cell.cell && activity.kind === 'playing') ? ' print-object="no"' : ''}><rest measure="yes"/><duration>${report.meter.numerator * 960 * 4 / report.meter.denominator}</duration></note>`;
     if (index === part.cells.length - 1) body += '<barline location="right"><bar-style>light-heavy</bar-style></barline>';
     return `<measure number="${cell.bar}">${body}</measure>`;
   }).join('\n');

@@ -80,7 +80,8 @@ test('repeat candidates report exact nonempty cue matches without automatically 
   assert.equal(bassCandidates.some(candidate => candidate.sectionStartBar < 77), false);
   const drumCandidates = musicianRepeatCandidates(drums, report);
   assert.ok(drumCandidates.some(candidate => candidate.sectionStartBar === 193 && candidate.sourceSectionStartBar === 85));
-  assert.ok(drumCandidates.some(candidate => candidate.sectionStartBar === 185 && candidate.sourceSectionStartBar === 161));
+  assert.ok(drumCandidates.some(candidate => candidate.sectionStartBar === 185 && candidate.sourceSectionStartBar === 137));
+  assert.deepEqual(parseMusicianReuse(reuse(report, [confirmed('A15', 185, 137)]), report), [confirmed('A15', 185, 137)], 'Funky !- and ! have identical canonical meaning.');
   assert.equal(drumCandidates.some(candidate => candidate.sectionStartBar === 101 && candidate.sourceSectionStartBar === 77), false);
   assert.equal(planMusicianRows(bass, report, []).some(row => row.kind === 'reference'), false);
 });
@@ -135,4 +136,22 @@ test('cue comparison ignores surrounding whitespace but preserves written cue di
   values[13][column] = '!';
   const changed = (await importSheetMusicXml({ source: { ...input.source, values }, mapping: input.mapping })).report;
   assert.throws(() => parseMusicianReuse(reuse(changed, [confirmed()]), changed), /identical/);
+});
+
+test('repeat equivalence follows canonical hit timing and sampling rather than provenance text', async () => {
+  const { report } = await fixture();
+  const bass = musician(report, 'A14');
+  const original = bass.cells.find(cell => cell.bar === 85);
+  const repeated = bass.cells.find(cell => cell.bar === 93);
+  assert.ok(original && repeated);
+  original.reading = { kind: 'hits', offsets: [0, 1.5], sampled: false };
+  repeated.reading = { kind: 'hits', offsets: [0, 1.5], sampled: false };
+  repeated.text = 'Provenance must not determine equivalence';
+  assert.deepEqual(parseMusicianReuse(reuse(report, [confirmed()]), report), [confirmed()]);
+  assert.ok(musicianRepeatCandidates(bass, report).some(candidate => candidate.sectionStartBar === 93 && candidate.sourceSectionStartBar === 85));
+  repeated.reading = { kind: 'hits', offsets: [0, 2], sampled: false };
+  assert.throws(() => parseMusicianReuse(reuse(report, [confirmed()]), report), /identical/);
+  assert.equal(musicianRepeatCandidates(bass, report).some(candidate => candidate.sectionStartBar === 93 && candidate.sourceSectionStartBar === 85), false);
+  repeated.reading = { kind: 'hits', offsets: [0, 1.5], sampled: true };
+  assert.throws(() => parseMusicianReuse(reuse(report, [confirmed()]), report), /identical/);
 });

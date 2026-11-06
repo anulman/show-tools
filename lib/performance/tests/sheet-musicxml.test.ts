@@ -91,7 +91,7 @@ test('unsupported rhythms remain literal and never silently become note attacks'
   const result = await importSheetMusicXml({ source: { ...input.source, values }, mapping: input.mapping });
   const reading = result.report.parts.find(p => p.labelCell === 'A15')?.cells[0].reading;
   assert.equal(reading?.kind, 'text');
-  assert.match(result.xml, /id="cell-C15"[^>]*>4 2/);
+  assert.match(result.xml, /id="instrument-C15"[^>]*>4 2/);
 });
 
 test('main-vocal lyrics a and e remain text rather than invented subdivision attacks', async () => {
@@ -127,6 +127,15 @@ test('CLI emits the real study and refuses to overwrite an existing output direc
     assert.equal(parsed(before).part.length, 8);
     await assert.rejects(runSheetsMusicXmlImport(args), /EEXIST/);
     assert.equal(await readFile(join(output, 'score.musicxml'), 'utf8'), before);
-    await assert.rejects(runSheetsMusicXmlImport(['--source', 'a', '--source', 'b']), /Usage/);
+    await assert.rejects(runSheetsMusicXmlImport(['--source', 'a', '--source', 'b']), error => typeof error === 'object' && error !== null && 'code' in error && error.code === 'CHART_ARGUMENTS');
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test('complete-master import rejects numbered bars beyond a stale mapping instead of truncating them', async () => {
+  const input = await inputs(), values = input.source.values.map(row => [...row]);
+  for (const row of [input.mapping.barRow, input.mapping.sectionRow]) while (values[row - 1].length <= 220) values[row - 1].push('');
+  values[input.mapping.barRow - 1][220] = '219';
+  values[input.mapping.sectionRow - 1][220] = 'New section';
+  await assert.rejects(importSheetMusicXml({ source: { ...input.source, range: 'A1:HM30', values }, mapping: input.mapping }), /bar 219.*outside.*1-218/);
 });

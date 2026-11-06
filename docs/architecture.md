@@ -69,7 +69,7 @@ Each song is a loadable module under [songs](../songs/README.md), beside its can
 
 The practice desk imports complete MusicXML songs, inspects derived instructions and loads executable artifacts while stopped. Sheets JSON and mapping are ingestion inputs only. `compileSheetsSong` interprets that boundary and `importSheetMusicXml` immediately writes and rereads the canonical document. No downstream consumer recompiles archived source JSON. The [cutover guide](implementation/musicxml-cutover.md) defines the profile, commands and verification.
 
-`lib/performance/musicxml-song.ts` reads and writes the `show-tools-song-v1` MusicXML 4.0 profile. Standard elements own title, parts, meter, reference tempo, sections, arrangement words and onset positions. Versioned application metadata owns capture, retained takes, selection windows and controls. A semantic digest covers the interpreted document and song voice metadata, excluding optional import archives and UI selection. Unsupported notation or contradictory displayed commands fail visibly. `musicxml-model.ts` defines the shared parsed report. `musicxml-source-view.ts` projects a bounded sheet-shaped view for catalog discovery and following from that report and typed actions, without consulting the archive.
+`lib/performance/musicxml-song.ts` reads and writes the `show-tools-song-v2` MusicXML 4.0 profile. Standard elements own title, parts, meter, reference tempo, sections, arrangement words and onset positions. Versioned application metadata owns capture, retained takes, selection windows and controls. A semantic digest covers the interpreted document and song voice metadata, excluding optional import archives and UI selection. Unsupported notation or contradictory displayed commands fail visibly. `musicxml-model.ts` defines the shared parsed report. `musicxml-source-view.ts` projects a bounded sheet-shaped view for catalog discovery and following from that report and typed actions, without consulting the archive.
 
 The [bound Sheets exporter](implementation/sheets-musicxml.md) reads the configured chart through a thin Apps Script adapter and downloads the complete canonical song. Selected rows choose optional musician handouts rather than remove other semantic parts. The rebuilt installer still needs operator installation and Google authorization verification.
 
@@ -95,7 +95,7 @@ F21 arms Bing-Bong during bar 4 while R1 records through bar 5. Their recording 
 
 A playback prefix is a selection view over an immutable take, not another recording. Native capture observes its exclusive source-frame cutoff against the actual clock and retains that observation per bank. Playback feeds zero source after the cutoff while continuing the selected rack, preserving earlier effects tails. It invalidates the printed-cache shortcut once source history diverges. Selecting a full view restores source admission without changing playback phase or recorded PCM. A view change never authorizes a stopped voice to play.
 
-Drunk Girls and I Can Change have timing and section snapshots, but their pad-action rows are blank. Choosing one does not supply a completed arrangement. All current songs start with empty samples.
+Drunk Girls and I Can Change have timing and section snapshots, but their pad-action rows are blank. They preserve timing-only practice with an empty program derived from the canonical chart. Any authored performance instructions must validate before loading audio. All current songs start with empty samples.
 
 ## The UI observes the instrument
 

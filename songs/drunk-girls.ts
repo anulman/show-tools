@@ -1,14 +1,5 @@
 import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
-import { readBundledMusicXml } from './load-musicxml.js';
-import { compileChartControls } from '../lib/performance/chart-controls.js';
-import type { SongScript } from '../lib/performance/model.js';
+import { readBundledMusicXml, musicXmlSongScript } from './load-musicxml.js';
 
-const { song: { chart } } = await readMusicXmlSong(await readBundledMusicXml('drunk-girls'));
-
-export default {
-  id: 'drunk-girls',
-  chart,
-  program: { lengthBeats: 4, events: [], controls: compileChartControls(chart) },
-  practice: { startBar: 1, endBar: 16 },
-  description: 'Chart-driven controls. This chart has no filled pad cues yet; sample slots start empty.',
-} satisfies SongScript;
+const document = await readMusicXmlSong(await readBundledMusicXml('drunk-girls'));
+export default musicXmlSongScript(document, 16);

@@ -8,12 +8,12 @@ const location = { spreadsheetId, sheetId: 101 };
 const url = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit#gid=101`;
 const csv = ',Dance Yrself Clean\r\nBPM,98\r\nMeter,4/4';
 
-function workbook({ duplicate = false, badNote = false, badRelationship = false, brokenString = false, targetFormulaError = false } = {}) {
+function workbook({ duplicate = false, badNote = false, badRelationship = false, brokenString = false, targetFormulaError = false, dateFormat = 'm/d' } = {}) {
   const parts = {
     'xl/workbook.xml': `<workbook><sheets><sheet name="Other" sheetId="1" r:id="rId1"/><sheet name="DYC" sheetId="77" r:id="rId2"/>${duplicate ? '<sheet name="Copy" sheetId="78" r:id="rId3"/>' : ''}</sheets></workbook>`,
     'xl/_rels/workbook.xml.rels': `<Relationships><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/other.xml"/><Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="${badRelationship ? '../../../escape.xml' : 'worksheets/target.xml'}"/>${duplicate ? '<Relationship Id="rId3" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/target.xml"/>' : ''}</Relationships>`,
     'xl/sharedStrings.xml': '<sst><si><t>Dance Yrself Clean</t></si><si><t>BPM</t></si><si><t>Meter</t></si></sst>',
-    'xl/styles.xml': '<styleSheet><numFmts><numFmt numFmtId="164" formatCode="m/d"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>',
+    'xl/styles.xml': `<styleSheet><numFmts><numFmt numFmtId="164" formatCode="${dateFormat}"/></numFmts><cellXfs><xf numFmtId="0"/><xf numFmtId="164"/></cellXfs></styleSheet>`,
     'xl/worksheets/other.xml': '<worksheet><sheetData><row><c r="A1" t="e"><v>#REF!</v></c></row></sheetData></worksheet>',
     'xl/worksheets/target.xml': `<worksheet><sheetData><row r="1"><c r="B1" t="s"><v>${brokenString ? 99 : 0}</v></c></row><row r="2"><c r="A2" t="s"><v>1</v></c><c r="B2" ${targetFormulaError ? 't="e"' : ''}><v>${targetFormulaError ? '#REF!' : '98.0'}</v></c></row><row r="3"><c r="A3" t="s"><v>2</v></c><c r="B3" s="1"><v>46116.0</v></c></row></sheetData></worksheet>`,
     'xl/worksheets/_rels/target.xml.rels': '<Relationships><Relationship Id="notes" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/comments" Target="../comments/notes.xml"/></Relationships>',
@@ -95,4 +95,13 @@ test('public fetch carries cancellation and fails explicitly when notes cannot b
     globalThis.fetch = async () => new Response('denied', { status: 403 });
     await assert.rejects(fetchSongSource(url), /CSV fetch failed/);
   } finally { globalThis.fetch = originalFetch; }
+});
+
+
+test('space-separated rhythm displays survive matching workbook date coercion', () => {
+  const display = csv.replace('4/4', '4 4');
+  const source = parseWorkbookSource(display, workbook({ dateFormat: 'm d' }), location);
+  assert.equal(source.values[2][1], '4 4');
+  assert.throws(() => parseWorkbookSource(display.replace('4 4', '2 4'), workbook({ dateFormat: 'm d' }), location), /values differ/);
+  assert.throws(() => parseWorkbookSource(display, workbook({ dateFormat: 'd m' }), location), /values differ/);
 });

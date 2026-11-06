@@ -14,10 +14,10 @@ Normalize the Video Agent's verified motion index and Street layout. The package
 node --import tsx scripts/normalize-street-assets.ts /private/tmp/street-package assets/video/motion/dyc/catalog.json /private/tmp/street-layout.json street-background.png /private/tmp/street-assets.json
 ```
 
-The command checks export receipts, file hashes, native dimensions, background identity, and the authored pivot anchors. It rejects unverified families. Prepare a private scene with the saved catalog, frozen worksheet, current song mapping, and that asset package:
+The command checks export receipts, file hashes, native dimensions, background identity, and the authored pivot anchors. It rejects unverified families. Prepare a private scene with the saved catalog, canonical MusicXML song, and that asset package:
 
 ```sh
-node --import tsx scripts/prepare-street-preview.ts /private/tmp/catalog.json /private/tmp/source.json /private/tmp/mapping.json /private/tmp/street-assets.json /private/tmp/street-scene.json
+node --import tsx scripts/prepare-street-preview.ts /private/tmp/catalog.json songs/dance-yrself-clean.musicxml /private/tmp/street-assets.json /private/tmp/street-scene.json
 ```
 
 The preparation command resolves the cast through `discoverSheetVoices` and `resolveVoice`. It rejects missing assignments and mismatched asset casts. Keep its inputs, prepared scene, and binding receipt outside Git. The supplied asset package records character geometry and Figma-derived drawings; it does not replace saved voice bindings.
@@ -32,13 +32,13 @@ Serve `dist/` on an isolated port. Make the prepared scene and its referenced as
 
 Pause, restart, scrub, or fullscreen the scene. `window.videoStudio.renderAt(seconds)` pauses and draws an exact preview position. `renderCount(count)` samples counted-beat position directly. `snapshot()` returns the current actor frames; `capture()` returns a canvas PNG. `setPerformanceTime(sample)` validates an injected PE position and samples the authored score there. It does not subscribe to live voice activity.
 
-The preview command authors a short silent policy demonstration at the chart's tempo. Prepare the complete planned song arrangement instead with the current matching source and mapping:
+The preview command authors a short silent policy demonstration at the chart's tempo. Prepare the complete planned song arrangement instead with the canonical MusicXML song:
 
 ```sh
-node --import tsx scripts/prepare-street-song.ts /private/tmp/catalog.json songs/dance-yrself-clean.source.json songs/dance-yrself-clean.mapping.json /private/tmp/street-assets.json /private/tmp/street-song.json
+node --import tsx scripts/prepare-street-song.ts /private/tmp/catalog.json songs/dance-yrself-clean.musicxml /private/tmp/street-assets.json /private/tmp/street-song.json
 ```
 
-The saved catalog supplies the cast. Use the current approved source and matching mapping rather than an older browser inspector snapshot. Preparation visits every bar and voice cell and blocks on source-located diagnostics. DYC contains 218 bars and 872 counts at 98 BPM, giving about 8 minutes 54 seconds without a count-in or added tail. The private `preparationReceipt` inside the scene records source classification, anchors, accent decisions, bindings, and source digests. Scene and receipt replace the output atomically; no sidecar is written. Output paths that alias any input, including filesystem aliases, are rejected. Keep this combined artifact private.
+The saved catalog supplies the cast unless the MusicXML explicitly includes a portable voice-catalog snapshot. With an embedded snapshot, omit the first catalog argument and run either preparation command as `song.musicxml assets-scene.json output.json`. A supplied fallback catalog is opened only when the MusicXML has no snapshot. Without either source of cast bindings, preparation stops with a clear error. Preparation uses that snapshot without changing the saved catalog or its database. MusicXML supplies the chart, normalized stage activity, and provenance; raw Sheets notation is interpreted only when importing the worksheet. Unknown notation remains a visual diagnostic and blocks preparation without blocking audio import. Preparation visits every bar and voice cell and blocks on source-located diagnostics. DYC contains 218 bars and 872 counts at 98 BPM, giving about 8 minutes 54 seconds without a count-in or added tail. The private `preparationReceipt` inside the scene records source classification, anchors, accent decisions, bindings, and source digests. Scene and receipt replace the output atomically; no sidecar is written. Output paths that alias any input, including filesystem aliases, are rejected. Keep this combined artifact private.
 
 To stage performers with poof entrances and exits, add `--poof-fit PROFILE --asset-root ROOT --fit-sha256 SHA256`. Supply all three flags together. The pinned Figma fit profile identifies the exact character and poof catalogs under the asset root, cloud placement, and each actor's admitted effects. Preparation rejects changed pins, moved body anchors, unsafe asset paths, and source/output aliases. The singer stays present; backup enters on its first eligible section cue and stays until section end; other performers follow planned activity. Overlapping poofs merge at the opaque peak. The embedded receipt records the resolved presence ranges and effect decisions.
 

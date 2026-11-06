@@ -60,7 +60,9 @@ test('cowbell compiles six distinct whole-bar takes linked to its capture cues',
     assert.equal(commit.commitTakeId, take.id);
   }
   const other = await loadSong('drunk-girls');
-  assert(!other.program.controls.bars.some(row => Object.values(row).some(cue => cue.capture)));
+  assert.equal(other.compiled, undefined);
+  assert.equal(other.program.controls, undefined);
+  assert.deepEqual(other.program.events, []);
 });
 
 test('pad names are loaded from the selected chart notes, with no other song names leaking in', async () => {

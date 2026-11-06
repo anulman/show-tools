@@ -165,9 +165,10 @@ function worksheetCells(files: Record<string, Uint8Array>, path: string, strings
 }
 function equalCell(csv: string, cell: WorkbookCell | undefined): boolean {
   if (csv === (cell?.text || '')) return true;
-  if (cell?.numeric && cell.format === 'm/d' && Number(cell.text) >= 61) {
+  if (cell?.numeric && (cell.format === 'm/d' || cell.format === 'm d') && Number(cell.text) >= 61) {
     const date = new Date(Date.UTC(1899, 11, 30) + Number(cell.text) * 86400000);
-    if (`${date.getUTCMonth() + 1}/${date.getUTCDate()}` === csv) return true;
+    const separator = cell.format === 'm/d' ? '/' : ' ';
+    if (`${date.getUTCMonth() + 1}${separator}${date.getUTCDate()}` === csv) return true;
   }
   return cell?.numeric === true && /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/.test(csv)
     && Number.isFinite(Number(cell.text)) && Number(csv) === Number(cell.text);

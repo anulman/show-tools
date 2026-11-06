@@ -1,6 +1,6 @@
 # Canonical MusicXML songs
 
-The song document is MusicXML 4.0 with the `show-tools-song-v1` application profile. Sheets is an import boundary. Renderers and performance compilation read the MusicXML document.
+The song document is MusicXML 4.0 with the `show-tools-song-v2` application profile. Sheets is an import boundary. Renderers and performance compilation read the MusicXML document.
 
 The XML reader produces the shared song model in memory. Compiled JSON and native instruction bytes are generated outputs. C++ retains clock advancement, cue execution, capture, mixing, and DSP.
 
@@ -8,7 +8,7 @@ The XML reader produces the shared song model in memory. Compiled JSON and nativ
 
 Standard MusicXML owns the title, part names, measure structure, meter, tempo, sections, and readable musical indications. The current profile supports the existing fixed-meter charts and onset-only directions. It rejects authored pitches, harmony, repeats, tempo changes, and other unsupported notation instead of discarding them. Standard harmony elements can carry chord symbols or Nashville numerals after the importer and profile gain that capability.
 
-The `show-tools:performance` field carries the versioned application instructions that MusicXML does not define. These include capture operations, take retention, layers, selection views, and rotation windows. Consumers validate these instructions before execution. A notation editor that removes the application metadata cannot silently produce an executable song.
+The `show-tools:performance` field carries the versioned application instructions that MusicXML does not define. These include capture operations, take retention, layers, selection views, rotation windows and normalized visual activity. Sheets notation is interpreted once at ingestion. Typed stage records include section eligibility, emphasis and exact accent offsets; Video never reparses archived cell text. Standard positioned words carry musician activity, feel ranges and vocal annotations. Consumers validate these instructions before execution. A notation editor that removes the application metadata cannot silently produce an executable song.
 
 The optional `show-tools:source` and `show-tools:mapping` fields retain the original parsed import data for audit and migration. Consumers do not reconstruct the song from those archives. Removing both archives must leave the compiled song and chart report unchanged.
 
@@ -54,7 +54,8 @@ Compile or inspect a canonical song.
 
 ```sh
 ./show-tools chart inspect songs/dance-yrself-clean.musicxml
-./show-tools chart compile --musicxml songs/dance-yrself-clean.musicxml --out /private/tmp/dyc-derived.json --native-out /private/tmp/dyc-derived.pfp
+./show-tools chart compile --musicxml songs/dance-yrself-clean.musicxml --out /private/tmp/dyc-derived.json
+./show-tools chart encode --song /private/tmp/dyc-derived.json --out /private/tmp/dyc-derived.pfp
 node --import tsx scripts/build-musician-sheets.ts --musicxml songs/dance-yrself-clean.musicxml --out-dir output/pdf/dyc-musician-sheets-musicxml --pdf --python /private/tmp/show-tools-musician-pdf/bin/python
 ```
 
@@ -68,14 +69,25 @@ The handout destination must be new. Omit `--pdf` when the optional Python depen
 
 The optional `show-tools:voices` field contains validated effects, characters and qualified song bindings. The Practice download includes saved local assignments for a document loaded for editing. A staged imported document retains its own assignments during download. Imports isolate colliding local voice IDs so unrelated songs keep their settings. SQLite/IndexedDB remains the editor's library and backup format. Character artwork and recorded PCM remain external assets.
 
-Semantic hashes change when music, application instructions or song voice metadata changes. They ignore source/mapping audit archives and UI selection. Unsupported text offsets and unknown profile fields reject rather than disappear during rewriting. The source view is limited to 4096 rows, 16384 columns and two million populated cells to bound worksheet projections.
+Semantic hashes change when music, application instructions or song voice metadata changes. They ignore source/mapping audit archives and UI selection. Unsupported text offsets and unknown profile fields, including nested voice metadata, reject rather than disappear during rewriting. The source view is limited to 4096 rows, 16384 columns and two million populated cells to bound worksheet projections.
 
 ## Proposed harmony authoring language
 
 The current profile does not accept harmony or pitched notation yet. A next profile can add a `Harmony` row and an explicit `Key` declaration. One proposed bar cell is `1:Cmaj7; 3:G/B`, meaning Cmaj7 on count 1 and G over B on count 3. This example is illustrative, not DYC's harmony. The Sheets adapter would validate these names and write standard MusicXML `harmony` elements at exact offsets. A Nashville view would derive from the same harmony and key instead of introducing another independent chord row. Implement and test that grammar before using it in production charts.
 
-## Cutover verification record
+## Cutover verification record (initial implementation)
 
 The complete suite passed 438 tests with two explicit skips. TypeScript, the UI build, offline layout validation and official MusicXML 4.0 schema validation passed. The migrated DYC program passed native/WASM checks at 44.1 and 48 kHz. The migration verifier preserved every compiled semantic field apart from the new content digests, native instruction bytes and all nine writing-page SVGs. The generated PDFs were rendered and visually checked.
 
 The browser access host was unavailable during the final run, so live browser interaction was not verified. The Google Apps Script installer was rebuilt locally and was not installed in the operator spreadsheet. The decision trail is [musicxml-cutover-decisions.tsv](musicxml-cutover-decisions.tsv). Independent Astra review found a MusicXML cursor-order loss case; the reader now rejects that unsupported order and its regression test passes.
+
+
+## Canonical import completion
+
+The completed integration uses profile `show-tools-song-v2`. All bundled modules read the canonical document; timing-only songs retain blank-program practice, while any unresolved authored commands keep audio blocked. Musician planning and Video preparation consume normalized annotations rather than reparsing Sheets glyphs. Video CLIs accept a self-contained song, with an optional external catalog used only when no portable snapshot exists.
+
+The complete repository suite passed 570 tests with two explicit skips. The Video suite passed 53 tests. TypeScript, both UI builds, offline layout checks and official MusicXML 4.0 schema validation passed. DYC native/WASM conformance passed at 44.1 and 48 kHz; compiled meaning, native bytes and all nine writing-page SVGs remain unchanged. Regenerated Bass and Drums PDFs were rendered and visually checked.
+
+A fresh public DYC fetch succeeded with 468 cell notes and the complete used range `A1:HL55`. Its native bytes match the committed chart exactly. The strict frozen-baseline verifier additionally compares the original source range `A1:HL30`, so its full compiled-object hash is intentionally specific to that frozen input. Workbook matching recognizes the exact Google `m d` display format for date-coerced rhythm cells without accepting mismatched values.
+
+Regression coverage includes complete-chart bounds, dynamically added voice rows, unknown nested metadata, archive removal, standard feel and vocal-offset edits, canonical repeat timing, timing-only loading, and embedded-catalog CLI portability. The Apps Script package is rebuilt locally; installation and Google authorization remain operator work. External notation-editor save/reimport remains unverified.

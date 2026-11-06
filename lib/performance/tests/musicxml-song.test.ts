@@ -4,6 +4,10 @@ import { readFile } from 'node:fs/promises';
 import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { readMusicXmlSong, writeMusicXmlSong, compileMusicXmlSong, MUSICXML_SONG_PROFILE } from '../musicxml-song.js';
 import type { CatalogDocument } from '../../voice-catalog/model.js';
+import { createMusicianSheets } from '../musician-sheets.js';
+import { scoreXmlText } from '../score-xml.js';
+import { Schema } from 'effect';
+import { XMLParser } from 'fast-xml-parser';
 import { compileSheetsSong } from '../compiled-song.js';
 
 async function fixture() {
@@ -116,4 +120,88 @@ test('directions cannot move after the measure spacer and silently lose their Mu
   const moved = xml.replace(/(<measure number="1">)([^]*?)(<direction>[^]*?<\/direction>)([^]*?<\/note>)/, '$1$2$4$3');
   assert.notEqual(moved, xml);
   await assert.rejects(readMusicXmlSong(moved), /must precede the measure spacer/);
+});
+
+test('canonical nested application fields are rejected instead of silently disappearing on rewrite', async () => {
+  const document = await readMusicXmlSong((await fixture()).xml);
+  const voices: CatalogDocument = { version: 2, revision: 0, voices: [{ id: 'voice', name: 'Voice', notes: '', characterId: null, avatarToken: 'neutral', effects: [] }], bindings: [] };
+  const exported = await writeMusicXmlSong({ song: document.song, report: document.report, voices });
+  const unexpectedVoice = exported.replace('&quot;notes&quot;:&quot;&quot;', '&quot;futureData&quot;:&quot;valuable&quot;,&quot;notes&quot;:&quot;&quot;');
+  assert.notEqual(unexpectedVoice, exported);
+  await assert.rejects(readMusicXmlSong(unexpectedVoice), /futureData/);
+  const extendedVoices = { ...voices, voices: [{ ...voices.voices[0], futureData: 'valuable' }] };
+  await assert.rejects(writeMusicXmlSong({ song: document.song, report: document.report, voices: extendedVoices }), /futureData/);
+});
+
+function editPerformance(xml: string, change: (performance: Record<string, unknown>) => void): string {
+  return xml.replace(/(<miscellaneous-field name="show-tools:performance">)([^]*?)(<\/miscellaneous-field>)/,
+    (_, start: string, content: string, end: string) => {
+      const decoded: unknown = new XMLParser({ parseTagValue: false }).parse(`<value>${content}</value>`);
+      const field = Schema.decodeUnknownSync(Schema.Struct({ value: Schema.String }))(decoded);
+      const performance = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(JSON.parse(field.value));
+      change(performance);
+      return start + scoreXmlText(JSON.stringify(performance)) + end;
+    });
+}
+
+test('standard feel words and timed vocal offsets drive the parsed model and printed pages', async () => {
+  const { xml } = await fixture();
+  const original = await readMusicXmlSong(xml);
+  const changed = xml.replace(/(id="feel-[^"]+">)Funky<\/words>/, '$1Extra funky</words>')
+    .replace(/(id="vocal-count-[^"]+">3<\/words><\/direction-type><offset>)1920/, '$11440')
+    .replace(/(id="vocal-and-[^"]+">&amp;<\/words><\/direction-type><offset>)2400/, '$12880')
+    .replace(/(id="vocal-accent-[^"]+">&gt;<\/words><\/direction-type><offset>)2400/, '$12880');
+  const document = await readMusicXmlSong(changed);
+  assert.notEqual(document.song.source.digest, original.song.source.digest);
+  assert.equal(document.report.annotations.feels[0].text, 'Extra funky');
+  const vocal = document.report.annotations.vocals.find(vocal => vocal.kind === 'count-and');
+  assert.ok(vocal?.kind === 'count-and');
+  assert.equal(vocal.countOffset, 1.5);
+  assert.equal(vocal.andOffset, 3);
+  const before = await createMusicianSheets({ musicxml: xml });
+  const after = await createMusicianSheets({ musicxml: changed });
+  assert.notDeepEqual(after.map(sheet => sheet.pages), before.map(sheet => sheet.pages));
+  assert.match(after[0].xml, /<offset>1440<\/offset>/);
+  assert.match(after[0].xml, /<offset>2880<\/offset>/);
+  const rewritten = await writeMusicXmlSong({ song: document.song, report: document.report });
+  assert.deepEqual((await readMusicXmlSong(rewritten)).report.annotations, document.report.annotations);
+});
+
+test('archived source glyph edits cannot override normalized activity, feel or printed instrument cues', async () => {
+  const { xml } = await fixture();
+  const changed = xml.replace(/(<other-direction id="source-[^"]+" print-object="no">)[^<]*(<\/other-direction>)/g, '$1IGNORED GLYPH$2');
+  assert.notEqual(changed, xml);
+  const before = await readMusicXmlSong(xml), after = await readMusicXmlSong(changed);
+  assert.deepEqual(after.report.annotations, before.report.annotations);
+  const beforeSheets = await createMusicianSheets({ musicxml: xml });
+  const afterSheets = await createMusicianSheets({ musicxml: changed });
+  assert.deepEqual(afterSheets.map(sheet => sheet.pages), beforeSheets.map(sheet => sheet.pages));
+  const decisions = (sheets: typeof beforeSheets) => sheets.map(({ condensation: { sourceDigest, mappingDigest, ...decisions } }) => decisions);
+  assert.deepEqual(decisions(afterSheets), decisions(beforeSheets));
+});
+
+test('canonical activities and complete stage annotations are required and validated', async () => {
+  const { xml } = await fixture();
+  const withoutActivity = xml.replace(/<direction><direction-type><other-direction id="activity-[^"]+" print-object="no">[^<]+<\/other-direction><\/direction-type><\/direction>/, '');
+  assert.notEqual(withoutActivity, xml);
+  await assert.rejects(readMusicXmlSong(withoutActivity), /canonical activity/);
+  await assert.rejects(readMusicXmlSong(xml.replace(/(id="activity-[^"]+" print-object="no">)[^<]+/, '$1Maybe')), /canonical activity/);
+  await assert.rejects(readMusicXmlSong(editPerformance(xml, performance => { delete performance.stageCells; })), /stageCells/);
+  await assert.rejects(readMusicXmlSong(editPerformance(xml, performance => { performance.stageCells = []; })), /complete score/);
+  await assert.rejects(readMusicXmlSong(editPerformance(xml, performance => { performance.stageCells = [{ cell: 'B1', kind: 'resolved', active: 'yes' }]; })), /stageCells/);
+  const before = await readMusicXmlSong(xml);
+  const stage = before.report.annotations.stageCells.find(stage => stage.kind === 'resolved');
+  assert.ok(stage?.kind === 'resolved');
+  await assert.rejects(readMusicXmlSong(editPerformance(xml, performance => {
+    performance.stageCells = before.report.annotations.stageCells.map(({ eligibility, ...candidate }) => candidate);
+  })), /eligibility/);
+  await assert.rejects(readMusicXmlSong(editPerformance(xml, performance => {
+    performance.stageCells = before.report.annotations.stageCells.map(candidate => ({ ...candidate, eligibility: { kind: 'inactive', reason: 'guess' } }));
+  })), /eligibility/);
+  const updated = before.report.annotations.stageCells.map(candidate => candidate.cell === stage.cell ? { ...stage, active: !stage.active } : candidate);
+  const changed = await readMusicXmlSong(editPerformance(xml, performance => { performance.stageCells = updated; }));
+  assert.notEqual(changed.song.source.digest, before.song.source.digest);
+  await assert.rejects(readMusicXmlSong(editPerformance(xml, performance => {
+    performance.stageCells = updated.map(candidate => candidate.cell === stage.cell ? { ...stage, accents: [4] } : candidate);
+  })), /stage timing/);
 });

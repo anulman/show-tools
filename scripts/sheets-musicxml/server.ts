@@ -1,16 +1,17 @@
 import { spreadsheetId, sheetId, sheetName } from '../../songs/dance-yrself-clean.mapping.json';
-import { range as sourceRange } from '../../songs/dance-yrself-clean.source.json';
 
 interface SheetRange {
   getRow(): number;
   getNumRows(): number;
+  getNumColumns(): number;
+  getA1Notation(): string;
   getDisplayValues(): string[][];
   getNotes(): string[][];
 }
 interface Sheet {
   getSheetId(): number;
   getName(): string;
-  getRange(a1: string): SheetRange;
+  getDataRange(): SheetRange;
   getActiveRangeList(): { getRanges(): SheetRange[] } | null;
 }
 interface HtmlOutput { setWidth(width: number): HtmlOutput; setHeight(height: number): HtmlOutput }
@@ -42,7 +43,10 @@ export function getMusicXmlSelection() {
   const selected = sheet.getActiveRangeList()?.getRanges() ?? [];
   if (!selected.length) throw new Error('Select voice or instrument rows before choosing Export.');
   const selection = selected.map(range => ({ firstRow: range.getRow(), lastRow: range.getRow() + range.getNumRows() - 1 }));
-  const range = sheet.getRange(sourceRange), values = range.getDisplayValues(), notes: Record<string, string> = {};
+  const range = sheet.getDataRange();
+  if (range.getNumRows() > 4096 || range.getNumColumns() > 16384 || range.getNumRows() * range.getNumColumns() > 2_000_000) throw new Error('The used worksheet exceeds the supported canonical import size.');
+  const sourceRange = range.getA1Notation();
+  const values = range.getDisplayValues(), notes: Record<string, string> = {};
   for (const [row, cells] of range.getNotes().entries()) for (const [column, text] of cells.entries()) {
     if (!text) continue;
     let letters = '';

@@ -1,3 +1,5 @@
+import { normalizeSheetMusicalAnnotations } from './sheet-musical-annotations.js';
+import { MusicXmlValidationError } from './musicxml-errors.js';
 import { compileSheetsSong, decodeSongMapping } from './compiled-song.js';
 import { parseSongSource } from './song-source.js';
 import { discoverSheetVoices } from '../voice-catalog/sheet-voices.js';
@@ -46,23 +48,26 @@ function readCell(text: string, counts: number): CellReading {
 
 export async function importSheetMusicXml(options: { source: unknown; mapping: unknown; selectedRows?: readonly number[] }): Promise<{ xml: string; report: MusicXmlReport }> {
   const source = parseSongSource(options.source), mapping = decodeSongMapping(options.mapping);
-  if (!source.range.startsWith('A1:')) throw new Error('The MusicXML study requires an A1-origin source, as does the song compiler.');
+  if (!source.range.startsWith('A1:')) throw new MusicXmlValidationError('Canonical MusicXML import requires an A1-origin source.');
+  const writtenBars = (source.values[mapping.barRow - 1] ?? []).flatMap((text, index) => /^\d+(?:\*| \(part\))?$/.test(text.trim()) ? [{ bar: Number.parseInt(text, 10), cell: `${columnName(index + 1)}${mapping.barRow}` }] : []);
+  const outside = writtenBars.find(entry => entry.bar < mapping.startBar || entry.bar > mapping.endBar);
+  if (outside) throw new MusicXmlValidationError(`The complete worksheet contains bar ${outside.bar} at ${outside.cell} outside the import mapping ${mapping.startBar}-${mapping.endBar}. Update the mapping to cover the complete numbered chart before importing.`);
   for (const [r, row] of source.values.entries()) for (const [c, text] of row.entries()) {
-    try { xml(text); } catch (error) { throw new Error(`${columnName(c + 1)}${r + 1}: ${error instanceof Error ? error.message : String(error)}`); }
+    try { xml(text); } catch (error) { throw new MusicXmlValidationError(`${columnName(c + 1)}${r + 1}: ${error instanceof Error ? error.message : String(error)}`); }
   }
   for (const [cell, text] of Object.entries(source.notes)) {
-    try { xml(text); } catch (error) { throw new Error(`${cell} note: ${error instanceof Error ? error.message : String(error)}`); }
+    try { xml(text); } catch (error) { throw new MusicXmlValidationError(`${cell} note: ${error instanceof Error ? error.message : String(error)}`); }
   }
   const song = await compileSheetsSong(source, mapping);
   const sourceJson = stableMusicXmlJson(source), mappingJson = stableMusicXmlJson(mapping);
   const [sourceDigest, mappingDigest] = await Promise.all([sha256(sourceJson), sha256(mappingJson)]);
-  if (options.selectedRows?.some(row => !Number.isSafeInteger(row) || row < 1)) throw new Error('Selected row numbers must be positive safe integers.');
+  if (options.selectedRows?.some(row => !Number.isSafeInteger(row) || row < 1)) throw new MusicXmlValidationError('Selected row numbers must be positive safe integers.');
   const rows = discoverSheetVoices(song, source);
   const selected = rows.filter(row => options.selectedRows === undefined || options.selectedRows.includes(Number(row.labelCell.replace(/^[A-Z]+/, ''))));
-  if (!selected.length) throw new Error('Select at least one voice or instrument row. Header and control rows are included automatically.');
+  if (!selected.length) throw new MusicXmlValidationError('Select at least one voice or instrument row. Header and control rows are included automatically.');
   const vocalPart = song.parts.find(part => part.role.kind === 'default-live');
   const vocalRow = vocalPart ? Number(vocalPart.source.a1.replace(/^[A-Z]+/, '')) : null;
-  const report: MusicXmlReport = {
+  const report = normalizeSheetMusicalAnnotations({
     profile: MUSICXML_PROFILE, title: song.title, sourceDigest, mappingDigest, meter: mapping.meter,
     bpmPerChartCount: song.chart.bpm, measureCount: song.chart.bars.length,
     selectedLabelCells: selected.map(row => row.labelCell),
@@ -86,7 +91,7 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
           : readCell(text, mapping.meter.numerator);
         return { cell, bar: bar.bar, text, reading };
       }) })),
-  };
+  });
   const output = await writeMusicXmlSong({ song, report, source, mapping });
   const document = await readMusicXmlSong(output);
   return { xml: output, report: document.report };
@@ -94,5 +99,5 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
 
 export function renderMusicXmlReview(report: MusicXmlReport, filename: string): string {
   const rows = report.sections.map(section => `<section id="bar-${section.startBar}"><h2>${xml(section.label)} <small>bars ${section.startBar}–${section.endBar}</small></h2><div class="scroll"><table><thead><tr><th>Part</th>${Array.from({ length: section.endBar - section.startBar + 1 }, (_, i) => `<th>${section.startBar + i}</th>`).join('')}</tr></thead><tbody>${report.parts.map(part => `<tr><th>${xml(part.name)}</th>${part.cells.filter(c => c.bar >= section.startBar && c.bar <= section.endBar).map(cell => `<td title="${xml(cell.cell)}"><span>${xml(cell.text || '·')}</span>${cell.reading.kind === 'hits' ? `<small>${cell.reading.offsets.map(n => n + 1).join(' · ')}${cell.reading.sampled ? ' / sampled' : ''}</small>` : ''}</td>`).join('')}</tr>`).join('')}</tbody></table></div></section>`).join('\n');
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${xml(report.title)} — MusicXML study</title><style>body{font:16px/1.5 system-ui;background:#f7f5f0;color:#242b28;margin:0 auto;padding:36px;max-width:1500px}h1{font-size:36px;margin-bottom:8px}h2{font-size:22px}small{font-size:12px;color:#58625c}header{max-width:950px}a{color:#145c48}nav{display:flex;flex-wrap:wrap;gap:8px}nav a{font-size:13px;background:white;padding:6px 10px;border-radius:6px}.scroll{overflow:auto;border:1px solid #d4d9d1;background:white}table{border-collapse:collapse;font-size:13px;min-width:100%}th,td{padding:10px;border:1px solid #e2e6df;min-width:90px;max-width:210px;vertical-align:top}th:first-child{position:sticky;left:0;background:#eef1e9;min-width:135px}td small{display:block;white-space:nowrap;margin-top:6px}section{margin:36px 0}li{margin:6px 0}code{font-size:12px;overflow-wrap:anywhere}</style><header><small>EXPERIMENT · ${MUSICXML_PROFILE}</small><h1>${xml(report.title)}</h1><p>${report.measureCount} bars · ${report.parts.length} parts · ${report.meter.numerator}/${report.meter.denominator} · ${report.bpmPerChartCount} BPM per chart count</p><p><a href="${xml(filename)}" download>Download MusicXML</a> · <a href="report.json">Inspect interpretation report</a> · <a href="engraved.html">Open independently engraved score (if rendered)</a></p><p>This is a source-to-score inspection, not observed playback. The grid below shows exact source text and parsed attack counts. The separately engraved score is rendered from the MusicXML file.</p><ul>${report.conventions.map(c => `<li>${xml(c)}</li>`).join('')}</ul><p>Source SHA-256: <code>${report.sourceDigest}</code></p></header><nav>${report.sections.map(s => `<a href="#bar-${s.startBar}">${xml(s.label)}</a>`).join('')}</nav>${rows}</html>\n`;
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${xml(report.title)} — MusicXML song</title><style>body{font:16px/1.5 system-ui;background:#f7f5f0;color:#242b28;margin:0 auto;padding:36px;max-width:1500px}h1{font-size:36px;margin-bottom:8px}h2{font-size:22px}small{font-size:12px;color:#58625c}header{max-width:950px}a{color:#145c48}nav{display:flex;flex-wrap:wrap;gap:8px}nav a{font-size:13px;background:white;padding:6px 10px;border-radius:6px}.scroll{overflow:auto;border:1px solid #d4d9d1;background:white}table{border-collapse:collapse;font-size:13px;min-width:100%}th,td{padding:10px;border:1px solid #e2e6df;min-width:90px;max-width:210px;vertical-align:top}th:first-child{position:sticky;left:0;background:#eef1e9;min-width:135px}td small{display:block;white-space:nowrap;margin-top:6px}section{margin:36px 0}li{margin:6px 0}code{font-size:12px;overflow-wrap:anywhere}</style><header><small>CANONICAL SONG · ${MUSICXML_PROFILE}</small><h1>${xml(report.title)}</h1><p>${report.measureCount} bars · ${report.parts.length} parts · ${report.meter.numerator}/${report.meter.denominator} · ${report.bpmPerChartCount} BPM per chart count</p><p><a href="${xml(filename)}" download>Download MusicXML</a> · <a href="report.json">Inspect interpretation report</a> · <a href="engraved.html">Open independently engraved score (if rendered)</a></p><p>This is a source-to-score inspection, not observed playback. The grid below shows exact source text and parsed attack counts. The separately engraved score is rendered from the MusicXML file.</p><ul>${report.conventions.map(c => `<li>${xml(c)}</li>`).join('')}</ul><p>Source SHA-256: <code>${report.sourceDigest}</code></p></header><nav>${report.sections.map(s => `<a href="#bar-${s.startBar}">${xml(s.label)}</a>`).join('')}</nav>${rows}</html>\n`;
 }
