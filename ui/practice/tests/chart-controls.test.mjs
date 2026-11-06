@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { parseControlCue } from '../../../lib/performance/chart-controls.js';
 import { CONTROLS } from '../../../lib/performance/model.js';
 import { loadSong } from '../../../songs/index.ts';
+import { frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.ts';
+import { readMusicXmlSong } from '../../../lib/performance/musicxml-song.ts';
 
 test('sheet legend maps capture, commit, rearm, stop, and play without inventing blank-cell actions', () => {
   for (const [notation, kind] of [['r', 'arm'], ['c', 'commit'], ['cr', 'commit-arm'], ['x', 'stop'], ['p', 'play']]) {
@@ -23,13 +25,16 @@ test('Dance Yrself Clean compiled pad routes retain source columns and lead-in t
   assert.equal(leadIn.kind, 'arm');
   assert.equal(leadIn.source.a1, 'B18');
   assert.deepEqual(leadIn.execution, { kind: 'next-bar' });
-  assert.deepEqual(cues.filter(cue => cue.buttonId === 'R2' && cue.bar <= 12)
+  assert.deepEqual(cues.filter(cue => cue.buttonId === 'R2' && (cue.bar <= 13 || cue.bar >= 78 && cue.bar <= 85))
     .map(cue => [cue.bar, cue.kind, cue.source.a1, cue.source.text, cue.execution]), [
-    [9, 'arm', 'K19', 'rb', { kind: 'next-bar' }],
-    [10, 'commit-arm', 'L19', 'crb', { kind: 'next-bar' }],
-    [11, 'commit-arm', 'M19', 'crb', { kind: 'next-bar' }],
-    [12, 'commit', 'N19', 'cb', { kind: 'next-bar' }],
+    [7, 'arm', 'I19', 'rb', { kind: 'next-bar' }],
+    [13, 'commit', 'O19', 'clb', { kind: 'now' }],
+    [78, 'arm', 'CB19', 'rb', { kind: 'next-bar' }],
+    [85, 'commit', 'CI19', 'clb', { kind: 'now' }],
   ]);
+  for (const [button, cells] of [['R1', ['B18', 'D18']], ['L2', ['F21', 'H21']]])
+    assert.deepEqual(cues.filter(cue => cue.buttonId === button && ['arm', 'commit', 'commit-arm'].includes(cue.kind))
+      .map(cue => cue.source.a1), cells, 'single-take rows retain their authored arm and finish without invented doubling');
   const stop = cues.find(cue => cue.bar === 76 && cue.buttonId === 'R1');
   assert.equal(stop.kind, 'stop');
   assert.equal(stop.source.a1, 'BZ18');
@@ -40,8 +45,9 @@ test('pad grid follows physical Q/W above A/S and preserves the left-hand column
   assert.deepEqual(CONTROLS.map(control => [control.id, control.shortcut]), [['L1', 'Q'], ['R1', 'W'], ['L2', 'A'], ['R2', 'S']]);
 });
 
-test('cowbell compiles six distinct whole-bar takes linked to its capture cues', async () => {
-  const song = await loadSong('dance-yrself-clean');
+test('historical Cowbell chart keeps six distinct whole-bar takes linked to its capture cues', async () => {
+  const { song: compiled } = await readMusicXmlSong(await frozenCutoverMusicXml());
+  const song = { compiled };
   const takes = song.compiled.takes.filter(take => take.voiceId === 'cowbell');
   assert.deepEqual(takes.map(take => [take.begin, take.captureEnd, take.phrase]), [
     [{ bar: 10, beat: 0 }, { bar: 11, beat: 0 }, '(4)&a'],
@@ -63,6 +69,28 @@ test('cowbell compiles six distinct whole-bar takes linked to its capture cues',
   assert.equal(other.compiled, undefined);
   assert.equal(other.program.controls, undefined);
   assert.deepEqual(other.program.events, []);
+});
+
+test('current Cowbell chart retains two parents and eleven explicit recorded-bar views', async () => {
+  const { compiled } = await loadSong('dance-yrself-clean');
+  const takes = compiled.takes.filter(take => take.voiceId === 'cowbell');
+  assert.deepEqual(takes.map(take => [take.begin, take.captureEnd]), [
+    [{ bar: 8, beat: 0 }, { bar: 13, beat: 0 }],
+    [{ bar: 79, beat: 0 }, { bar: 85, beat: 0 }],
+  ]);
+  const views = compiled.selections.filter(selection => selection.voiceId === 'cowbell' && selection.window.kind === 'slice'
+    && selection.window.endCount - selection.window.beginCount === 4);
+  assert.equal(views.length, 11);
+  for (const take of takes) {
+    const slices = views.filter(view => view.takeIds[0] === take.id);
+    assert.deepEqual(slices.map(view => [view.window.beginCount, view.window.endCount, view.window.loopCounts]),
+      Array.from({ length: take.captureEnd.bar - take.begin.bar }, (_, index) => [index * 4, (index + 1) * 4, 4]));
+    const commit = compiled.cues.find(cue => cue.id === take.commitCueId);
+    assert.equal(commit.source.text, 'clb');
+    assert.equal(commit.selectionId, slices.at(-1).id, 'commit loops the final completed bar');
+  }
+  assert.deepEqual(compiled.takes.filter(take => take.voiceId !== 'cowbell').map(take => [take.voiceId, take.begin.bar, take.captureEnd.bar]),
+    [['whistle', 45, 47], ['bing-bong', 5, 7], ['drums-claps', 1, 3]]);
 });
 
 test('pad names are loaded from the selected chart notes, with no other song names leaking in', async () => {

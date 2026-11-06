@@ -5,7 +5,7 @@ import { SongSourceSchema } from './song-source.js';
 
 const list = <S extends Schema.Constraint>(schema: S) => Schema.mutable(Schema.Array(schema));
 const Finite = Schema.Number.check(Schema.isFinite());
-const validRotationGrid = (value: number) => value > 0 && value <= 1 && Number.isInteger(value * 960);
+const validInactivityBeats = (value: number) => value > 0 && value <= 1 && Number.isInteger(value * 960);
 const ButtonSchema = Schema.Literals(['L1', 'L2', 'R1', 'R2']);
 const CueKindSchema = Schema.Literals(['arm', 'commit', 'commit-arm', 'stop', 'play']);
 export const ExecutionSchema = Schema.Union([
@@ -22,7 +22,7 @@ const PartRoleSchema = Schema.Union([
 ]);
 const PartSchema = Schema.Struct({ id: Schema.String, name: Schema.String, source: SourceRefSchema, role: PartRoleSchema, profile: Schema.Int });
 const RotationWindowSchema = Schema.Struct({ begin: PointSchema, end: PointSchema, source: SourceRefSchema, endSource: SourceRefSchema, sources: list(SourceRefSchema) });
-const RotationSchema = Schema.Struct({ voiceId: Schema.String, releaseGridBeats: Finite, windows: list(RotationWindowSchema) });
+export const RotationSchema = Schema.Struct({ voiceId: Schema.String, inactivityBeats: Finite, windows: list(RotationWindowSchema) });
 const ActionFields = {
   kind: CueKindSchema, cueBeat: Schema.NullOr(Finite), execution: ExecutionSchema,
   captureTail: Schema.Literals(['none', 'silence-to-bar-end']), tempoBeatHint: Schema.Literals([0, 1]),
@@ -32,19 +32,19 @@ const OverrideSchema = Schema.Struct({
   a1: Schema.String, notation: Schema.String, ...ActionFields,
 });
 export const SongMappingSchema = Schema.Struct({
-  mappingVersion: Schema.Literal(5), notationVersion: Schema.Literal('dyc-v1'), songId: Schema.String,
+  mappingVersion: Schema.Literal(6), notationVersion: Schema.Literal('dyc-v1'), songId: Schema.String,
   spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String,
   titleCell: Schema.String, bpmCell: Schema.String, sectionRow: Schema.Int, barRow: Schema.Int, leadInColumn: Schema.Int,
   startBar: Schema.Int, endBar: Schema.Int,
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String })),
   liveParts: list(Schema.Struct({ id: Schema.String, labelCell: Schema.String, role: Schema.Literals(['default-live', 'rotation-live']) })),
-  rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, releaseGridBeats: Finite })),
+  rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, inactivityBeats: Finite })),
   cueWindow: Schema.NullOr(CueWindowSchema),
   capturePolicies: list(Schema.Struct({ voiceId: Schema.String, retention: Schema.Literals(['layer', 'variant', 'replace']), gain: Finite })),
   layerGroups: list(Schema.Struct({ id: Schema.String, voiceId: Schema.String, armCells: list(Schema.String) })),
   variantRules: list(Schema.Struct({ voiceId: Schema.String, row: Schema.Int, fromBar: Schema.Int, sampledOnly: Schema.Boolean })),
-  variantReuses: list(Schema.Struct({ cell: Schema.String, notation: Schema.String, sourceArmCell: Schema.String, endCount: Finite })),
+  variantReuses: list(Schema.Struct({ cell: Schema.String, notation: Schema.String, sourceArmCell: Schema.String, sourceBar: Schema.optionalKey(Schema.Int), endCount: Finite })),
   overrides: list(OverrideSchema),
   deferredRows: list(Schema.Struct({ row: Schema.Int, reason: Schema.String })),
 });
@@ -73,9 +73,10 @@ export const ChartSchema = Schema.Struct({
 const SelectionWindowSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('full') }),
   Schema.Struct({ kind: Schema.Literal('prefix'), endCount: Finite }),
+  Schema.Struct({ kind: Schema.Literal('slice'), beginCount: Finite, endCount: Finite, loopCounts: Finite }),
 ]);
 export const CompiledSongSchema = Schema.Struct({
-  schemaVersion: Schema.Literal(5), notationVersion: Schema.Literal('dyc-v1'), id: Schema.String, title: Schema.String,
+  schemaVersion: Schema.Literal(6), notationVersion: Schema.Literal('dyc-v1'), id: Schema.String, title: Schema.String,
   ticksPerQuarter: Schema.Literal(960), meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   source: Schema.Struct({ spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String, range: Schema.String, digest: Schema.String }),
   mappingDigest: Schema.String, chart: ChartSchema,
@@ -146,7 +147,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     || song.parts.filter(part => part.role.kind === 'default-live').length > 1 || song.parts.filter(part => part.role.kind === 'rotation-live').length > 1) throw new Error('Invalid executable voice registry.');
   if (song.rotation) {
     if (!song.parts.some(part => part.id === song.rotation?.voiceId && part.role.kind === 'rotation-live')
-      || !validRotationGrid(song.rotation.releaseGridBeats)) throw new Error('Invalid executable rotation route.');
+      || !validInactivityBeats(song.rotation.inactivityBeats)) throw new Error('Invalid executable rotation route.');
     let previousEnd = -1;
     for (const window of song.rotation.windows) {
       const begin = pointCount(window.begin, beats), end = pointCount(window.end, beats);
@@ -177,6 +178,14 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
         || end >= pointCount(take.captureEnd, beats) - pointCount(take.begin, beats)
         || end >= pointCount(take.loopEnd, beats) - pointCount(take.begin, beats)) throw new Error('Invalid executable selection source window.');
     }
+    if (selection.window.kind === 'slice') {
+      const take = song.takes.find(take => take.id === selection.takeIds[0]);
+      const { beginCount, endCount, loopCounts } = selection.window;
+      if (selection.takeIds.length !== 1 || !take?.captureEnd || !take.loopEnd || beginCount < 0 || endCount <= beginCount || loopCounts < endCount - beginCount
+        || [beginCount, endCount, loopCounts].some(value => !Number.isInteger(value * 960))
+        || endCount > pointCount(take.captureEnd, beats) - pointCount(take.begin, beats)
+        || beginCount + loopCounts > pointCount(take.loopEnd, beats) - pointCount(take.begin, beats)) throw new Error('Invalid executable capture slice.');
+    }
   }
   for (const cue of song.cues) {
     if (cue.bar < 0 || cue.bar > bars || cue.cueBeat !== null && !validBeat(cue.cueBeat)
@@ -199,11 +208,15 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     const arms = song.cues.filter(cue => cue.takeId === take.id);
     const commits = song.cues.filter(cue => cue.commitTakeId === take.id);
     const arm = arms[0], commit = commits[0];
+    const capturedCounts = take.captureEnd ? pointCount(take.captureEnd, beats) - pointCount(take.begin, beats) : null;
     if (arms.length !== 1 || commits.length !== 1 || arm.id !== take.armCueId || commit.id !== take.commitCueId
       || cueBoundary(arm).bar !== take.begin.bar || cueBoundary(arm).beat !== take.begin.beat
       || !take.captureEnd || !take.loopEnd || !samePoint(cueBoundary(commit), take.captureEnd)
       || !samePoint(take.loopEnd, commit.captureTail === 'silence-to-bar-end' ? { bar: take.captureEnd.bar + 1, beat: 0 } : take.captureEnd)
-      || !song.selections.some(selection => selection.id === commit.selectionId && selection.window.kind === 'full' && selection.takeIds.includes(take.id))) {
+      || !song.selections.some(selection => selection.id === commit.selectionId && selection.takeIds.includes(take.id)
+        && (selection.window.kind === 'full' || selection.window.kind === 'slice'
+          && selection.window.endCount === capturedCounts
+          && selection.window.beginCount === selection.window.endCount - beats && selection.window.loopCounts === beats))) {
       throw new Error('Invalid executable capture graph.');
     }
   }
@@ -240,6 +253,7 @@ function coordinate(a1: string): { row: number; column: number } {
 }
 function at(values: readonly (readonly string[])[], row: number, column: number): string { return values[row - 1]?.[column - 1] ?? ''; }
 function parsedCue(text: string, beatsPerBar: number): Pick<CompiledCue, keyof typeof ActionFields> | null {
+  if (text.trim() === 'clb') return { kind: 'commit', cueBeat: null, execution: { kind: 'now' }, captureTail: 'none', tempoBeatHint: 0 };
   const cutoff = /^([1-9])c([1-9])$/.exec(text.trim());
   if (cutoff && Number(cutoff[1]) <= beatsPerBar && Number(cutoff[2]) <= beatsPerBar) return {
     kind: 'commit', cueBeat: Number(cutoff[1]) - 1, execution: { kind: 'beat', beat: Number(cutoff[2]) - 1 }, captureTail: 'silence-to-bar-end', tempoBeatHint: 0,
@@ -355,8 +369,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   let rotation: CompiledSong['rotation'] = null;
   if (mapping.rotationRule) {
     const rule = mapping.rotationRule;
-    rotation = { voiceId: rule.voiceId, releaseGridBeats: rule.releaseGridBeats, windows: [] };
-    if (!parts.some(part => part.id === rule.voiceId && part.role.kind === 'rotation-live') || !validRotationGrid(rule.releaseGridBeats)
+    rotation = { voiceId: rule.voiceId, inactivityBeats: rule.inactivityBeats, windows: [] };
+    if (!parts.some(part => part.id === rule.voiceId && part.role.kind === 'rotation-live') || !validInactivityBeats(rule.inactivityBeats)
       || rule.row < 1 || mapping.deferredRows.some(deferred => deferred.row === rule.row)) issue('rotation-rule', 'Declare one rotation-live source part and a positive release grid of at most one counted beat on the 960-tick count lattice, without deferring the same row.', ref(Math.max(1, rule.row), 1));
     if (at(source.values, rule.row, mapping.leadInColumn).trim()) issue('rotation-lead-in', 'Rotation spans must begin in a song measure, after the count-in.', ref(rule.row, mapping.leadInColumn));
     let open: { begin: typeof PointSchema.Type; source: typeof SourceRefSchema.Type; sources: typeof SourceRefSchema.Type[] } | null = null;
@@ -507,6 +521,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   }
   for (const take of takes) if (take.retention === 'layer' && !assigned.has(take.id)) issue('layer-group', 'Declare the source arm cells and identity of this doubling group.', takeSource(take));
   const selections: CompiledSong['selections'] = [];
+  const selectionPhrases = new Map<string, string>();
   for (const take of takes) {
     if (!take.captureEnd || !take.loopEnd || !take.groupId || take.retention === 'unresolved' || take.gain === null) continue;
     const existing = take.retention === 'layer' ? selections.filter(s => s.groupId === take.groupId && s.voiceId === take.voiceId).at(-1) : undefined;
@@ -515,6 +530,25 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       takeIds: [...existing?.takeIds ?? [], take.id], gains: [...existing?.gains ?? [], take.gain], window: { kind: 'full' } });
     const commitIndex = cues.findIndex(c => c.id === take.commitCueId);
     if (commitIndex >= 0) cues[commitIndex] = { ...cues[commitIndex], selectionId: selections.at(-1)?.id ?? null };
+    const fullSelection = selections.at(-1);
+    if (fullSelection) selectionPhrases.set(fullSelection.id, take.phrase);
+    if (commitIndex >= 0 && cues[commitIndex].source.text.trim() === 'clb') {
+      if (take.begin.beat !== 0 || take.captureEnd.beat !== 0 || take.retention !== 'variant') {
+        issue('capture-slices', 'Commit-last-bar requires a whole-bar retained-variant capture.', cues[commitIndex].source);
+        continue;
+      }
+      for (let bar = take.begin.bar; bar < take.captureEnd.bar; bar++) {
+        const beginCount = (bar - take.begin.bar) * mapping.meter.numerator;
+        const selection: CompiledSong['selections'][number] = { id: `${take.id}/bar-${bar}`, voiceId: take.voiceId,
+          groupId: take.groupId, takeIds: [take.id], gains: [take.gain],
+          window: { kind: 'slice', beginCount, endCount: beginCount + mapping.meter.numerator, loopCounts: mapping.meter.numerator } };
+        selections.push(selection);
+        const column = columns.get(bar);
+        const control = mapping.controls.find(control => control.voiceId === take.voiceId);
+        selectionPhrases.set(selection.id, column && control ? normalizedPhrase(at(source.values, control.arrangementRow, column)) : '');
+      }
+      cues[commitIndex] = { ...cues[commitIndex], selectionId: selections.at(-1)?.id ?? null };
+    }
   }
   const playback: CompiledSong['playback'] = [];
   const reusedSelections = new Map<string, string>();
@@ -535,29 +569,47 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       issue('variant-reuse-source', 'The source arm cell must identify an earlier committed take in the same voice.', location); continue;
     }
     if (reuse.endCount <= 0 || !Number.isInteger(reuse.endCount * 960)
+      || reuse.sourceBar !== undefined && reuse.endCount >= mapping.meter.numerator
       || reuse.endCount >= pointCount(sourceTake.captureEnd, mapping.meter.numerator) - pointCount(sourceTake.begin, mapping.meter.numerator)
       || reuse.endCount >= pointCount(sourceTake.loopEnd, mapping.meter.numerator) - pointCount(sourceTake.begin, mapping.meter.numerator)) {
       issue('variant-reuse-window', 'A prefix endpoint must lie strictly inside the captured source and loop on the 960-tick count lattice.', location); continue;
     }
-    const existing = selections.find(selection => selection.window.kind === 'prefix' && selection.window.endCount === reuse.endCount
+    const beginCount = reuse.sourceBar === undefined ? 0 : (reuse.sourceBar - sourceTake.begin.bar) * mapping.meter.numerator;
+    const sourceSlice = reuse.sourceBar === undefined ? undefined : selections.find(selection => selection.takeIds[0] === sourceTake.id
+      && selection.window.kind === 'slice' && selection.window.beginCount === beginCount);
+    if (reuse.sourceBar !== undefined && !sourceSlice) { issue('variant-reuse-source', 'The source bar must identify a retained capture slice.', location); continue; }
+    const window: typeof SelectionWindowSchema.Type = sourceSlice ? { kind: 'slice', beginCount, endCount: beginCount + reuse.endCount, loopCounts: mapping.meter.numerator }
+      : { kind: 'prefix', endCount: reuse.endCount };
+    const existing = selections.find(selection => JSON.stringify(selection.window) === JSON.stringify(window)
       && selection.takeIds.length === 1 && selection.takeIds[0] === sourceTake.id);
     const selection = existing ?? { id: `${sourceTake.id}/prefix-${reuse.endCount * 960}`, voiceId: sourceTake.voiceId,
-      groupId: sourceTake.groupId, takeIds: [sourceTake.id], gains: [sourceTake.gain], window: { kind: 'prefix', endCount: reuse.endCount } satisfies typeof SelectionWindowSchema.Type };
+      groupId: sourceTake.groupId, takeIds: [sourceTake.id], gains: [sourceTake.gain], window };
     if (!existing) selections.push(selection);
     reusedSelections.set(reuse.cell, selection.id);
   }
   for (const rule of mapping.variantRules) {
-    const available = selections.filter(s => s.voiceId === rule.voiceId && s.window.kind === 'full');
+    const available = selections.filter(s => s.voiceId === rule.voiceId && selectionPhrases.has(s.id));
+    let previous: { bar: number; selection: CompiledSong['selections'][number] } | undefined;
     for (const [bar, column] of columns) {
       const text = at(source.values, rule.row, column);
       if (bar < rule.fromBar || !text.trim() || rule.sampledOnly && !text.includes("'")) continue;
       const reuse = reusedSelections.get(`${columnName(column)}${rule.row}`);
-      if (reuse) { playback.push({ bar, voiceId: rule.voiceId, selectionId: reuse }); continue; }
+      if (reuse) {
+        playback.push({ bar, voiceId: rule.voiceId, selectionId: reuse });
+        const selection = selections.find(selection => selection.id === reuse);
+        previous = selection ? { bar, selection } : undefined;
+        continue;
+      }
       const phrase = normalizedPhrase(text);
-      const selection = available.filter(s => takes.find(t => t.id === s.takeIds[0])?.phrase === phrase
-        && s.takeIds.every(id => { const end = takes.find(t => t.id === id)?.captureEnd; return end && (end.bar < bar || end.bar === bar && end.beat === 0); })).at(-1);
+      const matches = available.filter(s => selectionPhrases.get(s.id) === phrase
+        && s.takeIds.every(id => { const end = takes.find(t => t.id === id)?.captureEnd; return end && (end.bar < bar || end.bar === bar && end.beat === 0); }));
+      const previousSlice = previous?.selection.window;
+      const previousTake = previous?.selection.takeIds[0];
+      const continuation = previous?.bar === bar - 1 && previousSlice?.kind === 'slice' ? matches.find(selection => selection.window.kind === 'slice'
+        && selection.takeIds[0] === previousTake && selection.window.beginCount === previousSlice.beginCount + previousSlice.loopCounts) : undefined;
+      const selection = continuation ?? matches.at(-1);
       if (!selection) issue('unknown-variant', 'No committed retained take matches this normalized arrangement phrase.', ref(rule.row, column));
-      else playback.push({ bar, voiceId: rule.voiceId, selectionId: selection.id });
+      else { playback.push({ bar, voiceId: rule.voiceId, selectionId: selection.id }); previous = { bar, selection }; }
     }
   }
   cues.sort((a, b) => a.bar - b.bar || (a.cueBeat ?? 0) - (b.cueBeat ?? 0) || a.buttonId.localeCompare(b.buttonId));
@@ -572,7 +624,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     if (selectionId === null) issue('play-selection', 'The play cue has no resolved committed take selection.', cue.source);
   }
   const artifact: CompiledSong = {
-    schemaVersion: 5, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
+    schemaVersion: 6, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
     source: { spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, range: source.range, digest: await digest(source) },
     mappingDigest: await digest(mapping), chart, voices: mapping.controls.map(c => ({ id: c.voiceId, buttonId: c.buttonId, arrangementRow: c.arrangementRow })),
     parts, rotation, cueWindow: mapping.cueWindow, cues, takes, selections, playback, diagnostics,
@@ -587,7 +639,7 @@ export function inspectCompiledSong(input: unknown): string {
     `Source ${song.source.sheetName} / gid ${song.source.sheetId} / ${song.source.digest}`, `Range ${song.chart.bars[0]?.bar ?? '?'}..${song.chart.bars.at(-1)?.bar ?? '?'} · ${song.meter.numerator}/${song.meter.denominator}`];
   for (const part of song.parts) lines.push(`PART\t${part.source.a1}\t${part.name}\t${part.id}\tprofile ${part.profile}\t${part.role.kind}${part.role.kind === 'pad' ? ` ${part.role.buttonId}` : ''}`);
   if (song.rotation) {
-    lines.push(`ROTATION\t${song.rotation.voiceId}\trelease at the next ${song.rotation.releaseGridBeats} counted-beat grid boundary strictly after accepted rotation; gate at written end; natural tails`);
+    lines.push(`ROTATION\t${song.rotation.voiceId}\trelease after ${song.rotation.inactivityBeats} counted beats of inactivity after accepted jiggle; gate at written end; natural tails`);
     for (const window of song.rotation.windows) lines.push(`ROTATION WINDOW\t${window.source.a1} -> ${window.endSource.a1}\t${window.begin.bar}:${window.begin.beat + 1}..${window.end.bar}:${window.end.beat + 1}\thalf-open\t${window.sources.map(source => source.a1).join(',')}`);
   }
   for (const cue of song.cues) {
@@ -604,6 +656,7 @@ export function inspectCompiledSong(input: unknown): string {
     lines.push(`TAKE\t${take.id}\t${arm} -> ${commit}\tcapture ${point(take.begin)}..${point(take.captureEnd)} (${captured ?? '?'} counts)\trest ${point(take.captureEnd)}..${point(take.loopEnd)} (${rest ?? '?'} counts, zero source)\tloop ${point(take.begin)}..${point(take.loopEnd)} (${loopCounts(take, song.meter.numerator) ?? '?'} counts)\tgroup ${take.groupId ?? '?'} anchor ${take.phraseAnchorTakeId}\t${take.retention}\t${JSON.stringify(take.phrase)}`);
   }
   for (const selection of song.selections) if (selection.window.kind === 'prefix') lines.push(`SOURCE WINDOW\t${selection.id}\t${selection.takeIds[0]}\t0..${selection.window.endCount} counts, exclusive\toriginal source and loop period retained`);
+  for (const selection of song.selections) if (selection.window.kind === 'slice') lines.push(`SOURCE SLICE\t${selection.id}\t${selection.takeIds[0]}\t${selection.window.beginCount}..${selection.window.endCount} counts, exclusive\tloop ${selection.window.loopCounts} counts; captured DSP history retained`);
   for (const diagnostic of song.diagnostics) lines.push(`${diagnostic.severity.toUpperCase()} ${diagnostic.code}\t${diagnostic.source.a1}\t${JSON.stringify(diagnostic.source.text)}\t${diagnostic.message}\towner ${diagnostic.owner}`);
   return lines.join('\n') + '\n';
 }

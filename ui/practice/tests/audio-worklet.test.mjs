@@ -10,6 +10,8 @@ import { SampleEngine as TestSampleEngine } from '../../../lib/sampler/tests/sup
 import { withoutPerformanceExports } from './support/wasm-exports.ts';
 import { compiledCaptureFixture } from '../../../lib/performance/tests/fixtures/compiled-capture.ts';
 import { encodeCompiledProgram } from '../../../lib/performance/compiled-native.ts';
+import { frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.ts';
+import { readMusicXmlSong } from '../../../lib/performance/musicxml-song.ts';
 
 const rate = 8000;
 const program = { lengthBeats: 16, events: Array.from({ length: 16 }, (_, atBeat) => [
@@ -153,8 +155,8 @@ test('compiled program crosses the real worklet control port and renders process
   } finally { t.dispose(); }
 });
 
-for (const order of [['L2', 'R1'], ['R1', 'L2']]) test(`DYC future-arm handoff keeps recording ownership through the real port (${order.join(' then ')})`, async () => {
-  const song = (await loadSong('dance-yrself-clean')).compiled;
+for (const order of [['L2', 'R1'], ['R1', 'L2']]) test(`historical DYC future-arm handoff keeps recording ownership through the real port (${order.join(' then ')})`, async () => {
+  const { song } = await readMusicXmlSong(await frozenCutoverMusicXml());
   const t = new Harness({ bpm: 98, compiledProgram: Array.from(encodeCompiledProgram(song)), barCount: 76,
     liveEffects: [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }], microphone: true });
   const atBar = bar => t.until(Math.ceil((5 + (bar - 1) * 4) * rate * 60 / 98) + 1, .25);
@@ -173,8 +175,8 @@ for (const order of [['L2', 'R1'], ['R1', 'L2']]) test(`DYC future-arm handoff k
   } finally { t.dispose(); }
 });
 
-test('DYC missed old commit finishes before the authorized future recording', async () => {
-  const song = (await loadSong('dance-yrself-clean')).compiled;
+test('historical DYC missed old commit finishes before the authorized future recording', async () => {
+  const { song } = await readMusicXmlSong(await frozenCutoverMusicXml());
   const t = new Harness({ bpm: 98, compiledProgram: Array.from(encodeCompiledProgram(song)), barCount: 76,
     liveEffects: [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }], microphone: true });
   const atBar = bar => t.until(Math.ceil((5 + (bar - 1) * 4) * rate * 60 / 98) + 1, .25);
@@ -194,6 +196,45 @@ test('DYC missed old commit finishes before the authorized future recording', as
     const output = t.renderStems(128, { input: new Float32Array(128).fill(.25) });
     assert(output.mixed.every(channel => channel.every(value => Math.abs(value - .625) < 1e-6)));
     assert(output.live.every(channel => channel.every(value => Math.abs(value - .3125) < 1e-6)));
+  } finally { t.dispose(); }
+});
+
+test('current DYC single-take rows and commit-last-bar parent cross the real control port', async () => {
+  const song = (await loadSong('dance-yrself-clean')).compiled;
+  const t = new Harness({ bpm: 98, compiledProgram: Array.from(encodeCompiledProgram(song)), barCount: 76,
+    liveEffects: [], microphone: true });
+  const atBar = bar => t.until(Math.ceil((5 + (bar - 1) * 4) * rate * 60 / 98) + 1, .25);
+  const perform = cell => {
+    const cue = song.cues.find(cue => cue.source.a1 === cell);
+    assert(cue, `current chart contains ${cell}`);
+    t.command('practice.control', { control: { id: cue.buttonId } });
+  };
+  const capture = voice => {
+    const index = song.takes.findIndex(take => take.voiceId === voice);
+    assert(index >= 0);
+    return t.processor.native.compiledTake(index);
+  };
+  try {
+    perform('B18');
+    atBar(1); assert.equal(t.state().recording.id, 'R1');
+    atBar(2); perform('D18');
+    atBar(3); assert.equal(t.state().recording, null); assert(capture('drums-claps').ready);
+    atBar(4); perform('F21');
+    assert.equal(t.state().channels.find(channel => channel.id === 'L2').status, 'armed');
+    atBar(5); assert.equal(t.state().recording.id, 'L2');
+    atBar(6); perform('H21');
+    atBar(7); assert.equal(t.state().recording, null); assert(capture('bing-bong').ready); perform('I19');
+    atBar(8); assert.equal(t.state().recording.id, 'R2');
+    assert(!capture('cowbell').ready, 'Cowbell remains one unpublished multi-bar capture');
+    atBar(12); assert.equal(t.state().recording.id, 'R2'); assert(!capture('cowbell').ready);
+    atBar(13); perform('O19');
+    assert.equal(t.state().recording, null);
+    assert(capture('cowbell').ready);
+    assert(Math.abs(capture('cowbell').frames - 20 * rate * 60 / 98) <= 1, 'the parent retains all five performed bars');
+    assert.equal(t.state().channels.find(channel => channel.id === 'R2').looping, true);
+    assert.equal(song.takes.filter(take => take.voiceId === 'drums-claps').length, 1);
+    assert.equal(song.takes.filter(take => take.voiceId === 'bing-bong').length, 1);
+    assert(!t.performance.some(message => message.event?.type === 'fault' || message.event?.type === 'control' && !message.event.applied));
   } finally { t.dispose(); }
 });
 

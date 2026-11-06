@@ -5,6 +5,9 @@ import { compiledCaptureFixture as fixture } from './fixtures/compiled-capture.j
 import { encodeCompiledProgram, compiledProgramBytes } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
+import { frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.js';
+import { readMusicXmlSong } from '../musicxml-song.js';
+import { PF as LIGHT } from '../light-abi.js';
 
 const module = await WebAssembly.compile(await readFile(new URL('../../../ui/practice/wasm/manual-clock.wasm', import.meta.url)));
 function engine(program: readonly number[], rate = 8000, initialVoiceEffects?: Parameters<NativePerformance['prepareVoiceEffects']>[0]) {
@@ -14,7 +17,9 @@ function engine(program: readonly number[], rate = 8000, initialVoiceEffects?: P
   if (!(instance.exports.memory instanceof WebAssembly.Memory)) throw new Error('Missing WASM memory');
   memory = instance.exports.memory;
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
-  return new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0, initialVoiceEffects });
+  const native = new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0, initialVoiceEffects });
+  native.setJiggleThresholds(1, 1);
+  return native;
 }
 function render(native: NativePerformance, frames: number, value: number | ((frame: number) => number) = .25) {
   const begin = native.processedFrames;
@@ -72,7 +77,7 @@ test('compiled artifact drives effected WASM capture, crb handoff, layer autopla
     native.control({ id: 'R1' }, 'fractional-stop');
     const pendingLight = native.state().channels.find(channel => channel.id === 'R1')?.light;
     assert(pendingLight?.kind === 'releasing' && pendingLight.remainingMs > 0);
-    const clock = native.query('pf_snapshot');
+    const clock = Array.from(native.query('pf_snapshot'));
     const target = Math.ceil(clock[PF.CLOCK_BEAT_FRAME] + 1000);
     const remaining = target - native.processedFrames;
     const stopped = render(native, remaining + 1);
@@ -241,7 +246,7 @@ test('independent native voice graphs survive equal-revision compiled loads and 
   } finally { native.dispose(); }
 });
 
-test('real WASM backup graph follows relative rotation and native quarter-count grid release with ordered PCM and natural tails', () => {
+test('real WASM backup graph follows relative rotation and native quarter-count inactivity release with ordered PCM and natural tails', () => {
   const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
     PF.COMPILED_ROTATION_MAGIC, 2, .25, 1, 0, 1, 1, 2, 0, 3, 2];
   const native = engine(program);
@@ -260,7 +265,7 @@ test('real WASM backup graph follows relative rotation and native quarter-count 
     native.setMicrophone(true); native.start({ runId: 'rotation-graph', bpm: 120, countInBars: 0, endBar: 4, loop: false }); until(native, 1, 1, 0);
     native.control({ id: 'knob', value: -2 }, 'rotation/1');
     assert.equal(backup().activity, 'live');
-    const boundary = native.query('pf_snapshot')[PF.CLOCK_BEAT_FRAME] + 1000;
+    const boundary = native.processedFrames + 1000;
     assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * 4000 - boundary) < 1e-6);
     const first = render(native, 1, 1), response = render(native, 400, 0);
     assert.equal(first.live[0][0], 1);
@@ -284,20 +289,20 @@ test('real WASM backup graph follows relative rotation and native quarter-count 
     until(native, 2, 1, 0); native.control({ id: 'knob', value: 2 }, 'rotation/3'); render(native, 500, 0);
     const before = backup().rotationRemainingBeats;
     native.control({ id: 'knob', value: 2 }, 'rotation/3'); native.control({ id: 'knob', value: 0 }, 'rotation/4');
-    assert.equal(backup().rotationRemainingBeats, before, 'replayed producer command and zero delta do not extend the grid deadline');
+    assert.equal(backup().rotationRemainingBeats, before, 'replayed producer command and zero delta do not extend the inactivity deadline');
     native.stop();
     assert.equal(backup().rotationRemainingBeats, 0);
     assert(render(native, 512, 1).live.every(channel => channel.every(value => value === 0)));
   } finally { native.dispose(); }
 });
 
-test('WASM rejects old duration packets instead of treating their field as a release grid', () => {
+test('WASM rejects old grid packets instead of reinterpreting their duration field', () => {
   const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
     PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
   const native = engine(program);
   try {
     const before = native.state();
-    assert.throws(() => native.configureCompiled(program.map((field, index) => index === 1 ? 3 : field)), /compiled/i);
+    for (const version of [3, 4, 5]) assert.throws(() => native.configureCompiled(program.map((field, index) => index === 1 ? version : field)), /compiled/i);
     assert.equal(native.state().phase, before.phase);
     assert.equal(native.state().startBar, before.startBar);
     assert.throws(() => new NativePerformance({
@@ -307,25 +312,26 @@ test('WASM rejects old duration packets instead of treating their field as a rel
 });
 
 for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
-  test(`WASM quarter grid uses processed frames and fresh movement at the deadline (${rate} Hz, ${beats} counts)`, () => {
+  test(`WASM full inactivity uses processed frames and fresh movement at the deadline (${rate} Hz, ${beats} counts)`, () => {
     const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
     const native = engine(program, rate);
     try {
       native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })));
-      native.setMicrophone(true); native.start({ runId: `quarter-grid-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      native.setMicrophone(true); native.start({ runId: `inactivity-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
       const advanceTo = (frame: number) => render(native, frame - native.processedFrames, 0);
       advanceTo(Math.ceil(rate / 2) + 8);
       const anchor = native.query('pf_snapshot')[PF.CLOCK_BEAT_FRAME], framesPerBeat = rate / 2;
       const backup = () => native.voiceEffects()[PF.BACKUP_PROFILE];
       advanceTo(Math.ceil(anchor + .1 * framesPerBeat));
       native.control({ id: 'knob', value: 4 }, 'first');
-      const deadline = native.processedFrames + backup().rotationRemainingBeats * framesPerBeat;
-      assert(Math.abs(deadline - (anchor + .25 * framesPerBeat)) < 1e-6);
+      let deadline = native.processedFrames + backup().rotationRemainingBeats * framesPerBeat;
+      assert(Math.abs(deadline - (native.processedFrames + .25 * framesPerBeat)) < 1e-6);
       advanceTo(Math.ceil(anchor + .2 * framesPerBeat));
       native.control({ id: 'knob', value: -2 }, 'second');
-      assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * framesPerBeat - deadline) < 1e-6,
-        'motion within the same quarter does not add another quarter of inactivity');
+      const extended = native.processedFrames + backup().rotationRemainingBeats * framesPerBeat;
+      assert(extended > deadline, 'continued motion extends to a full quarter-count after the latest report');
+      deadline = extended;
       const boundary = Math.ceil(deadline);
       advanceTo(boundary - 1); assert.equal(backup().activity, 'live');
       advanceTo(boundary); assert.notEqual(backup().activity, 'live');
@@ -335,18 +341,18 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
       native.control({ id: 'knob', value: -3 }, 'at-boundary');
       assert.equal(backup().activity, 'live');
       assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * framesPerBeat
-        - (anchor + .5 * framesPerBeat)) < 1e-6, 'fresh movement at the processed boundary selects the following quarter');
+        - (native.processedFrames + .25 * framesPerBeat)) < 1e-6, 'fresh movement starts a full inactivity duration');
       native.stop(); assert.equal(backup().rotationRemainingBeats, 0);
     } finally { native.dispose(); }
   });
 
-  test(`WASM quarter-grid deadline follows a native tempo hit (${rate} Hz, ${beats} counts)`, () => {
+  test(`WASM inactivity deadline follows a native tempo hit (${rate} Hz, ${beats} counts)`, () => {
     const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
     const native = engine(program, rate);
     try {
       native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })));
-      native.setMicrophone(true); native.start({ runId: `quarter-grid-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      native.setMicrophone(true); native.start({ runId: `inactivity-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
       native.control({ id: 'tempo' }, 'tempo-first');
       const advanceTo = (frame: number) => render(native, frame - native.processedFrames, 0);
       advanceTo(Math.round(rate * .525)); native.control({ id: 'knob', value: 1 }, 'motion');
@@ -365,8 +371,9 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
   });
 }
 
-test('DYC missing Bing Bong finish matches the written finish through bar 10 beat 3 and later playback', async () => {
-  const { default: song } = await import('../../../songs/dance-yrself-clean.js');
+test('historical DYC missing Bing Bong finish preserves its partial-bar capture and later playback', async () => {
+  const { song: compiled } = await readMusicXmlSong(await frozenCutoverMusicXml());
+  const song = { compiled, chart: compiled.chart };
   assert(song.compiled?.executable);
   const program = Array.from(encodeCompiledProgram(song.compiled));
   for (const rate of [44100, 48000]) {
@@ -401,7 +408,9 @@ test('DYC missing Bing Bong finish matches the written finish through bar 10 bea
         assert(!missed.events.some(event => event.type === 'fault'), 'missing a finish never faults the transport');
         frame += count;
       }
-      const bing = automatic.compiledTake(3);
+      const bingIndex = song.compiled.takes.findIndex(take => take.voiceId === 'bing-bong' && take.begin.bar === 7);
+      assert(bingIndex >= 0);
+      const bing = automatic.compiledTake(bingIndex);
       assert.equal(bing.ready, true);
       assert(Math.abs(bing.frames - 6 * framesPerCount) <= 1, 'source capture ends at bar 8 beat 3');
       assert.equal(bing.period, Math.ceil(8 * framesPerCount), 'two silent-source counts complete the original two-bar phrase');
@@ -412,8 +421,9 @@ test('DYC missing Bing Bong finish matches the written finish through bar 10 bea
   }
 });
 
-test('DYC short practice loops discard unfinished source spans instead of overflowing across wraps', async () => {
-  const { default: song } = await import('../../../songs/dance-yrself-clean.js');
+test('historical DYC short practice loops discard unfinished source spans instead of overflowing across wraps', async () => {
+  const { song: compiled } = await readMusicXmlSong(await frozenCutoverMusicXml());
+  const song = { compiled, chart: compiled.chart };
   assert(song.compiled?.executable);
   for (const endBar of [1, 7]) {
     const rate = 8000;
@@ -439,8 +449,92 @@ test('DYC short practice loops discard unfinished source spans instead of overfl
       assert.equal(native.state().phase, 'playing');
       assert.equal(native.state().error, null);
       assert.equal(native.state().recording, null);
-      assert.equal(native.compiledTake(endBar === 1 ? 0 : 3).ready, false, 'incomplete prefix never becomes a published take');
-      if (endBar === 7) assert(native.compiledTake(2).ready, 'earlier complete Bing Bong layer survives the truncated replacement');
+      const unfinished = song.compiled.takes.findIndex(take => endBar === 1
+        ? take.voiceId === 'drums-claps' && take.begin.bar === 1
+        : take.voiceId === 'bing-bong' && take.begin.bar === 7);
+      assert(unfinished >= 0);
+      assert.equal(native.compiledTake(unfinished).ready, false, 'incomplete prefix never becomes a published take');
+      if (endBar === 7) {
+        const earlier = song.compiled.takes.findIndex(take => take.voiceId === 'bing-bong' && take.begin.bar === 5);
+        assert(earlier >= 0);
+        assert(native.compiledTake(earlier).ready, 'earlier complete Bing Bong layer survives the truncated replacement');
+      }
     } finally { native.dispose(); }
   }
 });
+
+
+for (const rate of [44100, 48000]) test(`WASM cue button edges and engine light publications (${rate} Hz)`, async () => {
+  const song = await fixture();
+  const native = engine(Array.from(encodeCompiledProgram(song)), rate);
+  try {
+    native.prepareLiveEffects([]); native.setMicrophone(true);
+    native.start({ runId: 'one-button', bpm: 120, countInBars: 1, endBar: 4, loop: false });
+    const brightness = () => native.lightOutput()[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL];
+    native.control({ id: 'cueButton', value: 1 }, 'down-arm');
+    assert.equal(brightness(), 1);
+    native.control({ id: 'cueButton', value: 0 }, 'up-arm');
+    until(native, 1, 1, .25, 64);
+    assert(native.state().channels.some(channel => channel.status === 'recording'));
+    const image = native.lightOutput(); assert.deepEqual(native.lightOutput(), image);
+    render(native, Math.round(rate / 8)); assert(brightness() > .34 && brightness() < .36);
+    native.control({ id: 'cueButton', value: 1 }, 'down-commit-arm');
+    native.control({ id: 'cueButton', value: 1 }, 'repeat');
+    assert.equal(brightness(), 1);
+    native.control({ id: 'cueButton', value: 0 }, 'up-commit-arm');
+    render(native, Math.round(rate / 8)); assert(brightness() < .01, 'queued commit-arm does not hide actual ongoing recording from LED');
+    until(native, 2, 1, .25, 64);
+    assert.equal(native.compiledTake(0).ready, true);
+    render(native, Math.round(rate / 8)); assert(brightness() > .34 && brightness() < .36, 'recording pulse overrides playing');
+    native.control({ id: 'cueButton', value: 1 }, 'down-commit');
+    native.control({ id: 'cueButton', value: 0 }, 'up-commit');
+    until(native, 3, 1, .25, 64); assert.equal(brightness(), .7);
+    const clock = Array.from(native.query('pf_snapshot'));
+    const publication = native.lightOutput();
+    assert.equal(publication[LIGHT.LIGHT_FRAME], clock[PF.FRAME]);
+    assert.equal(publication[LIGHT.LIGHT_RUNNING], 1);
+    until(native, 4, 1, .25, 64);
+    native.control({ id: 'cueButton', value: 1 }, 'down-play');
+    const accepted = native.events().findLast(event => event.control?.id === 'cueButton');
+    assert.deepEqual(accepted?.control, { id: 'cueButton', value: 1 });
+    native.control({ id: 'mushroom' }, 'panic'); assert.equal(brightness(), 0);
+    native.control({ id: 'cueButton', value: 0 }, 'disconnect-release'); assert.equal(brightness(), 0);
+    assert.throws(() => native.control({ id: 'cueButton', value: 1 }, 'disconnect-release'), /already used/i);
+  } finally { native.dispose(); }
+});
+
+for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
+  test(`WASM jiggle ignores isolated tiny movement and confirms small reversal (${rate} Hz, ${beats} counts)`, () => {
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+      PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
+    const native = engine(program, rate);
+    try {
+      native.setJiggleThresholds(4, 2);
+      for (const [travel, reversal] of [[0, 1], [4, 5], [1.5, 1], [32768, 2]])
+        assert.throws(() => native.setJiggleThresholds(travel, reversal), /integer travel/i);
+      native.setMicrophone(true); native.start({ runId: 'filtered-jiggle', bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      until(native, 1, 1, 0, 64);
+      assert.throws(() => native.setJiggleThresholds(1, 1), /stop transport/i);
+      const origin = native.processedFrames, framesPerCount = rate / 2;
+      const backup = () => native.voiceEffects()[PF.BACKUP_PROFILE];
+      const move = (value: number, count: number, id = `motion-${count}`) => {
+        render(native, origin + Math.round(count * framesPerCount) - native.processedFrames, 0);
+        native.control({ id: 'knob', value }, id);
+      };
+      for (const count of [.01, .14, .27, .4]) {
+        move(1, count); assert.equal(backup().rotationRemainingBeats, 0, 'long sparse trickle expires in bounded buckets');
+      }
+      move(4, .5, 'significant'); assert(Math.abs(backup().rotationRemainingBeats - .25) < 1e-9);
+      move(1, .6); assert(backup().rotationRemainingBeats < .151, 'tiny forward movement does not refresh');
+      move(-1, .62); assert(backup().rotationRemainingBeats < .131, 'one tiny reversal does not refresh');
+      assert.deepEqual(native.events().findLast(event => event.control?.id === 'knob')?.control, { id: 'knob', value: -1 }, 'ignored movement remains a signed source observation');
+      move(1, .63); move(-1, .65);
+      assert(Math.abs(backup().rotationRemainingBeats - .25) < 1e-9, 'two reverse counts confirm small reversal');
+      move(0, .8); const remaining = backup().rotationRemainingBeats;
+      native.control({ id: 'knob', value: 4 }, 'significant');
+      assert.equal(backup().rotationRemainingBeats, remaining, 'replayed raw command cannot accumulate new travel');
+      move(0, .901); assert.equal(backup().rotationRemainingBeats, 0);
+      native.stop(); assert.equal(backup().rotationRemainingBeats, 0);
+    } finally { native.dispose(); }
+  });
+}

@@ -4,7 +4,7 @@ import { compileSheetsSong, canonicalSongJson, decodeCompiledSong, inspectCompil
 import type { SongMapping } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
-import dycMapping from '../../../songs/dance-yrself-clean.mapping.json';
+import dycMapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { PF } from '../wasm-abi.js';
 
@@ -17,7 +17,7 @@ function fixture(): { source: SongSource; mapping: SongMapping } {
   return {
     source: { sourceVersion: 1, spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', range: 'A1:F24', values,
       notes: { A18: 'Drums', A19: 'Cowbell', A20: 'Whistle', A21: 'Synth' } },
-    mapping: { mappingVersion: 5, liveParts: [], notationVersion: 'dyc-v1', songId: 'fixture', spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', titleCell: 'B1', bpmCell: 'F2', sectionRow: 4, barRow: 5,
+    mapping: { mappingVersion: 6, liveParts: [], notationVersion: 'dyc-v1', songId: 'fixture', spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', titleCell: 'B1', bpmCell: 'F2', sectionRow: 4, barRow: 5,
       leadInColumn: 2, startBar: 1, endBar: 4, meter: { numerator: 4, denominator: 4 },
       controls: [
         { buttonId: 'R1', voiceId: 'drums', cueRow: 18, arrangementRow: 10, nameNoteCell: 'A18' },
@@ -203,7 +203,7 @@ test('genuinely overlapping recording intervals reject without forbidding earlie
 
 test('DYC source parts survive import independently of the four pad bindings', async () => {
   const song = await compileSheetsSong(dycSource, dycMapping);
-  assert.equal(song.schemaVersion, 5);
+  assert.equal(song.schemaVersion, 6);
   assert.equal(song.voices.length, 4);
   assert.deepEqual(song.parts.map(part => [part.id, part.name, part.source.a1, part.profile, part.role.kind]), [
     ['whistle', 'Whistle', 'A13', 0, 'pad'],
@@ -229,7 +229,7 @@ test('DYC source parts survive import independently of the four pad bindings', a
 test('actual DYC rotation windows preserve written half-open beat boundaries and source cells', async () => {
   const song = await compileSheetsSong(dycSource, dycMapping);
   assert.equal(song.rotation?.voiceId, 'backup-vocals');
-  assert.equal(song.rotation?.releaseGridBeats, .25);
+  assert.equal(song.rotation?.inactivityBeats, .25);
   assert.deepEqual(song.rotation?.windows.map(window => [window.begin.bar, window.begin.beat, window.end.bar, window.end.beat, window.source.a1, window.endSource.a1]), [
     [20, 3, 22, 0, 'V17', 'X17'], [24, 3, 26, 0, 'Z17', 'AB17'],
     [36, 3, 38, 0, 'AL17', 'AN17'], [40, 3, 42, 0, 'AP17', 'AR17'],
@@ -245,7 +245,7 @@ test('actual DYC rotation windows preserve written half-open beat boundaries and
   const rotationStart = table.indexOf(PF.COMPILED_ROTATION_MAGIC);
   assert.deepEqual(Array.from(table.slice(rotationStart, rotationStart + 7)), [PF.COMPILED_ROTATION_MAGIC, 10, .25, 20, 3, 22, 0]);
   assert.match(inspectCompiledSong(song), /PART\tA9\tBackup Vocals.*profile 5\trotation-live/);
-  assert.match(inspectCompiledSong(song), /ROTATION\tbackup-vocals\trelease at the next 0.25 counted-beat grid boundary/);
+  assert.match(inspectCompiledSong(song), /ROTATION\tbackup-vocals\trelease after 0.25 counted beats of inactivity/);
   assert.match(inspectCompiledSong(song), /ROTATION WINDOW\tBT17 -> BV17\t70:4\.\.72:3\thalf-open/);
 });
 
@@ -261,17 +261,17 @@ test('full DYC play cues select the Cowbell identity written at their execution 
   }
 });
 
-test('quarter-grid authoring and imports reject old inactivity artifacts and invalid count grids', async () => {
+test('inactivity authoring and imports reject old grid artifacts and invalid beat fractions', async () => {
   const song = await compileSheetsSong(dycSource, dycMapping);
   assert.throws(() => decodeCompiledSong({ ...song, schemaVersion: 3 }));
   await assert.rejects(() => compileSheetsSong(dycSource, { ...dycMapping, mappingVersion: 3 }));
   const rule = dycMapping.rotationRule;
-  for (const releaseGridBeats of [0, -1, 1.25, .0001]) {
-    const rejected = await compileSheetsSong(dycSource, { ...dycMapping, rotationRule: { ...rule, releaseGridBeats } });
+  for (const inactivityBeats of [0, -1, 1.25, .0001]) {
+    const rejected = await compileSheetsSong(dycSource, { ...dycMapping, rotationRule: { ...rule, inactivityBeats } });
     assert.equal(rejected.executable, false);
     assert(rejected.diagnostics.some(diagnostic => diagnostic.code === 'rotation-rule' && diagnostic.source.a1 === 'A17'));
     assert.throws(() => encodeCompiledProgram(rejected));
-    assert.throws(() => decodeCompiledSong({ ...song, rotation: { ...song.rotation, releaseGridBeats } }));
+    assert.throws(() => decodeCompiledSong({ ...song, rotation: { ...song.rotation, inactivityBeats } }));
   }
   assert.deepEqual(decodeCompiledSong(JSON.parse(canonicalSongJson(song))).rotation, song.rotation);
 });
@@ -301,7 +301,7 @@ test('executable imports reject forged source profiles and overlapping or unboun
     { ...song, parts: song.parts.map(part => part.profile === 5 ? { ...part, profile: 4 } : part) },
     { ...song, parts: song.parts.map(part => part.profile === 5 ? { ...part, name: 'Forged label' } : part) },
     { ...song, rotation: { ...rotation, voiceId: 'whistle' } },
-    { ...song, rotation: { ...rotation, releaseGridBeats: 0 } },
+    { ...song, rotation: { ...rotation, inactivityBeats: 0 } },
     { ...song, rotation: { ...rotation, windows: [first, first] } },
     { ...song, rotation: { ...rotation, windows: [{ ...first, end: first.begin }] } },
     { ...song, rotation: { ...rotation, windows: [{ ...first, source: { ...first.source, sheetId: 0 } }] } },

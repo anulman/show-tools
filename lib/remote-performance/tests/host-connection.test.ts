@@ -5,6 +5,7 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { PF } from '../../performance/wasm-abi.js';
 import { encodeFrame, FrameDecoder } from '../framing.js';
 import { HostConnection, HostDisconnected } from '../host-connection.js';
 
@@ -20,8 +21,8 @@ test('correlates host results and marks disconnected commands unknown', async ()
 	const [socket] = await once(server, 'connection');
 	try {
 		const hello = Buffer.alloc(40, 7);
-		hello.writeUInt32LE(7, 32);
-		hello.writeUInt32LE(5, 36);
+		hello.writeUInt32LE(PF.ABI_VERSION, 32);
+		hello.writeUInt32LE(PF.COMPILED_VERSION, 36);
 		socket.write(encodeFrame({ tag: 1, sequence: 0, payload: hello }));
 		const decoder = new FrameDecoder();
 		const [readyBytes] = await once(socket, 'data');

@@ -3,6 +3,7 @@
 #include "beat_tracker.h"
 #include "sample_engine.h"
 #include "audio_sequence_engine.h"
+#include "performance_light_output.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -21,9 +22,9 @@ enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_A
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
   PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
   PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 7, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
-enum pf_compiled_limits { PF_COMPILED_MAGIC = 0x50464331, PF_COMPILED_VERSION = 5, PF_COMPILED_HEADER_FIELDS = 16, PF_COMPILED_TAKE_FIELDS = 9, PF_COMPILED_CUE_FIELDS = 11, PF_COMPILED_MEMBER_FIELDS = 3, PF_COMPILED_PLAYBACK_FIELDS = 3, PF_COMPILED_MAX_TAKES = 32, PF_COMPILED_ROTATION_MAGIC = 0x50465231, PF_COMPILED_ROTATION_HEADER_FIELDS = 3, PF_COMPILED_ROTATION_FIELDS = 4, PF_COMPILED_WINDOW_MAGIC = 0x50465731, PF_COMPILED_WINDOW_HEADER_FIELDS = 2, PF_COMPILED_WINDOW_FIELDS = 2 };
-enum pf_compiled_take_field { PF_TAKE_VOICE, PF_TAKE_READY, PF_TAKE_LENGTH, PF_TAKE_CAPACITY, PF_TAKE_REVISION, PF_TAKE_PHASE, PF_TAKE_PLAYBACK_STATE, PF_TAKE_PERIOD, PF_TAKE_SOURCE_END, PF_TAKE_FIELDS };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 8, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+enum pf_compiled_limits { PF_COMPILED_MAGIC = 0x50464331, PF_COMPILED_VERSION = 6, PF_COMPILED_HEADER_FIELDS = 16, PF_COMPILED_TAKE_FIELDS = 9, PF_COMPILED_CUE_FIELDS = 11, PF_COMPILED_MEMBER_FIELDS = 3, PF_COMPILED_PLAYBACK_FIELDS = 3, PF_COMPILED_MAX_TAKES = 32, PF_COMPILED_ROTATION_MAGIC = 0x50465231, PF_COMPILED_ROTATION_HEADER_FIELDS = 3, PF_COMPILED_ROTATION_FIELDS = 4, PF_COMPILED_WINDOW_MAGIC = 0x50465731, PF_COMPILED_WINDOW_HEADER_FIELDS = 2, PF_COMPILED_WINDOW_FIELDS = 4 };
+enum pf_compiled_take_field { PF_TAKE_VOICE, PF_TAKE_READY, PF_TAKE_LENGTH, PF_TAKE_CAPACITY, PF_TAKE_REVISION, PF_TAKE_PHASE, PF_TAKE_PLAYBACK_STATE, PF_TAKE_PERIOD, PF_TAKE_SOURCE_END, PF_TAKE_SELECTION, PF_TAKE_FIELDS };
 enum pf_tempo_field { PF_TEMPO_COUNT, PF_TEMPO_FRAME, PF_TEMPO_HINT, PF_TEMPO_SOURCE, PF_TEMPO_ESTIMATED, PF_TEMPO_BPM, PF_TEMPO_FIELDS };
 enum pf_effect_type { PF_EFFECT_SLAPBACK = 1, PF_EFFECT_CHORUS = 2 };
 typedef struct pf_slapback_parameters { double delay_ms, feedback, wet; } pf_slapback_parameters;
@@ -76,9 +77,8 @@ sq_engine* pf_sequencer(pf_engine* engine);
 int pf_configure(pf_engine* engine, double bpm, int beats_per_bar, int bar_count, int default_end_bar,
   int program_length, const double* events, int event_count,
   const double* cues, int cue_count, const double* playback, int playback_count);
-/* Packet 4 rotation extension: [magic, window count, release grid in chart-count
-   beats, ...window rows]. Grid boundaries are strictly after accepted movement.
-   Packet 3's inactivity-duration field is incompatible and is rejected.
+/* Packet 6 rotation extension: [magic, window count, inactivity duration in
+   chart-count beats, ...window rows]. Older packet semantics are rejected.
    Compiled records use the versioned double-table format. All tables and capture
    resources are validated/prepared before an atomic stopped replacement. */
 int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields);
@@ -92,7 +92,15 @@ int pf_start(pf_engine* engine, double bpm, int count_in_bars, int start_bar, in
 void pf_stop(pf_engine* engine);
 /* IDs preserve JavaScript UTF-16 code-unit identity, including embedded NULs.
    Null pointer with zero length means no ID. Other IDs contain 1..200 units. */
+/* Controls 0..3 pads, 4 Panic, 5 signed relative jiggle, 6 tempo hit,
+   7 cue button (0 released, 1 held). Only a fresh rising edge performs cues. */
 int pf_control(pf_engine* engine, int control, double value, const uint16_t* command_id, uint32_t command_length);
+/* Complete engine-authored brightness image. Query on the engine owner thread.
+   Repeated queries without a changed image retain their publication sequence. */
+void pf_light_output(pf_engine* engine, double* out);
+/* Software gesture thresholds in source-relative units. Integers 1..32767,
+   reversal <= travel. Preparation is stopped-only; defaults are 4 and 2. */
+int pf_set_jiggle_thresholds(pf_engine* engine, double minimum_travel, double minimum_reversal);
 int pf_select(pf_engine* engine, int channel);
 int pf_set_channel(pf_engine* engine, int channel, double gain, int muted);
 int pf_set_automatic(pf_engine* engine, int automatic);

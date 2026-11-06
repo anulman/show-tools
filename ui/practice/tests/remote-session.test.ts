@@ -1,3 +1,4 @@
+import { lightFixture } from '../../../lib/remote-performance/tests/light-fixture.js';
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
 import { loadSong } from '../../../songs/index.js';
@@ -8,7 +9,7 @@ const state = { phase: 'idle', bar: null, beat: null, countInRemaining: 0, bpm: 
   automatic: false, click: false, selectedChannel: 'L1', runId: 'run', seq: 0,
   channels: ['L1', 'L2', 'R1', 'R2'].map(id => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })),
   looping: [], recording: null, microphone: false, error: null };
-const performance = { hostEpoch: 'host', revision: '1', state };
+const performance = { hostEpoch: 'host', revision: '1', state, lights: lightFixture() };
 const off = { serverEpoch: 'server', revision: '1', song, audio: { kind: 'off' } };
 const ready = { ...off, revision: '3', audio: { kind: 'ready', attempt: 'attempt', performance } };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));

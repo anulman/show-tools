@@ -5,7 +5,7 @@ import { compileSheetsSong, decodeSongMapping } from '../../performance/compiled
 import { parseSongSource } from '../../performance/song-source.js';
 import { parseCatalogDocument } from '../model.js';
 import sourceInput from '../../../songs/dance-yrself-clean.source.json';
-import mappingInput from '../../../songs/dance-yrself-clean.mapping.json';
+import mappingInput from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 
 const source = parseSongSource(sourceInput), mapping = decodeSongMapping(mappingInput);
 const document = parseCatalogDocument({ version: 2, revision: 0,
