@@ -1,0 +1,35 @@
+---
+title: "Capture handoff and retained takes"
+---
+stateDiagram-v2
+  s0: Ready to capture
+  s1: Recording first take
+  s2: Stopped after resource failure
+  s3: Stopped with a retained take
+  s4: Retained take playing
+  s5: Recording with a retained take
+  s6: Recording preserved after rejected handoff
+  [*] --> s0
+  s0 --> s1: you arm an available take
+  s1 --> s2: resource failure stops the operation
+  s1 --> s3: you stop with a complete draft, retaining it without playback
+  s1 --> s4: written endpoint commits without incoming capture or valid capture commits and autoplays or standalone commit survives failed independent arm
+  s1 --> s0: invalid outgoing draft blocks incoming capture or you stop or wrap, discarding only the draft
+  s1 --> s6: combined handoff rejects unavailable target
+  s1 --> s5: written endpoint commits and starts next take or combined commit and arm succeeds or standalone commit then independent arm succeeds
+  s2 --> s3: you stop or wrap, discarding only the draft
+  s2 --> s5: you arm an available take
+  s3 --> s5: you arm an available take
+  s4 --> s3: you stop or wrap, discarding only the draft
+  s4 --> s5: you arm an available take
+  s2 --> s0: you stop or wrap, discarding only the draft
+  s2 --> s1: you arm an available take
+  s5 --> s2: resource failure stops the operation
+  s5 --> s3: you stop with a complete draft, retaining it without playback or you stop or wrap, discarding only the draft or invalid outgoing draft blocks incoming capture
+  s5 --> s4: written endpoint commits without incoming capture or valid capture commits and autoplays or standalone commit survives failed independent arm or invalid outgoing draft blocks incoming capture
+  s5 --> s6: combined handoff rejects unavailable target
+  s6 --> s2: resource failure stops the operation
+  s6 --> s3: you stop with a complete draft, retaining it without playback or you stop or wrap, discarding only the draft or invalid outgoing draft blocks incoming capture
+  s6 --> s4: written endpoint commits without incoming capture or valid capture commits and autoplays or standalone commit survives failed independent arm or invalid outgoing draft blocks incoming capture
+  s6 --> s0: invalid outgoing draft blocks incoming capture or you stop or wrap, discarding only the draft
+  s6 --> s5: written endpoint commits and starts next take or combined commit and arm succeeds or standalone commit then independent arm succeeds

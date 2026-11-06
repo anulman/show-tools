@@ -1,0 +1,51 @@
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wreturn-type"
+#define main compiled_program_original_test_main
+#include "../../lib/performance/tests/compiled_program_tests.cpp"
+#undef main
+#pragma GCC diagnostic pop
+
+void complete_stop_retains_without_playback() {
+  auto live = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
+  const auto song = table();
+  auto program = compiled::Program::create(song.data(), uint32_t(song.size()), 8000, *live, 1);
+  require(bool(program), "complete Stop witness prepares the real compiled program");
+  program->start(1, 1, 0, 120);
+  program->beat(PF_COUNT_IN, 0, 1, 1, 0, 120);
+  require(program->press(0, 0, 120, true) == PF_OK, "complete Stop witness arms during the lead-in");
+  program->beat(PF_PLAYING, 1, 1, 0, 4000, 120);
+  std::vector<float> input(16000, .25f), output(16000);
+  program->render(input.data(), output.data(), nullptr, nullptr, nullptr, 16000, 4000, 120, true, *live, *backup);
+  std::array<double, PF_TAKE_FIELDS> draft{}, retained{}, repeated{};
+  program->take_info(0, draft.data());
+  require(draft[PF_TAKE_LENGTH] == 16000 && !draft[PF_TAKE_READY],
+    "complete Stop witness reaches the last captured frame before endpoint evaluation");
+  program->stop(); program->take_info(0, retained.data());
+  require(retained[PF_TAKE_READY] && retained[PF_TAKE_LENGTH] == 16000
+    && retained[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::idle),
+    "Stop retains a complete valid draft without starting playback");
+  program->stop(); program->take_info(0, repeated.data());
+  require(repeated == retained, "repeated Stop leaves the already published complete take unchanged");
+  std::array<float, 16> silence{};
+  program->render(nullptr, silence.data(), nullptr, nullptr, nullptr, 16, 20000, 120, false, *live, *backup);
+  require(std::all_of(silence.begin(), silence.end(), [](float sample) { return sample == 0; }),
+    "complete Stop retains silence until a later authorized playback");
+}
+
+int main(int argc, char** argv) {
+  if (argc != 2) return 2;
+  const char* scenario = argv[1];
+  if (std::strcmp(scenario, "combined-admission") == 0) crb_unavailable_start_preserves_old_capture();
+  else if (std::strcmp(scenario, "independent-admission") == 0) independent_unavailable_arm_does_not_rollback_commit();
+  else if (std::strcmp(scenario, "invalid-outgoing") == 0) failed_period_blocks_same_boundary_start();
+  else if (std::strcmp(scenario, "retained-bank") == 0) stopped_partial_capture_preserves_latest();
+  else if (std::strcmp(scenario, "autoplay") == 0) capture_layers_and_boundaries();
+  else if (std::strcmp(scenario, "stop-complete") == 0) complete_stop_retains_without_playback();
+  else if (std::strcmp(scenario, "automatic-endpoint") == 0) authored_capture_end_finishes_without_finish_press();
+  else if (std::strcmp(scenario, "selection-preflight") == 0) commit_preflights_entire_selection_before_publication();
+  else if (std::strcmp(scenario, "boundary-orders") == 0) disjoint_reservation_handoff_both_orders();
+  else if (std::strcmp(scenario, "wrap-preserves-latest") == 0) loop_wrap_discards_unfinished_capture_and_preserves_latest();
+  else return 2;
+  std::printf("PASS capture witness %s\n", scenario);
+  return 0;
+}
