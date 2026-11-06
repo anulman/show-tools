@@ -25,3 +25,13 @@ Statechart first exposed a verification-only bound defect in continued explorati
 Updated at source sync `9b51479061fa48fbfffb8271541c1cf475a7e101`. The ten invariant definitions and finite bounds are unchanged. The pristine full graph again exhausts 4,904 states and the display graph exhausts 362. All five formal mutants retain their named failures. All eleven native scenarios pass before and after six assertion-specific actual-source mutations. The added native-only mutation removes the tuner gate during recording and fails the new isolation assertion. It does not extend the formal model to tuner state. Production hashes are checked after restoration.
 
 The original hash rejection and missing tuner dependency in the standalone witness build were verification drift. No capture-policy product bug was found. The source classification and scope exclusions are recorded in [SOURCE-SYNC.md](SOURCE-SYNC.md).
+
+## Native cue-light source synchronization
+
+Outcome: **updated** at source sync `b356501773ecae24d31e2f20abffa4e88c4b3600`. The initial source-hash rejection was expected verification drift. The new const cue query and its use in light publication do not change capture transitions; model, invariants, bounds and mutation witnesses remain unchanged. Cue-warning timing and physical LED delivery are not proved here.
+
+The pinned full rerun exhausted 42,863 generated / 4,904 distinct states and passed all ten configured invariants. The smaller display model exhausted 1,825 generated / 362 distinct states. All five model mutants failed their named rules; all eleven native scenarios passed before and after six assertion-specific actual-source mutant failures. Production source hashes were unchanged after the final pristine rerun.
+
+All seven results were independently read through the current `/statechart` entry point, with no unchecked rules or evaluator errors. The display view remains seven states and 23 arrows, omitting 382 same-label transitions. The deliberately broken latest-bank variant also breaks `LatestIsComplete`, and missing endpoint completion also breaks `SuccessfulPublicationAutoplays`; these are expected additional mutant consequences, not pristine product findings. The finite counterexample paths retain their previous lengths and meanings.
+
+Native-audio's five recorded files and MusicXML's eleven recorded files are byte-identical to their existing source fences; those checks remain **in sync**, with no record/model update or unrelated proof rerun. The capture skill validator and `git diff --check` passed. Temporary receipts, statechart reports, traces and native mutation logs remain in the coordinator's retained proof directories.
