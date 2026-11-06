@@ -242,3 +242,7 @@ reports for its explicit mapping. Mac Input Monitoring, real USB delivery and a
 future Linux peripheral adapter remain separate from fake-host verification.
 
 Compiled take readback includes the actual native playing selection index. The desk uses that index to describe a source-bar view independently of its parent recording. Current DYC's Cowbell has two parent captures and eleven reusable bar identities; its shortened bar-82 admission reuses that same identity. Whole-bar views and shortened views both bound source admission, so the selected view's source span relative to its loop period determines the Trimmed annotation. An absent native selection stays visibly unavailable rather than being inferred from the displayed chart position.
+
+## Host delegation remains separate from the app
+
+The [host delegation bundle](../lib/remote-performance/delegation/README.md) prepares a conditional retained-consent process for the confirmed EliteDesk host-user app. It is not installed or active. The existing messaging gateway remains unchanged. A separately reviewed root-frozen verifier authenticates signed deployment candidates and owns their bounded claim ledger; it runs no app actions. The trusted host steward still verifies actual source and host preconditions. Routine app releases cannot expand or replace the protected grant, signer or verifier.
