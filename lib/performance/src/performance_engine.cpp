@@ -69,6 +69,7 @@ struct pf_engine {
   double tempo_epoch = -1;
   bool live_authorized = false, cue_button_held = false;
   double light_run = 0, light_sequence = 0;
+  int jiggle_travel = 4, jiggle_reversal = 2;
   double light_image[PF_LIGHT_FIELDS]{};
   double rate = 0, processed = 0, bpm = 120, epoch = 1, clock_beat = 0, clock_frame = 0, click_origin = 0, max_seconds = 30;
   int mode = PF_TRACKER, phase = PF_IDLE, start = 1, end = 1, selected = 2, beats_per_bar = 4;
@@ -508,6 +509,7 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   if (identity) engine->profiles[PF_DEFAULT_PROFILE].rack = std::move(identity);
   if (backup) engine->profiles[PF_BACKUP_PROFILE].rack = std::move(backup);
   prepared->tempo_handler(engine, chart_tempo_hit);
+  prepared->jiggle_thresholds(engine->jiggle_travel, engine->jiggle_reversal);
   engine->beats_per_bar = prepared->beats_per_bar(); engine->bpm = prepared->initial_bpm(); engine->end = prepared->end_bar();
   delete engine->song; engine->song = song.release(); engine->compiled = std::move(prepared);
   engine->compiled->observe(engine, [](void* context, double when) {
@@ -870,6 +872,16 @@ int pf_process_stems(pf_engine* engine, const float* input, float* left, float* 
   const float* spans[] = {input, left, right, live_left, live_right};
   if (!disjoint_audio(spans, 5, frames)) return -1;
   return process_stems(engine, input, left, right, live_left, live_right, frames);
+}
+int pf_set_jiggle_thresholds(pf_engine* engine, double travel, double reversal) {
+  if (!engine) return -1;
+  if (running(engine)) return fail(engine, PF_INVALID_PROGRAM, "Stop transport before configuring jiggle thresholds");
+  if (!integer(travel) || !integer(reversal) || travel < 1 || travel > 32767 || reversal < 1 || reversal > travel)
+    return fail(engine, PF_INVALID_PROGRAM, "Jiggle thresholds require integer travel 1..32767 and reversal 1..travel");
+  engine->jiggle_travel = int(travel); engine->jiggle_reversal = int(reversal);
+  if (engine->compiled) engine->compiled->jiggle_thresholds(int(travel), int(reversal));
+  engine->error_code = PF_OK; engine->error = "";
+  return 0;
 }
 void pf_light_output(pf_engine* engine, double* out) {
   if (!out) return;
