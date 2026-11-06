@@ -4,6 +4,7 @@ import { stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { extname, resolve, sep } from 'node:path';
+import { isPriorityCommand } from './commands.js';
 
 export interface Observation {
 	type: 'session' | 'state' | 'event' | 'gap';
@@ -137,7 +138,7 @@ export function createGateway(config: GatewayConfig, instrument: Instrument) {
 					return json(response, 200, await retained.result);
 				}
 				if (sequence <= session.highWater) return json(response, 409, { error: 'Command expired' });
-				if (session.inFlight >= MAX_RESULTS + (body.command === 'stop' ? 1 : 0)) return json(response, 503, { error: 'Command capacity reached' });
+				if (session.inFlight >= MAX_RESULTS + (isPriorityCommand(body) ? 1 : 0)) return json(response, 503, { error: 'Command capacity reached' });
 				session.highWater = sequence;
 				session.inFlight++;
 				const result: Promise<Outcome> = instrument.command({ command: body.command, args: body.args }).catch(
