@@ -1,3 +1,4 @@
+import { connectBrowserPeripheral } from './browser-peripheral.js';
 import { BeatTracker } from './runtime/beat-tracker.js';
 import { AudioEndpoint } from '../../lib/sampler/audio-endpoint.js';
 import { Sampler } from '../../lib/sampler/sampler.js';
@@ -47,6 +48,8 @@ export class PracticeAudio {
   };
   readonly onMessage: (event: MessageEvent<{ event?: PracticeEvent }>) => void;
   readonly detachState: () => void;
+  readonly detachPeripheral: () => void;
+  readonly peripheralReady: Promise<void>;
   readonly detachTracker: () => void;
   readonly onDeviceChange: () => void;
   latest: PracticeState;
@@ -75,6 +78,7 @@ export class PracticeAudio {
       const endpoint = new AudioEndpoint(channel.port1);
       audio = new PracticeAudio({ tracker, endpoint, chart, compiled, sessionId });
       await endpoint.request('state');
+      await audio.peripheralReady;
       return audio;
     } catch (error) {
       if (audio) await audio.dispose();
@@ -131,6 +135,9 @@ export class PracticeAudio {
       this.syncMonitoring();
       this.publish();
     });
+    const peripheral = connectBrowserPeripheral(this);
+    this.detachPeripheral = peripheral.stop;
+    this.peripheralReady = peripheral.ready;
     this.detachTracker = tracker.subscribe(state => {
       const wasMicrophone = this.microphone;
       this.microphone = state.source?.kind === 'microphone';
@@ -271,6 +278,7 @@ export class PracticeAudio {
   }
 
   async dispose() {
+    this.detachPeripheral();
     if (this.disposed) return;
     this.startGeneration++;
     this.microphoneGeneration++;

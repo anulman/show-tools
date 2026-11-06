@@ -844,3 +844,23 @@ test('worklet render failures silence every output bus', () => {
   assert(t.renderStems(1000).live.every(channel => channel.every(value => value === 0)), 'fresh Start contains no stale tail');
   t.dispose();
 });
+
+
+test('physical LED publications are opt-in and contain the actual native evaluated image', () => {
+  const t = new Harness({ microphone: true });
+  try {
+    t.render(256);
+    assert.equal(t.performance.filter(message => message.lights).length, 0);
+    t.command('practice.peripheral-lights', { enabled: true });
+    t.command('practice.control', { control: { id: 'cueButton', value: 1 } });
+    const light = t.performance.filter(message => message.lights).at(-1).lights;
+    assert.equal(light.length, 78);
+    assert.deepEqual(Array.from(light), Array.from(t.processor.native.lightOutput()));
+    assert.equal(light[15], 1, 'physical held state comes from C++');
+    t.command('practice.control', { control: { id: 'cueButton', value: 0 } });
+    t.command('practice.peripheral-lights', { enabled: false });
+    const count = t.performance.filter(message => message.lights).length;
+    t.render(256);
+    assert.equal(t.performance.filter(message => message.lights).length, count);
+  } finally { t.dispose(); }
+});

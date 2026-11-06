@@ -313,3 +313,17 @@ Run the take-presentation and remote-schema UI tests, `capture-slices.test.ts` a
 ## Verify proposed host delegation without touching the host
 
 The [delegation guide](../lib/remote-performance/delegation/README.md) separates local source preparation from the operator's one-time root bootstrap. Run `node --import tsx --test lib/remote-performance/tests/delegation.test.ts` for temporary-key signatures, unchanged-mailbox fixtures, claim races, replay and audit failures. The existing remote controls CI command includes this wrapper. These checks neither contact the host nor use its production private key. Any frozen checker change needs regenerated pins and independent bootstrap review; an application deployment cannot update the installed authority.
+
+### Verify browser peripheral delivery
+
+Build fresh WASM before testing the physical light publication seam. These tests
+use synthetic controls and transport; they do not open the I-PAC.
+
+```sh
+node --import tsx --test lib/peripherals/tests/browser-server.test.ts ui/practice/tests/browser-peripheral.test.ts
+node --import tsx --test --test-name-pattern='physical LED publications' ui/practice/tests/audio-worklet.test.mjs
+```
+
+The local browser bridge has its own loopback server and leaves the managed UI
+server untouched. Follow the [peripheral guide](../lib/peripherals/README.md#run-browser-practice-with-the-local-i-pac)
+for the one-owner handoff from the audio-free wiring test to browser practice.

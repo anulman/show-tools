@@ -245,3 +245,44 @@ or network connection, and it generates no cue timing. It sends brightness
 reports only and preserves the unknown eight-output enable mask. A disabled
 channel therefore remains disabled. It does not monitor the other three button
 or LED mappings, which still require individual observation.
+
+## Run browser practice with the local I-PAC
+
+Stop any separate wiring-test monitor before starting this command. One process
+owns the board at a time. Build the matching WASM and UI from this checkout, then
+use the native `peripheral-host` built with its nonseizing Mac transport.
+
+```sh
+npm run build
+./show-tools peripheral browser --helper /absolute/path/peripheral-host --static-root /absolute/path/dist
+```
+
+Open the printed loopback URL on this Mac. The command serves its own verified
+practice build and does not replace the managed practice server. It binds only
+`127.0.0.1` and owns LED output 1, SDK channel 0. This is the confirmed one-button
+installation, not a guessed map for the other three buttons.
+
+Start practice in the page to prepare browser audio and connect the controller.
+The page reports **Controller connected** before transport Start completes. The
+local pairing secret stays in this origin's session storage so reload can pair
+again. It is removed from the URL before device connection. A second connected
+page is rejected rather than taking ownership from the first.
+
+If the button is held or unknown when the helper opens, release it before the
+first accepted press. The native input latch does not synthesize an activation.
+
+The browser forwards ordered Tab-button edges and signed spinner motion to its
+WASM engine. It sends the engine's complete evaluated light publication to the
+native helper. C++ owns every cue window, pulse phase, and brightness decision.
+The helper sends brightness reports only and preserves unknown enable masks.
+Ordinary Tab focus traversal is suppressed while the helper owns the input.
+
+Closing the page, ending the stream, or missing transport heartbeats for 2.5
+seconds clears this LED and invalidates the old connection. This heartbeat does
+not advance musical time. A background page whose browser suspends timers may
+disconnect; the page reports that condition instead of replaying old input.
+Restart the local controller session to reconnect after a device disconnect.
+
+This command does not provide held-button feedback before browser audio is
+prepared. Use `peripheral-host --bench-held 0 --confirm-wiring` for the separate,
+audio-free wiring test, then stop that process before opening this mode.
