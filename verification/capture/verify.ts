@@ -56,6 +56,7 @@ const mutations = [
     edits: [{ before: 'if (bank != take.latest && !(active_capture_.take == id', after: 'if (!(active_capture_.take == id' }] },
   { name: 'noAutoplay', scenario: 'autoplay', invariant: 'SuccessfulPublicationAutoplays', message: 'commit autoplays processed mono-to-stereo take once',
     edits: [
+      { before: '!take.playback[bank]->start_window_at_capture_end(true, uint32_t(committed_view->start[bank]), uint32_t(committed_view->cut[bank]),\n        uint32_t(committed_view->finish[bank] - committed_view->start[bank]))', after: 'false' },
       { before: 'if (!take.playback[take.latest]->start_at_capture_end(true)) return error_ = PF_ACTION_FAILED;', after: 'if (false) return error_ = PF_ACTION_FAILED;' },
       { before: '  if (cue.selection >= 0) {\n    if (!select(cue.voice, cue.selection, false)) return error_ = PF_ACTION_FAILED;\n  } else if (!play_take(cue.commit)) return error_ = PF_ACTION_FAILED;', after: '' },
     ] },

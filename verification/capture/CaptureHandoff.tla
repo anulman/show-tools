@@ -48,7 +48,7 @@ Combined(t, b, ready) ==
  /\ event' = Event("combined", TRUE, ready)
 Boundary(kind, t, b, valid, ready) ==
  /\ active # 0 /\ t # active
- /\ ((valid /\ ready) => generation < MaxCaptures)
+ /\ ((ready /\ (valid \/ Mutation = "admitAfterInvalid")) => generation < MaxCaptures)
  /\ valid \in BOOLEAN /\ ready \in BOOLEAN /\ ((ready /\ b \in Free(t)) \/ (~ready /\ b = 0))
  /\ IF valid /\ ~(kind = "automatic" /\ Mutation = "missEndpoint") THEN
       /\ latest' = LatestAfterPublish /\ playing' = PlayingAfterPublish

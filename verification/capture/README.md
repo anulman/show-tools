@@ -37,15 +37,15 @@ This is a safety proof of the model under these abstractions. It does not establ
 
 ## Source mapping and sensitivity
 
-The last source sync is `679a8f35ddaba418f4d4286094c3f98a9f62386d`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
+The last source sync is `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
 
 | Model action or rule | Current source boundary |
 | --- | --- |
-| Begin and protected bank selection | `Program::available_bank`, `Program::press`, `Program::execute` in `lib/performance/src/compiled_program.cpp`. |
+| Begin and protected bank selection | `Program::available_bank`, `Program::press` / `press_current` through `press_selected`, `Program::execute` in `lib/performance/src/compiled_program.cpp`. |
 | Combined admission before any outgoing change | `Program::press` admission guard and `Program::execute` preflight ordering. |
 | Standalone/automatic release before incoming start | `Program::apply_pending` staged preflight and two passes. |
-| Complete publication and autoplay | `Program::preflight_commit` and `Program::finish_capture`; `ProcessedTake::commit` and `Playback::start_at_capture_end` in `lib/patches/src/patch_engine.cpp`. |
-| Stop and draft discard | `Program::stop`, `Program::discard_invalid_draft`, and the wrap branch in `Program::beat`. |
+| Complete publication and autoplay | `Program::preflight_commit` and `Program::finish_capture`; `ProcessedTake::commit` and `Playback::start_at_capture_end` / `start_window_at_capture_end` in `lib/patches/src/patch_engine.cpp`. |
+| Stop and draft discard | `Program::stop` and `Program::discard_invalid_draft`. The wrap branch in `Program::beat` has a separate native witness. |
 | Real native witness entry | `pf_control`, `pf_process_stems`, take/channel readback, and existing `compiled_program_tests.cpp` fixtures. |
 
 The model mutants and actual-source mutants represent the same broken policy. The native witnesses concretize those policies using real compiled fixtures and PCM assertions; they are not an exhaustive C++ trace equivalence proof.
@@ -58,7 +58,7 @@ The model mutants and actual-source mutants represent the same broken policy. Th
 | Omit both initial playback start and selection playback | `SuccessfulPublicationAutoplays` | `capture_layers_and_boundaries`. |
 | Skip authored automatic completion | `AutomaticEndpointCompletes` | `authored_capture_end_finishes_without_finish_press`. |
 
-The native host also checks independent failed admission, full selection preflight, both button orders, complete-draft Stop without playback, repeated Stop idempotence, and loop-wrap retention. All checks use the actual engine and patch sources. A first attempted execute-only admission mutant survived because the public `press` guard rejected it earlier. It was not credited; the final mutation changes the reachable admission boundary itself.
+The native host also checks independent failed admission, full selection preflight, both button orders, complete-draft Stop without playback, repeated Stop idempotence, and loop-wrap retention. Current-source additions check unified cue-button ordering and independent outcomes, and automatic publication of a final-bar slice across three captures into reusable protected banks. Slice readback retains the full immutable parent and reports the playing selection; these finite witnesses do not prove arbitrary slice arithmetic or rack checkpoint fidelity. All checks use the actual engine and patch sources. A first attempted execute-only admission mutant survived because the public `press` guard rejected it earlier. It was not credited; the final mutation changes the reachable admission boundary itself.
 
 ## Read the statechart
 
@@ -66,6 +66,6 @@ Read every model result with the current `/statechart` skill. Follow its install
 
 [statechart.mmd](statechart.mmd) is the readable successful display graph. Labels distinguish playing retained takes, stopped retained takes, rejected handoffs, and failures. The view also gives each broken policy a distinct visible state rather than merging it into an ordinary Ready state. The chart omits transitions whose source and target share a label. No temporal promise is inferred from those omitted self-transitions.
 
-The last verified run is summarized in [RESULTS.md](RESULTS.md).
+The last verified run is summarized in [RESULTS.md](RESULTS.md). The source-change classification is in [SOURCE-SYNC.md](SOURCE-SYNC.md).
 
 Use `/maintain-formal-verification-skill` after source changes that did not rerun this package. An intended policy change updates the contract, model, witnesses, and source record together. A counterexample remains a finding until it replays against the real implementation; never weaken a rule to silence it.

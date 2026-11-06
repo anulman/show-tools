@@ -29,6 +29,34 @@ void complete_stop_retains_without_playback() {
     "complete Stop retains silence until a later authorized playback");
 }
 
+void sliced_endpoint_reuses_protected_banks() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
+    0, 1, 0, 3, 0, 1, 3, 0, 0,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
+    0, 0, 2, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0,
+    0, 0, 1,
+    PF_COMPILED_WINDOW_MAGIC, 1, 0, 4, 8, 4};
+  Engine engine; prepare(engine, song);
+  for (int capture = 0; capture < 3; ++capture) {
+    ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0));
+    ok(engine, press(engine, 0)); until(engine, 1);
+    until(engine, 3);
+    auto retained = take(engine, 0);
+    require(retained[PF_TAKE_READY] && retained[PF_TAKE_LENGTH] == 32000
+      && retained[PF_TAKE_PERIOD] == 32000 && retained[PF_TAKE_SOURCE_END] == 32000
+      && retained[PF_TAKE_SELECTION] == 0
+      && retained[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::playing),
+      "sliced automatic completion publishes the full capture and autoplays its selected final bar across bank reuse");
+    auto audio = render(engine, 1);
+    require(std::abs(audio.left[0] - .3125f) < 1e-6,
+      "sliced automatic completion has audible processed playback");
+    pf_stop(engine);
+    require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 32000,
+      "Stop preserves the immutable parent of the committed slice");
+  }
+}
+
 int main(int argc, char** argv) {
   if (argc != 2) return 2;
   const char* scenario = argv[1];
@@ -38,9 +66,9 @@ int main(int argc, char** argv) {
   else if (std::strcmp(scenario, "retained-bank") == 0) stopped_partial_capture_preserves_latest();
   else if (std::strcmp(scenario, "autoplay") == 0) capture_layers_and_boundaries();
   else if (std::strcmp(scenario, "stop-complete") == 0) complete_stop_retains_without_playback();
-  else if (std::strcmp(scenario, "automatic-endpoint") == 0) authored_capture_end_finishes_without_finish_press();
+  else if (std::strcmp(scenario, "automatic-endpoint") == 0) { authored_capture_end_finishes_without_finish_press(); sliced_endpoint_reuses_protected_banks(); }
   else if (std::strcmp(scenario, "selection-preflight") == 0) commit_preflights_entire_selection_before_publication();
-  else if (std::strcmp(scenario, "boundary-orders") == 0) disjoint_reservation_handoff_both_orders();
+  else if (std::strcmp(scenario, "boundary-orders") == 0) { disjoint_reservation_handoff_both_orders(); unified_button_and_light_priority(); unified_button_reports_independent_failures(); }
   else if (std::strcmp(scenario, "wrap-preserves-latest") == 0) loop_wrap_discards_unfinished_capture_and_preserves_latest();
   else return 2;
   std::printf("PASS capture witness %s\n", scenario);
