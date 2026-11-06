@@ -1,4 +1,4 @@
-import { resolve } from 'node:path';
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { ChildProcess } from 'node:child_process';
@@ -7,6 +7,7 @@ import { rangeForBar } from '../lib/performance/chart.js';
 import { chartSettings, LOCAL_PRACTICE_ORIGINS } from './chart-settings.js';
 import { createChartHelper, inspectCDP, openChart, openSetList } from './open-chart.js';
 import { spawnCDP } from './start-cdp.js';
+import { chiefHandoff, commandFailureExitCode, formatCommandFailure, parseCommandFailure } from './lib/command-diagnostics.js';
 
 export const HELP = `Usage: show-tools sheets [SONG_SLUG_OR_SET_LIST_NUMBER] [--no-cdp] [--skip-open]
        show-tools songs
@@ -146,7 +147,23 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
 
 export async function main(args = process.argv.slice(2)) {
   try {
-    if (args[0] === 'chart') { await (await import('./chart-compiler.js')).runChartCompiler(args.slice(1)); return; }
+    if (args[0] === 'chart') {
+      const json = args.includes('--json'), output: string[] = [];
+      try {
+        await (await import('./chart-compiler.js')).runChartCompiler(args.slice(1).filter(argument => argument !== '--json'), message => { output.push(message); });
+        process.stdout.write(output.join(''));
+      } catch (error) {
+        let failure;
+        try { failure = parseCommandFailure(error); }
+        catch {
+          failure = chiefHandoff({ code: 'CHART_COMMAND_FAILED', message: 'The chart command encountered an unexpected tooling failure.',
+            nextSteps: ['Hand the command and its inputs to Chief to diagnose the tooling failure. Keep the product gate blocked until verification succeeds.'], locations: [] });
+        }
+        (json ? process.stdout : process.stderr).write(formatCommandFailure(failure, json ? 'json' : 'human'));
+        process.exitCode = commandFailureExitCode(failure);
+      }
+      return;
+    }
     const command = parseCommand(args);
     if (command.kind === 'help') { process.stdout.write(HELP); return; }
     if (command.kind === 'songs') { process.stdout.write(SONGS.map((song, index) => `${index + 1}  ${song.id}  ${song.title.replace(/^\d+ · /, '')}`).join('\n') + '\n'); return; }
@@ -161,4 +178,4 @@ export async function main(args = process.argv.slice(2)) {
   }
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await main();
+if (process.argv[1] && realpathSync.native(process.argv[1]) === realpathSync.native(fileURLToPath(import.meta.url))) await main();

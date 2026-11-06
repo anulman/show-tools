@@ -1,0 +1,4 @@
+interface:
+  display_name: "Character dance"
+  short_description: "Explore, repaint, and verify pixel-art dance loops"
+  default_prompt: "Use $character-dance to explore and combine a simple dance, repaint the selected sprites, and verify their pixel-art style and finished Figma animation."

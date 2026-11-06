@@ -1,0 +1,252 @@
+{
+  "schemaVersion": 1,
+  "toolVersion": 1,
+  "status": "canonical-reexport-verified",
+  "motionId": "C06/special/03",
+  "characterId": "C06",
+  "artworkId": "C06/mid-res-8-bit/special/03",
+  "canonical": {
+    "store": "Figma",
+    "fileKey": "QWreOYAnaje2LlywefJFiK",
+    "componentSetId": "183:6579",
+    "timelineRootId": "184:22661"
+  },
+  "nativeGrid": {
+    "width": 128,
+    "height": 128
+  },
+  "nativeToFigma": [
+    [
+      1,
+      0,
+      0
+    ],
+    [
+      0,
+      1,
+      0
+    ]
+  ],
+  "sourceOffset": {
+    "x": 32,
+    "y": 24
+  },
+  "cycleBeats": 4,
+  "actionBeats": 2,
+  "beatUnit": "quarter-note",
+  "interpolation": "hold",
+  "keyframes": [
+    {
+      "atBeat": 0,
+      "pose": 0
+    },
+    {
+      "atBeat": 0.25,
+      "pose": 1
+    },
+    {
+      "atBeat": 0.5,
+      "pose": 2
+    },
+    {
+      "atBeat": 0.75,
+      "pose": 3
+    },
+    {
+      "atBeat": 1.25,
+      "pose": 4
+    },
+    {
+      "atBeat": 1.75,
+      "pose": 5
+    },
+    {
+      "atBeat": 2,
+      "pose": 0
+    },
+    {
+      "atBeat": 4,
+      "pose": 0
+    }
+  ],
+  "drawings": [
+    {
+      "index": 0,
+      "nodeId": "183:6500",
+      "path": "pose-0.png",
+      "sha256": "5a42878c422a4f1e1c58fa5ed3f50f235c2ab9bf8b65d5da49c2dccaf6829506",
+      "pixelSha256": "258eda6bcc244efd35968fe13b728861dd264e09f9491478aae3dc73f709ba5f",
+      "pivot": {
+        "x": 64,
+        "y": 102
+      },
+      "layers": {
+        "body": {
+          "path": "body-0.png",
+          "sha256": "5a42878c422a4f1e1c58fa5ed3f50f235c2ab9bf8b65d5da49c2dccaf6829506",
+          "pixelSha256": "258eda6bcc244efd35968fe13b728861dd264e09f9491478aae3dc73f709ba5f",
+          "nodeId": "211:20096"
+        },
+        "effects": {
+          "path": "effects-0.png",
+          "sha256": "0d3dab3aab52496eca143109a11ebe3e8cf1a61d4d4f5cd47bd9c4c1c1bc21b2",
+          "pixelSha256": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+          "nodeId": "211:20095"
+        }
+      }
+    },
+    {
+      "index": 1,
+      "nodeId": "183:6513",
+      "path": "pose-1.png",
+      "sha256": "3d4a1df1b2b2ebf9f9135326b5b390bced8900f05276794b76683312951abaf4",
+      "pixelSha256": "998fd93c1b4dd49edc1957f947425b92795d6a0054674086705f0424dfc3d9a3",
+      "pivot": {
+        "x": 64,
+        "y": 102
+      },
+      "layers": {
+        "body": {
+          "path": "body-1.png",
+          "sha256": "3d4a1df1b2b2ebf9f9135326b5b390bced8900f05276794b76683312951abaf4",
+          "pixelSha256": "998fd93c1b4dd49edc1957f947425b92795d6a0054674086705f0424dfc3d9a3",
+          "nodeId": "211:20148"
+        },
+        "effects": {
+          "path": "effects-1.png",
+          "sha256": "0d3dab3aab52496eca143109a11ebe3e8cf1a61d4d4f5cd47bd9c4c1c1bc21b2",
+          "pixelSha256": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+          "nodeId": "211:20147"
+        }
+      }
+    },
+    {
+      "index": 2,
+      "nodeId": "183:6526",
+      "path": "pose-2.png",
+      "sha256": "7e45409db39a1324c0e10437a0bb3bc23c5a2ba1ef2ee6b95dc8bacce6295abb",
+      "pixelSha256": "383e3c52adb2274a0126d7f4575e3c8c11ad495d274266a9201122edc0d3d9de",
+      "pivot": {
+        "x": 64,
+        "y": 102
+      },
+      "layers": {
+        "body": {
+          "path": "body-2.png",
+          "sha256": "7e45409db39a1324c0e10437a0bb3bc23c5a2ba1ef2ee6b95dc8bacce6295abb",
+          "pixelSha256": "383e3c52adb2274a0126d7f4575e3c8c11ad495d274266a9201122edc0d3d9de",
+          "nodeId": "211:20200"
+        },
+        "effects": {
+          "path": "effects-2.png",
+          "sha256": "0d3dab3aab52496eca143109a11ebe3e8cf1a61d4d4f5cd47bd9c4c1c1bc21b2",
+          "pixelSha256": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+          "nodeId": "211:20199"
+        }
+      }
+    },
+    {
+      "index": 3,
+      "nodeId": "183:6539",
+      "path": "pose-3.png",
+      "sha256": "59f6b55a58970783b6c2ed9bd56ce157b5bff7c6f06e29aafce3a2a0b42fdad0",
+      "pixelSha256": "5eb5610b6a14630e486fef7da76a3b654d10685bd97fc3173651150bee381c3f",
+      "pivot": {
+        "x": 64,
+        "y": 102
+      },
+      "layers": {
+        "body": {
+          "path": "body-3.png",
+          "sha256": "d05b12fcf63ad6845d04e9ee83f4c7504dae60118cd44ea27592e3af9dc23dbe",
+          "pixelSha256": "6c68e706e1bfdf6b1372605c4164f018f8aca2889b2c915d4369554516c4a6b6",
+          "nodeId": "211:20253"
+        },
+        "effects": {
+          "path": "effects-3.png",
+          "sha256": "4ccb940efd75a10c4e5b80b87ae819af4b0dca55db12af3c78c14e7d8fbda646",
+          "pixelSha256": "d0487017da55207c6ef0f4690c6148bb515d36dd67099c1c0a9da630cb6a9f4c",
+          "nodeId": "211:20251"
+        }
+      }
+    },
+    {
+      "index": 4,
+      "nodeId": "183:6553",
+      "path": "pose-4.png",
+      "sha256": "b5c72d138d0ec3ff8fddab3a9a69dff3fc72ccc22883b59fb80bd90b24ee33c2",
+      "pixelSha256": "e7e87b02ae240d1e9d6bea269f90fc5a497e662e6fd333910f2ee6fccad0a772",
+      "pivot": {
+        "x": 64,
+        "y": 102
+      },
+      "layers": {
+        "body": {
+          "path": "body-4.png",
+          "sha256": "b5c72d138d0ec3ff8fddab3a9a69dff3fc72ccc22883b59fb80bd90b24ee33c2",
+          "pixelSha256": "e7e87b02ae240d1e9d6bea269f90fc5a497e662e6fd333910f2ee6fccad0a772",
+          "nodeId": "211:20308"
+        },
+        "effects": {
+          "path": "effects-4.png",
+          "sha256": "0d3dab3aab52496eca143109a11ebe3e8cf1a61d4d4f5cd47bd9c4c1c1bc21b2",
+          "pixelSha256": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+          "nodeId": "211:20307"
+        }
+      }
+    },
+    {
+      "index": 5,
+      "nodeId": "183:6566",
+      "path": "pose-5.png",
+      "sha256": "d6481f9a6a378426aac9a1cca8f3e60f58b363cd1b6f426ecd12d112fa9be2ea",
+      "pixelSha256": "2100a9f66b9dfd174f1a02422c98b064b03405f6e187b0b2c53c2bee494a208a",
+      "pivot": {
+        "x": 64,
+        "y": 102
+      },
+      "layers": {
+        "body": {
+          "path": "body-5.png",
+          "sha256": "d6481f9a6a378426aac9a1cca8f3e60f58b363cd1b6f426ecd12d112fa9be2ea",
+          "pixelSha256": "2100a9f66b9dfd174f1a02422c98b064b03405f6e187b0b2c53c2bee494a208a",
+          "nodeId": "211:20360"
+        },
+        "effects": {
+          "path": "effects-5.png",
+          "sha256": "0d3dab3aab52496eca143109a11ebe3e8cf1a61d4d4f5cd47bd9c4c1c1bc21b2",
+          "pixelSha256": "de2f256064a0af797747c2b97505dc0b9f3df0de4f489eac731c23ae9ca9cc31",
+          "nodeId": "211:20359"
+        }
+      }
+    }
+  ],
+  "approval": {
+    "styleQuestion": "Is this the work of a mid-res 8-bit pixel artist?",
+    "style": "pass",
+    "temporalQuestion": "Does this look like intentional movement of the same pixel model, rather than texture crawl or distortion?",
+    "temporal": "pass",
+    "anatomy": "pass",
+    "export": "pass",
+    "basis": "Existing recorded visual verdict carried forward only after exact canonical RGBA parity for every pose and named layer;65live HOLD samples agree with beat metadata",
+    "pixelEncoding": "RGBA8; transparent RGB normalized to0",
+    "approvedPixelHashes": [
+      "258eda6bcc244efd35968fe13b728861dd264e09f9491478aae3dc73f709ba5f",
+      "998fd93c1b4dd49edc1957f947425b92795d6a0054674086705f0424dfc3d9a3",
+      "383e3c52adb2274a0126d7f4575e3c8c11ad495d274266a9201122edc0d3d9de",
+      "5eb5610b6a14630e486fef7da76a3b654d10685bd97fc3173651150bee381c3f",
+      "e7e87b02ae240d1e9d6bea269f90fc5a497e662e6fd333910f2ee6fccad0a772",
+      "2100a9f66b9dfd174f1a02422c98b064b03405f6e187b0b2c53c2bee494a208a"
+    ]
+  },
+  "sourceCatalogRevision": "sha256:36e0c755e3f05bef2f16f5a3ace4d6aa045692921993d6e0402d285f2cdaba70",
+  "reexport": {
+    "format": "Figma SVG_STRING, rasterized without filtering to native grid",
+    "referenceBpm": 120,
+    "timingSamples": 65,
+    "durationSeconds": 8,
+    "sceneSha256": "7e57ce01a13bab8d2ebcaa0937b4433081147ec9028bd6697632db596eaa9a76",
+    "sceneContract": "Complete review subtree geometry, appearance, overrides and non-pose animation; pose OPACITY keys checked separately"
+  },
+  "retention": "Runtime package and compact certificate retained. Temporary exports, comparisons and raw approval reports are not dependencies of this package."
+}

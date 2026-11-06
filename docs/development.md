@@ -6,6 +6,50 @@ The [four-workstream planning brief](workstreams.md) records the current priorit
 
 The [canonical-data and retention policy](data-retention.md) governs promotion and cleanup. Preserve completed designs and concise lessons rather than every experiment. Figma owns promoted animation. Git owns canonical effects and tools. Operator authoring data needs a database sidecar and independent backup; current browser SQLite storage does not yet satisfy that target. Review temporary material at milestone handoff and during periodic housekeeping, after verifying the canonical handoff.
 
+The [deterministic command plan](implementation/deterministic-pipelines.md) separates product validation from harness recovery. Product blocks require an operator-facing explanation and suggested next steps when driven by an agent. Harness failures hand control to Chief. Shared CLI diagnostics live in `scripts/lib/command-diagnostics.ts`; domain code owns the actual validation rules.
+
+## Run deterministic product commands
+
+Use the [native performance guide](../lib/performance/README.md) for chart options and source mappings. Each command publishes one output. Inspect the JSON before encoding the exact inspected file for the engine.
+
+```sh
+./show-tools chart compile --source SOURCE.json --mapping MAPPING.json --out SONG.json
+./show-tools chart inspect SONG.json
+./show-tools chart encode --song SONG.json --out SONG.pfp
+```
+
+The removed `--native-out` option reports a migration instruction. A draft can be inspected but cannot be encoded for execution. Add `--json` to receive a structured failure without preceding human output.
+
+Use the [audition guide](../lib/patches/tools/README.md) to render approved shared effects from explicit synthetic or WAV input. Supply both linear gains and a fresh output directory.
+
+```sh
+node --import tsx scripts/audition-patches.ts --source synthetic --rate 48000 --patch tribulations-guitar --input-gain 1 --output-gain 1 --out /tmp/guitar-audition
+```
+
+The pack contains dry, processed, and exact-duplicate controls. It performs no automatic gain correction or loudness matching. Existing packs are preserved. The manifest records the actual input, gains, hashes, and frame counts; toolchain provenance is separate.
+
+The [canonical animation guide](../assets/video/published/README.md) describes generating complete Figma read scripts and checking captured output. These commands preserve the existing pixel, visible-scene, layer, and HOLD gates. They do not edit Figma or promote artwork by fallback.
+
+Run the allowlisted CAD fit-trial workflow with an explicit installed CAD Python and a fresh absolute output directory.
+
+```sh
+hardware/cad/cad candidate measured-hex-joint --python /absolute/path/to/cad/python --output /absolute/path/to/new-trial --json
+```
+
+The command runs the existing negative checker before export and verifies the actual receipt and file hashes. Its result covers an isolated two-piece fit trial, not the complete mount or physical fit. It does not discover services, publish to a viewer, or start live services. Runtime and protocol failures return to Chief. A final checked receipt marks a consumable export. Partial output without that receipt is untrusted; ask Chief to inspect it and rerun into a fresh directory.
+
+Run the changed command checks without starting live services.
+
+```sh
+node --import tsx --test scripts/tests/command-diagnostics.test.ts scripts/tests/chart-compiler.test.ts scripts/tests/audition-patches.test.ts
+npm run test:figma-exports
+npm run test:cad-commands
+/absolute/path/to/cad/python -m unittest discover -s hardware/cad/tests -p test_headless_candidate.py
+npm run typecheck
+```
+
+CAD Python checks require the environment from `hardware/cad/requirements.lock`. Missing verification dependencies are a Chief recovery task. Expected negative fixtures do not require operator notifications. Unexpected product blocks encountered while carrying out an operator request do.
+
 ## Give each session its own checkout
 
 Create separate worktrees before running agents concurrently. This separates source edits, the Git index, dependencies, and generated `dist/` files.
@@ -134,7 +178,17 @@ Keep compiled output, recordings, and test artifacts out of commits. The `wasm-a
 
 ## Verify the independent video studio
 
-Use `npm run build:video` to build its native C++ pose module to WASM and bundle `ui/video/` without requiring the practice WASM artifact. Serve `dist/` on a separate port, such as 8087, and open `/ui/video/`. Run `npm run test:video` for pose and input-boundary checks. The [studio guide](../ui/video/README.md) includes native checks and explicit-time inspection methods. Keep live PE delivery and real CRT output claims separate from the fixture preview. Coordinate edits to shared build packaging with Performance Engine; the current video builder preserves other `dist/` entries.
+For song composition, use the [director guide](video-directors/README.md) and [session registry](video-directors/registry.json). Directors own separate song pages; shared-library changes go through Art. Serialize Figma calls with the documented cooperative file lease, and give implementation work its own checkout. The guide marks MusicXML source paths as pending authoring-branch references; they are not merged renderer inputs.
+
+Use `npm run build:video` to build the C++ held-frame sampler to WASM and bundle `ui/video/` without requiring the practice WASM artifact. Prepare a private Street score from the saved catalog and verified Figma asset package, then serve it with its referenced assets on an isolated port. The [studio guide](../ui/video/README.md) documents preparation, explicit-time inspection, and clean movie export. Run `npm run test:video` and the focused exporter tests before reviewing the actual browser scene and decoded movie frames. Keep private catalog exports and prepared binding receipts outside Git. Video Agent owns Figma writes and asset verification; the runtime owner consumes its handoff. Keep full-song chart interpretation, live per-voice PE delivery, and real CRT output claims separate from the authored fixture. Coordinate shared build packaging with Performance Engine; the video builder preserves other `dist/` entries.
+
+Use `scripts/prepare-street-song.ts` for the complete chart-planned score. It shares the fixture's actor-local visual policy and native sampler. Pair the current frozen source with its matching mapping, and use the private saved catalog only for qualified cast bindings. Scene and private `preparationReceipt` publish together as one atomic JSON file; output must not alias any input. Test forward subdivision parsing, blank/dash intensity rules, independent actor cadence, main/backup section boundaries, and publication failure preservation. Keep source-located diagnostics strict. Verify the actual movie with corrected identity-approved artwork before calling the art finished.
+
+Presence/effect staging uses an independent native HOLD lane alongside each actor's original dance track. Check direct and reverse seeks, effect-only composition-cache changes, colored effects over gray bodies, and partial effect-resource cleanup. `scripts/video-expansion/poof-release.mts` owns admission of the pinned approved Figma poof catalog and exact18 PNGs; run its focused tests separately. Opaque-peak coverage must use actual transition drawings and their recorded pivots, including padded special/ultra canvases.
+
+Run `node --import tsx scripts/verify-street-presence.ts SCENE ASSET_ROOT WASM NEW_REPORT_JSON` on a prepared presence scene before movie export. It samples the real native tables at each visibility edge, checks outgoing and incoming combined sprite pixels against the opaque peak, and rejects occupied cloud clipping across all six drawings of every used variant. Neighbor overlap remains an explicit visual-review diagnostic. The report binds scene, WASM and loaded PNG hashes; its output path must be new.
+
+Video pipeline commands share `scripts/cli-entry.ts` to resolve executable identity through filesystem aliases. Verify CLI invocation through a checkout symlink as well as its physical path; importing the programmatic API must not run the command.
 
 ## Prepare the arrived I-PAC harness
 
@@ -164,7 +218,7 @@ The [catalog migration core](implementation/catalog-migration.md) is preparation
 
 The independent [CAD desk](../ui/cad/README.md) lives under `ui/cad/`; its local publisher service lives under `hardware/cad/`. Keep OCP Viewer on port 3939 running, then use `hardware/cad/cad desk --disco-step '/absolute/path/to/Disco Ball.step'` and open <http://127.0.0.1:3940/>. This tool uses the isolated CAD environment and does not start audio, Sheets, Chrome CDP, USB listeners, or printer jobs.
 
-The box-mount and disco-bar sessions own separate CAD files and headless checks. The coordinator owns the desk and shared viewer publication. Run `node_modules/.bin/tsc --project ui/cad` for its browser code, and use the [CAD workspace guide](../hardware/cad/WORKSPACES.md) for geometry checks and manufacturing gates. The practice desk remains the supported musical instrument UI.
+The box-mount, disco-bar, mushroom-mount, and micro-enclosure sessions own separate CAD files and headless checks. The coordinator owns the desk and shared viewer publication. Run `node_modules/.bin/tsc --project ui/cad` for its browser code, and use the [CAD workspace guide](../hardware/cad/WORKSPACES.md) for geometry checks and manufacturing gates. The practice desk remains the supported musical instrument UI.
 
 Cue-row changes belong to the authoring/compiler boundary in `lib/voice-catalog/cue-mapping.ts`, not browser beat dispatch. Verify version-one SQLite/JSON migration, cue-reference round trips, stale-label rejection, exact voice/worksheet selection, and preservation of loaded native instructions until an inspected song is explicitly loaded. The library worker returns version-two documents; older JSON backups are decoded and migrated at import. Static screen avatars use only saved character IDs and do not replace source-owned pad names or native activity labels.
 
@@ -173,3 +227,9 @@ Compiled captures automatically complete at their authored source endpoint if th
 Validate the static character handoff with `node --import tsx scripts/video-expansion/check-static-avatars.mts`. This checks all 51 IDs, image hashes, dimensions, and transparency. `npm run check:layout` also compares every built avatar with its published source and checks its offline-cache entry. The 46 gallery previews are static UI art and have not passed the finished-animation repaint review.
 
 Verify explicit prefix views with dry and effected PCM at 44.1 and 48 kHz. Place the omitted hit on an independent absolute musical grid; deriving its frame from a rounded loop period can leak a sample. Check a subsequent full view, retained-bank replacement, zero-length admission after late arming, and unchanged manual Play/Stop behavior. Full DYC verification covers all 218 bars and initial preparation of its 12 takes. Prefix views add no recordings.
+
+## Direct scenes and character actions through storyboards
+
+Use the [pixel-storyboard skill](../skills/pixel-storyboard/SKILL.md) for scene composition, character actions and tween studies. The [operator instructions](../skills/pixel-storyboard/references/operator-guide.md) explain the review sequence. Establish the starting and ending poses, then draw the middle and split the remaining gaps. Even a complete-motion request follows that sequence.
+
+Keep art authoring and musical execution separate. A Figma held-pose animatic tests drawings and provisional timing. It does not establish live PE synchronization or runtime promotion. Verify the actual Figma export and preserve independently accepted pose, face, finish and timing decisions. The skill's [Maestro case](../skills/pixel-storyboard/references/maestro-case.md) records the evidence behind this workflow.

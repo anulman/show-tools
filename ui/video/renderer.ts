@@ -1,105 +1,119 @@
-import { Application, Assets, Container, Graphics, MeshPlane, Text, Texture } from 'pixi.js';
-import manifest from '../../assets/video/manifest.json';
-import { quarterPosition, type SceneTime } from './time.js';
-import type { PoseSampler } from './motion.js';
+import { Container, Sprite, Texture, WebGLRenderer } from 'pixi.js';
+import type { PreparedStreetScene, StreetPoofEffect } from '../../lib/video/street-score.js';
+import type { StreetSampler } from '../../lib/video/street-sampler.js';
+import { grayscaleRgba, streetPoofPlacement } from '../../lib/video/presentation.js';
+import { fetchStreetAsset, type StreetAsset } from '../../lib/video/street-assets.js';
+import { StreetResources } from './resources.js';
 
-export const models = manifest.models;
-export const treatments = [...new Set(models.map(model => model.treatment))];
-export const treatmentName = (value: string) => ({ original: 'Original', '8bit': '8-bit', '16bit': '16-bit', 'tex-avery': 'Tex Avery' })[value] ?? value;
-export type View = { readonly kind: 'gallery' } | { readonly kind: 'stage'; readonly treatment: string };
-
-function label(text: string, x: number, y: number, size = 12, color = 0xd9c9b7) {
-  const node = new Text({ text, style: { fontFamily: 'Arial, sans-serif', fontSize: size, fill: color, letterSpacing: 1 } });
-  node.position.set(x, y);
-  return node;
+export type TexturePair = { readonly color: Texture; readonly gray: Texture };
+type PreparedDrawing = PreparedStreetScene['actors'][number]['clips'][number]['drawings'][number] & TexturePair;
+export interface StreetPlatform {
+  readonly renderer: () => WebGLRenderer;
+  readonly fetch: typeof fetch;
+  readonly decode: (bytes: Uint8Array<ArrayBuffer>, resources: StreetResources) => Promise<TexturePair>;
 }
 
-function backdrop(width: number, height: number) {
-  const stage = new Graphics().rect(0, 0, width, height).fill(0x191a24);
-  stage.ellipse(width / 2, height * .49, width * .3, height * .4).fill({ color: 0xf2d6a0, alpha: .045 });
-  stage.rect(0, height * .83, width, height * .17).fill(0x342b32);
-  stage.rect(0, height * .83, width, 1).fill(0x756050);
-  for (let x = 0; x < width; x += width / 12) stage.moveTo(x, height).lineTo(width / 2 + (x - width / 2) * .5, height * .83).stroke({ color: 0x57404a, width: 1 });
-  stage.rect(0, 0, width, height * .07).fill(0x633040);
-  stage.poly([0, 0, width * .11, 0, width * .07, height * .5, 0, height * .67]).fill(0x4a2639);
-  stage.poly([width, 0, width * .89, 0, width * .93, height * .5, width, height * .67]).fill(0x4a2639);
-  return stage;
+async function decodeTextures(bytes: Uint8Array<ArrayBuffer>, resources: StreetResources): Promise<TexturePair> {
+  const url = URL.createObjectURL(new Blob([bytes]));
+  const image = new Image();
+  try {
+    image.src = url; await image.decode();
+    const colorCanvas = document.createElement('canvas');
+    colorCanvas.width = image.naturalWidth; colorCanvas.height = image.naturalHeight;
+    const colorContext = colorCanvas.getContext('2d');
+    if (!colorContext) throw new Error('Sprite preparation requires Canvas2D');
+    colorContext.drawImage(image, 0, 0);
+    const color = Texture.from(colorCanvas, true);
+    resources.defer(() => color.destroy(true));
+    color.source.scaleMode = 'nearest';
+    const grayCanvas = document.createElement('canvas');
+    grayCanvas.width = image.naturalWidth; grayCanvas.height = image.naturalHeight;
+    const context = grayCanvas.getContext('2d');
+    if (!context) throw new Error('Sprite grayscale preparation requires Canvas2D');
+    const data = colorContext.getImageData(0, 0, grayCanvas.width, grayCanvas.height);
+    grayscaleRgba(data.data); context.putImageData(data, 0, 0);
+    const gray = Texture.from(grayCanvas, true);
+    resources.defer(() => gray.destroy(true));
+    gray.source.scaleMode = 'nearest';
+    return { color, gray };
+  } finally { image.src = ''; URL.revokeObjectURL(url); }
 }
 
-export async function createStudio(host: HTMLElement, sample: PoseSampler) {
-  const app = new Application();
-  await app.init({ width: 1280, height: 480, backgroundAlpha: 0, autoStart: false, sharedTicker: false, antialias: false, preference: 'webgl', resolution: Math.min(devicePixelRatio, 2), autoDensity: true, preserveDrawingBuffer: true });
-  host.append(app.canvas);
-  app.canvas.setAttribute('aria-label', 'Animated comparison of Gator Crooner and Tapir Tenor in four treatments');
-  const stageBackdrop = backdrop(960, 720);
-  app.stage.addChild(stageBackdrop);
-  const stageTitle = label('', 40, 38, 18);
-  app.stage.addChild(stageTitle);
-  const prepared = await Promise.all(models.map(async (model, index) => {
-    const root = new Container();
-    const board = backdrop(316, 237);
-    const heading = label(`${model.character === 'gator' ? 'GATOR' : 'TAPIR'}  /  ${treatmentName(model.treatment).toUpperCase()}`, 16, 15, 10);
-    board.addChild(heading);
-    const figure = new Container();
-    const meshes = await Promise.all(model.poses.map(async path => {
-      const texture = await Assets.load<Texture>(path);
-      texture.source.scaleMode = model.treatment === 'tex-avery' ? 'linear' : 'nearest';
-      const mesh = new MeshPlane({ texture, verticesX: 5, verticesY: 17 });
-      const base = mesh.geometry.positions.slice();
-      figure.addChild(mesh);
-      return { mesh, base };
-    }));
-    root.addChild(board, figure);
-    app.stage.addChild(root);
-    return { root, board, figure, meshes, model, index };
-  }));
-  let previousLayout = '';
-  let state = prepared.map(item => ({ id: item.model.id, pose: 0, sway: 0, breath: 0 }));
+const browserPlatform: StreetPlatform = { renderer: () => new WebGLRenderer(), fetch: (...args) => fetch(...args), decode: decodeTextures };
 
-  function draw({ time, view }: { time: SceneTime; view: View }) {
-    const columns = host.clientWidth < 720 ? 2 : 4;
-    const layout = `${view.kind}:${view.kind === 'stage' ? view.treatment : columns}`;
-    if (layout !== previousLayout) {
-      const gallery = view.kind === 'gallery';
-      app.renderer.resize(gallery ? columns * 320 : 960, gallery ? Math.ceil(models.length / columns) * 240 : 720);
-      stageBackdrop.visible = !gallery; stageTitle.visible = !gallery;
-      stageTitle.text = view.kind === 'stage' ? `GATOR + TAPIR   /   ${treatmentName(view.treatment).toUpperCase()}` : '';
-      prepared.forEach((item, i) => {
-        item.board.visible = gallery;
-        item.root.visible = gallery || (view.kind === 'stage' && item.model.treatment === view.treatment);
-        if (gallery) {
-          item.root.position.set((i % columns) * 320, Math.floor(i / columns) * 240);
-          item.figure.position.set(158 - 640 * .225 / 2, 209 - 776 * .225);
-          item.figure.scale.set(.225);
-        } else {
-          item.root.position.set(0, 0);
-          const center = item.model.character === 'gator' ? 310 : 650;
-          item.figure.position.set(center - 640 * .58 / 2, 600 - 776 * .58);
-          item.figure.scale.set(.58);
-        }
-      });
-      previousLayout = layout;
+export async function createStreetStudio(host: Pick<HTMLElement, 'append'>, scene: PreparedStreetScene, sampler: StreetSampler, platform: StreetPlatform = browserPlatform) {
+  const resources = new StreetResources();
+  resources.defer(() => sampler.dispose());
+  try {
+    const renderer = platform.renderer();
+    resources.defer(() => renderer.destroy({ removeView: true }));
+    const stage = new Container();
+    resources.defer(() => stage.destroy({ children: true }));
+    const loaded = new Map<string, TexturePair>();
+    async function textures(asset: StreetAsset) {
+      const key = `${asset.path}:${asset.sha256}`;
+      const existing = loaded.get(key);
+      if (existing) return existing;
+      const bytes = await fetchStreetAsset(asset, platform.fetch);
+      const pair = await platform.decode(bytes, resources);
+      loaded.set(key, pair);
+      return pair;
     }
-    const quarter = quarterPosition(time);
-    state = prepared.map(item => {
-      const pose = sample(quarter, item.index);
-      item.meshes.forEach(({ mesh, base }, index) => {
-        mesh.visible = index === pose.pose;
-        if (!mesh.visible) return;
-        const points = mesh.geometry.positions;
-        for (let vertex = 0; vertex < points.length; vertex += 2) {
-          const x = base[vertex], y = base[vertex + 1];
-          const upper = Math.max(0, (680 - y) / 680);
-          points[vertex] = x + pose.sway * 800 * upper * upper;
-          points[vertex + 1] = y - pose.breath * 800 * upper;
+    const backgroundTexture = await textures(scene.background);
+    const background = new Sprite(backgroundTexture.color);
+    background.width = scene.width; background.height = scene.height;
+    stage.addChild(background);
+    const actors = new Container(); actors.sortableChildren = true; stage.addChild(actors);
+    const effects: Array<{ pivot: StreetPoofEffect['pivot']; drawings: TexturePair[] }> = [];
+    if (scene.staging.kind === 'poof') for (const effect of scene.staging.effects) {
+      const drawings = [];
+      for (const drawing of effect.drawings) drawings.push(await textures(drawing));
+      effects.push({ pivot: effect.pivot, drawings });
+    }
+    const figures: Array<{ sprite: Sprite; poof: Sprite; clips: PreparedDrawing[][] }> = [];
+    const poofPlacements = scene.staging.kind === 'poof' ? new Map(scene.staging.tracks.map(track => [track.actor, streetPoofPlacement(scene.actors[track.actor], track)])) : null;
+    for (const [actorIndex, actor] of scene.actors.entries()) {
+      const clips = [];
+      for (const clip of actor.clips) {
+        const drawings = [];
+        for (const drawing of clip.drawings) drawings.push({ ...drawing, ...await textures(drawing) });
+        clips.push(drawings);
+      }
+      const figure = new Container();
+      figure.position.set(actor.placement.x, actor.placement.y);
+      figure.scale.set(actor.placement.scale); figure.zIndex = actor.placement.depth;
+      const sprite = new Sprite(), poof = new Sprite();
+      if (poofPlacements) {
+        const placement = poofPlacements.get(actorIndex);
+        if (!placement) throw new Error('Missing actor poof placement');
+        poof.position.set((placement.x - actor.placement.x) / actor.placement.scale, (placement.y - actor.placement.y) / actor.placement.scale);
+        poof.scale.set(placement.scale / actor.placement.scale);
+      }
+      figure.addChild(sprite, poof); actors.addChild(figure);
+      figures.push({ sprite, poof, clips });
+    }
+    await renderer.init({ width: scene.width, height: scene.height, backgroundAlpha: 0, antialias: false, resolution: 1, preserveDrawingBuffer: true });
+    const canvas = renderer.canvas;
+    resources.defer(() => canvas.remove());
+    host.append(canvas);
+    canvas.setAttribute('aria-label', 'Song cast dancing on the 2.5D street');
+    let state = sampler.sample(0);
+    function draw(count: number) {
+      state = sampler.sample(count);
+      for (const frame of state) {
+        const figure = figures[frame.actor], drawing = figure.clips[frame.clip][frame.pose];
+        figure.sprite.texture = frame.grayscale ? drawing.gray : drawing.color;
+        figure.sprite.pivot.set(drawing.pivot.x, drawing.pivot.y);
+        figure.sprite.visible = frame.visible;
+        figure.poof.visible = frame.poof !== null;
+        if (frame.poof) {
+          const effect = effects[frame.poof.effect];
+          figure.poof.texture = effect.drawings[frame.poof.pose].color;
+          figure.poof.pivot.set(effect.pivot.x, effect.pivot.y);
         }
-        mesh.geometry.getBuffer('aPosition').update();
-      });
-      return { id: item.model.id, ...pose };
-    });
-    app.render();
-    return state;
-  }
-
-  return { draw, canvas: app.canvas, snapshot: () => state, dispose: () => app.destroy(true, { children: true, texture: true }) };
+      }
+      renderer.render({ container: stage }); return state;
+    }
+    return { draw, canvas, snapshot: () => state, dispose: () => resources.dispose() };
+  } catch (error) { return resources.fail(error); }
 }

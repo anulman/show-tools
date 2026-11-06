@@ -58,11 +58,16 @@ Default-live effects apply during count-in and playing. The click and cached sam
 
 ```sh
 ./show-tools chart fetch --url 'https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit#gid=SHEET_ID' --out /tmp/source.json
-./show-tools chart compile --source /tmp/source.json --mapping songs/dance-yrself-clean.mapping.json --out /tmp/song.json --native-out /tmp/song.pfp
+./show-tools chart compile --source /tmp/source.json --mapping songs/dance-yrself-clean.mapping.json --out /tmp/song.json
 ./show-tools chart inspect /tmp/song.json
+./show-tools chart encode --song /tmp/song.json --out /tmp/song.pfp
 ```
 
 Compilation runs offline after fetch. `--draft` saves source-located diagnostics and cannot emit `.pfp` bytes. Schema/packet 5 and ABI 7 retain explicit capture end, loop end, and group anchor. Import a resolved artifact through the practice desk while stopped. Current DYC authoring answers are encoded. Its disjoint recording intervals permit F21 future arming while R1 still records; native state keeps live routing, capture ownership, and reservations separate.
+
+`encode` validates and converts the exact inspected JSON into native bytes. It does not fetch or recompile the worksheet. Replace the removed `compile --native-out` option with this separate command. Each command validates its input before publishing one complete output by rename; concurrent runs use separate temporary directories. Input aliases are rejected. Validation and pre-publication failures preserve the previous output. This does not establish power-loss durability or a transaction across the JSON and `.pfp` files.
+
+Add `--json` to receive one failure record on stdout. Invalid input and unresolved chart diagnostics exit with code 2 and include correction steps. Unexpected tooling failures exit with code 3 and request Chief intervention. Human failures go to stderr. Neither status permits a draft to become executable. The shared [failure policy](../../docs/implementation/deterministic-pipelines.md) defines these outcomes.
 
 Lead-in capture must execute at the next song bar. Immediate lead-in capture is rejected because its duration depends on the runtime count-in and is not represented by a song-bar take interval. Individual stops report native countdown and release feedback through the final audible tail, then extinguish the pad light.
 

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import socket
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -36,7 +37,16 @@ def check_active_shutdown(environment):
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]
         origin = f"http://127.0.0.1:{port}"
-        server = subprocess.Popen([sys.executable, str(HERE / "desk_server.py"), "--port", str(port),
+        fixture = Path(directory) / 'repo'
+        cad = fixture / 'hardware/cad'
+        ui = fixture / 'ui/cad'
+        (cad / 'build/desk').mkdir(parents=True)
+        ui.mkdir(parents=True)
+        shutil.copyfile(HERE / 'desk_server.py', cad / 'desk_server.py')
+        shutil.copyfile(HERE.parents[1] / 'ui/cad/index.html', ui / 'index.html')
+        shutil.copyfile(HERE / 'build/desk/app.js', cad / 'build/desk/app.js')
+        (cad / 'workspace.py').write_text('import time\ntime.sleep(60)\n')
+        server = subprocess.Popen([sys.executable, str(cad / "desk_server.py"), "--port", str(port),
                                    "--disco-step", str(invalid_step)], env=environment,
                                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         responses = []
@@ -111,14 +121,23 @@ def main():
                     raise RuntimeError("Temporary desk did not start")
                 time.sleep(.05)
         assert 'role="tablist"' in html and 'data-selected="box-mount"' in html
+        for label in ('Arcade button', 'Disco ball', 'Mushroom mount', 'Micro enclosure', 'All controls'):
+            assert f'>{label}</button>' in html
         assert request(origin, "/viewer", 200) == html
         assert request(origin, "/app.js", 200)
         request(origin, "/../../etc/passwd", 404)
         request(origin, "/select/disco-bar", 403, method="POST")
         request(origin, "/select/disco-bar", 403, method="POST", headers={"Origin":"https://example.com"})
+        for model in ("mushroom-mount", "micro-enclosure"):
+            request(origin, f"/select/{model}", 403, method="POST")
+            request(origin, f"/select/{model}", 400, method="POST", headers={"Origin": origin}, body=b"x")
         request(origin, "/select/unknown", 404, method="POST", headers={"Origin":origin})
         request(origin, "/select/box-mount", 400, method="POST", headers={"Origin":origin}, body=b"x")
         message = request(origin, "/select/disco-bar", 503, method="POST", headers={"Origin":origin})
+        assert "not configured" in message
+        request(origin, "/select/all-controls", 403, method="POST")
+        request(origin, "/select/all-controls", 400, method="POST", headers={"Origin":origin}, body=b"x")
+        message = request(origin, "/select/all-controls", 503, method="POST", headers={"Origin":origin})
         assert "not configured" in message
         assert 'data-selected="box-mount"' in request(origin, "/", 200)
     finally:

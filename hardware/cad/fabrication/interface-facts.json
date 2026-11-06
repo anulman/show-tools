@@ -30,35 +30,74 @@
     "threaded_mounting_barrel_diameter_estimate": 28.575,
     "actual_knob_top_height_above_hex_top_face": null,
     "actual_knob_height": 25.4,
-    "hex_top_to_knob_underside_gap_range": [4.7625, 22.225],
-    "derived_hex_top_to_knob_top_height_range": [30.1625, 47.625],
+    "hex_top_to_knob_underside_gap_range": [
+      4.7625,
+      22.225
+    ],
+    "derived_hex_top_to_knob_top_height_range": [
+      30.1625,
+      47.625
+    ],
     "operator_measurement_quality": "Approximate ruler measurements; decimal values are exact inch conversions, not precision claims",
     "operator_measurement_original_inches": {
       "hex_across_flats": "1 3/8",
       "hex_thickness": "1/4",
       "knob_height": "about 1, underside to top excluding threaded barrel",
       "threaded_barrel_diameter_estimate": "1 1/8, inferred from approximately 1/8 edge-to-barrel per side",
-      "hex_top_to_knob_underside_gap_range": ["3/16", "7/8"]
+      "hex_top_to_knob_underside_gap_range": [
+        "3/16",
+        "7/8"
+      ]
     },
     "operator_photo_reference": "IMG_2799.HEIC",
+    "knob_socket_fit_basis": "Operator confirms Darren was right; preserve the original snug socket profile rather than the superseded larger knob-diameter estimate",
+    "original_socket_bore_diameter": 44.35475,
+    "original_socket_entry_diameter": 45.94225,
+    "original_socket_blind_depth": 25.4,
+    "actual_knob_diameter": null,
+    "superseded_knob_diameter_estimate": 47.625,
+    "knob_diameter_clarification_pending": false,
+    "socket_diameter_is_not_a_measured_knob_diameter": true,
     "threaded_barrel_is_stationary_mounting_body_not_rotating_axle": true,
     "measurement_request_pending": false,
     "mounting_hex_hardware": "reuse existing stock hex; no extra device retaining nut",
     "operator_reports_hex_mounting_height_adjustable": true,
-    "actual_hex_adjustment_range": [4.7625, 22.225],
+    "actual_hex_adjustment_range": [
+      4.7625,
+      22.225
+    ],
     "hex_adjustment_range_datum": "Upper hex face to red knob underside; not knob top",
     "remaining_measurement": null,
-    "installed_fit_verified": false
+    "installed_fit_verified": false,
+    "nominal_axial_dimensions_below_fixed_flange_mm": {
+      "threaded_body": 28,
+      "encoder_housing": 15,
+      "rear_shaft_extension": 16,
+      "total": 59,
+      "datum": "Fixed flange underside to furthest rear shaft tip",
+      "source": "https://www.ultimarc.com/trackballs-and-spinners/spinners/spintrak/images/1/spintrakdiag.gif",
+      "inspected_date": "2026-11-01",
+      "actual_hardware_verified": false
+    }
   },
   "fabrication": {
     "operator_process_expectation": "resin, not yet exact printer/resin confirmation",
     "operator_authorizes_conservative_design_choices": true,
     "operator_prefers_minimum_custom_tooling": true,
+    "next_visual_publication": "Only complete publication candidates after their dependent geometry checks pass; omit historical comparison assemblies and isolated fit coupons",
+    "retain_old_design_data": true,
+    "old_data_cleanup_authorized": false,
     "bar_exterior_access_after_gluing": false,
     "collar_below_ball_access_allowed": true,
     "lifting_box_for_underside_service_allowed": true,
     "original_bar_policy": "unchanged reference, optional printing after fabricator review",
-    "preproduction_fit_trial": "printer checks actual standard hardware and fully processed mating latch before full run"
+    "preproduction_fit_trial": "printer checks actual standard hardware and fully processed mating latch before full run",
+    "modified_C2_collar_bar_hold": {
+      "status": "rejected_for_fabrication_and_active_review",
+      "reason": "Every prior C2 assumes inaccessible pre-glue receiver/carrier/cap assembly. Restored debond channels do not fix post-glue reversibility.",
+      "required_gate": "Complete forward and reverse assembly from bare already-glued bar; every other component and hardware installed and removed through the root opening after glue.",
+      "old_artifacts": "Preserve unchanged; none of the previous collar/bar packages is approved."
+    }
   },
   "ball_interface": {
     "operator_confirmed": true,
@@ -68,7 +107,15 @@
     "preserve_original_bar_height_and_outer_insertion_profile": true,
     "added_external_geometry_policy": "outside original bar radial profile, remain below opening with chosen setback",
     "original_source_root_z": 0,
-    "original_source_ball_inside_direction": "-z"
+    "original_source_ball_inside_direction": "-z",
+    "post_glue_side_tool_access_above_root_allowed": false,
+    "original_channels_purpose": "bottom-fed alcohol/debond-fluid passages, not lateral tool ports",
+    "channel_preservation_baseline": "exact original empty channel geometry, not a selected minimum flow width",
+    "channel_fluid_delivery_and_adhesive_release_verified": false,
+    "operator_access_clarification_source": "Scrawl scrawl-1793325809287-20a-15, frames 03\u201305 and 09\u201311",
+    "debond_fluid_access_scope": "Operator confirmed access after the detachable cup/collar module is removed is sufficient",
+    "debond_fluid_access_with_module_installed_required": false,
+    "debond_fluid_access_scope_operator_confirmed": true
   },
   "mounting_workflow": {
     "bar_permanently_glued_inside_ball": true,
@@ -79,6 +126,18 @@
     "accepted_order_B": "seat and secure stock hex in box, fitting knob/baseplate as access permits; then lock ball/bar to baseplate from below",
     "at_least_one_complete_installation_order_required": true,
     "complete_installation_order_verified": false,
-    "stationary_bearing_role_if_used": "passive support, not a separate retaining joint"
+    "stationary_bearing_role_if_used": "passive support, not a separate retaining joint",
+    "cup_grip_adjustment": "with ball/bar removed; side grip screws are exposed again after underside ball removal",
+    "glued_ball_attachment_and_removal": "All operations reversible from root; lateral exterior above root inaccessible",
+    "receiver_repair_access": "Every removable receiver, cap, nut, screw and collar must be retrievable through root after glue",
+    "routine_tool_halfspace_check": "New candidates require actual axial staging and operating swept-volume checks",
+    "all_bar_baseplate_collar_attachments_after_glue": true,
+    "initial_condition": "Bare printed bar already glued inside ball; every other collar/baseplate component and loose fastener outside ball",
+    "final_service_condition": "Bare glued bar, all other coupling components and hardware removed without debonding",
+    "pre_glue_captive_hardware_allowed": false,
+    "integral_printed_bar_features_allowed": true,
+    "external_module_preassembly_after_glue_allowed": true,
+    "continuous_rotation_required": true,
+    "rotation_limit_allowed": false
   }
 }

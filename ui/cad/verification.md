@@ -13,3 +13,33 @@ Native automation attempts to click while the operator changed the browser were 
 The initial desk process was stopped and its session returned exit code 0 before the updated alias server was started. The current desk remains running for the operator. The OCP Viewer process was preserved throughout. No Sheets, CDP, audio, USB, or printer processes were started or changed.
 
 The operator subsequently confirmed the proposed shared low-roof alignment. Its confirmation metadata and docs are included without changing geometry. Separate disco notes assess a rubber liner and magnetic retention; no magnet, target, liner, force, or fitted dimensions are selected.
+
+
+## Shared desk scene (2026-11-01)
+
+The live desk displays Arcade button, Disco ball, and All controls. Native Vivaldi inspection confirmed the All controls selection reached Ready to inspect and showed the blue reference button seated in its inclined box beside the current disco assembly and translucent open sphere. Both base bottoms are on Z=0; only horizontal layout changed. The original bar's pinned STEP supplies the sphere height and maximum fitted slice diameter. The illustrative sphere has equal sections at the original bar root and far end and a dome above the latter. It has no planar bottom cap or manufactured wall thickness.
+
+`check_all_controls.py` checks the actual composed shapes, their placement, native spherical surface, equal section radii, open root, dome, and the unchanged button pose. Approximate desk heights are 4.45 inches to the button top and 9.10 inches to the illustrative ball top. These checks do not measure the real ball, establish upstream button validity, or approve fabrication. TypeScript and the real temporary-server route, origin/body, configuration failure, and publisher-shutdown checks passed with all three page identifiers.
+
+
+The subsequent minimum-height disco study lowers its roof to 64 mm above the desk using the drawing's 59 mm flange-to-rear-shaft depth, 3 mm general bottom plate, and 2 mm clearance. The illustrative ball top is then 8.47 inches. The native checker verifies preservation of the upper interface, translated lower features and cover, full-depth clearance, and the reserved tool space. The visible spinner is dimension-based: body/housing envelopes, approximate red knob, and a rear-shaft axis with no invented diameter. Native Vivaldi inspection confirmed these references are visible through the lowered box in All controls. They are never print targets.
+
+## Five-page desk, November 3, 2026
+
+TypeScript checking and the isolated desk route/origin/body/shutdown harness pass with Mushroom mount and Micro enclosure added. Coordinator and live-deployment native combined-scene checks pass with 26 objects: the original 21 arcade/disco actors plus five mushroom actors. Additional assembly bottoms remain at Z=0, with 40 mm between bounding boxes. The selected arcade receipt is still the verified inch-STEP chamfer revision.
+
+Actual local desk publication returned 200 for Mushroom mount and All controls. Micro enclosure returned its intended 503 measurement message for PCB length, PCB width, and feet-bottom-to-highest-connected-component height. Its page preserves the prior model; the combined view records the pending measurements and includes no guessed I-PAC geometry. The micro recipe's independent synthetic native/STEP/STL checks pass; that fixture is not shown in the viewer.
+
+The Vivaldi computer-use service reported `cgWindowNotFound` during this publication. No new screen-delivery claim or screenshot is available. Publication receipts prove service delivery, not visible canvas delivery, physical fit, or print readiness.
+
+## Measured I-PAC preview, November 4, 2026
+
+The Micro enclosure and All controls pages were published and visibly verified in Vivaldi. The combined receipt contains 30 objects and both specialist models, with no pending measurement placeholders. Independent coordinator native/STEP/STL checks for the measured I-PAC candidate and the full combined-scene check pass. The green PCB reference is a surface at the nominal operator-reported elevation; the three-inch interior height and storage region are design choices. Feet, ports, harness fits, and fabrication release remain unverified.
+
+Rebuilding the combined view found a missing historical C component and a missing current stock-hex reference. The original scene manifest remains preserved. A separately pinned current-only selection omits the six retired C comparison actors and replaces the missing stock-hex display export with a recovered reference. The recovered native material matches both a preserved hash-verified assembly component and the original source recipe; STEP export round-trip differences are zero in both directions. Its STEP bytes have a new hash. No printed disco geometry changed. Recovery evidence is retained in the active scene's `display_recovery` record.
+
+## Leo ledges, November 4, 2026
+
+Vivaldi visibly displayed the revised Arcade button shell and then the 30-object All controls scene. The publication receipt binds the checked arcade and spinner Leo receipts, the mushroom Leo selection, and the corrected I-PAC nut-seat receipt. Individual surfaces and internal ramps were visible through the translucent shells. Existing geometry/export, service/clearance and print-frame ledge-normal checks pass; original flat ends fail their corresponding gates.
+
+Coordinator boundary checks also proved that an explicitly selected original arcade receipt remains usable, a changed Leo selection fails closed, and a spinner display actor which disagrees with its checked box receipt is rejected despite a matching scene-manifest hash. The recorded local ledge limits do not establish whole-part support-free printing, physical fit, or fabrication release.

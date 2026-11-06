@@ -5,7 +5,8 @@ import { once } from 'node:events';
 import { createServer, type Server } from 'node:http';
 import { promisify } from 'node:util';
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, symlink } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnCDP } from '../start-cdp.js';
@@ -75,6 +76,23 @@ test('executable help and song list finish without service configuration', async
   for (const [index, song] of SONGS.entries()) assert(result.stdout.includes(`${index + 1}  ${song.id}  `));
   assert.equal(result.stderr, '');
   await assert.rejects(execute('./show-tools', ['sheets', '0'], { timeout: 10000 }), { code: 2 });
+});
+
+test('direct launcher invocation through a symlink executes instead of silently succeeding', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'show-tools-entry-'));
+  try {
+    const alias = join(directory, 'show-tools.ts');
+    await symlink(fileURLToPath(new URL('../show-tools.ts', import.meta.url)), alias);
+    const help = await execute(process.execPath, ['--import', 'tsx', alias, 'chart', '--help']);
+    assert.match(help.stdout, /chart encode --song SONG.json/);
+    assert.equal(help.stderr, '');
+    await assert.rejects(execute(process.execPath, ['--import', 'tsx', alias, 'chart', 'encode', '--json']), error => {
+      assert(error instanceof Error && 'code' in error && 'stdout' in error);
+      assert.equal(error.code, 2);
+      assert.match(String(error.stdout), /"status":"blocked"/);
+      return true;
+    });
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test('reuses configured CDP, serves configured practice origin, and closes helper on cancellation', async () => {

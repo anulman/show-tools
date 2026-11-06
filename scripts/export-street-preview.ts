@@ -1,0 +1,188 @@
+import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+import { Schema } from 'effect';
+import sharp from 'sharp';
+import { grayscaleRgba, streetPoofPlacement } from '../lib/video/presentation.js';
+import { parseStreetScene, type PreparedStreetScene, type ActorFrame } from '../lib/video/street-score.js';
+import { createStreetSampler } from '../lib/video/street-sampler.js';
+import { verifyStreetAsset, type StreetAsset } from '../lib/video/street-assets.js';
+import { isCliEntrypoint } from './cli-entry.js';
+
+const ExportOptions = Schema.Struct({
+  scene: Schema.NonEmptyString,
+  assetRoot: Schema.NonEmptyString,
+  output: Schema.NonEmptyString,
+  wasm: Schema.NonEmptyString,
+  fps: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(120)),
+});
+type ExportOptions = typeof ExportOptions.Type;
+const parseOptions = Schema.decodeUnknownSync(ExportOptions);
+const projectRoot = fileURLToPath(new URL('../', import.meta.url));
+const sha256 = (contents: Uint8Array) => createHash('sha256').update(contents).digest('hex');
+
+export function parseExportArguments(args: readonly string[]): ExportOptions {
+  const { values } = parseArgs({ args: [...args], options: {
+    scene: { type: 'string' }, 'asset-root': { type: 'string' }, output: { type: 'string' },
+    wasm: { type: 'string' }, fps: { type: 'string' },
+  }, strict: true, allowPositionals: false });
+  return parseOptions({ scene: values.scene, assetRoot: values['asset-root'], output: values.output,
+    wasm: values.wasm ?? join(projectRoot, 'ui/video/wasm/video-scene.wasm'), fps: Number(values.fps ?? 30) });
+}
+
+export function exportFrameCount(scene: PreparedStreetScene, fps: number): number {
+  const count = Math.ceil(scene.durationCounts * fps / scene.previewCountsPerSecond);
+  if (!Number.isSafeInteger(count) || count < 1) throw new Error('Export frame count is outside the supported range');
+  return count;
+}
+
+function assetPath(root: string, path: string): string {
+  const target = resolve(root, path.replace(/^\/+/, ''));
+  const withinRoot = relative(root, target);
+  if (withinRoot === '..' || withinRoot.startsWith('../') || isAbsolute(withinRoot)) throw new Error(`Asset leaves --asset-root: ${path}`);
+  return target;
+}
+
+export function spritePlacement(placement: { readonly x: number; readonly y: number; readonly scale: number }, pivot: { readonly x: number; readonly y: number }) {
+  return { left: Math.round(placement.x - pivot.x * placement.scale), top: Math.round(placement.y - pivot.y * placement.scale) };
+}
+
+export async function createStreetCompositor(scene: PreparedStreetScene, assetRoot: string) {
+  const root = resolve(assetRoot);
+  const assets = new Map<string, string>();
+  async function load(asset: StreetAsset) {
+    const bytes = await readFile(assetPath(root, asset.path));
+    await verifyStreetAsset(asset, bytes);
+    assets.set(asset.path, asset.sha256);
+    return bytes;
+  }
+  const backgroundBytes = await load(scene.background);
+  const background = await sharp(backgroundBytes).toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  if (background.info.width !== scene.width || background.info.height !== scene.height) throw new Error('Street background dimensions differ from the authored scene');
+  const cached = new Map<string, Promise<{ input: Buffer; width: number; height: number }>>();
+  const poofPlacements = new Map(scene.staging.kind === 'poof' ? scene.staging.tracks.map(track =>
+    [track.actor, streetPoofPlacement(scene.actors[track.actor], track)]) : []);
+  let last: { frames: readonly ActorFrame[]; png: Buffer } | undefined;
+  async function drawing(cacheKey: string, asset: StreetAsset, scale: number, grayscale: boolean) {
+    let prepared = cached.get(cacheKey);
+    if (!prepared) {
+      prepared = (async () => {
+        const { data, info } = await sharp(await load(asset)).toColourspace('srgb').ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+        if (grayscale) grayscaleRgba(data);
+        const width = Math.max(1, Math.round(info.width * scale));
+        const height = Math.max(1, Math.round(info.height * scale));
+        const input = await sharp(data, { raw: { width: info.width, height: info.height, channels: 4 } })
+          .resize(width, height, { kernel: 'nearest' }).png().toBuffer();
+        return { input, width, height };
+      })();
+      cached.set(cacheKey, prepared);
+    }
+    return prepared;
+  }
+  return {
+    assets,
+    async render(frames: readonly ActorFrame[]): Promise<Buffer> {
+      const previous = last;
+      if (previous && frames.length === previous.frames.length && frames.every((frame, index) => {
+        const prior = previous.frames[index];
+        return frame.actor === prior.actor && frame.clip === prior.clip && frame.pose === prior.pose && frame.grayscale === prior.grayscale
+          && frame.visible === prior.visible && frame.poof?.effect === prior.poof?.effect && frame.poof?.pose === prior.poof?.pose;
+      })) return previous.png;
+      const snapshot = frames.map(frame => ({ ...frame, poof: frame.poof === null ? null : { ...frame.poof } }));
+      const ordered = [...snapshot].sort((a, b) => scene.actors[a.actor].placement.depth - scene.actors[b.actor].placement.depth || a.actor - b.actor);
+      const layers: Parameters<ReturnType<typeof sharp>['composite']>[0] = [];
+      async function addLayer(sprite: Awaited<ReturnType<typeof drawing>>, placement: PreparedStreetScene['actors'][number]['placement'], pivot: { readonly x: number; readonly y: number }) {
+        const { left, top } = spritePlacement(placement, pivot);
+        const x = Math.max(0, left), y = Math.max(0, top);
+        const width = Math.min(scene.width, left + sprite.width) - x;
+        const height = Math.min(scene.height, top + sprite.height) - y;
+        if (width <= 0 || height <= 0) return;
+        const input = width === sprite.width && height === sprite.height ? sprite.input
+          : await sharp(sprite.input).extract({ left: x - left, top: y - top, width, height }).png().toBuffer();
+        layers.push({ input, left: x, top: y });
+      }
+      for (const frame of ordered) {
+        const actor = scene.actors[frame.actor], pose = actor?.clips[frame.clip]?.drawings[frame.pose];
+        if (!actor || !pose) throw new Error('Sampler returned an unknown Street drawing');
+        if (frame.visible) {
+          const sprite = await drawing(`body:${frame.actor}:${frame.clip}:${frame.pose}:${Number(frame.grayscale)}`, pose, actor.placement.scale, frame.grayscale);
+          await addLayer(sprite, actor.placement, pose.pivot);
+        }
+        if (frame.poof) {
+          const effect = scene.staging.kind === 'poof' ? scene.staging.effects[frame.poof.effect] : undefined;
+          const asset = effect?.drawings[frame.poof.pose];
+          const placement = poofPlacements.get(frame.actor);
+          if (!effect || !asset || !placement) throw new Error('Sampler returned an unknown poof drawing');
+          const sprite = await drawing(`poof:${frame.actor}:${frame.poof.effect}:${frame.poof.pose}`, asset, placement.scale, false);
+          await addLayer(sprite, placement, effect.pivot);
+        }
+      }
+      const png = await sharp(background.data, { raw: { width: scene.width, height: scene.height, channels: 4 } }).composite(layers).png().toBuffer();
+      last = { frames: snapshot, png };
+      return png;
+    },
+  };
+}
+
+export async function exportStreetPreview(input: ExportOptions) {
+  const options = parseOptions(input);
+  const sceneBytes = await readFile(options.scene);
+  const parsed: unknown = JSON.parse(sceneBytes.toString('utf8'));
+  const scene = parseStreetScene(parsed);
+  if (!Number.isInteger(scene.width) || !Number.isInteger(scene.height) || scene.width % 2 || scene.height % 2) throw new Error('MP4 export requires even integer scene dimensions');
+  const wasm = await readFile(options.wasm);
+  const sampler = await createStreetSampler(new Uint8Array(wasm), scene);
+  try {
+    const compositor = await createStreetCompositor(scene, options.assetRoot);
+    const output = resolve(options.output), framesDir = join(output, 'frames');
+    await mkdir(output);
+    await mkdir(framesDir);
+    const frameCount = exportFrameCount(scene, options.fps);
+    const sampleCount = Math.min(9, frameCount);
+    const selected = new Set(Array.from({ length: sampleCount }, (_, i) => Math.floor(i * (frameCount - 1) / Math.max(1, sampleCount - 1))));
+    const thumbs: Buffer[] = [];
+    const proof: Array<{ index: number; count: number; actors: readonly ActorFrame[] }> = [];
+    for (let index = 0; index < frameCount; index++) {
+      const count = index * scene.previewCountsPerSecond / options.fps;
+      const actors = sampler.sample(count);
+      const png = await compositor.render(actors);
+      await writeFile(join(framesDir, `${String(index).padStart(6, '0')}.png`), png, { flag: 'wx' });
+      if (selected.has(index)) {
+        thumbs.push(await sharp(png).resize(384, 216, { fit: 'contain', background: '#10121b', kernel: 'nearest' }).png().toBuffer());
+        proof.push({ index, count, actors });
+      }
+    }
+    const columns = Math.min(3, thumbs.length), rows = Math.ceil(thumbs.length / columns);
+    await sharp({ create: { width: columns * 384, height: rows * 216, channels: 4, background: '#10121b' } })
+      .composite(thumbs.map((input, index) => ({ input, left: index % columns * 384, top: Math.floor(index / columns) * 216 })))
+      .png().toFile(join(output, 'contact-sheet.png'));
+    const movie = join(output, 'street-preview.mp4');
+    const encoded = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-nostdin', '-n', '-framerate', String(options.fps),
+      '-i', join(framesDir, '%06d.png'), '-frames:v', String(frameCount), '-an', '-c:v', 'libx264', '-preset', 'medium',
+      '-crf', '18', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', movie], { encoding: 'utf8' });
+    if (encoded.error) throw encoded.error;
+    if (encoded.status !== 0) throw new Error(`FFmpeg export failed: ${encoded.stderr.trim()}`);
+    const receipt = {
+      version: 1, kind: 'authored-street-preview-export', sceneSha256: sha256(sceneBytes), wasmSha256: sha256(wasm),
+      provenance: scene.provenance, frameCount, fps: options.fps, durationSeconds: frameCount / options.fps,
+      authoredDurationCounts: scene.durationCounts, previewCountsPerSecond: scene.previewCountsPerSecond,
+      endpointIncluded: false, audio: 'none', sceneSize: { width: scene.width, height: scene.height },
+      movieSha256: sha256(await readFile(movie)), assets: Object.fromEntries([...compositor.assets].sort(([a], [b]) => a.localeCompare(b))), samples: proof,
+    };
+    await writeFile(join(output, 'receipt.json'), `${JSON.stringify(receipt, null, 2)}\n`, { flag: 'wx' });
+    return { output, movie, receipt };
+  } finally { sampler.dispose(); }
+}
+
+if (await isCliEntrypoint(import.meta.url)) {
+  try {
+    const result = await exportStreetPreview(parseExportArguments(process.argv.slice(2)));
+    process.stdout.write(`${JSON.stringify({ movie: result.movie, frames: result.receipt.frameCount, fps: result.receipt.fps })}\n`);
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
+}

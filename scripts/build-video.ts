@@ -12,4 +12,4 @@ await cp(resolve(root, 'ui/video/licenses'), resolve(output, 'licenses'), { recu
 await cp(resolve(root, 'ui/video/wasm'), resolve(output, 'wasm'), { recursive: true });
 await mkdir(resolve(root, 'dist/assets'), { recursive: true });
 await cp(resolve(root, 'assets/video'), resolve(root, 'dist/assets/video'), { recursive: true });
-process.stdout.write('Built the eight-model studio in dist/ui/video/.\n');
+process.stdout.write('Built the Street cast studio in dist/ui/video/.\n');
