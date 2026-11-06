@@ -156,6 +156,7 @@ test('snapshot receipt fields cannot relabel a verified artifact', async () => {
 
 
 test('concurrent stale-lock recovery cannot remove a newly acquired startup lock', async () => {
+  for (let round = 0; round < 5; round++) {
   const f = await fixture();
   try {
     await mkdir(join(f.config.controlDirectory, 'starting'), { recursive: true, mode: 0o700 });
@@ -163,6 +164,7 @@ test('concurrent stale-lock recovery cannot remove a newly acquired startup lock
     const owners = await Promise.all(Array.from({ length: 8 }, () => ensureManager(f.config)));
     assert.equal(new Set(owners.map(owner => owner.owner.pid)).size, 1);
   } finally { await f.cleanup(); }
+  }
 });
 
 test('an incomplete startup owner remains fail-closed and is left intact', async () => {

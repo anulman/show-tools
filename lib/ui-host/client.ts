@@ -108,6 +108,7 @@ export async function ensureManager(config: Config) {
   const owner = { version: 1, nonce: randomUUID(), pid: process.pid };
   let child: ReturnType<typeof spawn> | undefined;
   try {
+    try { return await check(); } catch (error) { if (!absent(error)) throw error; }
     try {
       const previous = decode(OwnerSchema, JSON.parse(await readFile(ownerPath, 'utf8')));
       if (alive(previous.pid)) throw new Error('A live UI manager owns an unavailable socket; it was left untouched');
