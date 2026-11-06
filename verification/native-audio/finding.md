@@ -18,7 +18,7 @@ The observed result is `{ audioAfterCleanup: 'off', childrenAlive: 1, replacemen
 
 The issue is resolved in `7e702341cc484193b3df6186f2eaca5371aed400`. The controller now records `not-requested`, `pending`, or `known(handle)` ownership. It marks Pending before yielding to the spawner and Known only after a handle returns. `finished()` retains a Pending attempt in Stopping with an actionable managed-service recovery message. A Known handle still requires successful exit confirmation. It never clears Pending merely because acquisition failed or a finalizer returned.
 
-The same actual-controller probe now returns `{ audioAfterCleanup: 'stopping', childrenAlive: 1, replacementDecision: 'rejected' }`. Eleven ordinary regression cases pass, including failures before/after child creation, pre-request recovery and uncertain known-handle exit checks. The revised finite model includes unassigned cleanup failure and separately verifies `UnknownOwnershipHeld`; it no longer assumes successful reaping on that path.
+The same actual-controller probe now returns `{ audioAfterCleanup: 'stopping', childrenAlive: 1, replacementDecision: 'rejected' }`. Twelve ordinary regression cases pass, including failures before/after child creation, pre-request recovery and uncertain known-handle exit checks. The revised finite model includes unassigned cleanup failure and separately verifies `UnknownOwnershipHeld`; it no longer assumes successful reaping on that path.
 
 This deliberately sacrifices automatic retry after an ambiguous launch failure, even if no child was created. A managed-service recovery is required. No deployment or service restart was performed. Physical cleanup, unbounded shutdown and arbitrary process groups remain outside the logical proof.
 
