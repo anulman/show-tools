@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { connect } from 'node:net';
+import { get } from 'node:http';
+import song from '../../../songs/dance-yrself-clean.js';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -122,5 +124,60 @@ test('rejects malformed request targets and serves practice directory indexes', 
     server.closeAllConnections();
     await new Promise<void>(done => server.close(() => done()));
     await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('streams a full compiled song and bounds a slow observer', async () => {
+  assert.ok(song.compiled);
+  const snapshot: Observation = { type: 'session', song: { ...song, source: undefined }, state: { phase: 'idle' } };
+  assert.ok(Buffer.byteLength(JSON.stringify(snapshot)) > 64 * 1024);
+  let publish: ((value: Observation) => void) | undefined;
+  const instrument: Instrument = {
+    snapshot: () => snapshot,
+    command: async () => ({ outcome: 'applied' }),
+    subscribe: listener => { publish = listener; return () => {}; },
+  };
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, instrument);
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`;
+  const headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
+  try {
+    const session = await (await fetch(`${base}/api/session`, { headers })).json();
+    const events = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': session.sessionId } });
+    assert.equal(events.status, 200);
+    const reader = events.body!.getReader();
+    let text = '';
+    while (!text.includes('\n\n')) {
+      const chunk = await reader.read();
+      assert.equal(chunk.done, false, 'complete bootstrap remains connected');
+      text += new TextDecoder().decode(chunk.value);
+    }
+    assert.equal(JSON.parse(text.slice(6)).song.compiled.parts.length, 6);
+    const result = await fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId, sequence: 1, command: 'stop', args: {} }) });
+    assert.equal((await result.json()).outcome, 'applied');
+    await reader.cancel();
+
+    const slow = await (await fetch(`${base}/api/session`, { headers })).json();
+    const response = await new Promise<import('node:http').IncomingMessage>((resolve, reject) => {
+      get(`${base}/api/events`, { headers: { ...headers, 'x-session-id': slow.sessionId } }, resolve).on('error', reject);
+    });
+    response.pause();
+    const closed = new Promise<void>(resolve => { response.on('error', () => {}); response.once('close', resolve); });
+    const payload = 'x'.repeat(256 * 1024);
+    for (let i = 0; i < 100; i++) publish?.({ type: 'state', payload });
+    response.resume();
+    let timeout: ReturnType<typeof setTimeout>;
+    try {
+      await Promise.race([closed, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error('slow observer stayed connected')), 5000); })]);
+    } finally { clearTimeout(timeout!); }
+    assert.equal(response.aborted, true);
+    assert.equal((await fetch(`${base}/api/session`, { headers })).status, 200);
+  } finally {
+    server.closeAllConnections();
+    await new Promise<void>(done => server.close(() => done()));
   }
 });

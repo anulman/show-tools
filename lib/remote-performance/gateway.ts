@@ -31,6 +31,7 @@ const MAX_SESSIONS = 128;
 const MAX_RESULTS = 256;
 const MAX_BODY = 64 * 1024;
 const MAX_CLIENTS = 128;
+const MAX_EVENT_BUFFER = 4 * 1024 * 1024;
 const commands = new Set(['start', 'stop', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile']);
 
 function json(response: ServerResponse, status: number, value: unknown) {
@@ -70,11 +71,15 @@ export function createGateway(config: GatewayConfig, instrument: Instrument) {
 	if ((config.tls ? 'https:' : 'http:') !== origin.protocol) throw new Error('Origin protocol does not match listener');
 	const sessions = new Map<string, Session>();
 	const clients = new Set<ServerResponse>();
-	const unsubscribe = instrument.subscribe((observation) => {
-		const data = `data: ${JSON.stringify(observation)}\n\n`;
-		for (const client of clients) {
-			if (!client.write(data)) { clients.delete(client); client.destroy(); }
+	const send = (client: ServerResponse, data: Buffer) => {
+		if (client.destroyed || client.writableLength + data.length > MAX_EVENT_BUFFER) {
+			clients.delete(client); client.destroy(); return;
 		}
+		client.write(data);
+	};
+	const unsubscribe = instrument.subscribe((observation) => {
+		const data = Buffer.from(`data: ${JSON.stringify(observation)}\n\n`);
+		for (const client of clients) send(client, data);
 	});
 	const authenticated = (request: IncomingMessage) => {
 		const header = request.headers.authorization;
@@ -109,9 +114,10 @@ export function createGateway(config: GatewayConfig, instrument: Instrument) {
 				session.attached = true;
 				response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
 				clients.add(response);
-				const snapshot = instrument.snapshot();
-				if (snapshot && !response.write(`data: ${JSON.stringify(snapshot)}\n\n`)) { clients.delete(response); response.destroy(); }
 				request.on('close', () => { clients.delete(response); sessions.delete(sessionId as string); });
+				response.on('error', () => { clients.delete(response); response.destroy(); });
+				const snapshot = instrument.snapshot();
+				if (snapshot) send(response, Buffer.from(`data: ${JSON.stringify(snapshot)}\n\n`));
 				return;
 			}
 			if (request.method === 'POST' && path === '/api/command') {
