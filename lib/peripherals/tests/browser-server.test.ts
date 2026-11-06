@@ -111,9 +111,7 @@ test('stalled client lease clears output without advancing musical phase', { tim
 });
 
 
-test('malformed helper output ends its owned process and listener', { timeout: 5000 }, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'browser-ipac-process-'));
-  const helper = join(directory, 'helper'), log = join(directory, 'exit.log');
+async function verifiedBuild(directory: string) {
   await mkdir(join(directory, 'ui/practice'), { recursive: true });
   const path = '/ui/practice/index.html', html = '<main>Practice</main>';
   await writeFile(join(directory, path), html);
@@ -121,6 +119,12 @@ test('malformed helper output ends its owned process and listener', { timeout: 5
   await writeFile(join(directory, 'ui/practice/offline-manifest.json'), JSON.stringify({ cacheId, files: [path] }));
   await writeFile(join(directory, 'ui/practice/sw.js'), '// ' + cacheId);
   await writeFile(join(directory, 'build-info.json'), JSON.stringify({ version: 1, source: { revision: 'a'.repeat(40), tree: 'b'.repeat(40), dirty: false } }));
+}
+
+test('malformed helper output ends its owned process and listener', { timeout: 5000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'browser-ipac-process-'));
+  const helper = join(directory, 'helper'), log = join(directory, 'exit.log');
+  await verifiedBuild(directory);
   await writeFile(helper, `#!${process.execPath}
 const fs = require('node:fs');
 fs.writeFileSync(${JSON.stringify(log)}, String(process.pid));
@@ -137,4 +141,56 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
     assert.ok(origin);
     await assert.rejects(fetch(origin));
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+test('a helper that stops consuming LED writes is terminated before queued images can replay', { timeout: 15000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'browser-ipac-backpressure-'));
+  await verifiedBuild(directory);
+  const helper = join(directory, 'helper'), log = join(directory, 'exit.log');
+  await writeFile(helper, `#!${process.execPath}
+const fs = require('node:fs');
+fs.writeFileSync(${JSON.stringify(log)}, 'started');
+process.stdin.pause();
+setInterval(() => {}, 1000);
+process.stdout.write(JSON.stringify({ type: 'ready', version: 1, session: Number(process.argv[2]), released: true }) + String.fromCharCode(10));
+process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(log)}, ':terminated'); process.exit(0); });
+`, { mode: 0o700 });
+  const abort = new AbortController();
+  let ready: (url: string) => void = () => {};
+  const url = new Promise<string>(resolve => { ready = resolve; });
+  const running = runBrowserPeripheralServer({ staticRoot: directory, helperExecutable: helper, sdkChannel: 0, onReady: ready }, abort.signal);
+  void running.catch(() => {});
+  let stream: Response | undefined;
+  try {
+    const address = new URL(await url), origin = address.origin;
+    const token = new URLSearchParams(address.hash.slice(1)).get('peripheral');
+    const headers = { origin, authorization: `Bearer ${token}`, 'content-type': 'application/json' };
+    for (let count = 0; count < 100; count++) {
+      stream = await fetch(origin + '/api/peripheral/events', { method: 'POST', headers });
+      if (stream.status === 200) break;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    assert.equal(stream?.status, 200); assert.ok(stream?.body);
+    const reader = stream.body.getReader(), first = await reader.read();
+    assert.ok(first.value);
+    const lease = JSON.parse(new TextDecoder().decode(first.value)).lease;
+    const values = image(); values[PF.LIGHT_COUNT] = 32;
+    for (let row = 0; row < 32; row++) { values[PF.LIGHT_SAMPLES + row * 2] = 4294967295 - row; values[PF.LIGHT_SAMPLES + row * 2 + 1] = .12345678901234567; }
+    let overflow = false;
+    for (let sequence = 1; sequence <= 1024; sequence++) {
+      values[PF.LIGHT_SEQUENCE] = sequence;
+      const response = await fetch(origin + '/api/peripheral/light', { method: 'POST', headers, body: JSON.stringify({ lease, values }) });
+      if (response.status === 400) { overflow = true; break; }
+      assert.equal(response.status, 204);
+      if (sequence % 20 === 0) await fetch(origin + '/api/peripheral/heartbeat', { method: 'POST', headers, body: JSON.stringify({ lease }) });
+    }
+    assert.equal(overflow, true, 'the bounded output queue rejects a stalled helper');
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    try { await Promise.race([running, new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error('Stalled helper remained alive')), 1500); })]); }
+    finally { clearTimeout(deadline); }
+    assert.equal(await readFile(log, 'utf8'), 'started:terminated');
+    await assert.rejects(fetch(origin));
+    reader.releaseLock();
+  } finally { abort.abort(); await running.catch(() => {}); await rm(directory, { recursive: true, force: true }); }
 });

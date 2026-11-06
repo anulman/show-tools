@@ -125,7 +125,10 @@ export async function runBrowserPeripheralServer(options: { staticRoot: string; 
   void exited.catch(() => {});
   const transport: BrowserPeripheralTransport = { session,
     input: (async function* () { for await (const line of boundedLines(child.stdout, 8192)) yield JSON.parse(line); })(),
-    write(line) { if (!child.stdin.writable || child.stdin.writableLength > 32768) throw new Error('Peripheral output stalled'); child.stdin.write(line + '\n'); },
+    write(line) {
+      if (!child.stdin.writable || child.stdin.writableLength > 32768) { child.kill('SIGTERM'); throw new Error('Peripheral output stalled'); }
+      child.stdin.write(line + '\n');
+    },
     async close() {
       child.stdin.end('clear\nquit\n');
       const terminate = setTimeout(() => child.kill('SIGTERM'), 1000), kill = setTimeout(() => child.kill('SIGKILL'), 2000);
