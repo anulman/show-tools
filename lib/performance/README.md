@@ -98,5 +98,11 @@ selects all current eligible cues before mutations, commits before arms, and
 reports independent failures. Repeats do not retrigger; release performs no cue.
 `pf_set_jiggle_thresholds` prepares ordered integer travel/reversal thresholds
 while stopped. `pf_light_output` returns a complete clock-backed light image:
-held 100%, otherwise recording pulse to 70%, otherwise playing 70%, otherwise off.
-It supplies values rather than performing device IO.
+held 100%, otherwise an unused compiled button cue or recording pulses to 70%,
+otherwise playing 70%, otherwise off. Timed cue warnings span the two chart counts
+leading up to the authored cue, including count-in when applicable. Full-bar cues
+warn only within their authored bar. A successfully accepted press clears that
+cue's warning immediately, including queued actions; a rejected press does not.
+Warnings respect the requested practice range, rearm on loop wrap, and preserve
+existing cue admission windows and execution. It supplies values rather than
+performing device IO.
