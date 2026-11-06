@@ -149,9 +149,16 @@ The `peripheral-host` target owns the confirmed I-PAC installation's Tab key
 (HID page 7, usage 43), relative Y axis (page 1, usage 49), and one explicitly
 selected SDK LED channel. It requires exactly one `d209:0410` device with unique
 matching input interfaces and a validated LED report descriptor. It opens only
-those input interfaces exclusively, keeping their Tab and mouse movement out of
-other apps until exit. Start it from the terminal granted Input Monitoring.
+those interfaces without exclusive seizure. The I-PAC's Tab and cursor-Y events
+also reach macOS. Exclusive opening requires privileges that Input Monitoring
+alone does not grant. Start it from the context granted Input Monitoring.
 It never opens the laptop keyboard.
+
+`peripheral-host --access-status` reports granted, denied or unknown Input
+Monitoring permission without prompting. `--inspect` also qualifies the device
+without opening any interfaces. Permission and USB enumeration are separate
+checks; open failures report their actual macOS error rather than assuming a
+permission cause.
 
 `peripheral-host SESSION SDK_CHANNEL --confirm-wiring` is a child-process
 interface rather than a stand-alone performance command. The gateway client
