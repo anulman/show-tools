@@ -11,8 +11,9 @@ import { installedPackage, sessionProfile } from '../../lib/remote-performance/t
 import type { Observation } from '../../lib/remote-performance/gateway.js';
 import type { NativeOutcome } from '../../lib/remote-performance/session-schema.js';
 
-export type Mutation = 'none' | 'cancel' | 'cleanup' | 'command' | 'observe' | 'ownership';
+export type Mutation = 'none' | 'cancel' | 'cleanup' | 'command' | 'observe' | 'ownership' | 'identity';
 const replacements = {
+  identity: ["            this.update({ kind: 'ready', attempt: attempt.id, performance: next });", "            this.update({ kind: 'ready', attempt: Schema.decodeUnknownSync(AttemptSchema)('wrong-attempt'), performance: next });"],
   ownership: ["    if (attempt.child.kind === 'pending') {", "    if (false && attempt.child.kind === 'pending') {"],
   cancel: ["    attempt.abort.abort();", "    void attempt.abort;"],
   cleanup: ["      if (running) {", "      if (false && running) {"],
@@ -174,7 +175,9 @@ export async function replay(mutation: Mutation, scenario: Exclude<Mutation, 'no
   if (scenario === 'ownership') return replayOwnership(mutation);
   const f = await fixture({ mutation, preparation: scenario === 'cancel' ? 'blocked' : undefined, cleanup: scenario === 'cleanup' ? 'unconfirmed' : undefined });
   try {
-    f.controller.setAudio('on');
+    const admission = f.controller.setAudio('on');
+    const reserved = admission.view.audio;
+    assert.equal(reserved.kind, 'starting');
     if (scenario === 'cancel') {
       await until(() => f.prepareCalls === 1, 'preparation await');
       f.controller.setAudio('off');
@@ -185,6 +188,11 @@ export async function replay(mutation: Mutation, scenario: Exclude<Mutation, 'no
       return;
     }
     const first = await ready(f.controller);
+    if (scenario === 'identity') {
+      assert(reserved.kind === 'starting');
+      assert.equal(first.attempt, reserved.attempt, 'Ready view must keep the reserved attempt identity');
+      return;
+    }
     const oldTarget = { attempt: first.attempt, hostEpoch: first.performance.hostEpoch };
     if (scenario === 'cleanup') {
       f.controller.setAudio('off');
@@ -248,6 +256,18 @@ export async function replayAcquisitionFailures(): Promise<void> {
     } finally { await f.dispose(); }
   }
 }
+export async function replayCancelBeforeRequest(): Promise<void> {
+  const f = await fixture({ mutation: 'none' });
+  try {
+    f.controller.setAudio('on');
+    f.controller.setAudio('off');
+    await until(() => f.controller.snapshot().audio.kind === 'off', 'cancellation before spawn request');
+    assert.equal(f.spawnCalls, 0);
+    assert.equal(f.controller.setAudio('on').outcome, 'accepted');
+    await ready(f.controller);
+  } finally { await f.dispose(); }
+}
+
 export async function replayPreSpawnRecovery(): Promise<void> {
   const f = await fixture({ mutation: 'none', runtimeRootFailure: true });
   try {
@@ -307,15 +327,19 @@ export async function replayAcquisitionCancellation(): Promise<void> {
 }
 
 export async function replayCounterexample(mutation: Mutation, actions: readonly string[]): Promise<void> {
-  const f = await fixture({ mutation, preparation: 'blocked', cleanup: actions.includes('FinishExited') ? 'unconfirmed' : undefined, readback: 'blocked', acquisition: actions.includes('SpawnFailed') && !actions.includes('ChildAcquired') ? 'fail-before-child' : 'blocked' });
+  const f = await fixture({ mutation, preparation: 'blocked', cleanup: actions.includes('FinishExited') ? 'unconfirmed' : undefined, readback: 'blocked', acquisition: actions.includes('SpawnFailed') ? actions.includes('ChildAcquired') ? 'fail-after-child' : 'fail-before-child' : 'blocked' });
   let pending: Promise<NativeOutcome> | undefined;
   let first: Awaited<ReturnType<typeof ready>> | undefined;
+  let reservedAttempt: string | undefined;
   let canceled = false;
   let staleEvents = 0;
   f.controller.subscribe(value => { if (value.type === 'event' && canceled) staleEvents++; });
   try {
     for (const action of actions) {
-      if (action === 'Enable') f.controller.setAudio('on');
+      if (action === 'Enable') {
+        const admitted = f.controller.setAudio('on').view.audio;
+        assert(admitted.kind === 'starting'); reservedAttempt = admitted.attempt;
+      }
       else if (action === 'BeginSpawn') await until(() => f.spawnCalls === 1, 'spawn request');
       else if (action === 'ChildAcquired') await until(() => f.children.length === 1, 'child acquired before handle return');
       else if (action === 'Spawn') {
@@ -332,7 +356,10 @@ export async function replayCounterexample(mutation: Mutation, actions: readonly
         f.readback.ready = true;
         await until(() => f.controller.snapshot().audio.kind === 'ready' || stopped(f.controller), 'ready publication or cancellation');
         const audio = f.controller.snapshot().audio;
-        if (audio.kind === 'ready') first = audio;
+        if (audio.kind === 'ready') {
+          assert.equal(audio.attempt, reservedAttempt, 'Ready view must keep the reserved attempt identity');
+          first = audio;
+        }
         assert(!canceled || audio.kind !== 'ready', 'Canceled startup must never publish Ready');
       } else if (action === 'Terminate') { canceled = true; f.controller.setAudio('off'); }
       else if (action === 'BeginCleanup') await until(() => f.controller.snapshot().audio.kind !== 'ready', 'cleanup response');
@@ -341,6 +368,9 @@ export async function replayCounterexample(mutation: Mutation, actions: readonly
         assert.equal(f.controller.snapshot().audio.kind, 'stopping', 'Pending acquisition must retain ownership');
       } else if (action === 'FinishExited') {
         await until(() => stopped(f.controller), 'exit confirmation');
+        const released = ['off', 'fault'].includes(f.controller.snapshot().audio.kind);
+        if (actions.includes('SpawnFailed') && actions.includes('ChildAcquired'))
+          assert.equal(released ? f.children.filter(child => child.alive).length : 0, 0, 'Released attempt must not leave a live child');
         assert.equal(f.controller.snapshot().audio.kind, 'stopping', mutation === 'ownership' ? 'Pending acquisition must retain ownership' : 'Unconfirmed cleanup must retain ownership');
       } else if (action === 'IssueCommand') {
         assert(first);
@@ -360,12 +390,4 @@ export async function replayCounterexample(mutation: Mutation, actions: readonly
       } else throw Error(`Unmapped TLC action ${action}`);
     }
   } finally { await f.dispose(); }
-}
-
-if (process.argv[1] === new URL(import.meta.url).pathname) {
-  for (const scenario of ['cancel', 'cleanup', 'command', 'observe', 'ownership'] satisfies Array<Exclude<Mutation, 'none'>>) {
-    await replay('none', scenario);
-    await assert.rejects(replay(scenario, scenario), error => error instanceof assert.AssertionError);
-    process.stdout.write(`${scenario}: baseline passed; actual controller mutation caught\n`);
-  }
 }
