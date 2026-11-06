@@ -1,4 +1,4 @@
-import { audioMode, canChangeAudioMode, changeAudioMode, type AudioMode } from './audio-mode.js';
+import { audioMode, canChangeAudioMode, changeAudioMode } from './audio-mode.js';
 import { renderVoiceAvatar } from './voice-avatar.js';
 import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
@@ -430,7 +430,8 @@ let changingAudioMode = false;
 elements['audio-mode-select'].value = mode;
 elements['audio-mode-select'].addEventListener('change', () => {
   const select = elements['audio-mode-select'];
-  const next = select.value as AudioMode;
+  const next = select.value;
+  if (next !== 'browser' && next !== 'hardware') { select.value = mode; return; }
   changingAudioMode = true;
   select.disabled = true;
   void changeAudioMode({ current: mode, next, browserBusy: browserModeBusy(), url: new URL(location.href),
