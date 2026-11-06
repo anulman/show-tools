@@ -31,7 +31,7 @@ std::array<double, PF_TAKE_FIELDS> take(pf_engine* engine, int id) { std::array<
 std::array<double, PF_CHANNEL_FIELDS> channel(pf_engine* engine, int id) { std::array<double, PF_CHANNEL_FIELDS> out{}; pf_channel_info(engine, id, out.data()); return out; }
 struct Engine {
   pf_engine* value;
-  explicit Engine(double rate = 8000) : value(pf_create(rate, PF_PRACTICE, 32, 30, 4)) { require(value, "engine creation"); }
+  explicit Engine(double rate = 8000) : value(pf_create(rate, PF_PRACTICE, 32, 30, 4)) { require(value, "engine creation"); ok(value, pf_set_jiggle_thresholds(value, 1, 1)); }
   ~Engine() { pf_destroy(value); }
   operator pf_engine*() { return value; }
 };
@@ -883,6 +883,7 @@ void rotation_releases_after_inactivity() {
     auto song = rotation_table(beats);
     auto program = compiled::Program::create(song.data(), uint32_t(song.size()), rate, *identity, 1);
     require(bool(program), "inactivity program");
+    program->jiggle_thresholds(1, 1);
     program->start(1, 0, 0, 120); program->beat(PF_PLAYING, 1, 1, 0, 0, 120);
     const double frames_per_count = rate * .5;
     program->rotate(1, frames_per_count * .1, 120);
@@ -897,12 +898,53 @@ void rotation_releases_after_inactivity() {
     require(std::abs(program->rotation_remaining() - .25) < 1e-12, "new movement at deadline reactivates full duration");
     song.back() = 2.125;
     auto capped = compiled::Program::create(song.data(), uint32_t(song.size()), rate, *identity, 1);
+    capped->jiggle_thresholds(1, 1);
     capped->start(3, 0, 0, 120); capped->beat(PF_PLAYING, 3, 3, 0, 0, 120);
     capped->rotate(1, .1 * frames_per_count, 120);
     require(std::abs(capped->rotation_remaining() - .025) < 1e-12, "written window caps inactivity");
     capped->rotate(1, .125 * frames_per_count, 120);
     require(!capped->rotation_eligible() && capped->rotation_remaining() == 0, "window end remains exclusive");
   }
+}
+void jiggle_filters_small_motion_in_bounded_musical_buckets() {
+  for (double rate : {44100., 48000.}) for (int beats : {4, 6}) {
+    auto identity = patches::Rack::create(nullptr, 0);
+    std::vector<double> song{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+      PF_COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0};
+    auto program = compiled::Program::create(song.data(), song.size(), rate, *identity, 1);
+    program->start(1, 0, 0, 120); program->beat(PF_PLAYING, 1, 1, 0, 0, 120);
+    double scale = rate * .5;
+    auto move = [&](double value, double count) { require(program->rotate(value, count * scale, 120) == PF_OK, "finite jiggle observation accepted"); };
+    for (double count : {.01, .14, .27, .4}) { move(1, count); require(program->rotation_remaining() == 0, "sparse same-direction trickle cannot accumulate forever"); }
+    move(4, .5); require(std::abs(program->rotation_remaining() - .25) < 1e-12, "meaningful four-count travel activates");
+    move(1, .6); require(std::abs(program->rotation_remaining() - .15) < 1e-12, "tiny same-direction movement does not refresh inactivity");
+    move(-1, .62); require(std::abs(program->rotation_remaining() - .13) < 1e-12, "single tiny reversal does not count");
+    move(1, .63); move(-1, .65);
+    require(std::abs(program->rotation_remaining() - .25) < 1e-12, "two small reverse counts confirm a reversal despite intervening small forward motion");
+    move(0, .9); require(program->rotation_remaining() == 0, "confirmed reversal expires after full inactivity");
+    move(1, .91); move(0, 1.17); move(-1, 1.18); move(0, 1.2);
+    require(program->rotation_remaining() == 0, "isolated reversal expires instead of contaminating a later bucket");
+    move(-4, 1.25); move(0, 1.3);
+    double before = program->rotation_remaining();
+    program->tempo_changed(1.3 * scale, 120, 90);
+    require(program->rotate(1, 1.3 * scale, 90) == PF_OK && std::abs(program->rotation_remaining() - before) < 1e-12, "one tiny reverse at tempo change cannot refresh active gesture");
+    double expiry = 1.3 * scale + before * rate * 60 / 90;
+    program->rotate(0, expiry, 90); require(program->rotation_remaining() == 0, "inactivity expiry follows new native tempo");
+  }
+  auto identity = patches::Rack::create(nullptr, 0); auto windows = rotation_table();
+  auto separated = compiled::Program::create(windows.data(), windows.size(), 48000, *identity, 1);
+  separated->start(1, 0, 0, 120); separated->beat(PF_PLAYING, 1, 1, 0, 0, 120);
+  separated->rotate(4, 2400, 120);
+  separated->beat(PF_PLAYING, 2, 1, 0, 96000, 120); separated->rotate(-2, 96240, 120);
+  require(separated->rotation_remaining() == 0, "new written window does not inherit previous gesture direction");
+  Engine engine; prepare(engine, rotation_table());
+  ok(engine, pf_set_jiggle_thresholds(engine, 4, 2));
+  for (auto pair : {std::pair<double, double>{0, 1}, {4, 5}, {3.5, 2}, {32768, 2}, {4, std::nan("")}})
+    require(pf_set_jiggle_thresholds(engine, pair.first, pair.second) < 0, "invalid thresholds fail without changing prepared configuration");
+  ok(engine, pf_set_microphone(engine, 1)); ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
+  require(pf_set_jiggle_thresholds(engine, 1, 1) < 0, "running threshold mutation is rejected");
+  ok(engine, pf_control(engine, 5, 1, nullptr, 0)); double info[PF_VOICE_FIELDS]; pf_voice_info(engine, 5, info);
+  require(info[PF_VOICE_ROTATION_REMAINING] == 0, "rejected mutation preserves four-count filter");
 }
 Venue rotation_venue() {
   Venue venue; venue.counts[PF_BACKUP_PROFILE] = 2;
@@ -1204,4 +1246,4 @@ void prefix_capture_maps_and_selection() {
 }
 
 }
-int main() { unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); }
+int main() { jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); }

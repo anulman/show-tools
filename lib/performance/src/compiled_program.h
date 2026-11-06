@@ -14,6 +14,7 @@ class Program {
   bool prepare_effects(const patches::Rack& definition, uint32_t revision) noexcept;
   bool prepare_effects(const patches::Rack* const* definitions, const uint32_t* revisions) noexcept;
   int rotate(double value, double frame, double bpm) noexcept;
+  void jiggle_thresholds(int travel, int reversal) noexcept;
   bool rotation_eligible() const noexcept;
   double rotation_remaining() const noexcept;
   int profile_activity(int profile) const noexcept;
@@ -81,6 +82,10 @@ class Program {
   int window_count_ = 0;
   int rotation_count_ = 0, monitor_route_ = PF_DEFAULT_PROFILE;
   double rotation_inactivity_ = .25, rotation_deadline_ = -1;
+  int minimum_travel_ = 4, minimum_reversal_ = 2, gesture_direction_ = 0, gesture_window_ = -1;
+  double gesture_travel_ = 0, gesture_reversal_ = 0, gesture_bucket_end_ = -1;
+  void clear_gesture() noexcept;
+  bool meaningful_motion(double value, double frame) noexcept;
   bool handed_off_[PF_CHANNELS]{};
   std::unique_ptr<Take[]> takes_;
   std::unique_ptr<Cue[]> cues_;

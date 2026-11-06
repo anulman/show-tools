@@ -15,7 +15,9 @@ function engine(program: readonly number[], rate = 8000, initialVoiceEffects?: P
   if (!(instance.exports.memory instanceof WebAssembly.Memory)) throw new Error('Missing WASM memory');
   memory = instance.exports.memory;
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
-  return new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0, initialVoiceEffects });
+  const native = new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0, initialVoiceEffects });
+  native.setJiggleThresholds(1, 1);
+  return native;
 }
 function render(native: NativePerformance, frames: number, value: number | ((frame: number) => number) = .25) {
   const begin = native.processedFrames;
@@ -486,3 +488,39 @@ for (const rate of [44100, 48000]) test(`WASM cue button edges and engine light 
     assert.throws(() => native.control({ id: 'cueButton', value: 1 }, 'disconnect-release'), /already used/i);
   } finally { native.dispose(); }
 });
+
+for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
+  test(`WASM jiggle ignores isolated tiny movement and confirms small reversal (${rate} Hz, ${beats} counts)`, () => {
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+      PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
+    const native = engine(program, rate);
+    try {
+      native.setJiggleThresholds(4, 2);
+      for (const [travel, reversal] of [[0, 1], [4, 5], [1.5, 1], [32768, 2]])
+        assert.throws(() => native.setJiggleThresholds(travel, reversal), /integer travel/i);
+      native.setMicrophone(true); native.start({ runId: 'filtered-jiggle', bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      until(native, 1, 1, 0, 64);
+      assert.throws(() => native.setJiggleThresholds(1, 1), /stop transport/i);
+      const origin = native.processedFrames, framesPerCount = rate / 2;
+      const backup = () => native.voiceEffects()[PF.BACKUP_PROFILE];
+      const move = (value: number, count: number, id = `motion-${count}`) => {
+        render(native, origin + Math.round(count * framesPerCount) - native.processedFrames, 0);
+        native.control({ id: 'knob', value }, id);
+      };
+      for (const count of [.01, .14, .27, .4]) {
+        move(1, count); assert.equal(backup().rotationRemainingBeats, 0, 'long sparse trickle expires in bounded buckets');
+      }
+      move(4, .5, 'significant'); assert(Math.abs(backup().rotationRemainingBeats - .25) < 1e-9);
+      move(1, .6); assert(backup().rotationRemainingBeats < .151, 'tiny forward movement does not refresh');
+      move(-1, .62); assert(backup().rotationRemainingBeats < .131, 'one tiny reversal does not refresh');
+      assert.deepEqual(native.events().findLast(event => event.control?.id === 'knob')?.control, { id: 'knob', value: -1 }, 'ignored movement remains a signed source observation');
+      move(1, .63); move(-1, .65);
+      assert(Math.abs(backup().rotationRemainingBeats - .25) < 1e-9, 'two reverse counts confirm small reversal');
+      move(0, .8); const remaining = backup().rotationRemainingBeats;
+      native.control({ id: 'knob', value: 4 }, 'significant');
+      assert.equal(backup().rotationRemainingBeats, remaining, 'replayed raw command cannot accumulate new travel');
+      move(0, .901); assert.equal(backup().rotationRemainingBeats, 0);
+      native.stop(); assert.equal(backup().rotationRemainingBeats, 0);
+    } finally { native.dispose(); }
+  });
+}

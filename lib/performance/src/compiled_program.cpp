@@ -277,7 +277,7 @@ void Program::stop() noexcept {
     if (commit_period(active_capture_.take, period) && take.cache[active_capture_.bank]->commit(period)) take.latest = active_capture_.bank;
     else take.cache[active_capture_.bank]->reset_for_capture();
   }
-  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_ = -1; phase_ = PF_IDLE; error_ = PF_OK;
+  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_ = -1; clear_gesture(); phase_ = PF_IDLE; error_ = PF_OK;
   for (int button = 0; button < PF_CHANNELS; ++button) pending_[button] = {};
   for (int voice = 0; voice < PF_CHANNELS; ++voice) { if (voices_[voice]) voices_[voice]->reset(); if (tails_[voice]) tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
   drain_[PF_DEFAULT_PROFILE] = 0; drain_[PF_BACKUP_PROFILE] = 0;
@@ -286,7 +286,7 @@ void Program::stop() noexcept {
 }
 void Program::microphone_lost() noexcept {
   if (active_capture_.take >= 0) takes_[active_capture_.take].cache[active_capture_.bank]->reset_for_capture();
-  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_ = -1;
+  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_ = -1; clear_gesture();
   for (int button = 0; button < PF_CHANNELS; ++button) pending_[button] = {};
   for (int voice = 0; voice < PF_CHANNELS; ++voice) { voices_[voice]->reset(); tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
   drain_[PF_DEFAULT_PROFILE] = 0; drain_[PF_BACKUP_PROFILE] = 0;
@@ -358,13 +358,43 @@ double Program::rotation_remaining() const noexcept {
   double frames = frame_at(rotation_deadline_) - query_frame_;
   return frames > 0 ? frames * bpm_ / (rate_ * 60) : 0;
 }
+void Program::clear_gesture() noexcept {
+  gesture_direction_ = 0; gesture_window_ = -1; gesture_travel_ = gesture_reversal_ = 0; gesture_bucket_end_ = -1;
+}
+void Program::jiggle_thresholds(int travel, int reversal) noexcept {
+  minimum_travel_ = travel; minimum_reversal_ = reversal; clear_gesture();
+}
+bool Program::meaningful_motion(double value, double frame) noexcept {
+  if (gesture_bucket_end_ < 0 || frame >= frame_at(gesture_bucket_end_)) {
+    gesture_travel_ = gesture_reversal_ = 0;
+    gesture_bucket_end_ = query_position_ + rotation_inactivity_;
+  }
+  int direction = value > 0 ? 1 : -1;
+  if (!gesture_direction_) gesture_direction_ = direction;
+  double distance = std::abs(value);
+  bool accepted;
+  if (direction == gesture_direction_) {
+    gesture_travel_ = std::min(double(minimum_travel_), gesture_travel_ + std::min(distance, double(minimum_travel_)));
+    accepted = gesture_travel_ >= minimum_travel_;
+  } else {
+    gesture_reversal_ = std::min(double(minimum_reversal_), gesture_reversal_ + std::min(distance, double(minimum_reversal_)));
+    accepted = gesture_reversal_ >= minimum_reversal_;
+  }
+  if (accepted) {
+    gesture_direction_ = direction; gesture_travel_ = gesture_reversal_ = 0; gesture_bucket_end_ = -1;
+  }
+  return accepted;
+}
 int Program::rotate(double value, double frame, double bpm) noexcept {
   if (!std::isfinite(value)) return PF_INVALID_KNOB;
   bpm_ = bpm; query_position_ = position(frame, bpm); query_frame_ = frame;
   if (!value || phase_ != PF_PLAYING) return PF_OK;
   for (int id = 0; id < rotation_count_; ++id) if (frame >= frame_at(rotation_windows_[id].begin) && frame < frame_at(rotation_windows_[id].end)) {
-    rotation_deadline_ = std::min(query_position_ + rotation_inactivity_, rotation_windows_[id].end); break;
+    if (gesture_window_ != id) { clear_gesture(); gesture_window_ = id; }
+    if (meaningful_motion(value, frame)) rotation_deadline_ = std::min(query_position_ + rotation_inactivity_, rotation_windows_[id].end);
+    return PF_OK;
   }
+  clear_gesture();
   return PF_OK;
 }
 int Program::profile_activity(int profile) const noexcept {

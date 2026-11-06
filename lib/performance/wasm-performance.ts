@@ -306,6 +306,9 @@ export class NativePerformance {
     return { ...state, compiledTakes };
   }
   snapshot() { return this.state(); }
+  setJiggleThresholds(minimumTravel: number, minimumReversal: number) {
+    this.call('pf_set_jiggle_thresholds', this.handle, minimumTravel, minimumReversal);
+  }
   lightOutput() { return this.query('pf_light_output').slice(0, LIGHT.LIGHT_FIELDS); }
   get processedFrames() { return this.query('pf_snapshot')[PF.FRAME]; }
   get clickEnabled() { return this.query('pf_snapshot')[PF.CLICK_ENABLED] === 1; }
