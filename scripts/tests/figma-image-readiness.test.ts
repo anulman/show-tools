@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { runInNewContext } from 'node:vm';
 import sharp from 'sharp';
-import { imageSourceSnapshotCode, prepareImageReplacementGuard } from '../video-expansion/figma-image-readiness.ts';
+import { imageSourceSnapshotCode, prepareImageReplacementGuard } from '../video-expansion/figma-image-readiness.js';
 
 const target = { fileKey: 'test-file', pageId: '1:1', sourceNodeId: '1:2', imageNodeId: '1:3' };
 const png = (bytes: Uint8Array) => sharp(bytes, { raw: { width: 2, height: 1, channels: 4 } }).png().toBuffer();
