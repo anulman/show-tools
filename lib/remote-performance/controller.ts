@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
-import { Effect, Schema } from 'effect';
+import { stripVTControlCharacters } from 'node:util';
+import { Effect, Fiber, Schema, Stream } from 'effect';
 import { NodeServices } from '@effect/platform-node';
 import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 import { NativeInstrument } from './instrument.js';
@@ -18,7 +19,12 @@ const nativeEvent = Schema.decodeUnknownSync(NativeEventSchema);
 const revision = Schema.decodeUnknownSync(DeskRevisionSchema);
 const errorText = (error: unknown) => (error instanceof Error ? error.message : 'Native audio failed').slice(0, 8192);
 type InstalledPackage = ReturnType<typeof validateInstalledPackage>;
-type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Promise<void>; finish: 'off' | 'fault'; instrument?: NativeInstrument; child?: ChildProcessSpawner.ChildProcessHandle };
+const diagnosticMessage = (attempt: Attempt, message: string) => {
+  const tail = stripVTControlCharacters(attempt.stderr.toString('utf8')).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g, '').trim();
+  const prefix = message.slice(0, 1024);
+  return tail ? `${prefix}\n${tail.slice(-(8192 - prefix.length - 1))}` : prefix;
+};
+type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Promise<void>; finish: 'off' | 'fault'; stderr: Buffer; instrument?: NativeInstrument; child?: ChildProcessSpawner.ChildProcessHandle };
 
 export class PersistentDesk implements DeskController {
   private view: DeskView;
@@ -55,7 +61,7 @@ export class PersistentDesk implements DeskController {
   }
   private failAttempt(attempt: Attempt, message: string) {
     if (this.attempt !== attempt || attempt.abort.signal.aborted) return;
-    this.update({ kind: 'stopping', attempt: attempt.id, error: message });
+    this.update({ kind: 'stopping', attempt: attempt.id, error: diagnosticMessage(attempt, message) });
     attempt.abort.abort(new Error(message));
   }
   private observe(attempt: Attempt, value: Observation) {
@@ -68,7 +74,7 @@ export class PersistentDesk implements DeskController {
     this.publish({ type: 'native', serverEpoch: this.view.serverEpoch, revision: this.view.revision, attempt: attempt.id, performance: next });
   }
   private start() {
-    const attempt: Attempt = { id: Schema.decodeUnknownSync(AttemptSchema)(randomUUID()), abort: new AbortController(), done: Promise.resolve(), finish: 'fault' };
+    const attempt: Attempt = { id: Schema.decodeUnknownSync(AttemptSchema)(randomUUID()), abort: new AbortController(), done: Promise.resolve(), finish: 'fault', stderr: Buffer.alloc(0) };
     this.attempt = attempt;
     this.update({ kind: 'starting', attempt: attempt.id });
     attempt.done = Effect.runPromise(this.runAttempt(attempt).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), { signal: attempt.abort.signal })
@@ -84,7 +90,7 @@ export class PersistentDesk implements DeskController {
       }
     }
     this.attempt = undefined;
-    this.update(attempt.finish === 'off' ? { kind: 'off' } : { kind: 'fault', error: attempt.abort.signal.aborted ? errorText(attempt.abort.signal.reason) : error });
+    this.update(attempt.finish === 'off' ? { kind: 'off' } : { kind: 'fault', error: diagnosticMessage(attempt, attempt.abort.signal.aborted ? errorText(attempt.abort.signal.reason) : error) });
   }
   private readonly runAttempt = Effect.fn('PersistentDesk.runAttempt')(function*(this: PersistentDesk, attempt: Attempt) {
     const root = this.profile.runtimeRoot;
@@ -105,8 +111,15 @@ export class PersistentDesk implements DeskController {
       ...(driver.kind === 'fake' ? [String(driver.inputLevel)] : [driver.captureDevice, driver.playbackDevice, String(driver.captureChannels), String(driver.inputChannel), String(driver.periodFrames), String(driver.bufferFrames), driver.format]),
       '--owner-pid', String(process.pid)];
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-    const child = yield* spawner.spawn(ChildProcess.make(native.executable, args, { shell: false, stdin: 'ignore', stdout: 'ignore', stderr: 'ignore', killSignal: 'SIGTERM', forceKillAfter: 1000 }));
+    const child = yield* spawner.spawn(ChildProcess.make(native.executable, args, { shell: false, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', killSignal: 'SIGTERM', forceKillAfter: 1000 }));
     attempt.child = child;
+    const diagnostics = yield* child.stderr.pipe(
+      Stream.runForEach(chunk => Effect.sync(() => {
+        attempt.stderr = Buffer.from(Buffer.concat([attempt.stderr, chunk]).subarray(-8192));
+      })),
+      Effect.ignore,
+      Effect.forkScoped,
+    );
     const initialize = Effect.tryPromise({ try: async signal => {
       for (let index = 0; ; index++) {
         signal.throwIfAborted();
@@ -137,7 +150,11 @@ export class PersistentDesk implements DeskController {
     yield* Effect.addFinalizer(() => Effect.sync(() => attempt.instrument?.close()));
     yield* Effect.raceFirst(
       initialize.pipe(Effect.andThen(Effect.never)),
-      child.exitCode.pipe(Effect.flatMap(code => Effect.fail(new Error(`Native host exited (${code})`)))),
+      Effect.gen(function*() {
+        const exited = yield* Effect.exit(child.exitCode);
+        yield* Fiber.await(diagnostics).pipe(Effect.timeout('250 millis'), Effect.ignore);
+        return yield* Effect.fail(new Error(exited._tag === 'Success' ? `Native host exited (${exited.value})` : 'Native host exited unexpectedly'));
+      }),
     );
   });
   async command(target: NativeTarget, input: unknown): Promise<NativeOutcome> {

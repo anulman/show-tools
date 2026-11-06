@@ -148,3 +148,34 @@ test('transport Stop retains a captured take while terminate and re-enable disca
     assert.ok(replacement.performance.state.compiledTakes?.every(take => !take.ready && take.frames === 0));
   } finally { await controller.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test('startup faults retain a bounded sanitized diagnostic tail while draining past capacity', async () => {
+  const fixture = await desk();
+  try {
+    const executable = join(fixture.directory, 'diagnostic-failure');
+    await writeFile(executable, `#!${process.execPath}\nprocess.stderr.write('discarded-prefix\\n' + 'x'.repeat(1024 * 1024) + '\\n\\u001b[31mALSA open failed: configured capture device is busy\\u001b[0m\\u0000\\n', () => process.exit(7));\n`, { mode: 0o700 });
+    const controller = new PersistentDesk({ ...fixture.profile, native: { ...fixture.profile.native, executable } }, installedPackage().installed);
+    try {
+      controller.setAudio('on');
+      const fault = await until(() => { const audio = controller.snapshot().audio; return audio.kind === 'fault' ? audio : undefined; });
+      assert.match(fault.error, /ALSA open failed: configured capture device is busy/);
+      assert.ok(fault.error.length <= 8192);
+      assert.doesNotMatch(fault.error, /discarded-prefix|\u001b|\u0000/);
+      assert.deepEqual(await readdir(fixture.profile.runtimeRoot), []);
+    } finally { await controller.close(); }
+  } finally { await fixture.dispose(); }
+});
+
+test('a healthy native child remains ready after writing more than the diagnostic capacity', async () => {
+  const fixture = await desk();
+  try {
+    const executable = join(fixture.directory, 'verbose-native');
+    await writeFile(executable, `#!/bin/sh\ni=0\nwhile [ "$i" -lt 128 ]; do printf '%s' '${'x'.repeat(1024)}' >&2; i=$((i + 1)); done\nexec '${fixture.profile.native.executable}' "$@"\n`, { mode: 0o700 });
+    const controller = new PersistentDesk({ ...fixture.profile, native: { ...fixture.profile.native, executable } }, installedPackage().installed);
+    try {
+      controller.setAudio('on');
+      await until(() => controller.snapshot().audio.kind === 'ready' ? true : undefined);
+      assert.equal(controller.snapshot().audio.kind, 'ready');
+    } finally { await controller.close(); }
+  } finally { await fixture.dispose(); }
+});
