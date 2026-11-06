@@ -3,17 +3,19 @@ import { Schema } from 'effect';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { chmod, cp, lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { validateInstalledPackage } from '../lib/remote-performance/prepare.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const required = Schema.NonEmptyString;
+const revisionString = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/));
 const options = Schema.decodeUnknownSync(Schema.Struct({
   'native-artifact': required, 'node-runtime': required, 'song-package': required, out: required,
+  'reviewed-revision': Schema.optionalKey(revisionString),
 }))(parseArgs({ options: { 'native-artifact': { type: 'string' }, 'node-runtime': { type: 'string' },
-  'song-package': { type: 'string' }, out: { type: 'string' } } }).values);
+  'song-package': { type: 'string' }, out: { type: 'string' }, 'reviewed-revision': { type: 'string' } } }).values);
 const native = resolve(options['native-artifact']);
 const runtime = resolve(options['node-runtime']);
 const song = resolve(options['song-package']);
@@ -21,7 +23,14 @@ const output = resolve(options.out);
 const sha256 = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
 if (execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error('Commit or remove source changes before building a release');
 const sourceRevision = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }).trim();
-const nativeRevision = (await readFile(join(native, 'source-revision.txt'), 'utf8')).trim();
+if (basename(output) !== `show-tools-session-release-${sourceRevision.slice(0, 7)}`) throw new Error('Output directory must identify the exact source revision');
+const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim();
+const commitIdentity = (revision: string) => ({ revision: git('rev-parse', '--verify', `${revision}^{commit}`),
+  tree: git('rev-parse', '--verify', `${revision}^{tree}`), parents: git('show', '--no-patch', '--format=%P', revision).split(' ').filter(Boolean) });
+const sourceIdentity = commitIdentity(sourceRevision);
+const reviewedIdentity = commitIdentity(options['reviewed-revision'] ?? sourceRevision);
+if (sourceIdentity.tree !== reviewedIdentity.tree) throw new Error('Reviewed revision and release source have different trees');
+const nativeRevision = Schema.decodeUnknownSync(revisionString)((await readFile(join(native, 'source-revision.txt'), 'utf8')).trim());
 execFileSync('git', ['diff', '--exit-code', nativeRevision, sourceRevision, '--', 'lib/native-host', 'lib/native-alsa',
   'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches'], { cwd: root, stdio: 'pipe' });
 const nativeFiles: string[] = [];
@@ -52,6 +61,26 @@ await cp(join(runtime, 'LICENSE'), join(output, 'runtime/NODE-LICENSE'));
 await cp(join(root, 'package-lock.json'), join(output, 'provenance/package-lock.json'));
 await cp(join(root, 'docs/implementation/session-cli.md'), join(output, 'provenance/session-cli.md'));
 await buildSessionBundles(root, output);
+const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
+const reviewSources = new Set(git('ls-files', '-z', '--', 'lib/remote-performance', 'lib/native-host', 'lib/native-alsa',
+  'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches', 'scripts/build-session-release.ts',
+  'scripts/session-bundles.ts', 'scripts/stage-session-release.py', 'package.json', 'package-lock.json').split('\0').filter(Boolean));
+for (const name of ['server.mjs', 'session-cli.mjs', 'prepare.mjs']) {
+  const inputs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
+    JSON.parse(await readFile(join(output, 'provenance', `${name}.inputs.json`), 'utf8')));
+  for (const path of Object.keys(inputs)) if (!path.split('/').includes('node_modules')) {
+    if (!tracked.has(path)) throw new Error(`Bundle contains an untracked first-party input: ${path}`);
+    reviewSources.add(path);
+  }
+}
+for (const path of [...reviewSources].sort()) {
+  const destination = join(output, 'provenance/source', path);
+  await mkdir(dirname(destination), { recursive: true });
+  await cp(join(root, path), destination);
+}
+await writeFile(join(output, 'provenance/source.json'), JSON.stringify({ schemaVersion: 1, source: sourceIdentity,
+  reviewed: reviewedIdentity, native: commitIdentity(nativeRevision), nativeSourcesEquivalent: true,
+  files: [...reviewSources].sort() }, null, 2));
 await writeFile(join(output, 'bin/show-tools-session'), '#!/bin/sh\nset -eu\nST_RELEASE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\nexec "$ST_RELEASE/runtime/node" "$ST_RELEASE/gateway/session-cli.mjs" "$@"\n', { mode: 0o755 });
 const LockedPackages = Schema.Struct({ packages: Schema.Record(Schema.String, Schema.Struct({
   version: Schema.optionalKey(Schema.String), dev: Schema.optionalKey(Schema.Boolean),
