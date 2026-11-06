@@ -185,7 +185,9 @@ const wrapper = source.slice(source.indexOf('function sharedTuner('), source.ind
 const unavailableStart = source.indexOf('if (!connected || status.kind !== "ready")');
 assert.ok(unavailableStart >= 0);
 const unavailable = source.slice(unavailableStart, source.indexOf('let session;', unavailableStart));
-const panelSource = (await sourceForVM(new URL('../../tuner/panel.ts', import.meta.url))).replace('export function mountTuner', 'function mountTuner');
+const panelSource = (await sourceForVM(new URL('../../tuner/panel.ts', import.meta.url)))
+  .replace(/^import .*createTunerDial.*;\n/m, '')
+  .replace('export function mountTuner', 'function mountTuner');
 
 for (const reason of ['off', 'fault', 'disconnected']) {
   for (const pendingClose of [false, true]) {
@@ -195,6 +197,7 @@ for (const reason of ['off', 'fault', 'disconnected']) {
         listening: true, preview: { kind: 'silent' }, pitch: { kind: 'warming' } };
       let subscriptions = 0;
       let closeCommands = 0;
+      let dialDisposals = 0;
       const session = { tuner: {
         snapshot: () => state,
         subscribe(listener: (value: TunerState) => void) { subscriptions++; listener(state); return () => { subscriptions--; }; },
@@ -208,6 +211,7 @@ for (const reason of ['off', 'fault', 'disconnected']) {
       const context = vm.createContext({ root, audio: session, tunerSession: session, tunerPort: null, tunerPanel: null,
         document: { createElement: () => new Node() }, isRunning: () => false, starting: false, outputCapture: 'idle',
         connected: reason !== 'disconnected', status: { kind: reason === 'fault' ? 'fault' : 'off' },
+        createTunerDial: () => ({ element: new Node(), update() {}, dispose() { dialDisposals++; } }),
         transportGeneration: 0, releasePresses() {}, chartFollower: null, renderHardwareUnavailable() {} });
       vm.runInContext(`${panelSource}\n${wrapper}\n
         tunerPort = sharedTuner(audio);
@@ -225,6 +229,7 @@ for (const reason of ['off', 'fault', 'disconnected']) {
       assert.equal(context.audio, undefined);
       assert.equal(root.children.length, 0);
       assert.equal(subscriptions, 0);
+      assert.equal(dialDisposals, 1);
       assert.equal(closeCommands, pendingClose ? 1 : 0, 'unavailable sessions receive no new close command');
     });
   }

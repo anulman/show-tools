@@ -3,6 +3,9 @@ import { cp, mkdir, readdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { resolve, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
+import assert from 'node:assert/strict';
+import { Schema } from 'effect';
+import sharp from 'sharp';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const output = resolve(root, 'dist');
@@ -45,6 +48,25 @@ await copyAssets(resolve(root, 'ui/practice'));
 await cp(resolve(root, 'ui/tuner/panel.css'), resolve(output, 'ui/practice/tuner.css'));
 const index = resolve(output, 'ui/practice/index.html');
 await writeFile(index, (await readFile(index, 'utf8')).replace('href="../tuner/panel.css"', 'href="./tuner.css"'));
+const tunerAsset = Schema.decodeUnknownSync(Schema.Struct({
+  schemaVersion: Schema.Literal(1), file: Schema.Literal('disco-ball.png'),
+  sha256: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+  width: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 96 })),
+  height: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 96 })), scale: Schema.Literal(1),
+}))(JSON.parse(await readFile(resolve(root, 'assets/video/tuner/manifest.json'), 'utf8')));
+const tunerBall = await readFile(resolve(root, 'assets/video/tuner', tunerAsset.file));
+assert.equal(createHash('sha256').update(tunerBall).digest('hex'), tunerAsset.sha256, 'Tuner artwork matches its approved source hash');
+const pixels = await sharp(tunerBall).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+assert.equal(pixels.info.width, tunerAsset.width, 'Tuner artwork preserves native width');
+assert.equal(pixels.info.height, tunerAsset.height, 'Tuner artwork preserves native height');
+assert.equal(pixels.info.channels, 4);
+for (const index of [0, tunerAsset.width - 1, tunerAsset.width * (tunerAsset.height - 1), tunerAsset.width * tunerAsset.height - 1])
+  assert.equal(pixels.data[index * 4 + 3], 0, 'Tuner artwork has transparent corners');
+assert(pixels.data.some((value, index) => index % 4 === 3 && value > 0), 'Tuner artwork is nonempty');
+await mkdir(resolve(output, 'ui/practice/assets/tuner'), { recursive: true });
+for (const name of [tunerAsset.file, 'manifest.json'])
+  await cp(resolve(root, 'assets/video/tuner', name), resolve(output, 'ui/practice/assets/tuner', name));
+const tunerFiles = ['/ui/practice/assets/tuner/disco-ball.png', '/ui/practice/assets/tuner/manifest.json'];
 await mkdir(resolve(output, 'ui/practice/wasm'), { recursive: true });
 await cp(resolve(root, 'ui/practice/wasm/manual-clock.wasm'), resolve(output, 'ui/practice/wasm/manual-clock.wasm'));
 await cp(resolve(root, 'node_modules/sql.js/dist/sql-wasm.wasm'), resolve(root, 'ui/practice/wasm/sql-wasm.wasm'));
@@ -68,7 +90,7 @@ for (const name of (await readdir(resolve(root, 'songs'))).filter(name => name.e
 const browserFiles = Object.keys(result.metafile.outputs).filter(path => path.endsWith('.js') && !path.endsWith('/sw.js')).map(path => '/' + relative(output, resolve(root, path)).replaceAll('\\', '/'));
 const worker = resolve(output, 'ui/practice/sw.js');
 const offlineFiles = [...browserFiles, ...songFiles, '/ui/practice/index.html', '/ui/practice/style.css', '/ui/practice/icon.svg',
-  '/ui/practice/manifest.webmanifest', '/ui/practice/voice-library.css', '/ui/practice/tuner.css', '/ui/practice/wasm/sql-wasm.wasm', ...avatarFiles, '/ui/practice/wasm/manual-clock.wasm'].sort();
+  '/ui/practice/manifest.webmanifest', '/ui/practice/voice-library.css', '/ui/practice/tuner.css', ...tunerFiles, '/ui/practice/wasm/sql-wasm.wasm', ...avatarFiles, '/ui/practice/wasm/manual-clock.wasm'].sort();
 const offlineHash = createHash('sha256');
 for (const path of offlineFiles) {
   offlineHash.update(path).update('\0').update(await readFile(resolve(output, '.' + path))).update('\0');

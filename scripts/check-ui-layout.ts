@@ -47,6 +47,12 @@ for (const character of characters.characters) {
   assert(manifest.files.includes(path), `${character.id}: avatar is available offline`);
   assert.deepEqual(await readFile(resolve(output, '.' + path)), await readFile(resolve(root, character.publishedAvatarPath)), `${character.id}: the build preserves the published avatar bytes`);
 }
+for (const name of ['disco-ball.png', 'manifest.json']) {
+  const path = '/ui/practice/assets/tuner/' + name;
+  assert(manifest.files.includes(path), `Tuner ${name} is available offline`);
+  assert.deepEqual(await readFile(resolve(output, '.' + path)), await readFile(resolve(root, 'assets/video/tuner', name)),
+    `Tuner ${name} preserves its promoted source bytes`);
+}
 const offlineHash = createHash('sha256');
 for (const reference of manifest.files) {
   const path = resolve(output, '.' + reference);
