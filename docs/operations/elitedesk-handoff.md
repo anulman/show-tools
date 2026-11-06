@@ -84,3 +84,7 @@ After release and takeover approval, demonstrate remote Start, pads, signed knob
 Operator authoring data still needs a consistent SQLite backup independent of Git and a tested restore. Host, destination, cadence, and retention remain unconfigured. Browser demo recording and MP3 export do not imply a native recording service. Follow [the retention policy](../data-retention.md).
 
 Hardware Manager coordinates the physical installation and operator decisions. Hardware - EliteDesk owns host inventory, device adapters, deployment packaging, and recovery. Performance Engine owns shared C++ semantics, ABI, song compilation, and clock contracts. Chief coordinates reviewed integration artifacts. Pi coordinates on-device infrastructure and prepares scoped actions for operator approval.
+
+## Proposed retained consent bootstrap
+
+The [reviewable delegation source](../../lib/remote-performance/delegation/README.md) provides an inactive grant, frozen candidate verifier and operator-only installation procedure for `proxmox/anulman/show-tools-web`. No host grant is installed or activated by repository changes. The proposed process keeps the current mailbox and SSH boundary unchanged. The operator must approve and activate its exact conditional scope once; future matching signed requests still require actual host preflight, one-shot claims and explicit completion replies. Native acceptance, unit enable and linger remain excluded.
