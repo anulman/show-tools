@@ -64,6 +64,8 @@ Run those commands after the handoff documentation commit lands. Start each sess
 
 Assign one owner to a shared contract change before editing it. The likely overlap points are `lib/performance/include/performance_engine.h`, `lib/performance/wasm-performance.ts`, `lib/sequencer/include/audio_sequence_engine.h`, `lib/sampler/include/sample_engine.h`, `lib/performance/model.ts`, `ui/practice/audio.ts`, `ui/practice/practice-worklet.ts`, `ui/practice/app.ts`, and `scripts/build-ui.ts`. Separate worktrees prevent accidental overwrites. They do not resolve conflicting designs for these files.
 
+For native hosting, follow the [EliteDesk inventory procedure](operations/elitedesk-inventory.md) and [handoff](operations/elitedesk-handoff.md). Hardware - EliteDesk owns host and device adapters; Performance Engine owns shared musical and clock contracts. The remote-desk milestone keeps audio on the EliteDesk while a locally served browser UI sends controls. Until the device adapter exists and passes its checks, native library tests establish PCM behavior only. Restricted agent messaging does not authorize host or audio changes.
+
 Treat the Sheets helper and its Chrome profile as shared state too. Use one owner for a live chart-follow test so different practice sessions do not compete to select columns.
 
 ## Build a browser checkout

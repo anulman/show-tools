@@ -87,16 +87,20 @@ Record NIC link speed with an installed tool, configured bridges, management rou
 
 First run the native build and tests from an isolated checkout using [the performance guide](../../lib/performance/README.md). This verifies PCM processing without opening hardware. It does not verify Linux device access or guest scheduling.
 
-Performance Engine supplied a newer song handoff at `fd8e53f`. Its `docs/implementation/musicxml-cutover.md` makes `songs/*.musicxml` canonical, with Sheets JSON retained as ingestion archives. Derive native instruction bytes from the validated song model and load them while stopped through `pf_load_compiled_bytes()` or `pf_configure_compiled()`. Preserve authored voice graphs. Coordinate the deployment source revision with Performance Engine, and derive packet and ABI constants from that revision's headers. This newer handoff is inspected separately from the initial main-checkout verification below.
+Performance Engine supplied a newer song handoff at `fd8e53f`. It is local, unmerged, and unapproved for deployment. Its `docs/implementation/musicxml-cutover.md` makes `songs/*.musicxml` canonical, with Sheets JSON retained as ingestion archives. Derive native instruction bytes from the validated song model and load them while stopped through `pf_load_compiled_bytes()` or `pf_configure_compiled()`. Preserve authored voice graphs. Coordinate the deployment source revision with Performance Engine and Chief, and derive packet and ABI constants from that revision's headers. This newer handoff is inspected separately from the initial main-checkout verification below.
 
 The future host gives one thread ownership of each engine. That owner applies queued controls, calls `pf_process_stems()`, and drains engine events. Prepare songs, capture buffers, and effects while stopped. Never advance the tracker separately. Copy records into a bounded queue, then serialize and publish outside the callback. Preserve source sequence, audio frame, sample rate, run identity, and drop reporting. Coordinate any added epoch or clock fields with Performance Engine. Network receipt and system time synchronization do not advance musical time.
 
 After the device contract is approved, verify real capture and playback, both stereo stems, measured callback overruns, sustained DSP load, Stop and Panic, device loss, reconnect, service restart, stale commands, and publisher backpressure. Define acceptance limits from operator requirements. Keep deployment readiness separate from successful relay startup or fixture tests.
 
-## Initial status on November 5, 2026
+## Baseline before mailbox access on November 5, 2026
 
 The source inspected was `d7cbde29b2c5469e5bde7e78d29658be43d6dcea` in `/Users/anulman/dev/show-tools`. The required architecture, development, workstream, hardware, and performance guides establish shared C++ ownership and a future live device host. They contain no EliteDesk access endpoint, CPU, RAM, disk layout, guest inventory, audio interface, or backup configuration.
 
 The local SSH configuration has no EliteDesk alias. Local `tailscale status --json` failed to connect to the local daemon. No EliteDesk query, device IO, guest change, or storage change has occurred. Connection details and the on-device agent entry point are the next required facts. No hosting topology has been selected.
 
 An isolated checkout at `/private/tmp/show-tools-elitedesk-admin` built the native Release target with AppleClang 21.0.0. All seven CTest tests passed using `/private/tmp/show-tools-elitedesk-native-check`. This is a Mac software baseline for source `d7cbde2`, not a Linux, Proxmox, device, or MusicXML-cutover verification.
+
+## Mailbox status on November 5, 2026
+
+The operator installed a restricted SSH mailbox. The dedicated key can submit requests and retrieve replies, with no shell or arbitrary file access. Codex verified the supplied Ed25519 server fingerprint and received an explicit completed reply to `hello-001`. That establishes the messaging round trip. Pi's reported audio bring-up remains separate from direct production-host verification. The [handoff](elitedesk-handoff.md) records those reports and implementation gaps. Request `handoff-001` asks for the read-only inventory above. Its latest retrieved status is delivered, with no reply yet.

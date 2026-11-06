@@ -127,7 +127,7 @@ The [Chrome extension](../ui/practice/sheets-extension/README.md) is a separate 
 
 The [relay](../lib/relay/README.md) is another separate component. It can forward versioned events and simulated controls for a future hardware producer. It stores no audio. Its default port 8082 conflicts with the development static server unless you choose another port. The current practice page does not connect to it, and the native producer does not exist yet.
 
-The intended EliteDesk owns audio processing and hardware controls. Other devices host the UI. Events may cross a lightweight server later, while audio timing stays with the audio host. For today's mobile practice, an HTTPS static host is sufficient.
+The intended EliteDesk owns audio processing and hardware controls. The operator's November 5 milestone adds a locally served performance desk that a laptop or phone can use as alternative controls, while all audio stays on the EliteDesk. Remote mode is not implemented yet. It must attach to host-owned state without starting browser audio or treating network receipt as musical time. Today's browser WASM practice remains independent and works from an HTTPS static host. The [native-host handoff](operations/elitedesk-handoff.md) records implementation and verification gates.
 
 ## The next features cross different boundaries
 
