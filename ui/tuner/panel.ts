@@ -1,4 +1,5 @@
 import type { TunerCommand, TunerNote, TunerPort, TunerScale, TunerState } from '../../lib/tuner/model.js';
+import { createTunerDial } from './dial.js';
 
 type WithoutRevision<T> = T extends { expectedRevision: number } ? Omit<T, 'expectedRevision'> : never;
 type TunerAction = WithoutRevision<TunerCommand>;
@@ -116,17 +117,9 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
   const sungNote = element('div', 'tuner-pitch', '—');
   sungNote.setAttribute('aria-label', 'Detected note');
   const pitchStatus = element('p', 'tuner-muted', 'Listening is off.');
-  const meter = element('div', 'tuner-meter');
-  meter.setAttribute('role', 'meter');
-  meter.setAttribute('aria-label', 'Pitch deviation in cents');
-  meter.setAttribute('aria-valuemin', '-50');
-  meter.setAttribute('aria-valuemax', '50');
-  const needle = element('span', 'tuner-needle');
-  meter.append(element('span', 'tuner-center'), needle);
-  const labels = element('div', 'tuner-meter-labels');
-  labels.append(element('span', '', '♭  −50'), element('span', '', 'In tune'), element('span', '', '+50  ♯'));
+  const dial = createTunerDial();
   const measurement = element('p', 'tuner-measurement', 'No pitch detected');
-  sungCard.append(sungHeader, sungNote, pitchStatus, meter, labels, measurement);
+  sungCard.append(sungHeader, dial.element, sungNote, pitchStatus, measurement);
   panel.append(intro, connection, error, scaleCard, sungCard);
   root.append(panel);
 
@@ -135,6 +128,7 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
     error.hidden = false;
   }
   function render() {
+    dial.update(state);
     const attached = state !== null;
     connect.hidden = attached;
     connect.disabled = busy || closing !== null;
@@ -178,11 +172,6 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
     sungNote.textContent = pitched ? noteLabel(pitched.note) : '—';
     const messages = { off: 'Listening is off.', microphone: 'Waiting for microphone input.', warming: 'Listening is warming up.', reference: 'Reference playing. Waiting for your voice.', unvoiced: 'Listening. Sing a steady note.', pitched: 'Listening to your voice.' };
     pitchStatus.textContent = pitch ? messages[pitch.kind] : messages.off;
-    needle.hidden = !pitched;
-    const cents = pitched ? Math.max(-50, Math.min(50, pitched.cents)) : 0;
-    needle.style.left = `${cents + 50}%`;
-    meter.setAttribute('aria-valuenow', String(cents));
-    meter.setAttribute('aria-valuetext', pitched ? `${pitched.cents.toFixed(1)} cents` : 'No pitch detected');
     measurement.textContent = pitched ? `${pitched.cents > 0 ? '+' : ''}${pitched.cents.toFixed(1)} cents · ${pitched.frequency.toFixed(1)} Hz · ${Math.round(pitched.confidence * 100)}% confidence` : 'No pitch detected';
   }
   function attach(next: TunerPort | null) {
@@ -264,6 +253,7 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
     unsubscribe = null;
     port = null;
     state = null;
+    dial.dispose();
     panel.remove();
   }
   function waitForSession(operation: Promise<unknown>): Promise<'settled' | 'changed'> {

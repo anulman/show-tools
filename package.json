@@ -10,7 +10,7 @@
     "build": "npm run build:wasm && npm run build:ui",
     "build:ui": "node --import tsx scripts/build-ui.ts",
     "build:wasm": "bash lib/beat-tracker/scripts/build-manual-wasm.sh",
-    "test": "node --import tsx --test --test-concurrency=4 lib/ui-host/tests/*.test.ts lib/remote-performance/tests/*.test.ts lib/voice-catalog/tests/*.test.ts lib/performance/tests/*.test.ts lib/sampler/tests/*.test.mjs lib/sequencer/tests/*.test.mjs ui/practice/tests/*.test.mjs ui/practice/tests/*.test.ts lib/beat-tracker/tests/manual_wasm_tests.mjs scripts/tests/*.test.ts lib/peripherals/tests/*.test.ts hardware/cad/tests/*.test.ts",
+    "test": "node --import tsx --test --test-concurrency=4 lib/ui-host/tests/*.test.ts lib/remote-performance/tests/*.test.ts lib/voice-catalog/tests/*.test.ts lib/performance/tests/*.test.ts lib/sampler/tests/*.test.mjs lib/sequencer/tests/*.test.mjs ui/practice/tests/*.test.mjs ui/practice/tests/*.test.ts ui/tuner/tests/*.test.ts lib/beat-tracker/tests/manual_wasm_tests.mjs scripts/tests/*.test.ts lib/peripherals/tests/*.test.ts hardware/cad/tests/*.test.ts",
     "test:follower": "SHOW_TOOLS_FOLLOWER_TESTS=1 npm test",
     "typecheck": "tsc --noEmit",
     "check:layout": "node --import tsx scripts/check-ui-layout.ts",

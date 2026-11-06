@@ -65,6 +65,10 @@ run.addEventListener('click', () => {
     await until(() => window.practiceDesk?.chart, 'Practice chart did not load');
     click('Tuner');
     check(contexts === 0 && acquisitions === 0, 'Opening tuner creates no audio context or microphone');
+    await until(() => document.querySelector('.tuner-dial')?.getAttribute('data-ready') === 'true', 'Tuner artwork did not load');
+    const canvas = document.querySelector('.tuner-dial canvas');
+    check(canvas instanceof HTMLCanvasElement && canvas.getContext('2d')?.imageSmoothingEnabled === false,
+      'The approved dial renders at native pixels without smoothing');
     check(navigator.mediaDevices === syntheticDevices, 'The fixture replaces microphone acquisition with a synthetic provider');
     click('Use shared audio');
     await until(() => document.querySelector('.tuner-connection')?.textContent?.includes('connected'), 'Shared audio connection failed');
@@ -111,7 +115,33 @@ run.addEventListener('click', () => {
     await until(() => audio.tuner.snapshot().pitch.kind === 'pitched', 'Native pitch detector did not recognize synthetic C3');
     const pitch = audio.tuner.snapshot().pitch;
     check(pitch.kind === 'pitched' && pitch.note.midi === 48 && Math.abs(pitch.cents) < 3, 'Real worklet and WASM report synthetic C3 in tune');
+    await until(() => document.querySelector('.tuner-dial')?.getAttribute('data-hit') === '0', 'Native C3 did not reach the first dial notch');
+    check(audio.tuner.snapshot().step === 0, 'A live dial hit never confirms the exercise');
+    select('Scale', 'chromatic');
+    await until(() => audio.tuner.snapshot().targets.length === 13 && document.querySelector('.tuner-dial')?.getAttribute('data-notches') === '13',
+      'Chromatic targets did not reach the dial');
+    await until(() => {
+      const current = audio.tuner.snapshot();
+      return current.pitch.kind === 'pitched' && current.pitch.note.midi === 48
+        && document.querySelector('.tuner-dial')?.getAttribute('data-hit') === '0';
+    }, 'Chromatic C3 did not reach the dial after detector warming');
+    check(document.querySelector('.tuner-dial')?.getAttribute('data-hit') === '0', 'The chromatic dial uses the native C3 target without octave wrapping');
+    select('Scale', 'major');
+    await until(() => {
+      const current = audio.tuner.snapshot();
+      const dial = document.querySelector('.tuner-dial');
+      return current.targets.length === 8 && current.pitch.kind === 'pitched' && current.pitch.note.midi === 48
+        && dial?.getAttribute('data-notches') === '8' && dial.getAttribute('data-hit') === '0';
+    }, 'Major C3 did not return to the dial after detector warming');
     check(contexts === 1 && acquisitions === 1, 'Listening acquires the microphone through the existing session once');
+    if (new URLSearchParams(location.search).has('review')) {
+      const resume = document.createElement('button');
+      resume.textContent = 'Continue shared tuner checks';
+      resume.className = 'tuner-button';
+      document.querySelector('.tuner-panel')?.prepend(resume);
+      document.title = 'REVIEW: synthetic C3 in the shared tuner';
+      await new Promise<void>(resolve => resume.addEventListener('click', () => { resume.remove(); resolve(); }, { once: true }));
+    }
     click('Close tuner');
     click('Close tuner');
     await until(() => !document.querySelector('dialog[open]'), 'Tuner did not close');
