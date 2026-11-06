@@ -478,7 +478,10 @@ export async function migrateMusicXmlSongV2(input: string): Promise<string> {
   if (profile !== 'show-tools-song-v2') throw new MusicXmlValidationError('Migration requires a complete show-tools-song-v2 or current canonical song.');
   const oldRotation = Schema.Struct({ voiceId: Schema.String, releaseGridBeats: Schema.Number.check(Schema.isFinite()),
     windows: RotationSchema.fields.windows });
-  const oldPerformance = Schema.Struct({ ...Performance.fields, rotation: Schema.NullOr(oldRotation) });
+  const oldWindow = Schema.Union([Schema.Struct({ kind: Schema.Literal('full') }),
+    Schema.Struct({ kind: Schema.Literal('prefix'), endCount: Schema.Number.check(Schema.isFinite()) })]);
+  const oldSelection = Schema.Struct({ ...CompiledSongSchema.fields.selections.schema.value.fields, window: oldWindow });
+  const oldPerformance = Schema.Struct({ ...Performance.fields, rotation: Schema.NullOr(oldRotation), selections: list(oldSelection) });
   const performance = Schema.decodeUnknownSync(oldPerformance, { onExcessProperty: 'error' })(JSON.parse(metadata.get('show-tools:performance') ?? 'null'));
   const rotation = performance.rotation ? { voiceId: performance.rotation.voiceId, inactivityBeats: performance.rotation.releaseGridBeats,
     windows: performance.rotation.windows } : null;
@@ -492,7 +495,10 @@ export async function migrateMusicXmlSongV2(input: string): Promise<string> {
     const version = Schema.decodeUnknownSync(Schema.Struct({ mappingVersion: Schema.optionalKey(Schema.Int) }))(value);
     if (version.mappingVersion !== undefined) {
       const oldRule = Schema.Struct({ row: Schema.Int, voiceId: Schema.String, releaseGridBeats: Schema.Number.check(Schema.isFinite()) });
-      const oldMapping = Schema.Struct({ ...SongMappingSchema.fields, mappingVersion: Schema.Literal(5), rotationRule: Schema.optionalKey(oldRule) });
+      const oldReuse = Schema.Struct({ cell: Schema.String, notation: Schema.String, sourceArmCell: Schema.String,
+        endCount: Schema.Number.check(Schema.isFinite()) });
+      const oldMapping = Schema.Struct({ ...SongMappingSchema.fields, mappingVersion: Schema.Literal(5),
+        rotationRule: Schema.optionalKey(oldRule), variantReuses: list(oldReuse) });
       const legacy = Schema.decodeUnknownSync(oldMapping, { onExcessProperty: 'error' })(value);
       const { rotationRule, ...rest } = legacy;
       replacements.set('show-tools:mapping', stableMusicXmlJson({ ...rest, mappingVersion: 6, ...(rotationRule ? {
