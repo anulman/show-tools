@@ -2,6 +2,8 @@
 #include "peripheral_controls.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDManager.h>
+#include <IOKit/hidsystem/IOHIDLib.h>
+#include <mach/mach_error.h>
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
@@ -17,6 +19,14 @@
 namespace {
 volatile std::sig_atomic_t running = 1;
 void stop(int) { running = 0; }
+const char* input_access() {
+  switch (IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)) {
+    case kIOHIDAccessTypeGranted: return "granted";
+    case kIOHIDAccessTypeDenied: return "denied";
+    case kIOHIDAccessTypeUnknown: return "unknown";
+  }
+  return "unknown";
+}
 int property(IOHIDDeviceRef device, CFStringRef key) {
   auto value = IOHIDDeviceGetProperty(device, key);
   int out = 0;
@@ -126,8 +136,13 @@ int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
     std::cout << "peripheral-host SESSION SDK_CHANNEL --confirm-wiring\n"
       "peripheral-host --inspect (qualifies interfaces without opening them)\n"
-      "Owns the sole d209:0410 I-PAC Tab button and relative Y interfaces exclusively.\n"
+      "peripheral-host --access-status (checks Input Monitoring without prompting)\n"
+      "Reads the sole d209:0410 I-PAC Tab button and relative Y interfaces without seizure.\n"
       "Reads native light publications on stdin; brightness-only writes, no enable-mask changes.\n";
+    return 0;
+  }
+  if (argc == 2 && std::string(argv[1]) == "--access-status") {
+    std::cout << "{\"type\":\"input-access\",\"state\":\"" << input_access() << "\",\"pid\":" << getpid() << "}\n";
     return 0;
   }
   uint64_t session = 0, channel = 0;
@@ -176,14 +191,15 @@ int main(int argc, char** argv) {
       << locations.size() << " physical locations, " << keyboards << " Tab, " << mice << " relative-Y and "
       << outputs << " LED interfaces. No interfaces opened.\n";
   } else if (inspect) {
-    std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonUsage\":43,\"relativeYUsage\":49,\"opened\":false}" << std::endl;
+    std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonUsage\":43,\"relativeYUsage\":49,\"inputAccess\":\""
+      << input_access() << "\",\"opened\":false}" << std::endl;
     result = 0;
   } else {
     for (auto device : {host.keyboard, host.mouse, host.output}) {
-      auto options = device == host.output ? kIOHIDOptionsTypeNone : kIOHIDOptionsTypeSeizeDevice;
-      auto status = IOHIDDeviceOpen(device, options);
+      auto status = IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone);
       if (status != kIOReturnSuccess) {
-        std::cerr << "I-PAC open failed (" << status << "). Launch from the terminal granted Input Monitoring.\n";
+        std::cerr << "I-PAC open failed (" << status << ": " << mach_error_string(status)
+          << "). Input Monitoring is " << input_access() << ".\n";
         break;
       }
       opened.push_back(device);
