@@ -1,5 +1,7 @@
 import { Schema } from 'effect';
 
+export const FIGMA_CODE_LIMIT = 50_000;
+
 const Acquisition = Schema.Struct({ exit_code: Schema.Literal(0) });
 const Identity = Schema.Struct({ threadId: Schema.NonEmptyString, token: Schema.NonEmptyString });
 const Input = Schema.Struct({
@@ -27,6 +29,9 @@ deepStrictEqual(JSON.parse(readFileSync(${JSON.stringify(lease + '/owner')}, 'ut
     if (pending) throw Error('Figma harness needs Chief: prior call is active or unresolved');
     if (!args || args.fileKey !== ${JSON.stringify(fileKey)} || typeof args.code !== 'string')
       throw Error('Figma harness needs Chief: wrong file or missing code');
+    const guardedCode = ${JSON.stringify(`if(figma.fileKey!==${JSON.stringify(fileKey)})throw Error('Figma harness needs Chief: wrong live file');\n`)} + args.code;
+    if (guardedCode.length > ${FIGMA_CODE_LIMIT})
+      throw Error('Figma harness needs Chief: guarded code exceeds connector limit ${FIGMA_CODE_LIMIT}; no file call made');
     pending = true;
     let requested = false;
     try {
@@ -36,7 +41,7 @@ deepStrictEqual(JSON.parse(readFileSync(${JSON.stringify(lease + '/owner')}, 'ut
       requested = true;
       const response = await tools.mcp__codex_apps__figma_use_figma({
         ...args,
-        code: ${JSON.stringify(`if(figma.fileKey!==${JSON.stringify(fileKey)})throw Error('Figma harness needs Chief: wrong live file');\n`)} + args.code,
+        code: guardedCode,
       });
       if (response && response.isError !== true) pending = false;
       return response;

@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { runInNewContext } from 'node:vm';
 import test from 'node:test';
-import { ownedFigmaCallerCode } from '../video-expansion/owned-figma.js';
+import { FIGMA_CODE_LIMIT, ownedFigmaCallerCode } from '../video-expansion/owned-figma.js';
 
 const fileKey = 'test' + randomUUID().replaceAll('-', '');
 const owner = { threadId: 'director-test', token: randomUUID(), pageId: '1:2', batch: "quotes' $() `test`" };
@@ -95,4 +95,26 @@ test('returned error or missing Figma response keeps the batch held for Chief re
     await assert.rejects(call(args), /prior call is active or unresolved/);
     assert.equal(calls, 1);
   }
+});
+
+
+test('payload limit includes the injected guard and rejects oversized code before any tool call', async () => {
+  let checks = 0;
+  const lengths: number[] = [];
+  const call = wrapper(async () => { checks++; return { exit_code: 0 }; }, async input => {
+    lengths.push(input.code.length);
+    return { content: [] };
+  });
+  await call({ ...args, code: '' });
+  const prefixLength = lengths[0];
+  assert(prefixLength > 0);
+  await call({ ...args, code: ' '.repeat(FIGMA_CODE_LIMIT - prefixLength) });
+  assert.equal(lengths[1], FIGMA_CODE_LIMIT);
+  for (const code of [' '.repeat(FIGMA_CODE_LIMIT - prefixLength + 1), ' '.repeat(126786)]) {
+    await assert.rejects(call({ ...args, code }), /exceeds connector limit 50000/);
+  }
+  assert.equal(checks, 2);
+  assert.deepEqual(lengths, [prefixLength, FIGMA_CODE_LIMIT]);
+  await call(args);
+  assert.equal(checks, 3);
 });
