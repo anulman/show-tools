@@ -1,4 +1,4 @@
-import { build } from 'esbuild';
+import { buildSessionBundles } from './session-bundles.js';
 import { Schema } from 'effect';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -51,12 +51,7 @@ await chmod(join(output, 'native/native_alsa_host'), 0o755);
 await cp(join(runtime, 'LICENSE'), join(output, 'runtime/NODE-LICENSE'));
 await cp(join(root, 'package-lock.json'), join(output, 'provenance/package-lock.json'));
 await cp(join(root, 'docs/implementation/session-cli.md'), join(output, 'provenance/session-cli.md'));
-const banner = 'import { createRequire as __createRequire } from "node:module"; import { fileURLToPath as __fileURLToPath } from "node:url"; import { dirname as __dirnameOf } from "node:path"; const require = __createRequire(import.meta.url); const __filename = __fileURLToPath(import.meta.url); const __dirname = __dirnameOf(__filename);';
-for (const [entry, name] of [['lib/remote-performance/server.ts', 'server.mjs'], ['scripts/session-cli.ts', 'session-cli.mjs'], ['lib/remote-performance/prepare.ts', 'prepare.mjs']]) {
-  const result = await build({ absWorkingDir: root, entryPoints: [entry], outfile: join(output, 'gateway', name),
-    bundle: true, platform: 'node', target: 'node22', format: 'esm', metafile: true, banner: { js: banner } });
-  await writeFile(join(output, 'provenance', `${name}.inputs.json`), JSON.stringify(result.metafile.inputs, null, 2));
-}
+await buildSessionBundles(root, output);
 await writeFile(join(output, 'bin/show-tools-session'), '#!/bin/sh\nset -eu\nST_RELEASE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\nexec "$ST_RELEASE/runtime/node" "$ST_RELEASE/gateway/session-cli.mjs" "$@"\n', { mode: 0o755 });
 const LockedPackages = Schema.Struct({ packages: Schema.Record(Schema.String, Schema.Struct({
   version: Schema.optionalKey(Schema.String), dev: Schema.optionalKey(Schema.Boolean),

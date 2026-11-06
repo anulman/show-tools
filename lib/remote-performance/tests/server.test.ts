@@ -2,13 +2,14 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { chmod, mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { serveProfile } from '../server.js';
 import { decodeDeskBootstrap, decodeDeskPublication } from '../session-schema.js';
 import { installedPackage, sessionProfile, until } from './session-fixture.js';
+import { buildSessionBundles } from '../../../scripts/session-bundles.js';
 
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), 'server-'));
@@ -54,13 +55,15 @@ test('profile server starts off without native executable and SSE bootstraps the
 
 test('killing the foreground server also releases its real owned fake native host', async () => {
   const { directory, profile, headers } = await fixture();
+  await mkdir(join(directory, 'provenance'));
+  await buildSessionBundles(resolve('.'), directory);
   const marker = join(directory, 'native-pid');
   const wrapper = join(directory, 'native-wrapper');
   await writeFile(wrapper, `#!/bin/sh\nprintf '%s' "$$" > '${marker}'\nexec '${profile.native.executable}' "$@"\n`, { mode: 0o700 });
   await chmod(wrapper, 0o700);
   const profilePath = join(directory, 'profile.json');
   await writeFile(profilePath, JSON.stringify({ ...profile, native: { ...profile.native, executable: wrapper } }));
-  const parent = spawn(process.execPath, ['--import', 'tsx', resolve('lib/remote-performance/server.ts'), '--profile', profilePath], { stdio: 'ignore' });
+  const parent = spawn(process.execPath, [await realpath(join(directory, 'gateway/server.mjs')), '--profile', profilePath], { stdio: 'ignore' });
   let nativePid: number | undefined;
   try {
     for (let count = 0; ; count++) {

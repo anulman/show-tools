@@ -1,5 +1,4 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
 import { encodeInitialProfiles } from './commands.js';
 import { HostConnection } from './host-connection.js';
 import { compiledProgramBytes } from '../performance/compiled-native.js';
@@ -45,11 +44,4 @@ export async function prepareInstalledPackage(socket: string, installed: ReturnT
 
 export async function prepareHost(socket: string, manifest: Buffer, packet: Buffer, configurations: unknown, signal?: AbortSignal) {
 	return prepareInstalledPackage(socket, validateInstalledPackage(manifest, packet, configurations), signal);
-}
-
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-	const [socket, manifestPath, packetPath, effectsPath] = process.argv.slice(2);
-	if (!socket || !manifestPath || !packetPath || !effectsPath || process.argv.length !== 6) throw new Error('Usage: prepare SOCKET MANIFEST.json SONG.pfp EFFECTS.json');
-	const [manifest, packet, effects] = await Promise.all([readFile(manifestPath), readFile(packetPath), readFile(effectsPath, 'utf8')]);
-	await prepareHost(socket, manifest, packet, JSON.parse(effects));
 }

@@ -20,7 +20,7 @@ export function installedPackage(compiled = song.compiled) {
 export function sessionProfile(directory: string) {
   return decodeSessionProfile({ schemaVersion: 1, serviceName: 'show-tools-test.service', host: '127.0.0.1', port: 9999,
     origin: 'http://127.0.0.1:9999', tokenFile: `${directory}/token`, staticRoot: `${directory}/static`, runtimeRoot: `${directory}/runtime`,
-    server: { nodeExecutable: process.execPath, entrypoint: resolve('lib/remote-performance/server.ts') },
+    server: { nodeExecutable: process.execPath, entrypoint: resolve('scripts/serve-hardware-desk.ts') },
     native: { executable: resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'), sampleRate: 8000, blockFrames: 127, maxVoices: 32, maxSeconds: 30, driver: { kind: 'fake', inputLevel: .25 } },
     package: { manifest: `${directory}/manifest`, packet: `${directory}/packet`, effects: `${directory}/effects` } });
 }

@@ -1,6 +1,5 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { resolve, sep } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { createGateway } from './gateway.js';
 import { PersistentDesk } from './controller.js';
 import { validateInstalledPackage } from './prepare.js';
@@ -37,12 +36,4 @@ export async function serveProfile(input: SessionProfile) {
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
     })();
   } };
-}
-
-if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  if (process.argv.length !== 4 || process.argv[2] !== '--profile') throw new Error('Usage: server --profile FILE');
-  const app = await serveProfile(decodeSessionProfile(JSON.parse(await readFile(process.argv[3], 'utf8'))));
-  const stop = () => { void app.close().catch(() => { process.exitCode = 1; }); };
-  process.once('SIGINT', stop);
-  process.once('SIGTERM', stop);
 }
