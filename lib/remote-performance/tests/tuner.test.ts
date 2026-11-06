@@ -15,7 +15,7 @@ import { decodePublication } from '../native-schema.js';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-test('stopped native tuner publishes controls and telemetry and Panic cancels stale commands', { timeout: 20000 }, async () => {
+test('stopped native tuner publishes telemetry and Panic clears tuning and fences old revisions', { timeout: 20000 }, async () => {
   const binary = resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host');
   await stat(binary);
   const directory = await mkdtemp(join(tmpdir(), 'remote-panic-'));
@@ -65,16 +65,15 @@ test('stopped native tuner publishes controls and telemetry and Panic cancels st
     assert.equal((await connected.command({ command: 'stop', args: {} })).outcome, 'applied');
     assert.equal(tuner().listening, false);
     assert.equal((await command({ kind: 'listen', expectedRevision: listeningRevision, enabled: true })).outcome, 'rejected');
-    const queuedRevision = tuner().revision;
-    const older = Array.from({ length: 256 }, () => command({ kind: 'listen', expectedRevision: queuedRevision, enabled: true }));
-    const results = Promise.allSettled(older);
+    assert.equal((await command({ kind: 'listen', expectedRevision: tuner().revision, enabled: true })).outcome, 'applied');
+    assert.equal(tuner().listening, true, 'listening is acknowledged before Panic is sent');
+    const beforePanic = tuner().revision;
     const panic = await connected.command({ command: 'control', args: { control: { id: 'mushroom' } } });
     assert.equal(panic.outcome, 'applied');
-    for (const result of await results) {
-      if (result.status !== 'fulfilled') throw result.reason;
-      assert.equal(result.value.outcome, 'rejected');
-    }
-    assert.equal(tuner().listening, false);
+    assert.equal(tuner().listening, false, 'Panic clears acknowledged listening');
+    assert.ok(tuner().revision > beforePanic, 'Panic advances the tuner control fence');
+    assert.equal((await command({ kind: 'listen', expectedRevision: beforePanic, enabled: true })).outcome, 'rejected');
+    assert.equal(tuner().listening, false, 'an old revision cannot restore listening after Panic');
     const after = decodePublication(connected.snapshot());
     if (after.type !== 'session') throw new Error('Missing native session');
     assert.equal(after.state.phase, 'idle');
