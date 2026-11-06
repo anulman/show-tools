@@ -20,3 +20,11 @@ Open the matching `Director NN` task to work with a song director. Each director
 Read the [shared director guide](README.md) for composition, asset requests and review. The [session registry](registry.json) records exact thread IDs, page IDs and source references.
 
 These are composition workspaces. Chart, casting and renderer gaps remain explicit; they do not prevent visual conversations with the operator.
+
+## Utility directors
+
+| Director task | Figma workspace | Integration owner |
+| --- | --- | --- |
+| Director - Tuner | [Tuner](https://www.figma.com/design/QWreOYAnaje2LlywefJFiK?node-id=638-22337) | Tuner UI with Video (Procedural) |
+
+The Tuner director owns the disco-ball scale dial and its paired 16:9 and 4:3 compositions. Tuner UI owns the existing shared audio session and panel integration. Video (Procedural) owns the browser renderer. The utility reads native `TunerPort` targets and pitch telemetry. Its live microphone display does not advance the scale exercise.
