@@ -41,3 +41,13 @@ test('cue button uses native control 7 and admits only physical held/released va
     assert.throws(() => encodeCommand({ command: 'control', args: { control: { id: 'cueButton', value } } }, decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'test', String)));
   }
 });
+
+test('jiggle configuration encodes bounded ordered raw-count thresholds', () => {
+	const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'test', String);
+	const bytes = encodeCommand({ command: 'configureJiggle', args: { minimumTravel: 4, minimumReversal: 2 } }, state);
+	assert.equal(bytes.readUInt16LE(), 12);
+	assert.equal(bytes.readDoubleLE(2), 4);
+	assert.equal(bytes.readDoubleLE(10), 2);
+	for (const [minimumTravel, minimumReversal] of [[0, 1], [4, 0], [4, 5], [4.5, 2], [32768, 2], [Infinity, 2]])
+		assert.throws(() => encodeCommand({ command: 'configureJiggle', args: { minimumTravel, minimumReversal } }, state));
+});

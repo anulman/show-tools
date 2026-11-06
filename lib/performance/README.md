@@ -79,4 +79,20 @@ After a venue edit retains an older take, the first new capture uses the refresh
 
 The current artifact also preserves six AF part identities and ten explicit DYC rotation windows. Four capture voice indices remain unchanged. Native six-profile preparation keeps independent revisions and exposes actual ordered graph readback. Backup rotation stops feeding source at the next quarter-count grid boundary strictly after the latest accepted movement, limited by its written interval; signed values remain observable while direction does not change audio activation.
 
-Mappings now use version 5 with explicit `liveParts` and `variantReuses` (empty lists when unused) and `rotationRule.releaseGridBeats: 0.25`. Compiled JSON and numeric packets are version 5; the engine handshake is ABI 7. Explicit reuse entries identify the exact destination cell and notation, source arm cell, and exclusive prefix end in chart counts. Selections carry a full or prefix window over their retained take. Recompile older mappings/artifacts: the old `holdBeats` duration is not interpreted as a release grid. The source snapshot format remains version 1. Grid sizes must be positive, at most one chart count, and representable on the existing 960-tick count lattice.
+Mappings and compiled JSON use version 6, numeric packets use version 6, and the
+engine handshake is ABI 8. `rotationRule.inactivityBeats: 0.25` means a full
+quarter chart-count after meaningful jiggle, capped by the written window end.
+Native C++ confirms travel and reversals using configurable raw-input thresholds;
+zero, duplicate and subthreshold noise do not refresh the deadline. Tempo changes
+preserve the remaining count-beat distance. The explicit MusicXML v2 migration
+rewrites the old grid field into profile v3; normal readers reject old profiles.
+The source snapshot format remains version 1. Inactivity durations must be
+positive, at most one chart count, and representable on the 960-tick count lattice.
+
+Native `cueButton` control 7 accepts held/released values 1/0. A rising edge
+selects all current eligible cues before mutations, commits before arms, and
+reports independent failures. Repeats do not retrigger; release performs no cue.
+`pf_set_jiggle_thresholds` prepares ordered integer travel/reversal thresholds
+while stopped. `pf_light_output` returns a complete clock-backed light image:
+held 100%, otherwise recording pulse to 70%, otherwise playing 70%, otherwise off.
+It supplies values rather than performing device IO.
