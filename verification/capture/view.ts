@@ -32,5 +32,5 @@ export function step(action: string, _from: State, to: State): string {
     return to.event.ready ? 'standalone commit then independent arm succeeds' : 'standalone commit survives failed independent arm';
   }
   if (action.startsWith('Fault')) return 'resource failure stops the operation';
-  return 'you stop or wrap, discarding only the draft';
+  return action === 'Done' ? 'the bounded run is complete' : 'you stop, discarding only an incomplete draft';
 }

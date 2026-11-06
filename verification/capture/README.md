@@ -31,13 +31,13 @@ These are existing code promises, not a blanket rule that every failure rolls ba
 
 The model treats a whole `press` or `apply_pending` boundary as one serialized owner-thread transaction. It does not let an external button press interleave inside C++ instructions. Incoming readiness abstracts the bank/revision/anchor/phase preflight result. A failed readiness result requires no candidate bank, so an entirely unavailable target is represented. Successful readiness chooses a nonlatest, nonplaying bank. Numerical period and selection validation are explicit valid/invalid inputs to the boundary action, not proofs of the arithmetic.
 
-Combined handoff targets differ from their outgoing take because `Program::create` rejects equal `cue.take` and `cue.commit`. Independent same-boundary handoffs also use distinct authored takes: each take has one arm at its strictly earlier begin and one commit at its end. Loop wrapping is represented by the separate draft cancellation/restart policy, not an invented same-take simultaneous writer.
+Combined handoff targets differ from their outgoing take because `Program::create` rejects equal `cue.take` and `cue.commit`. Independent same-boundary handoffs also use distinct authored takes: each take has one arm at its strictly earlier begin and one commit at its end. Actual loop-wrap draft cancellation and retention have a separate native witness. The finite model does not represent wrap-specific playback continuity; its Stop action must not stand in for that transition.
 
 This is a safety proof of the model under these abstractions. It does not establish exhaustive refinement of every model trace to C++, floating-point timing, rack fidelity, effect-history ownership, allocation failure behavior, physical latency, or unrestricted liveness. The automatic endpoint rule is conditional on evaluating that boundary. Actual native clock witnesses additionally check that evaluation in selected real compiled programs at 8, 44.1, and 48 kHz. No fairness assumption makes a stopped or stalled clock advance.
 
 ## Source mapping and sensitivity
 
-The last source sync is `99c840928bf4beaccfe79905545823efad83fcd2`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
+The last source sync is `679a8f35ddaba418f4d4286094c3f98a9f62386d`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
 
 | Model action or rule | Current source boundary |
 | --- | --- |

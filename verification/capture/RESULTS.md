@@ -1,6 +1,6 @@
 # Capture verification result
 
-Verified against source sync `99c840928bf4beaccfe79905545823efad83fcd2`, with the unchanged mapped source files checked by SHA-256. This is a bounded model safety result with actual C++ witness/mutation sensitivity. It is not an unrestricted implementation or DSP proof.
+Verified against source sync `679a8f35ddaba418f4d4286094c3f98a9f62386d`, with the unchanged mapped source files checked by SHA-256. This is a bounded model safety result with actual C++ witness/mutation sensitivity. It is not an unrestricted implementation or DSP proof.
 
 The reproducible command is `node verification/capture/verify.ts` after provisioning the pinned `JAVA` and `TLA2TOOLS` environment paths. Logs and the full machine receipt are generated outside Git.
 
