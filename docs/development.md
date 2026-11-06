@@ -210,7 +210,7 @@ Check Space on a focused effect disclosure or button before checking the body-le
 
 ### Voice catalog/editor work
 
-The [catalog migration core](implementation/catalog-migration.md) is a preparation milestone. Run `node --import tsx --test lib/voice-catalog/tests/*.test.ts` for migration and pure replica fixtures. Native SQLite backup/reopen fixtures use `node:sqlite` on temporary files. They do not create a sidecar service or migrate an operator library. Keep the current v2 browser target explicit until worker, cache, editor and Video callers move together. Host and backup configuration remain operator decisions.
+The [catalog migration core](implementation/catalog-migration.md) is preparation for a filesystem authority. Run `node --import tsx --test lib/voice-catalog/tests/*.test.ts` for migration, replica, native adapter and real authority/replica fixtures. Native SQLite transactions and backup/reopen checks use `node:sqlite` on temporary files. They do not create a sidecar service or migrate an operator library. Keep the current v2 browser target explicit until worker, cache, editor and Video callers move together. Host and backup configuration remain operator decisions.
 
 `lib/voice-catalog/` owns the SQLite domain and source bindings; `ui/practice/catalog-worker.ts` owns durable IndexedDB snapshots; `catalog-client.ts` owns asynchronous worker requests. `voice-catalog.ts` connects saved authoring data to the existing stopped native preparation boundary. `voice-library.ts` owns the shared inspector and compact ensemble presentation. Coordinate changes to `app.ts`, `voice-effects.ts`, and build packaging with PE. Video owns the shared character registry; don't seed voice assignments or rename canonical IDs to artwork variants.
 

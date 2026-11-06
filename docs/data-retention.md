@@ -39,7 +39,7 @@ The canonical host, backup destination, snapshot cadence, and retention remain c
 
 ## Current implementation
 
-The voice library already uses relational SQLite through `sql.js`. Its current durable copy is a SQLite snapshot in browser IndexedDB, scoped to the browser profile and site origin. JSON export and SQLite download are manual recovery paths. The filesystem sidecar and independent automatic backup are not implemented yet.
+The voice library already uses relational SQLite through `sql.js`. Its current durable copy is a SQLite snapshot in browser IndexedDB, scoped to the browser profile and site origin. JSON export and SQLite download are manual recovery paths. A [native file adapter and migration core](implementation/catalog-migration.md) are verified with temporary SQLite databases. There is no configured filesystem sidecar or independent automatic backup yet.
 
 CAD generators and current comparison pages still use ignored frozen receipts and source-revision checks. These validate active proposals, but they are not the final-design restore path described above. Promotion must remove that dependency before those inputs can expire.
 
