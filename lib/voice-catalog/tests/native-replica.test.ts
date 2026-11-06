@@ -97,9 +97,10 @@ test('a native backup restored with a new generation rejects an old equal-conten
   try {
     const base = await authority.read();
     const backupPath = join(directory, 'backup.sqlite');
-    assert.deepEqual(await authority.snapshot(backupPath), base);
+    const backup = await authority.snapshot(backupPath);
+    assert.deepEqual(backup.snapshot, base);
     const restoredPath = join(directory, 'restored.sqlite');
-    await writeFile(restoredPath, restoreCatalog(sql, new Uint8Array(await readFile(backupPath))));
+    await writeFile(restoredPath, restoreCatalog(sql, new Uint8Array(await readFile(backup.filename))));
     const restored = NativeCatalogAuthority.open(restoredPath);
     try {
       const current = await restored.read();

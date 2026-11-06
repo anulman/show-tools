@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { chmodSync } from 'node:fs';
 import { access, chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
@@ -84,9 +84,9 @@ test('literal percent-00 remains a valid filename rather than an embedded NUL', 
     try {
       assert.deepEqual((await authority.read()).body, body());
       const destination = join(directory, 'backup%00.sqlite');
-      const copied = await authority.snapshot(destination);
+      const { snapshot: copied, filename: copiedFilename } = await authority.snapshot(destination);
       assert.deepEqual(copied.body, body());
-      assert.deepEqual(await readMigratedCatalog(sql, new Uint8Array(await readFile(destination))), copied);
+      assert.deepEqual(await readMigratedCatalog(sql, new Uint8Array(await readFile(copiedFilename))), copied);
     } finally { authority.close(); }
   });
 });
@@ -127,9 +127,9 @@ test('a snapshot uses the physical parent of a symlink-and-parent path', {
     const authority = NativeCatalogAuthority.open(filename);
     await chmod(root, 0o500);
     try {
-      const copied = await authority.snapshot(root + '/link/../backup.sqlite');
+      const { snapshot: copied, filename: copiedFilename } = await authority.snapshot(root + '/link/../backup.sqlite');
       assert.deepEqual(copied.body, body());
-      assert.deepEqual(await readMigratedCatalog(sql, new Uint8Array(await readFile(join(target, 'backup.sqlite')))), copied);
+      assert.deepEqual(await readMigratedCatalog(sql, new Uint8Array(await readFile(copiedFilename))), copied);
       await assert.rejects(access(join(root, 'backup.sqlite')));
     } finally { await chmod(root, 0o700); authority.close(); }
   });
@@ -140,7 +140,7 @@ test('snapshot rejects directory-like final path segments before any publication
     const authority = NativeCatalogAuthority.open(filename);
     try {
       for (const destination of [directory + '/', directory + '/.', directory + '/..'])
-        await assert.rejects(authority.snapshot(destination), /filename/);
+        await assert.rejects(authority.snapshot(destination), /directory name/);
       assert(!(await readdir(directory)).some(name => name.startsWith('.catalog-snapshot-')));
     } finally { authority.close(); }
   });
@@ -262,7 +262,7 @@ test('a native consistent snapshot reopens in a fresh process and remains separa
       const pending = authority.snapshot(destination);
       const initial = await authority.read();
       await authority.replace(initial.stamp, body('Live change after snapshot'));
-      const copied = await pending;
+      const { snapshot: copied, filename: copiedFilename } = await pending;
       assert.deepEqual(copied.body, body());
       assert.equal(copied.stamp.revision, 1);
       const check = spawnSync(process.execPath, ['--input-type=module', '-e', `
@@ -271,11 +271,11 @@ test('a native consistent snapshot reopens in a fresh process and remains separa
         try {
           console.log(JSON.stringify({ integrity: database.prepare('PRAGMA integrity_check').get(), metadata: database.prepare('SELECT revision, catalog_id, generation_id FROM catalog_metadata').get(), voice: database.prepare('SELECT name, character_id FROM voices WHERE id = ?').get('bell') }));
         } finally { database.close(); }
-      `, destination], { encoding: 'utf8' });
+      `, copiedFilename], { encoding: 'utf8' });
       assert.equal(check.status, 0, check.stderr);
       assert.deepEqual(JSON.parse(check.stdout), { integrity: { integrity_check: 'ok' }, metadata: { revision: 1,
         catalog_id: identity.catalogId, generation_id: identity.generationId }, voice: { name: 'Cowbell', character_id: 'unknown-character' } });
-      assert.deepEqual(await readMigratedCatalog(sql, new Uint8Array(await readFile(destination))), copied);
+      assert.deepEqual(await readMigratedCatalog(sql, new Uint8Array(await readFile(copiedFilename))), copied);
       assert.deepEqual((await authority.read()).body, body('Live change after snapshot'));
       assert(!(await readdir(directory)).some(name => name.startsWith('.catalog-snapshot-')));
     } finally { authority.close(); }
@@ -313,9 +313,112 @@ test('a post-publication sync failure retains the completed snapshot without cla
       chmodSync(output, 0o300);
       try { await assert.rejects(pending, /EACCES/); }
       finally { chmodSync(output, 0o700); }
-      assert.deepEqual(await readMigratedCatalog(sql, new Uint8Array(await readFile(destination))), before);
+      assert.deepEqual(await readMigratedCatalog(sql, new Uint8Array(await readFile(join(destination, 'catalog.sqlite')))), before);
       assert(!(await readdir(output)).some(name => name.startsWith('.catalog-snapshot-')));
       assert.deepEqual(await authority.read(), before);
     } finally { chmodSync(output, 0o700); authority.close(); }
+  });
+});
+
+
+test('snapshot refuses an orphan SQLite journal namespace and preserves its bytes', async () => {
+  await fixture(async ({ filename, directory }) => {
+    const destination = join(directory, 'orphan-backup');
+    await mkdir(destination);
+    const writerPath = join(directory, 'writer.sqlite');
+    await writeFile(writerPath, await readFile(filename));
+    const writer = new DatabaseSync(writerPath);
+    const journals = new Map<string, Buffer>();
+    try {
+      writer.exec('PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; UPDATE catalog_metadata SET revision=7');
+      for (const suffix of ['-wal', '-shm']) {
+        const bytes = await readFile(writerPath + suffix);
+        journals.set('catalog.sqlite' + suffix, bytes);
+        await writeFile(join(destination, 'catalog.sqlite' + suffix), bytes);
+      }
+    } finally { writer.close(); }
+    const rollbackJournal = Buffer.from('unrelated rollback journal');
+    journals.set('catalog.sqlite-journal', rollbackJournal);
+    await writeFile(join(destination, 'catalog.sqlite-journal'), rollbackJournal);
+    const authority = NativeCatalogAuthority.open(filename);
+    try {
+      const before = await authority.read();
+      await assert.rejects(authority.snapshot(destination), { code: 'EEXIST' });
+      assert.deepEqual((await readdir(destination)).sort(), [...journals.keys()].sort());
+      for (const [name, bytes] of journals) assert.deepEqual(await readFile(join(destination, name)), bytes);
+      assert.deepEqual(await authority.read(), before);
+      const backup = await authority.snapshot(join(directory, 'fresh-backup'));
+      const reopened = NativeCatalogAuthority.open(backup.filename);
+      try { assert.deepEqual(await reopened.read(), before); }
+      finally { reopened.close(); }
+    } finally { authority.close(); }
+  });
+});
+
+test('snapshot refuses empty directories and live or dangling destination symlinks', async () => {
+  await fixture(async ({ filename, directory }) => {
+    const empty = join(directory, 'empty');
+    await mkdir(empty);
+    const destinations = [empty];
+    if (process.platform !== 'win32') {
+      for (const [name, target] of [['link', empty], ['dangling', join(directory, 'absent')]]) {
+        const path = join(directory, name);
+        await symlink(target, path);
+        destinations.push(path);
+      }
+    }
+    const authority = NativeCatalogAuthority.open(filename);
+    try {
+      for (const path of destinations) await assert.rejects(authority.snapshot(path), { code: 'EEXIST' });
+      assert.deepEqual(await readdir(empty), []);
+      await assert.rejects(access(join(directory, 'absent')));
+    } finally { authority.close(); }
+  });
+});
+
+test('competing processes publish exactly one complete snapshot into a new directory', async () => {
+  await fixture(async ({ filename, directory }) => {
+    const destination = join(directory, 'contested');
+    const moduleUrl = new URL('../native-store.ts', import.meta.url).href;
+    const code = `
+      import { NativeCatalogAuthority } from ${JSON.stringify(moduleUrl)};
+      const authority = NativeCatalogAuthority.open(process.argv[1]);
+      try {
+        const backup = await authority.snapshot(process.argv[2]);
+        process.stdout.write(JSON.stringify({kind:'published', ...backup}));
+      } catch (error) {
+        if (error.code !== 'EEXIST') throw error;
+        process.stdout.write(JSON.stringify({kind:'occupied'}));
+      } finally { authority.close(); }
+    `;
+    const run = () => new Promise<string>((resolve, reject) => {
+      const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', code, filename, destination]);
+      let output = '', errors = '';
+      child.stdout.on('data', chunk => { output += chunk; });
+      child.stderr.on('data', chunk => { errors += chunk; });
+      child.on('error', reject);
+      child.on('close', status => status === 0 ? resolve(output) : reject(new Error(errors)));
+    });
+    const outcomes = (await Promise.all([run(), run()])).map(output => JSON.parse(output));
+    assert.deepEqual(outcomes.map(outcome => outcome.kind).sort(), ['occupied', 'published']);
+    const authority = NativeCatalogAuthority.open(filename);
+    const backup = NativeCatalogAuthority.open(join(destination, 'catalog.sqlite'));
+    try { assert.deepEqual(await backup.read(), await authority.read()); }
+    finally { backup.close(); authority.close(); }
+    assert.deepEqual(await readdir(destination), ['catalog.sqlite']);
+  });
+});
+
+test('failed validation removes only its new unpublished snapshot namespace', async () => {
+  await fixture(async ({ filename, directory }) => {
+    const authority = NativeCatalogAuthority.open(filename);
+    const writer = new DatabaseSync(filename);
+    try {
+      writer.exec('PRAGMA ignore_check_constraints=ON; UPDATE catalog_metadata SET revision=-1');
+      const destination = join(directory, 'invalid-copy');
+      await assert.rejects(authority.snapshot(destination));
+      await assert.rejects(access(destination));
+      assert.equal(writer.prepare('SELECT revision FROM catalog_metadata').get()?.revision, -1);
+    } finally { writer.close(); authority.close(); }
   });
 });

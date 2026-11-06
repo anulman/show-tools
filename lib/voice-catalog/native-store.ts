@@ -1,4 +1,4 @@
-import { closeSync, fsyncSync, linkSync, mkdtempSync, openSync, realpathSync, rmSync } from 'node:fs';
+import { closeSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmdirSync, rmSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
@@ -17,10 +17,10 @@ function uri(filename: string, mode: 'ro' | 'rw'): string {
   return pathToFileURL(realpathSync.native(parsePath(filename))).href + '?mode=' + mode;
 }
 
-function snapshotFilename(destination: string): string {
+function snapshotDirectory(destination: string): string {
   const raw = parsePath(destination), leaf = basename(raw);
   if (!leaf || leaf === '.' || leaf === '..' || raw.endsWith(sep) || sep === '\\' && raw.endsWith('/'))
-    throw new Error('A catalog snapshot requires a filename, not a directory path');
+    throw new Error('A catalog snapshot requires a new directory name without a trailing separator or dot segment');
   return join(realpathSync.native(dirname(raw)), leaf);
 }
 
@@ -101,19 +101,35 @@ export class NativeCatalogAuthority {
     return result.kind === 'current' ? { kind: 'current', snapshot } : { kind: 'conflict', current: snapshot };
   }
 
-  async snapshot(destination: string): Promise<CatalogSnapshot> {
-    const filename = snapshotFilename(destination), parent = dirname(filename);
-    const staging = mkdtempSync(join(parent, '.catalog-snapshot-'));
+  async snapshot(destinationDirectory: string): Promise<{ readonly filename: string; readonly snapshot: CatalogSnapshot }> {
+    const directory = snapshotDirectory(destinationDirectory), parent = dirname(directory);
+    mkdirSync(directory, { mode: 0o700 });
+    const filename = join(directory, 'catalog.sqlite');
+    let staging: string | undefined;
+    let published = false;
     try {
+      staging = mkdtempSync(join(directory, '.catalog-snapshot-'));
       const temporary = join(staging, 'catalog.sqlite');
       this.database.prepare('VACUUM INTO ?').run(temporary);
       const captured = copiedCatalog(temporary);
       syncPath(temporary);
       const snapshot = await makeCatalogSnapshot(captured.stamp, captured.body);
       linkSync(temporary, filename);
+      published = true;
+      rmSync(staging, { recursive: true });
+      staging = undefined;
+      syncPath(directory);
       syncPath(parent);
-      return snapshot;
-    } finally { rmSync(staging, { recursive: true, force: true }); }
+      return { filename, snapshot };
+    } catch (error) {
+      try {
+        if (staging !== undefined) rmSync(staging, { recursive: true });
+        if (!published) rmdirSync(directory);
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], 'Catalog snapshot failed and cleanup was incomplete');
+      }
+      throw error;
+    }
   }
 
   close(): void { this.database.close(); }
