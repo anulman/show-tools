@@ -7,19 +7,20 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { createGateway, type Instrument, type Observation } from '../gateway.js';
+import { createGateway } from '../gateway.js';
+import type { DeskPublication } from '../session-schema.js';
+import { deskFixture, target } from './session-fixture.js';
 
 const token = '0123456789abcdef0123456789abcdef';
 const origin = 'http://127.0.0.1:9999';
 
 test('authenticates commands, retains outcomes, and never stops on detach', async () => {
 	let calls = 0;
-	let listener: ((value: Observation) => void) | undefined;
-	const instrument: Instrument = {
-		snapshot: () => ({ type: 'session', song: { id: 'test' }, state: { running: false } }),
-		command: async () => { calls++; return { outcome: 'applied' }; },
+	let listener: ((value: DeskPublication) => void) | undefined;
+	const instrument = deskFixture({
+		command: async () => { calls++; return { outcome: 'unknown' }; },
 		subscribe: (callback) => { listener = callback; return () => { listener = undefined; }; },
-	};
+	});
 	const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, instrument);
 	server.listen(0, '127.0.0.1');
 	await once(server, 'listening');
@@ -32,16 +33,16 @@ test('authenticates commands, retains outcomes, and never stops on detach', asyn
 		const first = await (await fetch(`${base}/api/session`, { headers })).json() as { sessionId: string };
 		const second = await (await fetch(`${base}/api/session`, { headers })).json() as { sessionId: string };
 		assert.notEqual(first.sessionId, second.sessionId);
-		const body = JSON.stringify({ sessionId: first.sessionId, sequence: 1, command: 'control', args: {} });
+		const body = JSON.stringify({ sessionId: first.sessionId, sequence: 1, target, command: 'control', args: {} });
 		const options = { method: 'POST', headers: { ...headers, 'content-type': 'application/json' }, body };
-		assert.deepEqual(await (await fetch(`${base}/api/command`, options)).json(), { outcome: 'applied' });
-		assert.deepEqual(await (await fetch(`${base}/api/command`, options)).json(), { outcome: 'applied' });
+		assert.deepEqual(await (await fetch(`${base}/api/command`, options)).json(), { outcome: 'unknown' });
+		assert.deepEqual(await (await fetch(`${base}/api/command`, options)).json(), { outcome: 'unknown' });
 		assert.equal(calls, 1);
 		assert.equal((await fetch(`${base}/api/command`, { ...options, headers: { ...options.headers, origin: 'http://evil.test' } })).status, 403);
 		const abort = new AbortController();
 		const stream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': first.sessionId }, signal: abort.signal });
-		assert.match(new TextDecoder().decode((await stream.body!.getReader().read()).value), /"type":"session"/);
-		listener?.({ type: 'state', state: { running: true } });
+		assert.match(new TextDecoder().decode((await stream.body!.getReader().read()).value), /"type":"desk"/);
+		listener?.({ type: 'gap' });
 		abort.abort();
 		assert.equal(calls, 1);
 	} finally {
@@ -51,7 +52,7 @@ test('authenticates commands, retains outcomes, and never stops on detach', asyn
 });
 
 test('requires TLS off loopback', () => {
-	const instrument: Instrument = { snapshot: () => null, command: async () => ({ outcome: 'unknown' }), subscribe: () => () => {} };
+	const instrument = deskFixture();
 	assert.throws(() => createGateway({ host: '0.0.0.0', port: 80, origin, token: Buffer.from(token), staticRoot: '.' }, instrument), /TLS/);
 });
 
@@ -61,16 +62,15 @@ for (const priority of [
 ]) test(`admits ${priority.command} priority when ordinary commands fill the session`, async () => {
 	let admitted = 0;
 	const release: Array<() => void> = [];
-	const instrument: Instrument = {
-		snapshot: () => ({ type: 'session' }),
-		command: async (input) => {
+	const instrument = deskFixture({
+		command: async (_target, input) => {
 			admitted++;
 			if (admitted > 256) assert.deepEqual(input, priority);
 			await new Promise<void>(resolve => release.push(resolve));
-			return { outcome: 'applied' };
+			return { outcome: 'unknown' };
 		},
 		subscribe: () => () => {},
-	};
+	});
 	const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, instrument);
 	server.listen(0, '127.0.0.1');
 	await once(server, 'listening');
@@ -79,7 +79,7 @@ for (const priority of [
 	const base = `http://127.0.0.1:${address.port}`;
 	const headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
 	const session = await (await fetch(`${base}/api/session`, { headers })).json() as { sessionId: string };
-	const send = (sequence: number, command: string, args: object = {}) => fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId, sequence, command, args }) });
+	const send = (sequence: number, command: string, args: object = {}) => fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId, sequence, target, command, args }) });
 	const pending: Promise<Response>[] = [];
 	try {
 		for (let i = 1; i <= 256; i++) {
@@ -93,7 +93,7 @@ for (const priority of [
 		while (admitted < 257) await new Promise(resolve => setTimeout(resolve, 1));
 		assert.equal((await send(260, priority.command, priority.args)).status, 503);
 		for (const resolve of release) resolve();
-		assert.equal((await (await result).json()).outcome, 'applied');
+		assert.equal((await (await result).json()).outcome, 'unknown');
 	} finally {
 		for (const resolve of release) resolve();
 		await Promise.all(pending);
@@ -108,7 +108,7 @@ test('rejects malformed request targets and serves practice directory indexes', 
   await mkdir(join(directory, 'ui/practice'), { recursive: true });
   await writeFile(join(directory, 'index.html'), '<a href="/ui/practice/">Practice</a>');
   await writeFile(join(directory, 'ui/practice/index.html'), '<title>Practice</title>');
-  const instrument: Instrument = { snapshot: () => null, command: async () => ({ outcome: 'unknown' }), subscribe: () => () => {} };
+  const instrument = deskFixture();
   const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: directory }, instrument);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -139,14 +139,14 @@ test('rejects malformed request targets and serves practice directory indexes', 
 
 test('streams a full compiled song and bounds a slow observer', async () => {
   assert.ok(song.compiled);
-  const snapshot: Observation = { type: 'session', song: { ...song, source: undefined }, state: { phase: 'idle' } };
+  const snapshot = deskFixture().snapshot();
   assert.ok(Buffer.byteLength(JSON.stringify(snapshot)) > 64 * 1024);
-  let publish: ((value: Observation) => void) | undefined;
-  const instrument: Instrument = {
+  let publish: ((value: DeskPublication) => void) | undefined;
+  const instrument = deskFixture({
     snapshot: () => snapshot,
-    command: async () => ({ outcome: 'applied' }),
+    command: async () => ({ outcome: 'unknown' }),
     subscribe: listener => { publish = listener; return () => {}; },
-  };
+  });
   const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, instrument);
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -165,9 +165,9 @@ test('streams a full compiled song and bounds a slow observer', async () => {
       assert.equal(chunk.done, false, 'complete bootstrap remains connected');
       text += new TextDecoder().decode(chunk.value);
     }
-    assert.equal(JSON.parse(text.slice(6)).song.compiled.parts.length, 6);
-    const result = await fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId, sequence: 1, command: 'stop', args: {} }) });
-    assert.equal((await result.json()).outcome, 'applied');
+    assert.equal(JSON.parse(text.slice(6)).view.song.compiled.parts.length, 6);
+    const result = await fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: session.sessionId, sequence: 1, target, command: 'stop', args: {} }) });
+    assert.equal((await result.json()).outcome, 'unknown');
     await reader.cancel();
 
     const slow = await (await fetch(`${base}/api/session`, { headers })).json();
@@ -177,7 +177,7 @@ test('streams a full compiled song and bounds a slow observer', async () => {
     response.pause();
     const closed = new Promise<void>(resolve => { response.on('error', () => {}); response.once('close', resolve); });
     const payload = 'x'.repeat(256 * 1024);
-    for (let i = 0; i < 100; i++) publish?.({ type: 'state', payload });
+    for (let i = 0; i < 100; i++) publish?.({ type: 'desk', view: { ...snapshot, song: { ...snapshot.song, description: payload } } });
     response.resume();
     let timeout: ReturnType<typeof setTimeout>;
     try {
@@ -189,4 +189,51 @@ test('streams a full compiled song and bounds a slow observer', async () => {
     server.closeAllConnections();
     await new Promise<void>(done => server.close(() => done()));
   }
+});
+
+test('status allocates no sessions and audio shares deduplication with targeted commands', async () => {
+  let goals = 0;
+  const controller = deskFixture({ setAudio: () => { goals++; return { outcome: 'accepted', view: controller.snapshot() }; } });
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, controller);
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`;
+  const headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
+  try {
+    for (let count = 0; count < 140; count++) assert.equal((await fetch(`${base}/api/status`, { headers })).status, 200);
+    const bootstrap = await (await fetch(`${base}/api/session`, { headers })).json();
+    assert.equal(bootstrap.view.audio.kind, 'off');
+    const send = (route: string, fields: object) => fetch(`${base}/api/${route}`, { method: 'POST', headers, body: JSON.stringify({ sessionId: bootstrap.sessionId, ...fields }) });
+    assert.equal((await send('command', { sequence: 1, command: 'stop', args: {} })).status, 400);
+    const audio = { sequence: 1, goal: 'on' };
+    assert.equal((await (await send('audio', audio)).json()).outcome, 'accepted');
+    assert.equal((await (await send('audio', audio)).json()).outcome, 'accepted');
+    assert.equal(goals, 1);
+    assert.equal((await send('command', { sequence: 1, target, command: 'stop', args: {} })).status, 409);
+    assert.equal((await send('audio', { sequence: 1, goal: 'off' })).status, 409);
+    assert.equal((await send('audio', { sequence: 2, goal: 'off' })).status, 200);
+    assert.equal(goals, 2);
+  } finally { server.closeAllConnections(); await new Promise<void>(done => server.close(() => done())); }
+});
+
+test('audio off bypasses ordinary and reserved command capacity', async () => {
+  const release: Array<() => void> = [];
+  let admitted = 0;
+  const controller = deskFixture({ command: async () => { admitted++; await new Promise<void>(resolve => release.push(resolve)); return { outcome: 'unknown' }; } });
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, controller);
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`;
+  const headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
+  const bootstrap = await (await fetch(`${base}/api/session`, { headers })).json();
+  const pending: Promise<Response>[] = [];
+  try {
+    for (let sequence = 1; sequence <= 257; sequence++) {
+      pending.push(fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: bootstrap.sessionId, sequence, target, command: sequence === 257 ? 'stop' : 'control', args: {} }) }));
+      while (admitted < sequence) await new Promise(resolve => setTimeout(resolve, 1));
+    }
+    const response = await fetch(`${base}/api/audio`, { method: 'POST', headers, body: JSON.stringify({ sessionId: bootstrap.sessionId, sequence: 258, goal: 'off' }) });
+    assert.equal(response.status, 200);
+    assert.equal((await response.json()).outcome, 'accepted');
+  } finally { for (const resolve of release) resolve(); await Promise.all(pending); server.closeAllConnections(); await new Promise<void>(done => server.close(() => done())); }
 });

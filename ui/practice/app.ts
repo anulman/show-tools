@@ -6,7 +6,9 @@ import { renderVoiceAvatar } from './voice-avatar.js';
 import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 import type { PracticeAudio } from './audio.js';
-import { RemoteSession } from './remote-session.js';
+import { RemoteDesk, RemoteSession } from './remote-session.js';
+import type { RemoteConnection } from './remote-session.js';
+import type { DeskView } from '../../lib/remote-performance/session-schema.js';
 import type { MonitoringRelationship } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
 import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, VoiceEffectConfiguration } from '../../lib/performance/model.js';
@@ -98,6 +100,7 @@ const mode = audioMode(new URL(location.href));
 const remote = mode === 'hardware';
 type PerformanceSession = PracticeAudio | RemoteSession;
 let audio: PerformanceSession | undefined;
+let remoteDesk: RemoteDesk | undefined;
 let preparing: Promise<PerformanceSession> | null = null;
 let starting = false;
 let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorker } | { kind: 'pending' } | { kind: 'reloading' } = { kind: 'current' };
@@ -165,7 +168,7 @@ function cueLabel(cue: string): string {
 
 async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[]) {
   if (audio) return audio;
-  if (remote) throw new Error('Remote session is disconnected. Refresh to reconnect.');
+  if (remote) throw new Error('Hardware audio is unavailable. Enable audio and wait for ready.');
   if (!song || switching) throw new Error('The song script is still loading. Try again in a moment.');
   if (!window.isSecureContext) throw new Error('Audio needs HTTPS on your phone, or localhost on this computer. See Setup & notes.');
   if (preparing) return preparing;
@@ -438,7 +441,7 @@ elements['audio-mode-select'].addEventListener('change', () => {
   changingAudioMode = true;
   select.disabled = true;
   void changeAudioMode({ current: mode, next, browserBusy: browserModeBusy(), url: new URL(location.href),
-    dispose: async () => { await audio?.dispose(); }, navigate: url => location.assign(url.href) })
+    dispose: async () => { if (remote) await remoteDesk?.dispose(); else await audio?.dispose(); }, navigate: url => location.assign(url.href) })
     .then(changed => { if (!changed) { changingAudioMode = false; select.value = mode; select.disabled = false; } })
     .catch(error => { changingAudioMode = false; select.value = mode; select.disabled = false; showError(error); });
 });
@@ -453,6 +456,7 @@ function render(next: Partial<PracticeState>) {
   }
   applyPendingPracticeUpdate();
   elements['audio-mode-select'].disabled = changingAudioMode || !canChangeAudioMode(mode, browserModeBusy());
+  if (remote && !audio) { renderHardwareUnavailable(); return; }
   if (!chart) return;
   if (remote && state.click !== undefined && document.activeElement !== elements.click) elements.click.checked = state.click;
   const running = isRunning();
@@ -648,6 +652,7 @@ elements.click.addEventListener('change', () => act(async () => {
   if (audio) await audio.setClick(elements.click.checked);
 }));
 elements['start-section'].addEventListener('change', () => {
+  if (remote && !audio) { renderHardwareUnavailable(); return; }
   if (!chart) return;
   const start = Number(elements['start-section'].value);
   elements['end-bar'].min = String(start);
@@ -811,38 +816,81 @@ function syncRemoteTransport(current: PracticeState) {
   elements.click.checked = current.click;
 }
 
+const hardwareCard = requiredElement('#hardware-audio', HTMLElement);
+const hardwareStatus = requiredElement('#hardware-audio-status', HTMLSpanElement);
+const enableAudio = requiredElement('#enable-audio', HTMLButtonElement);
+const terminateAudio = requiredElement('#terminate-audio', HTMLButtonElement);
+
+function renderHardwareUnavailable() {
+  for (const control of [elements.start, elements.stop, elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop, elements.click, elements.mushroom, elements['record-demo'], elements['song-select'], elements['monitor-relationship']]) control.disabled = true;
+  elements['phase-label'].textContent = 'AUDIO UNAVAILABLE';
+  elements['bar-number'].textContent = '··';
+  elements['beat-number'].textContent = '·';
+  elements['beat-dots'].querySelectorAll('i').forEach(dot => dot.classList.remove('active'));
+  elements['pads'].hidden = true;
+  elements['live-voices'].hidden = true;
+  elements['practice-desk'].dataset.phase = '';
+  elements['practice-desk'].dataset.bar = '';
+  elements['practice-desk'].dataset.beat = '';
+  voiceEffects.render(undefined, true);
+}
+
 if (remote) {
+  hardwareCard.hidden = false;
   elements['offline-status'].textContent = 'Audio runs on the remote host.';
   chartSource.hidden = true;
+  renderHardwareUnavailable();
+  enableAudio.addEventListener('click', () => { void act(async () => { await remoteDesk?.enableAudio(); }); });
+  terminateAudio.addEventListener('click', () => { void act(async () => { await remoteDesk?.terminateAudio(); }); });
   await act(async () => {
     const token = window.prompt('Enter the remote performance token');
     if (!token) throw new Error('A token is required to connect. Refresh to try again.');
-    let session: RemoteSession;
-    try { session = await RemoteSession.create(token); }
-    catch (error) { throw new Error('Hardware mode could not connect. Open the desk from the EliteDesk gateway and check the token.', { cause: error }); }
-    await switchSong(session.song.id, undefined, undefined, { remoteSong: session.song });
-    audio = session;
-    syncRemoteTransport(session.snapshot());
-    for (const voice of session.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);
-    session.subscribe(render);
-    session.onEvent(event => { postPerformanceEvent(event); if (event.type === 'control' && event.applied === false && event.error) showError(new Error(event.error)); });
-    let manifest = JSON.stringify(session.song);
-    void session.listen(next => {
-      const updated = JSON.stringify(next);
-      if (updated === manifest) return;
-      manifest = updated;
-      void switchSong(next.id, undefined, undefined, { remoteSong: next }).then(() => {
+    const desk = await RemoteDesk.connect(token);
+    remoteDesk = desk;
+    await switchSong(desk.snapshot().song.id, undefined, undefined, { remoteSong: desk.snapshot().song });
+    desk.subscribe(view => {
+      const status = view.audio;
+      const connection = desk.connection;
+      const connected = connection.kind === 'connected';
+      hardwareCard.dataset.connection = connection.kind;
+      hardwareCard.dataset.audio = connected ? status.kind : '';
+      hardwareStatus.textContent = connection.kind === 'disconnected' ? 'Connection lost; audio may still be running. Reconnect to the desk.'
+        : connection.kind === 'connecting' ? 'Connecting to desk…'
+        : status.kind === 'fault' ? `Audio fault · ${status.error}`
+        : status.kind === 'ready' ? 'Audio on' : `Audio ${status.kind}`;
+      enableAudio.disabled = !connected || (status.kind !== 'off' && status.kind !== 'fault');
+      terminateAudio.disabled = !connected || status.kind === 'off' || status.kind === 'fault' || status.kind === 'stopping';
+      if (!connected || status.kind !== 'ready') {
+        audio = undefined;
+        transportGeneration++;
+        starting = false;
+        releasePresses();
+        chartFollower?.stop();
+        renderHardwareUnavailable();
+        return;
+      }
+      let session: RemoteSession;
+      try { session = desk.performance(); } catch { return; }
+      elements['pads'].hidden = false;
+      elements['live-voices'].hidden = !liveVoiceStates.size;
+      elements.click.disabled = false;
+      elements.mushroom.disabled = false;
+      if (audio !== session) {
+        audio = session;
         syncRemoteTransport(session.snapshot());
         for (const voice of session.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);
-        render(session.snapshot());
-      }).catch(showError);
+        session.subscribe(render);
+        session.onEvent(event => { postPerformanceEvent(event); if (event.type === 'control' && event.applied === false && event.error) showError(new Error(event.error)); });
+      }
+      render(session.snapshot());
     });
+    void desk.listen();
     elements['recording-hint'].textContent = 'Remote recording is unavailable.';
   });
 } else await act(() => switchSong('dance-yrself-clean'));
 
 if (new URLSearchParams(location.search).has('test')) {
-  window.practiceDesk = { get audio() { return audio; }, get state() { return state; }, get chart() { return chart; } };
+  window.practiceDesk = { get audio() { return remote ? undefined : audio; }, get state() { return remote && !audio ? undefined : state; }, get chart() { return chart; }, get hardware() { return remoteDesk?.snapshot(); }, get connection() { return remoteDesk?.connection; } };
 }
 
 function applyPendingPracticeUpdate() {
@@ -888,6 +936,6 @@ if (!remote && 'serviceWorker' in navigator && window.isSecureContext && !new UR
 
 declare global {
   interface Window {
-    practiceDesk?: { readonly audio: PerformanceSession | undefined; readonly state: DisplayState; readonly chart: Chart | undefined };
+    practiceDesk?: { readonly audio: PerformanceSession | undefined; readonly state: DisplayState | undefined; readonly chart: Chart | undefined; readonly hardware: DeskView | undefined; readonly connection: RemoteConnection | undefined };
   }
 }

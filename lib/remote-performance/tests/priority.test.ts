@@ -11,7 +11,7 @@ import { compiledProgramBytes } from '../../performance/compiled-native.js';
 import { encodeInitialProfiles } from '../commands.js';
 import { NativeInstrument } from '../instrument.js';
 import { prepareHost } from '../prepare.js';
-import { decodePublication } from '../../../ui/practice/remote-schema.js';
+import { decodePublication } from '../native-schema.js';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
