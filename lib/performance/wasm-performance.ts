@@ -3,6 +3,7 @@ import { AudioSequenceEngine } from '../sequencer/wasm-sequencer.js';
 import { CONTROL_IDS } from './model.js';
 import type { ChannelId, ChartControls, CompiledTakeState, Control, CueAction, LiveEffectDefinition, LiveEffectsState, VoiceEffectConfiguration, VoiceEffectsState, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
 import { PF } from './wasm-abi.js';
+import { PF as LIGHT } from './light-abi.js';
 import { decodeNativeState, decodeNativeTempo, decodeNativeVoices, decodeNativeLiveEffects, decodeNativeEvent, decodeNativeTake } from './native-observation.js';
 import { ST } from '../sampler/wasm-abi.js';
 
@@ -196,6 +197,7 @@ export class NativePerformance {
     const info = this.query('pf_compiled_take_info', index);
     return { voice: info[PF.TAKE_VOICE], ready: info[PF.TAKE_READY] === 1, frames: info[PF.TAKE_LENGTH],
       capacity: info[PF.TAKE_CAPACITY], revision: info[PF.TAKE_REVISION], phase: info[PF.TAKE_PHASE], playbackState: info[PF.TAKE_PLAYBACK_STATE], period: info[PF.TAKE_PERIOD],
+      selectionIndex: info[PF.TAKE_SELECTION] < 0 ? null : info[PF.TAKE_SELECTION],
       sourceEndFrames: info[PF.TAKE_SOURCE_END] < 0 ? null : info[PF.TAKE_SOURCE_END] };
   }
   tempoHitInfo(): TempoHitState {
@@ -284,9 +286,10 @@ export class NativePerformance {
     let id: number;
     if (control.id === 'mushroom') id = 4;
     else if (control.id === 'tempo') id = 6;
+    else if (control.id === 'cueButton') { if (control.value !== 0 && control.value !== 1) throw new Error('Invalid cue button state'); id = 7; }
     else if (control.id === 'knob') { if (!Number.isFinite(control.value)) throw new Error('Invalid knob value'); id = 5; }
     else id = this.channel(control.id);
-    const result = this.invoke('pf_control', this.handle, id, control.id === 'knob' ? control.value : 0, commandId ? this.commandPointer : 0, units.length);
+    const result = this.invoke('pf_control', this.handle, id, control.id === 'knob' || control.id === 'cueButton' ? control.value : 0, commandId ? this.commandPointer : 0, units.length);
     if (commandId) this.commandIds.set(this.query('pf_snapshot')[PF.SEQUENCE], commandId);
     if (result !== 0) throw new Error(this.error());
   }
@@ -304,6 +307,10 @@ export class NativePerformance {
     return { ...state, compiledTakes };
   }
   snapshot() { return this.state(); }
+  setJiggleThresholds(minimumTravel: number, minimumReversal: number) {
+    this.call('pf_set_jiggle_thresholds', this.handle, minimumTravel, minimumReversal);
+  }
+  lightOutput() { return this.query('pf_light_output').slice(0, LIGHT.LIGHT_FIELDS); }
   get processedFrames() { return this.query('pf_snapshot')[PF.FRAME]; }
   get clickEnabled() { return this.query('pf_snapshot')[PF.CLICK_ENABLED] === 1; }
   onBeat(id: number, frame: number, epoch: number) { return this.call('pf_on_beat', this.handle, id, frame, epoch); }

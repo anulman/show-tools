@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { readMusicXmlSong, compileMusicXmlSong } from '../musicxml-song.js';
-import { verifyMusicXmlCutover } from '../../../scripts/verify-musicxml-cutover.js';
+import { verifyMusicXmlCutover, frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.js';
 
 async function fixture(): Promise<string> {
   return readFile(new URL('../../../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8');
@@ -18,8 +18,8 @@ function removeAudit(xml: string): string {
   return removeField(removeField(xml, 'show-tools:source'), 'show-tools:mapping');
 }
 
-test('canonical DYC preserves pre-cutover compiled meaning, native bytes and every musician-sheet page', async () => {
-  const result = await verifyMusicXmlCutover(await fixture());
+test('frozen DYC migration preserves pre-cutover compiled meaning, native bytes and every musician-sheet page', async () => {
+  const result = await verifyMusicXmlCutover(await frozenCutoverMusicXml());
   assert.equal(result.bars, 218);
   assert.equal(result.cues, 62);
   assert.equal(result.takes, 12);
@@ -94,7 +94,7 @@ test('unsupported authored notation fails visibly instead of disappearing from t
 
 test('a displayed performance command cannot contradict its executable application instruction', async () => {
   const xml = await fixture();
-  const edited = xml.replace('<words id="command-R1-2">crb</words>', '<words id="command-R1-2">xb</words>');
+  const edited = xml.replace('<words id="command-R1-2">cb</words>', '<words id="command-R1-2">xb</words>');
   assert.notEqual(edited, xml);
   await assert.rejects(readMusicXmlSong(edited));
 });

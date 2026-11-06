@@ -1,0 +1,116 @@
+import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { test } from 'node:test';
+import { runPeripheralBridge } from '../bridge.js';
+import { PF as LIGHT } from '../../performance/light-abi.js';
+import { PersistentDesk } from '../../remote-performance/controller.js';
+import { createGateway } from '../../remote-performance/gateway.js';
+import type { DeskController } from '../../remote-performance/session-schema.js';
+import { installedPackage, sessionProfile, until } from '../../remote-performance/tests/session-fixture.js';
+
+const level = (image: readonly number[]) => image[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL];
+
+test('a real gateway forwards an attached helper button and abort clears both native held state and helper output', { timeout: 20000 }, async () => {
+  await stat(resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'));
+  const directory = await mkdtemp(join(tmpdir(), 'pb-'));
+  const tokenFile = join(directory, 'token');
+  const helper = join(directory, 'helper');
+  const log = join(directory, 'helper-log');
+  const token = '012345678901234567890123456789ab';
+  await writeFile(tokenFile, token, { mode: 0o600 });
+  await writeFile(helper, `#!${process.execPath}
+const fs = require('node:fs');
+const readline = require('node:readline');
+const log = ${JSON.stringify(log)};
+const record = value => fs.appendFileSync(log, JSON.stringify(value) + String.fromCharCode(10));
+const session = Number(process.argv[2]);
+record({ type: 'ready' });
+process.stdout.write(JSON.stringify({ type: 'ready', version: 1, session, released: true }) + String.fromCharCode(10));
+process.stdout.write(JSON.stringify({ type: 'button', session, sequence: 1, down: true }) + String.fromCharCode(10));
+readline.createInterface({ input: process.stdin }).on('line', line => {
+  record({ type: 'command', line });
+  if (line === 'quit') process.exit(0);
+});
+process.on('exit', code => record({ type: 'exit', code }));
+`);
+  await chmod(helper, 0o700);
+  const controller = new PersistentDesk(sessionProfile(directory), installedPackage().installed);
+  const abort = new AbortController();
+  const commands: unknown[] = [];
+  let lifecycleChanges = 0;
+  const forwarded: DeskController = {
+    snapshot: () => controller.snapshot(),
+    subscribe: listener => controller.subscribe(listener),
+    command: (target, input) => { commands.push(input); return controller.command(target, input); },
+    setAudio: goal => { lifecycleChanges++; return controller.setAudio(goal); },
+    close: () => controller.close(),
+  };
+  let server: ReturnType<typeof createGateway> | undefined;
+  let running: Promise<void> | undefined;
+  const records = async (): Promise<{ type: string; line?: string; code?: number }[]> =>
+    (await readFile(log, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
+  try {
+    controller.setAudio('on');
+    const initial = await until(() => {
+      const audio = controller.snapshot().audio;
+      if (audio.kind === 'fault') throw new Error(audio.error);
+      return audio.kind === 'ready' ? audio : undefined;
+    });
+    const gatewayConfig = { host: '127.0.0.1', port: 0, origin: 'http://127.0.0.1', token: Buffer.from(token), staticRoot: directory };
+    server = createGateway(gatewayConfig, forwarded);
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    assert.ok(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}`;
+    gatewayConfig.origin = base;
+    running = runPeripheralBridge({ version: 1, origin: base, tokenFile, helperExecutable: helper,
+      sdkChannel: 0, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal);
+    const settled = running.then(() => ({ ok: true }), error => ({ ok: false, error }));
+    await until(() => {
+      const audio = controller.snapshot().audio;
+      return audio.kind === 'ready' && level(audio.performance.lights) === 1 ? true : undefined;
+    }, 'helper press did not reach the native held LED state');
+    let helperSawFull = false;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      helperSawFull = (await records()).some(entry => entry.line?.startsWith('light ')
+        && level(entry.line.split(' ').slice(5).map(Number)) === 1);
+      if (helperSawFull) break;
+      await new Promise(resolve => setTimeout(resolve, 10));
+    }
+    assert.equal(helperSawFull, true, 'the helper receives the engine-authored full brightness image');
+    assert.deepEqual(commands.slice(0, 3), [
+      { command: 'control', args: { control: { id: 'cueButton', value: 0 } } },
+      { command: 'configureJiggle', args: { minimumTravel: 4, minimumReversal: 2 } },
+      { command: 'control', args: { control: { id: 'cueButton', value: 1 } } },
+    ], 'queued helper input waits for attachment and native jiggle configuration');
+    assert.equal((await records())[0].type, 'ready');
+    abort.abort();
+    const result = await settled;
+    assert.deepEqual(result, { ok: true });
+    const final = controller.snapshot().audio;
+    assert.equal(final.kind, 'ready');
+    if (final.kind !== 'ready') throw new Error('Bridge interrupted native audio');
+    assert.equal(final.attempt, initial.attempt);
+    assert.equal(final.performance.state.runId, initial.performance.state.runId);
+    assert.equal(final.performance.state.phase, 'idle');
+    assert.equal(level(final.performance.lights), 0, 'fresh cleanup request releases native held state after the main signal aborts');
+    assert.equal(lifecycleChanges, 0, 'attaching and aborting never change the audio lifecycle');
+    assert.equal(commands.length, 4);
+    assert.deepEqual(commands[3], { command: 'control', args: { control: { id: 'cueButton', value: 0 } } });
+    const history = await records();
+    assert.ok(history.some(entry => entry.line === 'clear'));
+    assert.ok(history.some(entry => entry.line === 'quit'));
+    assert.deepEqual(history.at(-1), { type: 'exit', code: 0 });
+  } finally {
+    abort.abort();
+    await running?.catch(() => {});
+    server?.closeAllConnections();
+    if (server?.listening) await new Promise<void>(resolve => server?.close(() => resolve()));
+    await controller.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

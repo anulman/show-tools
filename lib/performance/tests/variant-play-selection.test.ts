@@ -4,7 +4,7 @@ import { compileSheetsSong } from '../compiled-song.js';
 import type { SongMapping, CompiledSong } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
-import dycMapping from '../../../songs/dance-yrself-clean.mapping.json';
+import dycMapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 
 function fixture(retention: 'variant' | 'layer'): { source: SongSource; mapping: SongMapping } {
   const values = Array.from({ length: 24 }, () => Array<string>(10).fill(''));
@@ -19,7 +19,7 @@ function fixture(retention: 'variant' | 'layer'): { source: SongSource; mapping:
     source: { sourceVersion: 1, spreadsheetId: 'abcdefghijklmnopqrstuv', sheetId: 101, sheetName: 'Fixture', range: 'A1:J24', values,
       notes: { A18: 'Voice', A19: 'Other two', A20: 'Other one', A21: 'Other three' } },
     mapping: {
-      mappingVersion: 5, variantReuses: [], notationVersion: 'dyc-v1', songId: 'play-selection', spreadsheetId: 'abcdefghijklmnopqrstuv',
+      mappingVersion: 6, variantReuses: [], notationVersion: 'dyc-v1', songId: 'play-selection', spreadsheetId: 'abcdefghijklmnopqrstuv',
       sheetId: 101, sheetName: 'Fixture', titleCell: 'B1', bpmCell: 'F2', sectionRow: 4, barRow: 5, leadInColumn: 2,
       startBar: 1, endBar: 8, meter: { numerator: 4, denominator: 4 },
       controls: [

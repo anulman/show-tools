@@ -31,7 +31,7 @@ std::array<double, PF_TAKE_FIELDS> take(pf_engine* engine, int id) { std::array<
 std::array<double, PF_CHANNEL_FIELDS> channel(pf_engine* engine, int id) { std::array<double, PF_CHANNEL_FIELDS> out{}; pf_channel_info(engine, id, out.data()); return out; }
 struct Engine {
   pf_engine* value;
-  explicit Engine(double rate = 8000) : value(pf_create(rate, PF_PRACTICE, 32, 30, 4)) { require(value, "engine creation"); }
+  explicit Engine(double rate = 8000) : value(pf_create(rate, PF_PRACTICE, 32, 30, 4)) { require(value, "engine creation"); ok(value, pf_set_jiggle_thresholds(value, 1, 1)); }
   ~Engine() { pf_destroy(value); }
   operator pf_engine*() { return value; }
 };
@@ -185,10 +185,18 @@ void early_capture_admission_has_bounded_source_capacity() {
     0, 0, 1};
   auto rack = patches::Rack::create(nullptr, 0);
   auto program = compiled::Program::create(long_song, std::size(long_song), 8000, *rack, 1);
-  require(bool(program), "maximum thirty-second authored source remains loadable");
+  require(bool(program), "long authored source remains loadable within the explicit memory budget");
   program->start(1, 0, 0, 40); program->beat(PF_PLAYING, 1, 1, 0, 0, 40);
-  require(program->press(0, 11840, 40, true) == PF_LOOP_MISMATCH && !program->has_capture(),
-    "an early start exceeding the fixed thirty-second source bound rejects before capture mutation");
+  require(program->press(0, 11840, 40, true) == PF_OK && program->has_capture(),
+    "approved early timing fits its prepared allowance beyond thirty seconds");
+  float source = .25f, output = 0;
+  auto backup = patches::Rack::create(nullptr, 0);
+  heap_allocations = heap_frees = 0; watch_heap = true;
+  for (int frame = 11840; frame <= 252000; ++frame)
+    program->render(&source, &output, &output, nullptr, nullptr, 1, frame, 40, true, *rack, *backup);
+  watch_heap = false;
+  require(!program->has_capture() && program->error() == PF_OK && !heap_allocations && !heap_frees,
+    "long early capture reaches its authored cutoff without exhausting capacity or callback allocation");
 }
 void load_atomicity_and_six_counts() {
   Engine engine; auto data = table(); prepare(engine, data);
@@ -577,6 +585,60 @@ void disjoint_reservation_handoff_both_orders() {
     require(take(engine, 1)[PF_TAKE_READY] && take(engine, 1)[PF_TAKE_LENGTH] == 32000, "future reservation becomes an exact independent completed recording");
   }
 }
+std::array<double, PF_LIGHT_FIELDS> lights(pf_engine* engine) {
+  std::array<double, PF_LIGHT_FIELDS> out{}; pf_light_output(engine, out.data()); return out;
+}
+double level(pf_engine* engine) { return lights(engine)[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_LEVEL]; }
+void unified_button_and_light_priority() {
+  for (bool swapped : {false, true}) {
+    auto song = disjoint_handoff_table();
+    if (swapped) {
+      std::swap(song[13], song[14]);
+      for (int id = 0; id < 4; ++id) {
+        auto& button = song[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS * 2 + id * PF_COMPILED_CUE_FIELDS];
+        button = button == 1 ? 2 : 1;
+      }
+    }
+    Engine engine; prepare(engine, song); ok(engine, pf_start(engine, 120, 1, 1, 7, 0, 0));
+    until(engine, 2); ok(engine, pf_control(engine, 7, 1, nullptr, 0));
+    require(level(engine) == 1, "held physical button reaches full brightness");
+    ok(engine, pf_control(engine, 7, 0, nullptr, 0)); until(engine, 3);
+    require(level(engine) <= .7 && level(engine) >= 0, "recording uses engine pulse below seventy percent");
+    auto image = lights(engine); require(image == lights(engine), "unchanged light getter is immutable");
+    render(engine, 1000);
+    require(level(engine) < .36 && level(engine) > .34, "recording pulse follows native quarter-beat phase");
+    until(engine, 4); ok(engine, pf_control(engine, 7, 1, nullptr, 0));
+    auto first = take(engine, 0); ok(engine, pf_control(engine, 7, 1, nullptr, 0));
+    require(take(engine, 0) == first, "held repeat cannot perform another cue");
+    ok(engine, pf_control(engine, 7, 0, nullptr, 0)); until(engine, 5);
+    require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 32000 && take(engine, 1)[PF_TAKE_LENGTH] <= 1,
+      "one press commits and arms both current cues independent of physical pad ordering");
+    render(engine, 1000);
+    require(level(engine) < .36 && level(engine) > .34, "recording pulse wins over playing steady light");
+    until(engine, 6); ok(engine, pf_control(engine, 7, 1, nullptr, 0)); ok(engine, pf_control(engine, 7, 0, nullptr, 0)); until(engine, 7);
+    require(level(engine) == .7, "playing without recording is seventy percent steady");
+    render(engine, 16001);
+    require(state(engine)[PF_PHASE] == PF_ENDED && level(engine) == 0, "natural end clears all sample light output");
+    ok(engine, pf_control(engine, 7, 1, nullptr, 0)); pf_stop(engine);
+    require(level(engine) == 0, "Stop clears held indicator and playback");
+  }
+}
+void unified_button_reports_independent_failures() {
+  Engine engine; prepare(engine, table()); ok(engine, pf_start(engine, 120, 0, 2, 4, 0, 0)); until(engine, 2);
+  double events[PF_EVENT_CAPACITY * PF_EVENT_FIELDS]; pf_drain_events(engine, events, PF_EVENT_CAPACITY);
+  require(pf_control(engine, 7, 1, nullptr, 0) < 0, "one missing take produces aggregate press failure");
+  require(channel(engine, 1)[PF_CHANNEL_STATUS] == PF_ARMED, "independent valid arm survives unavailable commit");
+  unsigned count = pf_drain_events(engine, events, PF_EVENT_CAPACITY); bool failed_play = false, accepted_arm = false;
+  for (unsigned id = 0; id < count; ++id) {
+    const double* event = events + id * PF_EVENT_FIELDS;
+    if (event[PF_EVENT_TYPE] != PF_CONTROL) continue;
+    if (event[PF_EVENT_CONTROL] == 0 && event[PF_EVENT_ERROR] == PF_NO_RECORDING && !event[PF_EVENT_APPLIED]) failed_play = true;
+    if (event[PF_EVENT_CONTROL] == 1 && event[PF_EVENT_APPLIED]) accepted_arm = true;
+  }
+  require(failed_play && accepted_arm, "each selected candidate publishes its individual result");
+  ok(engine, pf_control(engine, 7, 0, nullptr, 0));
+  until(engine, 3); require(channel(engine, 1)[PF_CHANNEL_STATUS] == PF_RECORDING, "release does not execute another cue");
+}
 void missed_commit_finishes_before_reserved_start() {
   Engine engine; prepare(engine, disjoint_handoff_table());
   ok(engine, pf_start(engine, 120, 1, 1, 7, 0, 0)); until(engine, 2); ok(engine, press(engine, 2)); until(engine, 3); until(engine, 4);
@@ -822,65 +884,97 @@ std::vector<double> rotation_table(int beats = 4) {
   return { PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
     PF_COMPILED_ROTATION_MAGIC, 2, .25, 1, 0, 1, 1, 2, 0, 3, 2 };
 }
-void rotation_releases_on_strict_quarter_grid() {
+void rotation_releases_after_inactivity() {
   for (int beats : {4, 6}) for (double rate : {8000., 44100., 48000.}) {
     auto identity = patches::Rack::create(nullptr, 0);
-    require(bool(identity), "diagnostic identity rack");
     auto song = rotation_table(beats);
     auto program = compiled::Program::create(song.data(), uint32_t(song.size()), rate, *identity, 1);
-    require(bool(program), "diagnostic quarter-grid program");
-    program->start(1, 0, 0, 120);
-    program->beat(PF_PLAYING, 1, 1, 0, 0, 120);
+    require(bool(program), "inactivity program");
+    program->jiggle_thresholds(1, 1);
+    program->start(1, 0, 0, 120); program->beat(PF_PLAYING, 1, 1, 0, 0, 120);
     const double frames_per_count = rate * .5;
-    require(program->rotate(1, frames_per_count * .1, 120) == PF_OK, "off-grid motion accepted");
-    require(std::abs(program->rotation_remaining() - .15) < 1e-12, "release selects next quarter grid, not quarter-count inactivity");
-    require(program->rotate(-1, frames_per_count * .2, 120) == PF_OK &&
-      std::abs(program->rotation_remaining() - .05) < 1e-12, "continued motion within one quarter retains the same target");
-    const double boundary = frames_per_count * .25;
-    for (double at : {boundary - 1, std::nextafter(boundary, 0.)}) {
-      program->rotate(1, at, 120);
-      const double remaining_frames = program->rotation_remaining() * frames_per_count;
-      require(remaining_frames > 0 && std::abs(remaining_frames - (boundary - at)) < 1e-9,
-        "motion before a grid boundary selects that boundary, including its representable neighbor");
-    }
-    for (double at : {boundary, std::nextafter(boundary, std::numeric_limits<double>::infinity()), boundary + 1}) {
-      program->rotate(1, at, 120);
-      require(std::abs(program->rotation_remaining() * frames_per_count - (2 * boundary - at)) < 1e-9,
-        "motion on or after a grid boundary selects the following quarter");
-    }
-    program->rotate(0, 2 * boundary, 120);
-    require(program->rotation_remaining() == 0, "zero motion cannot extend an exact deadline");
-    program->rotate(-1, 2 * boundary, 120);
-    require(std::abs(program->rotation_remaining() - .25) < 1e-12, "fresh motion at the old deadline activates the next quarter");
-    for (double bpm : {73., 137., 240.}) for (double anchor : {123.125, 9933.987654321, 100000000.375}) {
-      program->start(2, 0, 0, bpm);
-      program->beat(PF_PLAYING, 2, 1, 0, anchor, bpm);
-      const double quarter = anchor + .25 * rate * 60 / bpm;
-      const double following = anchor + .5 * rate * 60 / bpm;
-      const double before = std::nextafter(quarter, 0.);
-      program->rotate(1, before, bpm);
-      require(program->rotation_remaining() > 0 &&
-        std::abs(program->rotation_remaining() * rate * 60 / bpm - (quarter - before)) < 1e-9,
-        "fractional clock anchor preserves the representable instant before a grid boundary");
-      for (double at : {quarter, std::nextafter(quarter, std::numeric_limits<double>::infinity())}) {
-        program->rotate(-1, at, bpm);
-        require(std::abs(program->rotation_remaining() * rate * 60 / bpm - (following - at)) < 1e-9,
-          "fractional clock anchor selects the following grid at and after its exact boundary");
-      }
-    }
+    program->rotate(1, frames_per_count * .1, 120);
+    require(std::abs(program->rotation_remaining() - .25) < 1e-12, "off-grid movement gets full quarter-count inactivity");
+    program->rotate(-1, frames_per_count * .2, 120);
+    require(std::abs(program->rotation_remaining() - .25) < 1e-12, "continued movement restarts full inactivity duration");
+    program->rotate(0, frames_per_count * .3, 120);
+    require(std::abs(program->rotation_remaining() - .15) < 1e-12, "zero cannot refresh inactivity deadline");
+    program->rotate(0, frames_per_count * .45, 120);
+    require(program->rotation_remaining() == 0, "exact inactivity deadline expires");
+    program->rotate(-1, frames_per_count * .45, 120);
+    require(std::abs(program->rotation_remaining() - .25) < 1e-12, "new movement at deadline reactivates full duration");
     song.back() = 2.125;
     auto capped = compiled::Program::create(song.data(), uint32_t(song.size()), rate, *identity, 1);
-    require(bool(capped), "non-grid written rotation end is valid");
-    capped->start(3, 0, 0, 120);
-    capped->beat(PF_PLAYING, 3, 3, 0, 0, 120);
+    capped->jiggle_thresholds(1, 1);
+    capped->start(3, 0, 0, 120); capped->beat(PF_PLAYING, 3, 3, 0, 0, 120);
     capped->rotate(1, .1 * frames_per_count, 120);
-    require(std::abs(capped->rotation_remaining() - .025) < 1e-12, "written window end caps a later quarter-grid target");
-    const double cap = .125 * frames_per_count;
-    capped->rotate(0, std::nextafter(cap, 0.), 120);
-    require(capped->rotation_eligible() && capped->rotation_remaining() > 0, "written end remains open at its preceding representable instant");
-    capped->rotate(1, cap, 120);
-    require(!capped->rotation_eligible() && capped->rotation_remaining() == 0, "written end is half-open and cannot be refreshed");
+    require(std::abs(capped->rotation_remaining() - .025) < 1e-12, "written window caps inactivity");
+    capped->rotate(1, .125 * frames_per_count, 120);
+    require(!capped->rotation_eligible() && capped->rotation_remaining() == 0, "window end remains exclusive");
+    program->start(2, 0, 7880000, 98); program->beat(PF_PLAYING, 2, 1, 0, 7880000, 98);
+    const double motion = 7884001, count98 = rate * 60 / 98;
+    const double expiry = motion + .25 * count98;
+    program->rotate(1, motion, 98);
+    program->rotate(0, std::nextafter(expiry, -std::numeric_limits<double>::infinity()), 98);
+    require(program->rotation_remaining() > 0, "preceding representable frame remains inside exact input-relative interval");
+    program->rotate(0, expiry, 98);
+    require(program->rotation_remaining() == 0, "large absolute input frame expires without a count-roundtrip residue");
+    program->start(2, 0, 7880000, 98); program->beat(PF_PLAYING, 2, 1, 0, 7880000, 98);
+    program->rotate(1, motion, 98);
+    const double first_change = motion + .1 * count98;
+    program->tempo_changed(first_change, 98, 120);
+    require(std::abs(program->rotation_remaining() - .15) < 1e-9, "first tempo change preserves remaining count distance");
+    const double second_change = first_change + .05 * rate * 60 / 120;
+    program->tempo_changed(second_change, 120, 90);
+    require(std::abs(program->rotation_remaining() - .1) < 1e-9, "second tempo change preserves remaining count distance");
+    const double final_frame = std::ceil(second_change + .1 * rate * 60 / 90);
+    program->rotate(0, final_frame - 1, 90);
+    require(program->rotation_remaining() > 0, "last audio frame before retimed expiry remains active");
+    program->rotate(0, final_frame, 90);
+    require(program->rotation_remaining() == 0, "two tempo changes expire at the independently predicted first audio frame");
+    program->tempo_changed(final_frame + 1, 90, 40);
+    require(program->rotation_remaining() == 0, "a slower tempo cannot reactivate expired jiggle processing");
   }
+}
+void jiggle_filters_small_motion_in_bounded_musical_buckets() {
+  for (double rate : {44100., 48000.}) for (int beats : {4, 6}) {
+    auto identity = patches::Rack::create(nullptr, 0);
+    std::vector<double> song{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+      PF_COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0};
+    auto program = compiled::Program::create(song.data(), song.size(), rate, *identity, 1);
+    program->start(1, 0, 0, 120); program->beat(PF_PLAYING, 1, 1, 0, 0, 120);
+    double scale = rate * .5;
+    auto move = [&](double value, double count) { require(program->rotate(value, count * scale, 120) == PF_OK, "finite jiggle observation accepted"); };
+    for (double count : {.01, .14, .27, .4}) { move(1, count); require(program->rotation_remaining() == 0, "sparse same-direction trickle cannot accumulate forever"); }
+    move(4, .5); require(std::abs(program->rotation_remaining() - .25) < 1e-12, "meaningful four-count travel activates");
+    move(1, .6); require(std::abs(program->rotation_remaining() - .15) < 1e-12, "tiny same-direction movement does not refresh inactivity");
+    move(-1, .62); require(std::abs(program->rotation_remaining() - .13) < 1e-12, "single tiny reversal does not count");
+    move(1, .63); move(-1, .65);
+    require(std::abs(program->rotation_remaining() - .25) < 1e-12, "two small reverse counts confirm a reversal despite intervening small forward motion");
+    move(0, .9); require(program->rotation_remaining() == 0, "confirmed reversal expires after full inactivity");
+    move(1, .91); move(0, 1.17); move(-1, 1.18); move(0, 1.2);
+    require(program->rotation_remaining() == 0, "isolated reversal expires instead of contaminating a later bucket");
+    move(-4, 1.25); move(0, 1.3);
+    double before = program->rotation_remaining();
+    program->tempo_changed(1.3 * scale, 120, 90);
+    require(program->rotate(1, 1.3 * scale, 90) == PF_OK && std::abs(program->rotation_remaining() - before) < 1e-12, "one tiny reverse at tempo change cannot refresh active gesture");
+    double expiry = 1.3 * scale + before * rate * 60 / 90;
+    program->rotate(0, expiry, 90); require(program->rotation_remaining() == 0, "inactivity expiry follows new native tempo");
+  }
+  auto identity = patches::Rack::create(nullptr, 0); auto windows = rotation_table();
+  auto separated = compiled::Program::create(windows.data(), windows.size(), 48000, *identity, 1);
+  separated->start(1, 0, 0, 120); separated->beat(PF_PLAYING, 1, 1, 0, 0, 120);
+  separated->rotate(4, 2400, 120);
+  separated->beat(PF_PLAYING, 2, 1, 0, 96000, 120); separated->rotate(-2, 96240, 120);
+  require(separated->rotation_remaining() == 0, "new written window does not inherit previous gesture direction");
+  Engine engine; prepare(engine, rotation_table());
+  ok(engine, pf_set_jiggle_thresholds(engine, 4, 2));
+  for (auto pair : {std::pair<double, double>{0, 1}, {4, 5}, {3.5, 2}, {32768, 2}, {4, std::nan("")}})
+    require(pf_set_jiggle_thresholds(engine, pair.first, pair.second) < 0, "invalid thresholds fail without changing prepared configuration");
+  ok(engine, pf_set_microphone(engine, 1)); ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
+  require(pf_set_jiggle_thresholds(engine, 1, 1) < 0, "running threshold mutation is rejected");
+  ok(engine, pf_control(engine, 5, 1, nullptr, 0)); double info[PF_VOICE_FIELDS]; pf_voice_info(engine, 5, info);
+  require(info[PF_VOICE_ROTATION_REMAINING] == 0, "rejected mutation preserves four-count filter");
 }
 Venue rotation_venue() {
   Venue venue; venue.counts[PF_BACKUP_PROFILE] = 2;
@@ -894,7 +988,7 @@ void rotation_refresh_at_boundary_has_continuous_pcm() {
     ok(engine, pf_configure_compiled(engine, song.data(), uint32_t(song.size())));
     ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1));
     ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
-    const double release = std::ceil(state(engine)[PF_CLOCK_BEAT_FRAME] + rate / 8);
+    const double release = std::ceil(state(engine)[PF_FRAME] + rate / 8);
     ok(engine, pf_control(engine, 5, 1, nullptr, 0));
     auto before = render(engine, uint32_t(release - state(engine)[PF_FRAME]), 1);
     require(std::abs(before.live_left.back() - 1.875f) < 1e-6 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0,
@@ -906,7 +1000,7 @@ void rotation_refresh_at_boundary_has_continuous_pcm() {
     ok(engine, pf_set_microphone(engine, 0));
     auto silent = render(engine, 1000, 1);
     require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0 && std::all_of(silent.live_left.begin(), silent.live_left.end(), [](float sample) { return sample == 0; }),
-      "microphone loss clears quarter-grid activation and its tails");
+      "microphone loss clears inactivity activation and its tails");
   }
 }
 void independent_profiles_and_reload_have_real_graphs() {
@@ -941,7 +1035,7 @@ void rotation_metadata_rejects_invalid_programs_atomically() {
   const auto before = profile(engine, 5);
   for (const auto& bad : invalid) require(pf_configure_compiled(engine, bad.data(), uint32_t(bad.size())) < 0 && profile(engine, 5) == before, "malformed rotation metadata preserves applied venue and previous program");
   ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1)); ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
-  ok(engine, pf_control(engine, 5, 1, nullptr, 0)); require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "prior quarter-grid program remains executable after malformed grid and version-3 replacements");
+  ok(engine, pf_control(engine, 5, 1, nullptr, 0)); require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "prior inactivity program remains executable after malformed grid and version-3 replacements");
 }
 void rotation_graph_order_and_tail_pcm() {
   Engine engine; auto venue = rotation_venue(); venue.apply(engine); auto song = rotation_table();
@@ -949,7 +1043,7 @@ void rotation_graph_order_and_tail_pcm() {
   require(stage(engine, 5, 0)[PF_VOICE_EFFECT_TYPE] == PF_EFFECT_SLAPBACK && stage(engine, 5, 1)[PF_VOICE_EFFECT_TYPE] == PF_EFFECT_CHORUS && stage(engine, 5, 1)[PF_VOICE_EFFECT_PARAMETER_2] == 10, "native readback reports actual ordered serial slapback then chorus");
   ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
   ok(engine, pf_control(engine, 5, -2, nullptr, 0));
-  require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "negative rotation activates backup until the next quarter-count grid");
+  require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "negative rotation activates backup for a quarter-count of inactivity");
   const double release_frame = std::ceil(state(engine)[PF_CLOCK_BEAT_FRAME] + 1000);
   auto impulse = render(engine, 1, 1); auto response = render(engine, 400, 0);
   require(impulse.live_left[0] == 1 && response.live_left[79] == .25f && response.live_left[319] == .5f && response.live_left[399] == .125f, "serial graph renders dry, chorus, slapback, and chorused slapback once each");
@@ -968,7 +1062,7 @@ void rotation_graph_order_and_tail_pcm() {
   until(engine, 2); ok(engine, pf_control(engine, 5, 4, nullptr, 0)); render(engine, 1000, 0);
   const uint16_t identity[] = {'r','o','t'}; ok(engine, pf_control(engine, 5, -4, identity, 3)); render(engine, 500, 0); auto remaining = profile(engine, 5)[PF_VOICE_ROTATION_REMAINING];
   ok(engine, pf_control(engine, 5, -4, identity, 3)); ok(engine, pf_control(engine, 5, 0, nullptr, 0));
-  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == remaining, "duplicate producer command and zero delta never change the quarter-grid target");
+  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == remaining, "duplicate producer command and zero delta never change the inactivity target");
   pf_stop(engine); auto silent = render(engine, 500, 1);
   require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_STANDBY && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0 && std::all_of(silent.live_left.begin(), silent.live_left.end(), [](float sample) { return sample == 0; }), "Stop clears rotation, tails and authorization immediately");
 }
@@ -978,10 +1072,10 @@ void rotation_uses_musical_time_and_preserves_capture() {
     ok(engine, pf_start(engine, 120, 0, 2, 4, 0, 0)); until(engine, 2);
     ok(engine, pf_control(engine, 6, 0, nullptr, 0)); render(engine, 6500, 0); ok(engine, pf_control(engine, 5, 1, nullptr, 0)); render(engine, 250, 0);
     double remaining = profile(engine, 5)[PF_VOICE_ROTATION_REMAINING]; ok(engine, pf_control(engine, 6, 0, nullptr, 0));
-    require(remaining > 0 && std::abs(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] - remaining) < 1e-9 && std::abs(state(engine)[PF_BPM] - (8000.0 * 60 / 6750)) < 1e-6, "tempo update preserves the remaining quarter-grid distance without rephasing in either meter");
+    require(remaining > 0 && std::abs(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] - remaining) < 1e-9 && std::abs(state(engine)[PF_BPM] - (8000.0 * 60 / 6750)) < 1e-6, "tempo update preserves the remaining inactivity distance without rephasing in either meter");
     uint32_t remaining_frames = uint32_t(std::ceil(remaining * 8000 * 60 / state(engine)[PF_BPM]));
     render(engine, remaining_frames - 1, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] == PF_VOICE_LIVE, "tempo-adjusted quarter deadline stays open through its preceding frame");
-    render(engine, 1, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE, "quarter-grid deadline follows updated tempo rather than the old wall-clock interval");
+    render(engine, 1, 0); require(profile(engine, 5)[PF_VOICE_ACTIVITY] != PF_VOICE_LIVE, "inactivity deadline follows updated tempo rather than the old wall-clock interval");
     until(engine, 3, 2); render(engine, uint32_t(std::floor(8000 * 60 / state(engine)[PF_BPM] * .75)), 0); ok(engine, pf_control(engine, 5, 1, nullptr, 0));
     require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] > 0 && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] <= .25, "rotation near a written window end never extends past its next quarter");
     until(engine, 3, 3); require(!profile(engine, 5)[PF_VOICE_ROTATION_ELIGIBLE] && profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0, "written gate end clears backup source feed in both meters");
@@ -991,7 +1085,7 @@ void rotation_uses_musical_time_and_preserves_capture() {
   float source[128], left[128]{}, right[128]{}, live_left[128]{}, live_right[128]{}; std::fill(source, source + 128, .25f);
   heap_allocations = heap_frees = 0; watch_heap = true;
   for (int index = 0; index < 32; ++index) { if (index == 8) pf_control(engine, 5, -1, nullptr, 0); pf_process_stems(engine, source, left, right, live_left, live_right, 128); }
-  watch_heap = false; require(heap_allocations == 0 && heap_frees == 0, "rotation route changes and quarter-grid release perform no heap work");
+  watch_heap = false; require(heap_allocations == 0 && heap_frees == 0, "rotation route changes and inactivity release perform no heap work");
   until(engine, 2); auto captured = render(engine, 1);
   require(take(engine, 0)[PF_TAKE_LENGTH] == 16000 && captured.left[0] == .25f, "rotation monitor switches do not add monitor tails or backup effects to independent capture");
 }
@@ -1065,7 +1159,7 @@ std::vector<double> prefix_table() {
     0, 0, 86, 0, PF_PLAY, 0, 0, -1, -1, 1, 0,
     0, 0, 1, 1, 0, 1,
     84, 0, 1, 85, 0, 0, 87, 0, 0,
-    PF_COMPILED_WINDOW_MAGIC, 1, 1, 3.5};
+    PF_COMPILED_WINDOW_MAGIC, 1, 1, 0, 3.5, 4};
 }
 void prefix_effected_source_oracle() {
   for (double rate : {44100., 48000.}) for (bool effects : {false, true}) {
@@ -1111,7 +1205,7 @@ void prefix_effected_source_oracle() {
 }
 void prefix_late_arm_zero_cut() {
   auto definition = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
-  auto data = prefix_table(); data.back() = 1. / 960;
+  auto data = prefix_table(); data[data.size() - 2] = 1. / 960;
   auto program = compiled::Program::create(data.data(), data.size(), 1000, *definition, 1);
   require(bool(program), "sub-frame source prefix loads");
   program->start(82, 0, 82000, 240); program->beat(PF_PLAYING, 82, 1, 0, 82250, 240);
@@ -1145,18 +1239,20 @@ void prefix_capture_maps_and_selection() {
       render_frames(length + 1, std::ceil(origin));
       std::array<double, PF_TAKE_FIELDS> info{}; program->take_info(0, info.data());
       require(info[PF_TAKE_READY] && info[PF_TAKE_LENGTH] == length && info[PF_TAKE_SOURCE_END] == -1, "commit keeps original complete recording");
+      require(info[PF_TAKE_SELECTION] == 0, "native readback names the actual full selection");
       double prior_phase = info[PF_TAKE_PHASE];
       program->beat(PF_PLAYING, 84, 1, 0, 337 * count, 98); program->take_info(0, info.data());
       require(info[PF_TAKE_SOURCE_END] == cut && info[PF_TAKE_PHASE] == prior_phase, "prefix uses actual source-frame crossing without phase reset");
+      require(info[PF_TAKE_SELECTION] == 1, "native readback follows the active prefix view without bar inference");
       if (rate == 48000) require(cut == 102857 && info[PF_TAKE_PERIOD] == 117552, "prefix excludes absolute-grid hit that period ratio would leak");
       require(program->press(0, std::ceil(337 * count), 98, true) == PF_OK, "manual Stop still suppresses playback");
       program->beat(PF_PLAYING, 85, 1, 0, 341 * count, 98); program->take_info(0, info.data());
-      require(info[PF_TAKE_PLAYBACK_STATE] != int(patches::PlaybackState::playing), "automatic full selection cannot restart stopped voice");
+      require(info[PF_TAKE_PLAYBACK_STATE] != int(patches::PlaybackState::playing) && info[PF_TAKE_SELECTION] == -1, "stopped readback cannot claim a cached automatic selection is playing");
       program->beat(PF_PLAYING, 86, 1, 0, 345 * count, 98);
       require(program->press(0, std::ceil(345 * count), 98, true) == PF_OK, "manual Play can authorize prefix");
-      program->take_info(0, info.data()); require(info[PF_TAKE_SOURCE_END] == cut, "manual Play applies retained prefix view");
+      program->take_info(0, info.data()); require(info[PF_TAKE_SOURCE_END] == cut && info[PF_TAKE_SELECTION] == 1, "manual Play applies and reports retained prefix view");
       program->beat(PF_PLAYING, 87, 1, 0, 349 * count, 98); program->take_info(0, info.data());
-      require(info[PF_TAKE_SOURCE_END] == -1, "full view restores source after prefix without replacing recording");
+      require(info[PF_TAKE_SOURCE_END] == -1 && info[PF_TAKE_SELECTION] == 0, "full view restores source and reports actual selection without replacing recording");
       program->stop(); watch_heap = false;
       require(!heap_allocations && !heap_frees, "prefix capture, bank reuse and selection perform no heap operations");
     }
@@ -1166,11 +1262,11 @@ void prefix_capture_maps_and_selection() {
     auto saved = take(retained, 0); require(saved[PF_TAKE_READY], "atomic replacement fixture retains committed source");
     for (int mutation = 0; mutation < 8; ++mutation) {
       auto invalid = data;
-      if (mutation == 0) invalid.back() = 4;
+      if (mutation == 0) invalid.back() = 5;
       if (mutation == 1) invalid.back() = 0;
       if (mutation == 2) invalid.back() = std::numeric_limits<double>::quiet_NaN();
       if (mutation == 3) invalid.back() = .0001;
-      if (mutation == 4) invalid[invalid.size() - 2] = 0;
+      if (mutation == 4) invalid[invalid.size() - 4] = 2;
       if (mutation == 5) invalid.insert(invalid.end(), {PF_COMPILED_WINDOW_MAGIC, 0});
       if (mutation == 6) invalid.push_back(42);
       if (mutation == 7) invalid.pop_back();
@@ -1182,4 +1278,4 @@ void prefix_capture_maps_and_selection() {
 }
 
 }
-int main() { prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_on_strict_quarter_grid(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); }
+int main() { jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }

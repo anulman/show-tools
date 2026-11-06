@@ -8,11 +8,14 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { buildSheetsMusicXml } from '../build-sheets-musicxml.js';
 import { prepareSelectedMusicXml } from '../../ui/sheets-musicxml/export.js';
 import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
+import { readMusicXmlSong } from '../../lib/performance/musicxml-song.js';
 import { parseSongSource } from '../../lib/performance/song-source.js';
 import { decodeSongMapping } from '../../lib/performance/compiled-song.js';
 
 async function inputs() {
-  const source = parseSongSource(JSON.parse(await readFile(new URL('../../songs/dance-yrself-clean.source.json', import.meta.url), 'utf8')));
+  const document = await readMusicXmlSong(await readFile(new URL('../../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8'));
+  assert(document.source);
+  const source = parseSongSource(document.source);
   const mapping = decodeSongMapping(JSON.parse(await readFile(new URL('../../songs/dance-yrself-clean.mapping.json', import.meta.url), 'utf8')));
   return { source, mapping };
 }

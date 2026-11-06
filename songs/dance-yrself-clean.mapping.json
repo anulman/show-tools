@@ -1,5 +1,5 @@
 {
-  "mappingVersion": 5,
+  "mappingVersion": 6,
   "notationVersion": "dyc-v1",
   "songId": "dance-yrself-clean",
   "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg",
@@ -23,7 +23,7 @@
     { "id": "vocals", "labelCell": "A8", "role": "default-live" },
     { "id": "backup-vocals", "labelCell": "A9", "role": "rotation-live" }
   ],
-  "rotationRule": { "row": 17, "voiceId": "backup-vocals", "releaseGridBeats": 0.25 },
+  "rotationRule": { "row": 17, "voiceId": "backup-vocals", "inactivityBeats": 0.25 },
   "cueWindow": { "earlyMs": 25, "lateMs": 25, "ties": "reject" },
   "capturePolicies": [
     { "voiceId": "cowbell", "retention": "variant", "gain": 1 },
@@ -32,14 +32,14 @@
     { "voiceId": "bing-bong", "retention": "layer", "gain": 1 }
   ],
   "layerGroups": [
-    { "id": "drums-claps-main", "voiceId": "drums-claps", "armCells": ["B18", "D18"] },
-    { "id": "whistle-main", "voiceId": "whistle", "armCells": ["AT20", "AV20"] },
-    { "id": "bing-bong-main", "voiceId": "bing-bong", "armCells": ["F21", "H21"] }
+    { "id": "drums-claps-main", "voiceId": "drums-claps", "armCells": ["B18"] },
+    { "id": "whistle-main", "voiceId": "whistle", "armCells": ["AT20"] },
+    { "id": "bing-bong-main", "voiceId": "bing-bong", "armCells": ["F21"] }
   ],
   "variantRules": [{ "voiceId": "cowbell", "row": 11, "fromBar": 1, "sampledOnly": true }],
   "variantReuses": [
-    { "cell": "CT11", "notation": "&e3a'", "sourceArmCell": "CE19", "endCount": 3.5 },
-    { "cell": "FJ11", "notation": "&e3a'", "sourceArmCell": "CE19", "endCount": 3.5 }
+    { "cell": "CT11", "notation": "&e3a'", "sourceArmCell": "CB19", "sourceBar": 82, "endCount": 3.5 },
+    { "cell": "FJ11", "notation": "&e3a'", "sourceArmCell": "CB19", "sourceBar": 82, "endCount": 3.5 }
   ],
   "overrides": [],
   "deferredRows": []

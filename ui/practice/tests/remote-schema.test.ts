@@ -34,10 +34,13 @@ test('remote publications reject invalid coordinates and fractional sample count
     assert.throws(() => decodeDeskPublication({ type: 'event', attempt: 'attempt', event }));
   }
   const event = beat(1);
-  const take = { index: 0, ready: true, frames: 20, period: 40, playback: 'playing' as const, sourceEndFrames: 15 };
+  const take = { index: 0, ready: true, frames: 20, period: 40, playback: 'playing' as const, sourceEndFrames: 15, selectionIndex: 7 };
   event.state.compiledTakes = [take];
-  assert.doesNotThrow(() => decodeDeskPublication({ type: 'event', attempt: 'attempt', event }));
-  for (const field of ['frames', 'period', 'sourceEndFrames'] as const) {
+  const readback = decodeDeskPublication({ type: 'event', attempt: 'attempt', event });
+  assert.equal(readback.type, 'event');
+  if (readback.type !== 'event') throw new Error('Expected native event');
+  assert.equal(readback.event.state.compiledTakes?.[0].selectionIndex, 7);
+  for (const field of ['frames', 'period', 'sourceEndFrames', 'selectionIndex'] as const) {
     assert.throws(() => decodeDeskPublication({ type: 'event', attempt: 'attempt', event: { ...event, state: { ...event.state,
       compiledTakes: [{ ...take, [field]: 1.5 }] } } }));
   }

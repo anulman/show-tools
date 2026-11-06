@@ -8,6 +8,7 @@ import song from '../../../songs/dance-yrself-clean.js';
 import { createGateway } from '../gateway.js';
 import { PersistentDesk } from '../controller.js';
 import { installedPackage, sessionProfile, until } from './session-fixture.js';
+import { PF as LIGHT } from '../../performance/light-abi.js';
 import { decodeDeskPublication } from '../session-schema.js';
 
 test('gateway commands reach the native engine and attachment does not stop it', async () => {
@@ -36,17 +37,31 @@ test('gateway commands reach the native engine and attachment does not stop it',
     if (audio.kind !== 'ready') throw new Error('Not ready');
     const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
     const command = async (sequence: number, name: string, args: object) => (await fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId: bootstrap.sessionId, sequence, target, command: name, args }) })).json();
+    assert.equal(audio.performance.lights.length, LIGHT.LIGHT_FIELDS);
+    const buttonEvents: unknown[] = [];
+    const unsubscribe = controller.subscribe(value => {
+      if (value.type === 'event' && value.event.type === 'control' && value.event.control?.id === 'cueButton') buttonEvents.push(value.event.control);
+    });
+    const pressed = await command(1, 'control', { control: { id: 'cueButton', value: 1 } });
+    assert.equal(pressed.outcome, 'applied');
+    assert.equal(pressed.lights[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL], 1);
+    const released = await command(2, 'control', { control: { id: 'cueButton', value: 0 } });
+    assert.equal(released.outcome, 'applied');
+    assert.equal(released.lights[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL], 0);
+    await until(() => buttonEvents.length === 2 ? true : undefined);
+    assert.deepEqual(buttonEvents, [{ id: 'cueButton', value: 1 }, { id: 'cueButton', value: 0 }]);
+    unsubscribe();
     const second = await (await fetch(`${base}/api/session`, { headers })).json();
     assert.equal(bootstrap.view.song.compiled.parts.length, 6);
     const slapback = [{ kind: 'slapback', delayMs: 100, feedback: .2, wet: .3 }];
     const edit = async (sessionId: string, sequence: number, profile: number, expectedRevision: number, effects: object[]) =>
       (await fetch(`${base}/api/command`, { method: 'POST', headers, body: JSON.stringify({ sessionId, sequence, target, command: 'configureVoiceProfile', args: { profile, expectedRevision, effects } }) })).json();
     assert.equal((await edit(second.sessionId, 1, 0, 1, slapback)).outcome, 'applied');
-    const updated = await edit(bootstrap.sessionId, 1, 1, 1, slapback);
+    const updated = await edit(bootstrap.sessionId, 3, 1, 1, slapback);
     assert.equal(updated.outcome, 'applied');
     assert.deepEqual(updated.state.voiceEffects[0].effects, slapback);
     assert.deepEqual(updated.state.voiceEffects[1].effects, slapback);
-    assert.equal((await edit(bootstrap.sessionId, 2, 0, 1, [])).outcome, 'rejected');
+    assert.equal((await edit(bootstrap.sessionId, 4, 0, 1, [])).outcome, 'rejected');
     const stream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': bootstrap.sessionId } });
     assert.ok(stream.body);
     const reader = stream.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -65,14 +80,14 @@ test('gateway commands reach the native engine and attachment does not stop it',
         }
       }
     })();
-    const started = await command(3, 'start', { bpm: 134, startBar: 1, endBar: 10, countInBars: 1 });
+    const started = await command(5, 'start', { bpm: 134, startBar: 1, endBar: 10, countInBars: 1 });
     assert.equal(started.outcome, 'applied');
     assert.notEqual(started.state.runId, bootstrap.view.audio.performance.state.runId);
     const frame = await Promise.race([fractionalBeat, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('No fractional beat arrived')), 5000).unref())]);
     assert.ok(frame > 0);
     const again = await (await fetch(`${base}/api/session`, { headers })).json();
     assert.equal(again.view.audio.performance.state.runId, started.state.runId);
-    const stopped = await command(4, 'stop', {});
+    const stopped = await command(6, 'stop', {});
     assert.equal(stopped.outcome, 'applied');
     await reader.cancel();
   } finally {

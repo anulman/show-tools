@@ -1,8 +1,10 @@
 # Canonical MusicXML songs
 
-The song document is MusicXML 4.0 with the `show-tools-song-v2` application profile. Sheets is an import boundary. Renderers and performance compilation read the MusicXML document.
+The song document is MusicXML 4.0 with the `show-tools-song-v3` application profile. Sheets is an import boundary. Renderers and performance compilation read the MusicXML document.
 
 The XML reader produces the shared song model in memory. Compiled JSON and native instruction bytes are generated outputs. C++ retains clock advancement, cue execution, capture, mixing, and DSP.
+
+The latest DYC import retains complete multi-bar Cowbell parents and explicit per-bar source views. `clb` commits at the start of its written bar and loops the last completed bar. Standard source notation is preserved, while validated application selections carry source beginning, exclusive end and loop counts. See the [latest import record](dyc-latest-import.md) for the revision and verification.
 
 ## Data ownership
 
@@ -84,10 +86,30 @@ The browser access host was unavailable during the final run, so live browser in
 
 ## Canonical import completion
 
-The completed integration uses profile `show-tools-song-v2`. All bundled modules read the canonical document; timing-only songs retain blank-program practice, while any unresolved authored commands keep audio blocked. Musician planning and Video preparation consume normalized annotations rather than reparsing Sheets glyphs. Video CLIs accept a self-contained song, with an optional external catalog used only when no portable snapshot exists.
+The completed integration uses profile `show-tools-song-v3`. All bundled modules read the canonical document; timing-only songs retain blank-program practice, while any unresolved authored commands keep audio blocked. Musician planning and Video preparation consume normalized annotations rather than reparsing Sheets glyphs. Video CLIs accept a self-contained song, with an optional external catalog used only when no portable snapshot exists.
 
 The complete repository suite passed 570 tests with two explicit skips. The Video suite passed 53 tests. TypeScript, both UI builds, offline layout checks and official MusicXML 4.0 schema validation passed. DYC native/WASM conformance passed at 44.1 and 48 kHz; compiled meaning, native bytes and all nine writing-page SVGs remain unchanged. Regenerated Bass and Drums PDFs were rendered and visually checked.
 
 A fresh public DYC fetch succeeded with 468 cell notes and the complete used range `A1:HL55`. Its native bytes match the committed chart exactly. The strict frozen-baseline verifier additionally compares the original source range `A1:HL30`, so its full compiled-object hash is intentionally specific to that frozen input. Workbook matching recognizes the exact Google `m d` display format for date-coerced rhythm cells without accepting mismatched values.
 
 Regression coverage includes complete-chart bounds, dynamically added voice rows, unknown nested metadata, archive removal, standard feel and vocal-offset edits, canonical repeat timing, timing-only loading, and embedded-catalog CLI portability. The Apps Script package is rebuilt locally; installation and Google authorization remain operator work. External notation-editor save/reimport remains unverified.
+
+## Explicit jiggle inactivity migration
+
+Profile v3, compiled schema 6, mapping version 6 and native packet 6 name the
+jiggle release interval `inactivityBeats`. Meaningful motion confirmed by native
+travel/reversal thresholds keeps the effect active for that full count-beat
+interval, capped by its authored window. This replaces v2's next-grid release;
+.25 means a full quarter count of inactivity. The explicit v2 migration preserves
+standard notation and other performance instructions. Separately, the latest DYC
+import uses parent captures and bar-slice selection windows for authored `clb`.
+
+The normal reader rejects v2 documents. Migrate them explicitly to a new file:
+
+```sh
+node --import tsx scripts/migrate-jiggle-musicxml.ts INPUT.musicxml --out NEW.musicxml
+```
+
+The command validates the legacy application metadata, renames the rotation interval in performance data and optional mapping archive, and rewrites through the strict current reader/writer. It retains standard music, source archives, annotations and portable voice metadata while recalculating canonical semantic digests. Repeating the migration on a current canonical file produces identical bytes; the CLI refuses to overwrite an existing output.
+
+The original cutover hashes at `4eb0569` remain frozen. The verifier explicitly projects compiled schema 6's interval field back to its historical name/schema and native packet 6's version marker back to 5 before comparing those original hashes. Every other compiled field, native instruction value and musician-page hash remains pinned. Separate tests establish v3 rejection/migration and the native timing tests establish the intentionally changed release behavior. This historical projection is verification only and is never an executable compatibility loader.

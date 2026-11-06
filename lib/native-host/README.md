@@ -15,6 +15,8 @@ The ALSA backend's dependency and license are described in [its README](../nativ
 
 Managed servers append `--owner-pid PID` to either executable. The host verifies its actual parent before acquiring devices and exits if that parent dies. Linux uses parent-death signaling with a race check; the portable synthetic path watches parent identity. A forged owner is rejected. Standalone offline callers may omit the option. The persistent desk owns its native child; stopping musical transport keeps that child and its takes, while terminating audio destroys it and releases devices.
 
+The ABI 8 snapshot appends the complete `PF_LIGHT_FIELDS` engine light image after tempo readback. The native owner calls `pf_light_output()` at its existing observation cadence; network consumers relay those evaluated levels without advancing phase. The remote session schemas retain the image as required `NativePerformance.lights`, alongside state, host epoch and revision, including command results. Control 7 carries the unified cue button's physical edge value, 0 released or 1 held; cue selection and held-brightness precedence remain in PE.
+
 Managed ALSA hosts also receive one complete option group:
 
 ```sh

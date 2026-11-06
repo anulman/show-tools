@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import source from '../../../songs/dance-yrself-clean.source.json';
-import mapping from '../../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 import { compileSheetsSong } from '../compiled-song.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
