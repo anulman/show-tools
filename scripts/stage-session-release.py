@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
 import tarfile
 import tempfile
@@ -302,11 +303,11 @@ def stage(archive, expected_hash, expected_bytes, source, root):
         extracted = extract_archive(tar_path, staging, name)
         manifest = validate_release(extracted, source)
         status = promote(extracted, target, source)
+        shutil.rmtree(staging)
     except Exception as error:
         raise RuntimeError(f"Staging aborted; private attempt retained at {staging}: {error}") from error
     return {"status": status, "release": str(target), "source": manifest["sourceRevision"],
-            "archiveSha256": expected_hash, "archiveBytes": expected_bytes, "executablesStarted": False,
-            "attempt": str(staging)}
+            "archiveSha256": expected_hash, "archiveBytes": expected_bytes, "executablesStarted": False}
 
 
 def main():

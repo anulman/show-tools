@@ -64,7 +64,7 @@ await buildSessionBundles(root, output);
 const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
 const reviewSources = new Set(git('ls-files', '-z', '--', 'lib/remote-performance', 'lib/native-host', 'lib/native-alsa',
   'lib/performance', 'lib/sequencer', 'lib/sampler', 'lib/beat-tracker', 'lib/patches', 'scripts/build-session-release.ts',
-  'scripts/session-bundles.ts', 'scripts/stage-session-release.py', 'package.json', 'package-lock.json').split('\0').filter(Boolean));
+  'scripts/session-bundles.ts', 'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py', 'package.json', 'package-lock.json').split('\0').filter(Boolean));
 for (const name of ['server.mjs', 'session-cli.mjs', 'prepare.mjs']) {
   const inputs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
     JSON.parse(await readFile(join(output, 'provenance', `${name}.inputs.json`), 'utf8')));
@@ -80,6 +80,8 @@ for (const path of [...reviewSources].sort()) {
 }
 await writeFile(join(output, 'provenance/source.json'), JSON.stringify({ schemaVersion: 1, source: sourceIdentity,
   reviewed: reviewedIdentity, native: commitIdentity(nativeRevision), nativeSourcesEquivalent: true,
+  build: { nodeVersion: process.version, platform: process.platform, arch: process.arch },
+  runtime: { nodeVersion: '22.23.4', nodeExecutableSha256: sha256(nodeBytes) },
   files: [...reviewSources].sort() }, null, 2));
 await writeFile(join(output, 'bin/show-tools-session'), '#!/bin/sh\nset -eu\nST_RELEASE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\nexec "$ST_RELEASE/runtime/node" "$ST_RELEASE/gateway/session-cli.mjs" "$@"\n', { mode: 0o755 });
 const LockedPackages = Schema.Struct({ packages: Schema.Record(Schema.String, Schema.Struct({

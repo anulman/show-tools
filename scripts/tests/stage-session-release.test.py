@@ -85,11 +85,13 @@ class StagingTests(unittest.TestCase):
                 self.assertEqual(target.stat().st_mode & 0o777, 0o700)
                 self.assertEqual(result["status"], "staged-only")
                 self.assertFalse(result["executablesStarted"])
+                self.assertEqual(list((root / "staging").iterdir()), [])
                 if twice:
                     before = (target / "release.json").stat().st_mtime_ns
                     repeated = stage.stage(archive_path, digest, len(data), expected_source, root)
                     self.assertEqual(repeated["status"], "already-staged")
                     self.assertEqual((target / "release.json").stat().st_mtime_ns, before)
+                    self.assertEqual(list((root / "staging").iterdir()), [])
 
     def test_valid_staging_and_idempotent_retry(self):
         self.execute(archive(), twice=True)
