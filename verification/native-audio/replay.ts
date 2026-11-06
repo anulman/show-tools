@@ -1,0 +1,371 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { tmpdir } from 'node:os';
+import { pathToFileURL } from 'node:url';
+import { Effect, Layer, Schema, Sink, Stream } from 'effect';
+import { ChildProcessSpawner } from 'effect/process';
+import { NativeStateSchema } from '../../lib/remote-performance/native-schema.js';
+import { installedPackage, sessionProfile } from '../../lib/remote-performance/tests/session-fixture.js';
+import type { Observation } from '../../lib/remote-performance/gateway.js';
+import type { NativeOutcome } from '../../lib/remote-performance/session-schema.js';
+
+export type Mutation = 'none' | 'cancel' | 'cleanup' | 'command' | 'observe' | 'ownership';
+const replacements = {
+  ownership: ["    if (attempt.child.kind === 'pending') {", "    if (false && attempt.child.kind === 'pending') {"],
+  cancel: ["    attempt.abort.abort();", "    void attempt.abort;"],
+  cleanup: ["      if (running) {", "      if (false && running) {"],
+  command: ["      if (this.attempt !== attempt || this.view.audio.kind !== 'ready' || attempt.abort.signal.aborted) return { outcome: 'unknown' };", "      void attempt;"],
+  observe: ["    if (this.attempt !== attempt || this.view.audio.kind !== 'ready' || attempt.abort.signal.aborted) return;", "    void attempt;"],
+} satisfies Record<Exclude<Mutation, 'none'>, [string, string]>;
+export function mutateController(source: string, mutation: Mutation): string {
+  if (mutation === 'none') return source;
+  const [before, after] = replacements[mutation];
+  assert.equal(source.split(before).length, 2, `Source drift: ${mutation} mutation anchor must occur once`);
+  return source.replace(before, after);
+}
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>(done => { resolve = done; });
+  return { promise, resolve };
+}
+async function until(read: () => boolean, label: string) {
+  for (let i = 0; i < 1000; i++) { if (read()) return; await new Promise(done => setTimeout(done, 2)); }
+  throw Error(`Replay failed to reach ${label}`);
+}
+const state = Schema.decodeUnknownSync(NativeStateSchema)({
+  phase: 'idle', bar: null, beat: null, countInRemaining: 0, bpm: 120, startBar: 1, endBar: 1,
+  loop: false, automatic: true, click: false, selectedChannel: 'L1', runId: 'synthetic-run', seq: 0,
+  channels: ['L1', 'L2', 'R1', 'R2'].map(id => ({ id, gain: 1, muted: false, looping: false, ready: false,
+    status: 'empty', light: { kind: 'off' } })),
+  looping: [], recording: null, microphone: true, error: null,
+});
+type SyntheticChild = { alive: boolean; exit: ReturnType<typeof deferred<ChildProcessSpawner.ExitCode>> };
+interface ReplayDependencies {
+  layer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>;
+  prepare(): Promise<void>;
+  Instrument: new () => ReplayInstrument;
+}
+declare global { var __nativeAudioReplay: ReplayDependencies | undefined; }
+class ReplayInstrument {
+  readonly listeners = new Set<(value: Observation) => void>();
+  closed = false;
+  constructor(readonly value: Observation, readonly delayed: ReturnType<typeof deferred<NativeOutcome>>, readonly issued: () => void) {}
+  snapshot() { return this.closed ? null : this.value; }
+  subscribe(listener: (value: Observation) => void) { this.listeners.add(listener); return () => this.listeners.delete(listener); }
+  command() { this.issued(); return this.delayed.promise; }
+  close() { this.closed = true; }
+}
+type ReplayOptions = {
+  mutation: Mutation;
+  preparation?: 'blocked';
+  cleanup?: 'unconfirmed';
+  readback?: 'blocked';
+  acquisition?: 'blocked' | 'fail-before-child' | 'fail-after-child';
+  runtimeRootFailure?: true;
+  exitQuery?: 'failed';
+};
+async function fixture(options: ReplayOptions) {
+  const { mutation } = options;
+  const directory = await mkdtemp(join(tmpdir(), 'native-audio-replay-'));
+  const bundleDirectory = await mkdtemp(resolve('node_modules/.native-audio-replay-'));
+  if (options.runtimeRootFailure) await writeFile(join(directory, 'runtime'), 'not a directory');
+  const prepared = deferred<void>(), commandDone = deferred<NativeOutcome>(), spawnReturned = deferred<void>();
+  if (!options.acquisition) spawnReturned.resolve();
+  if (!options.preparation) prepared.resolve();
+  const children: SyntheticChild[] = [], instruments: ReplayInstrument[] = [];
+  let prepareCalls = 0, commandCalls = 0, spawnCalls = 0;
+  const readback = { ready: !options.readback };
+  const song = installedPackage().installed;
+  const spawner = ChildProcessSpawner.make(() => Effect.gen(function*() {
+    spawnCalls++;
+    if (options.acquisition === 'fail-before-child') {
+      yield* Effect.promise(() => spawnReturned.promise);
+      return yield* Effect.die(new Error('Synthetic spawn failed before child creation'));
+    }
+    const handle = yield* Effect.acquireRelease(
+      Effect.sync(() => {
+        const child = { alive: true, exit: deferred<ChildProcessSpawner.ExitCode>() };
+        children.push(child);
+        return ChildProcessSpawner.makeHandle({
+          pid: ChildProcessSpawner.ProcessId(children.length + 1000),
+          exitCode: Effect.promise(() => child.exit.promise),
+          isRunning: options.exitQuery ? Effect.die(new Error('Synthetic exit query failed')) : Effect.sync(() => child.alive),
+          kill: () => Effect.sync(() => { child.alive = false; child.exit.resolve(ChildProcessSpawner.ExitCode(0)); }),
+          stdin: Sink.drain, stdout: Stream.empty, stderr: Stream.empty, all: Stream.empty,
+          getInputFd: () => Sink.drain, getOutputFd: () => Stream.empty,
+          unref: Effect.succeed(Effect.void),
+        });
+      }),
+      handle => Effect.sync(() => {
+        const child = children[Number(handle.pid) - 1001];
+        assert(child);
+        if (!options.cleanup) { child.alive = false; child.exit.resolve(ChildProcessSpawner.ExitCode(0)); }
+      }),
+    );
+    yield* Effect.promise(() => spawnReturned.promise);
+    if (options.acquisition === 'fail-after-child') return yield* Effect.die(new Error('Synthetic spawn failed after child acquisition'));
+    return handle;
+  }));
+  const dependencies: ReplayDependencies = {
+    layer: Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
+    prepare: async () => { prepareCalls++; await prepared.promise; },
+    Instrument: class extends ReplayInstrument {
+      constructor() {
+        super({ type: 'session', song: song.song, state, revision: '1', hostEpoch: `native-${children.length}` }, commandDone, () => { commandCalls++; });
+        instruments.push(this);
+      }
+      override snapshot() { return readback.ready ? super.snapshot() : null; }
+    },
+  };
+  globalThis.__nativeAudioReplay = dependencies;
+  const sourcePath = resolve('lib/remote-performance/controller.ts');
+  const source = mutateController(await readFile(sourcePath, 'utf8'), mutation);
+  const sourceCopy = join(bundleDirectory, 'controller-source.ts');
+  await writeFile(sourceCopy, source);
+  const outfile = join(bundleDirectory, 'controller.mjs');
+  await build({
+    entryPoints: [sourcePath], outfile, bundle: true, platform: 'node', format: 'esm', packages: 'external',
+    plugins: [{ name: 'controlled-native-boundaries', setup(builder) {
+      builder.onLoad({ filter: /\/controller\.ts$/ }, async () => ({ contents: await readFile(sourceCopy, 'utf8'), loader: 'ts', resolveDir: resolve('lib/remote-performance') }));
+      builder.onResolve({ filter: /^@effect\/platform-node$/ }, () => ({ path: 'platform', namespace: 'native-replay' }));
+      builder.onResolve({ filter: /^\.\/(instrument|prepare)\.js$/ }, args => args.importer === sourcePath ? { path: args.path, namespace: 'native-replay' } : undefined);
+      builder.onLoad({ filter: /.*/, namespace: 'native-replay' }, args => ({ contents:
+        args.path === 'platform' ? 'export const NodeServices = {layer: globalThis.__nativeAudioReplay.layer};'
+          : args.path.includes('instrument') ? 'export const NativeInstrument = globalThis.__nativeAudioReplay.Instrument;'
+          : 'export const prepareInstalledPackage = (...args) => globalThis.__nativeAudioReplay.prepare(...args);', loader: 'js' }));
+    } }],
+  });
+  const { PersistentDesk }: typeof import('../../lib/remote-performance/controller.js') = await import(pathToFileURL(outfile).href);
+  const controller = new PersistentDesk(sessionProfile(directory), song);
+  const publications: ReturnType<typeof controller.snapshot>[] = [];
+  controller.subscribe(publication => { if (publication.type === 'desk') publications.push(publication.view); });
+  return { directory, controller, children, instruments, prepared, commandDone, publications, readback, spawnReturned,
+    get prepareCalls() { return prepareCalls; }, get commandCalls() { return commandCalls; }, get spawnCalls() { return spawnCalls; },
+    async dispose() {
+      prepared.resolve();
+      spawnReturned.resolve();
+      commandDone.resolve({ outcome: 'unknown' });
+      for (const child of children) { child.alive = false; child.exit.resolve(ChildProcessSpawner.ExitCode(0)); }
+      controller.setAudio('off');
+      await controller.close().catch(error => {
+        if (!(options.cleanup || options.acquisition || options.exitQuery) || !(error instanceof Error) || error.message !== 'Native cleanup did not confirm exit') throw error;
+      });
+      await rm(directory, { recursive: true, force: true });
+      await rm(bundleDirectory, { recursive: true, force: true });
+      globalThis.__nativeAudioReplay = undefined;
+    },
+  };
+}
+async function ready(controller: Awaited<ReturnType<typeof fixture>>['controller']) {
+  await until(() => controller.snapshot().audio.kind === 'ready', 'ready');
+  const audio = controller.snapshot().audio;
+  assert.equal(audio.kind, 'ready');
+  if (audio.kind !== 'ready') throw Error('Expected ready');
+  return audio;
+}
+function stopped(controller: Awaited<ReturnType<typeof fixture>>['controller']): boolean {
+  const a = controller.snapshot().audio;
+  return a.kind === 'off' || a.kind === 'fault' || a.kind === 'stopping' && a.error !== undefined;
+}
+
+export async function replay(mutation: Mutation, scenario: Exclude<Mutation, 'none'>): Promise<void> {
+  if (scenario === 'ownership') return replayOwnership(mutation);
+  const f = await fixture({ mutation, preparation: scenario === 'cancel' ? 'blocked' : undefined, cleanup: scenario === 'cleanup' ? 'unconfirmed' : undefined });
+  try {
+    f.controller.setAudio('on');
+    if (scenario === 'cancel') {
+      await until(() => f.prepareCalls === 1, 'preparation await');
+      f.controller.setAudio('off');
+      const cancelIndex = f.publications.length;
+      f.prepared.resolve();
+      await until(() => ['off', 'ready'].includes(f.controller.snapshot().audio.kind), 'canceled startup completion');
+      assert(!f.publications.slice(cancelIndex).some(view => view.audio.kind === 'ready'), 'Canceled startup must never publish Ready');
+      return;
+    }
+    const first = await ready(f.controller);
+    const oldTarget = { attempt: first.attempt, hostEpoch: first.performance.hostEpoch };
+    if (scenario === 'cleanup') {
+      f.controller.setAudio('off');
+      await until(() => {
+        const a = f.controller.snapshot().audio;
+        return a.kind === 'off' || a.kind === 'stopping' && a.error !== undefined;
+      }, 'cleanup confirmation');
+      assert.equal(f.controller.setAudio('on').outcome, 'rejected', 'Unconfirmed cleanup must block a replacement');
+      assert.equal(f.children.filter(child => child.alive).length, 1);
+      return;
+    }
+    const pending = scenario === 'command' ? f.controller.command(oldTarget, { command: 'stop', args: {} }) : undefined;
+    if (pending) await until(() => f.commandCalls === 1, 'native command await');
+    f.controller.setAudio('off');
+    await until(() => f.controller.snapshot().audio.kind === 'off', 'first child exit');
+    f.controller.setAudio('on');
+    const second = await ready(f.controller);
+    assert.notEqual(first.attempt, second.attempt);
+    const issuedBeforeStale = f.commandCalls;
+    assert.equal((await f.controller.command(oldTarget, {})).outcome, 'rejected', 'Old target cannot enter replacement');
+    assert.equal(f.commandCalls, issuedBeforeStale, 'Rejected old target cannot reach the replacement instrument');
+    if (scenario === 'command') {
+      f.commandDone.resolve({ outcome: 'applied', ...first.performance });
+      assert.equal((await pending)?.outcome, 'unknown', 'Old command completion must not report applied to replacement');
+    } else {
+      let staleEvents = 0;
+      const unsubscribe = f.controller.subscribe(value => { if (value.type === 'event' && value.attempt === first.attempt) staleEvents++; });
+      for (const listener of f.instruments[0].listeners) listener({ type: 'event', event: { v: 1, runId: 'synthetic-run', seq: 1, type: 'state', state } });
+      unsubscribe();
+      assert.equal(staleEvents, 0, 'Old observer must not publish into replacement');
+    }
+  } finally { await f.dispose(); }
+}
+
+async function replayOwnership(mutation: Mutation): Promise<void> {
+  const f = await fixture({ mutation, cleanup: 'unconfirmed', acquisition: 'blocked' });
+  try {
+    f.controller.setAudio('on');
+    await until(() => f.children.length === 1, 'child acquired before handle return');
+    f.controller.setAudio('off');
+    await until(() => stopped(f.controller), 'unassigned cleanup');
+    assert.equal(f.controller.snapshot().audio.kind, 'stopping', 'Pending acquisition must retain ownership');
+    assert.equal(f.controller.setAudio('on').outcome, 'rejected');
+    assert.equal(f.children.filter(child => child.alive).length, 1);
+  } finally { await f.dispose(); }
+}
+
+export async function replayAcquisitionFailures(): Promise<void> {
+  for (const acquisition of ['fail-before-child', 'fail-after-child'] satisfies Array<ReplayOptions['acquisition']>) {
+    const f = await fixture({ mutation: 'none', acquisition, cleanup: 'unconfirmed' });
+    try {
+      f.controller.setAudio('on');
+      await until(() => f.spawnCalls === 1, 'requested spawn failure');
+      f.spawnReturned.resolve();
+      await until(() => stopped(f.controller), 'failed spawn disposition');
+      assert.equal(f.controller.snapshot().audio.kind, 'stopping', 'A failed pending spawn cannot prove absence of a child');
+      assert.equal(f.controller.setAudio('on').outcome, 'rejected');
+      assert.equal(f.spawnCalls, 1);
+      assert(!f.publications.some(view => view.audio.kind === 'ready'));
+      await assert.rejects(f.controller.close(), /Native cleanup did not confirm exit/);
+    } finally { await f.dispose(); }
+  }
+}
+export async function replayPreSpawnRecovery(): Promise<void> {
+  const f = await fixture({ mutation: 'none', runtimeRootFailure: true });
+  try {
+    f.controller.setAudio('on');
+    await until(() => f.controller.snapshot().audio.kind === 'fault', 'failure before spawn request');
+    assert.equal(f.spawnCalls, 0);
+    f.controller.setAudio('off');
+    assert.equal(f.controller.snapshot().audio.kind, 'off');
+    await rm(join(f.directory, 'runtime'));
+    assert.equal(f.controller.setAudio('on').outcome, 'accepted');
+    await ready(f.controller);
+  } finally { await f.dispose(); }
+}
+export async function replayFailedExitQuery(): Promise<void> {
+  const f = await fixture({ mutation: 'none', exitQuery: 'failed' });
+  try {
+    f.controller.setAudio('on'); await ready(f.controller);
+    f.controller.setAudio('off');
+    await until(() => stopped(f.controller), 'failed exit query');
+    assert.equal(f.controller.snapshot().audio.kind, 'stopping');
+    assert.equal(f.controller.setAudio('on').outcome, 'rejected');
+  } finally { await f.dispose(); }
+}
+
+export async function probeUnassignedCleanupFailure() {
+  const f = await fixture({ mutation: 'none', cleanup: 'unconfirmed', acquisition: 'blocked' });
+  try {
+    f.controller.setAudio('on');
+    await until(() => f.children.length === 1, 'acquired child before handle assignment');
+    f.controller.setAudio('off');
+    f.spawnReturned.resolve();
+    await until(() => {
+      const audio = f.controller.snapshot().audio;
+      return audio.kind === 'off' || audio.kind === 'stopping' && audio.error !== undefined;
+    }, 'unassigned child cleanup');
+    const audioAfterCleanup = f.controller.snapshot().audio.kind;
+    const childrenAlive = f.children.filter(child => child.alive).length;
+    const replacementDecision = f.controller.setAudio('on').outcome;
+    return { audioAfterCleanup, childrenAlive, replacementDecision };
+  } finally { await f.dispose(); }
+}
+
+export async function replayAcquisitionCancellation(): Promise<void> {
+  const f = await fixture({ mutation: 'none', acquisition: 'blocked' });
+  try {
+    f.controller.setAudio('on');
+    await until(() => f.children.length === 1, 'physical child acquired before handle assignment');
+    f.controller.setAudio('off');
+    assert.equal(f.controller.setAudio('on').outcome, 'rejected');
+    f.spawnReturned.resolve();
+    await until(() => stopped(f.controller), 'scoped acquisition cleanup');
+    assert.equal(f.controller.snapshot().audio.kind, 'stopping', 'Unassigned acquisition remains uncertain even after synthetic cleanup');
+    assert.equal(f.controller.setAudio('on').outcome, 'rejected');
+    assert(f.children.every(child => !child.alive), 'Scope must reap an acquired child before publishing Off');
+    assert(!f.publications.some(view => view.audio.kind === 'ready'));
+  } finally { await f.dispose(); }
+}
+
+export async function replayCounterexample(mutation: Mutation, actions: readonly string[]): Promise<void> {
+  const f = await fixture({ mutation, preparation: 'blocked', cleanup: actions.includes('FinishExited') ? 'unconfirmed' : undefined, readback: 'blocked', acquisition: actions.includes('SpawnFailed') && !actions.includes('ChildAcquired') ? 'fail-before-child' : 'blocked' });
+  let pending: Promise<NativeOutcome> | undefined;
+  let first: Awaited<ReturnType<typeof ready>> | undefined;
+  let canceled = false;
+  let staleEvents = 0;
+  f.controller.subscribe(value => { if (value.type === 'event' && canceled) staleEvents++; });
+  try {
+    for (const action of actions) {
+      if (action === 'Enable') f.controller.setAudio('on');
+      else if (action === 'BeginSpawn') await until(() => f.spawnCalls === 1, 'spawn request');
+      else if (action === 'ChildAcquired') await until(() => f.children.length === 1, 'child acquired before handle return');
+      else if (action === 'Spawn') {
+        f.spawnReturned.resolve();
+        await until(() => f.prepareCalls === 1 || stopped(f.controller), 'spawn return or cancellation');
+      }
+      else if (action === 'SpawnFailed') {
+        f.spawnReturned.resolve();
+        await until(() => stopped(f.controller), 'spawn failure disposition');
+      } else if (action === 'PrepareDone') {
+        f.prepared.resolve();
+        await until(() => f.instruments.length === 1 || stopped(f.controller), 'prepared readback wait');
+      } else if (action === 'PublishReady') {
+        f.readback.ready = true;
+        await until(() => f.controller.snapshot().audio.kind === 'ready' || stopped(f.controller), 'ready publication or cancellation');
+        const audio = f.controller.snapshot().audio;
+        if (audio.kind === 'ready') first = audio;
+        assert(!canceled || audio.kind !== 'ready', 'Canceled startup must never publish Ready');
+      } else if (action === 'Terminate') { canceled = true; f.controller.setAudio('off'); }
+      else if (action === 'BeginCleanup') await until(() => f.controller.snapshot().audio.kind !== 'ready', 'cleanup response');
+      else if (action === 'HoldPending') {
+        await until(() => stopped(f.controller), 'uncertain acquisition hold');
+        assert.equal(f.controller.snapshot().audio.kind, 'stopping', 'Pending acquisition must retain ownership');
+      } else if (action === 'FinishExited') {
+        await until(() => stopped(f.controller), 'exit confirmation');
+        assert.equal(f.controller.snapshot().audio.kind, 'stopping', mutation === 'ownership' ? 'Pending acquisition must retain ownership' : 'Unconfirmed cleanup must retain ownership');
+      } else if (action === 'IssueCommand') {
+        assert(first);
+        pending = f.controller.command({ attempt: first.attempt, hostEpoch: first.performance.hostEpoch }, {});
+        await until(() => f.commandCalls === 1, 'issued control');
+      } else if (action === 'NativeExit') {
+        const child = f.children[0]; assert(child); child.alive = false; child.exit.resolve(ChildProcessSpawner.ExitCode(0));
+        await until(() => f.controller.snapshot().audio.kind !== 'ready', 'native exit observed');
+      } else if (action === 'ReturnCommand') {
+        assert(first); assert(pending);
+        f.commandDone.resolve({ outcome: 'applied', ...first.performance });
+        assert.equal((await pending).outcome, 'unknown', 'Unready old command must report unknown');
+      } else if (action === 'DeliverEvent') {
+        assert(f.instruments[0]);
+        for (const listener of f.instruments[0].listeners) listener({ type: 'event', event: { v: 1, runId: 'synthetic-run', seq: 1, type: 'state', state } });
+        assert.equal(staleEvents, 0, 'Canceled observer must not publish');
+      } else throw Error(`Unmapped TLC action ${action}`);
+    }
+  } finally { await f.dispose(); }
+}
+
+if (process.argv[1] === new URL(import.meta.url).pathname) {
+  for (const scenario of ['cancel', 'cleanup', 'command', 'observe', 'ownership'] satisfies Array<Exclude<Mutation, 'none'>>) {
+    await replay('none', scenario);
+    await assert.rejects(replay(scenario, scenario), error => error instanceof assert.AssertionError);
+    process.stdout.write(`${scenario}: baseline passed; actual controller mutation caught\n`);
+  }
+}
