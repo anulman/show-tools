@@ -1,10 +1,12 @@
 #include "alsa_pcm.h"
+#include "usb_identity.h"
 
 #include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <regex>
 #include <utility>
 #include <vector>
 
@@ -37,6 +39,63 @@ AlsaPcm::~AlsaPcm() = default;
 
 #if defined(__linux__)
 namespace {
+bool matches(const UsbIdentity& expected, const detail::UsbDeviceFacts& facts, std::string& error) {
+  if (facts.card_id == expected.card_id && facts.serial == expected.serial && facts.vendor == expected.vendor && facts.product == expected.product) return true;
+  error = "Selected USB audio identity does not match configured serial, vendor, product and ALSA ID";
+  return false;
+}
+bool pcm_matches(snd_pcm_t* pcm, const detail::UsbDeviceFacts& facts, unsigned device, int stream, std::string& error) {
+  snd_pcm_info_t* raw = nullptr;
+  int rc = snd_pcm_info_malloc(&raw);
+  if (rc < 0) { error = snd_strerror(rc); return false; }
+  std::unique_ptr<snd_pcm_info_t, decltype(&snd_pcm_info_free)> info(raw, snd_pcm_info_free);
+  rc = snd_pcm_info(pcm, info.get());
+  if (rc < 0 || snd_pcm_type(pcm) != SND_PCM_TYPE_HW || snd_pcm_state(pcm) == SND_PCM_STATE_DISCONNECTED || snd_pcm_info_get_card(info.get()) != int(facts.card) || snd_pcm_info_get_device(info.get()) != device || snd_pcm_info_get_stream(info.get()) != stream) {
+    error = "Acquired PCM handle is disconnected or does not match selected USB card/device";
+    return false;
+  }
+  return true;
+}
+bool monitor_off(const UsbIdentity& expected, unsigned card, std::string& error) {
+  snd_ctl_t* raw_control = nullptr;
+  int rc = snd_ctl_open(&raw_control, ("hw:" + std::to_string(card)).c_str(), SND_CTL_READONLY | SND_CTL_NONBLOCK);
+  if (rc < 0) { error = "Cannot read Direct Monitor control: " + std::string(snd_strerror(rc)); return false; }
+  std::unique_ptr<snd_ctl_t, decltype(&snd_ctl_close)> control(raw_control, snd_ctl_close);
+  snd_ctl_card_info_t* raw_card = nullptr;
+  rc = snd_ctl_card_info_malloc(&raw_card);
+  if (rc < 0) { error = snd_strerror(rc); return false; }
+  std::unique_ptr<snd_ctl_card_info_t, decltype(&snd_ctl_card_info_free)> card_info(raw_card, snd_ctl_card_info_free);
+  rc = snd_ctl_card_info(control.get(), card_info.get());
+  if (rc < 0 || snd_ctl_type(control.get()) != SND_CTL_TYPE_HW || snd_ctl_card_info_get_card(card_info.get()) != int(card) || expected.card_id != snd_ctl_card_info_get_id(card_info.get())) {
+    error = "Direct Monitor control does not belong to the selected hardware card";
+    return false;
+  }
+  snd_ctl_elem_info_t* raw_info = nullptr;
+  rc = snd_ctl_elem_info_malloc(&raw_info);
+  if (rc < 0) { error = snd_strerror(rc); return false; }
+  std::unique_ptr<snd_ctl_elem_info_t, decltype(&snd_ctl_elem_info_free)> info(raw_info, snd_ctl_elem_info_free);
+  snd_ctl_elem_info_set_interface(info.get(), SND_CTL_ELEM_IFACE_MIXER);
+  snd_ctl_elem_info_set_name(info.get(), expected.monitor_off.c_str());
+  snd_ctl_elem_info_set_index(info.get(), 0);
+  rc = snd_ctl_elem_info(control.get(), info.get());
+  if (rc < 0 || snd_ctl_elem_info_get_type(info.get()) != SND_CTL_ELEM_TYPE_BOOLEAN || snd_ctl_elem_info_get_count(info.get()) != 1) {
+    error = "Direct Monitor must be a readable named MIXER BOOLEAN with one value";
+    return false;
+  }
+  snd_ctl_elem_value_t* raw_value = nullptr;
+  rc = snd_ctl_elem_value_malloc(&raw_value);
+  if (rc < 0) { error = snd_strerror(rc); return false; }
+  std::unique_ptr<snd_ctl_elem_value_t, decltype(&snd_ctl_elem_value_free)> value(raw_value, snd_ctl_elem_value_free);
+  snd_ctl_elem_value_set_interface(value.get(), SND_CTL_ELEM_IFACE_MIXER);
+  snd_ctl_elem_value_set_name(value.get(), expected.monitor_off.c_str());
+  snd_ctl_elem_value_set_index(value.get(), 0);
+  rc = snd_ctl_elem_read(control.get(), value.get());
+  if (rc < 0 || snd_ctl_elem_value_get_boolean(value.get(), 0) != 0) {
+    error = "Direct Monitor must be off before enabling application audio";
+    return false;
+  }
+  return true;
+}
 int configure(snd_pcm_t* pcm, const Config& config, unsigned channels, Parameters& actual) {
   snd_pcm_hw_params_t* params = nullptr;
   int rc = snd_pcm_hw_params_malloc(&params);
@@ -89,11 +148,41 @@ std::unique_ptr<AlsaPcm> AlsaPcm::open(const Config& config, std::string& error)
 #if defined(__linux__)
   auto impl = std::make_unique<Impl>();
   impl->config = config;
-  int rc = snd_pcm_open(&impl->capture, config.capture_device.c_str(), SND_PCM_STREAM_CAPTURE, 0);
-  if (rc >= 0) rc = configure(impl->capture, config, config.capture_channels, impl->capture_parameters);
-  if (rc >= 0) rc = snd_pcm_open(&impl->playback, config.playback_device.c_str(), SND_PCM_STREAM_PLAYBACK, 0);
-  if (rc >= 0) rc = configure(impl->playback, config, 2, impl->playback_parameters);
+  std::optional<detail::UsbDeviceFacts> identity;
+  std::string capture = config.capture_device, playback = config.playback_device;
+  if (config.identity) {
+    const auto& expected = *config.identity;
+    const auto logical = "hw:CARD=" + expected.card_id + ",DEV=" + std::to_string(expected.pcm_device);
+    if (!std::regex_match(expected.by_id, std::regex("/dev/snd/by-id/[A-Za-z0-9_.:-]+")) ||
+        expected.serial.empty() || expected.serial.size() > 256 ||
+        !std::regex_match(expected.vendor, std::regex("[0-9a-f]{4}")) || !std::regex_match(expected.product, std::regex("[0-9a-f]{4}")) ||
+        !std::regex_match(expected.card_id, std::regex("[A-Za-z0-9_]{1,32}")) || expected.pcm_device > 31 ||
+        expected.monitor_off.empty() || expected.monitor_off.size() > 43 || capture != logical || playback != logical) {
+      error = "Invalid explicit USB audio identity configuration"; return nullptr;
+    }
+    identity = detail::inspect_usb_device(expected, error);
+    if (!identity || !matches(expected, *identity, error) || !monitor_off(expected, identity->card, error)) return nullptr;
+    capture = playback = "hw:" + std::to_string(identity->card) + "," + std::to_string(expected.pcm_device);
+  }
+  int rc = snd_pcm_open(&impl->capture, capture.c_str(), SND_PCM_STREAM_CAPTURE, SND_PCM_NONBLOCK);
+  if (rc >= 0) rc = snd_pcm_open(&impl->playback, playback.c_str(), SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
   if (rc < 0) { error = snd_strerror(rc); return nullptr; }
+  auto verify_handles = [&]() {
+    return !identity || (pcm_matches(impl->capture, *identity, config.identity->pcm_device, SND_PCM_STREAM_CAPTURE, error) &&
+      pcm_matches(impl->playback, *identity, config.identity->pcm_device, SND_PCM_STREAM_PLAYBACK, error));
+  };
+  if (!verify_handles()) return nullptr;
+  if (identity) {
+    const auto observed = detail::inspect_usb_device(*config.identity, error);
+    if (!observed || !(*observed == *identity)) { if (observed) error = "USB audio identity changed during acquisition"; return nullptr; }
+    if (!monitor_off(*config.identity, identity->card, error) || !verify_handles()) return nullptr;
+  }
+  rc = configure(impl->capture, config, config.capture_channels, impl->capture_parameters);
+  if (rc >= 0) rc = configure(impl->playback, config, 2, impl->playback_parameters);
+  if (rc >= 0) rc = snd_pcm_nonblock(impl->capture, 0);
+  if (rc >= 0) rc = snd_pcm_nonblock(impl->playback, 0);
+  if (rc < 0) { error = snd_strerror(rc); return nullptr; }
+  if (!verify_handles()) return nullptr;
   if (config.format == SampleFormat::S32LE) {
     impl->capture_int.resize(static_cast<std::size_t>(config.max_block_frames) * config.capture_channels);
     impl->playback_int.resize(static_cast<std::size_t>(config.max_block_frames) * 2);

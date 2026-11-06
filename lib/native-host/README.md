@@ -14,3 +14,15 @@ The socket directory must be private and owned by the caller. The audio owner re
 The ALSA backend's dependency and license are described in [its README](../native-alsa/README.md). Hardware configuration and physical audio behavior require separate verification on the target machine.
 
 Managed servers append `--owner-pid PID` to either executable. The host verifies its actual parent before acquiring devices and exits if that parent dies. Linux uses parent-death signaling with a race check; the portable synthetic path watches parent identity. A forged owner is rejected. Standalone offline callers may omit the option. The persistent desk owns its native child; stopping musical transport keeps that child and its takes, while terminating audio destroys it and releases devices.
+
+Managed ALSA hosts also receive one complete option group:
+
+```sh
+--usb-identity BY_ID SERIAL VENDOR_HEX PRODUCT_HEX ALSA_CARD_ID PCM_DEVICE MONITOR_OFF_NAME
+```
+
+The managed profile requires this identity and derives its logical `hw:CARD=...,DEV=...` arguments from it. Native acquisition resolves the stable control link and nearest USB ancestor, checks serial, vendor, product, ALSA card ID and PCM ancestry, and derives numeric hardware endpoints. It reads the named MIXER control as a one-value BOOLEAN and requires it off. No mixer writes occur.
+
+Both capture and playback are acquired nonblocking, so an existing PCM owner fails admission. Before readiness, native checks the actual retained handles' card, device and stream, then repeats USB-instance and Direct Monitor checks and verifies live handles again. Every failure closes acquired resources. Standalone callers without `--owner-pid` may omit the USB requirement for synthetic/offline testing; controller-managed ALSA cannot omit it. Duplicate or partial option groups are rejected.
+
+These checks run on every fresh enable. They do not provide an atomic USB-serial transaction or prevent another actor changing the mixer after admission. A disconnected device faults; the host never reopens a replacement automatically. Real target hotplug, negotiated parameters and device release require installation acceptance.

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.16)
 project(native_alsa LANGUAGES CXX)
-add_library(native_alsa STATIC alsa_pcm.cpp)
+add_library(native_alsa STATIC alsa_pcm.cpp usb_identity.cpp)
 target_compile_features(native_alsa PUBLIC cxx_std_17)
 target_include_directories(native_alsa PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
