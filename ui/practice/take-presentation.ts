@@ -3,6 +3,7 @@ import type { ChannelId, PracticeState } from '../../lib/performance/model.js';
 
 type DisplayState = Pick<PracticeState, 'channels'> & Pick<Partial<PracticeState>, 'compiledTakes'>;
 type Point = CompiledTake['begin'];
+type Selection = CompiledSong['selections'][number];
 
 function count(point: Point, beats: number) { return (point.bar - 1) * beats + point.beat; }
 function range(take: CompiledTake): string {
@@ -15,9 +16,16 @@ function period(take: CompiledTake, beats: number): string {
   const counts = count(take.loopEnd, beats) - count(take.begin, beats);
   return counts % beats === 0 ? `${counts / beats}-bar loop` : `${counts}-count loop`;
 }
-function plan(takes: readonly CompiledTake[], beats: number): string {
+function barViewCount(selections: readonly Selection[], beats: number): number {
+  return new Set(selections.flatMap(selection => selection.window.kind === 'slice'
+    && selection.window.loopCounts === beats && selection.window.beginCount % beats === 0
+    ? [`${selection.takeIds.join(',')}:${selection.window.beginCount}`] : [])).size;
+}
+function plan(takes: readonly CompiledTake[], beats: number, selections: readonly Selection[]): string {
   if (!takes.length) return '';
   if (takes.every(take => take.retention === 'variant')) {
+    const views = barViewCount(selections, beats);
+    if (views) return `${takes.length} captures · bars ${takes.map(range).join(' + ')} · ${views} reusable bar views`;
     return `${takes.length} separate versions · ${takes.map(take => `bar ${range(take)} ${take.phrase}`).join(' · ')}`;
   }
   const first = takes[0];
@@ -48,14 +56,16 @@ export function takePresentation(song: CompiledSong | undefined, channelId: Chan
   if (!song || !voice) return { plan: '', summary: null };
   const takes = song.takes.flatMap((take, index) => take.voiceId === voice.id ? [{ take, index }] : []);
   const descriptions = takes.map(({ take }) => take);
-  const annotation = plan(descriptions, song.chart.beatsPerBar);
+  const selections = song.selections.filter(selection => selection.voiceId === voice.id);
+  const views = barViewCount(selections, song.chart.beatsPerBar);
+  const annotation = plan(descriptions, song.chart.beatsPerBar, selections);
   const takeStates = state.compiledTakes;
   if (!takes.length || !takeStates) return { plan: annotation, summary: null };
   const readings = takes.map(({ index, take }) => ({ take, state: takeStates.find(reading => reading.index === index) }));
   if (readings.some(reading => !reading.state)) return { plan: annotation, summary: null };
   const saved = readings.filter(reading => reading.state?.ready).length;
   const variants = descriptions.every(take => take.retention === 'variant');
-  const unit = variants ? 'version' : 'layer';
+  const unit = variants ? views ? 'capture' : 'version' : 'layer';
   const savedLabel = `${saved} of ${takes.length} ${unit}${takes.length === 1 ? '' : 's'} saved`;
   const channel = state.channels.find(channel => channel.id === channelId);
   if (channel?.status === 'recording' || channel?.status === 'armed') {
@@ -69,7 +79,20 @@ export function takePresentation(song: CompiledSong | undefined, channelId: Chan
   let summary = savedLabel;
   if (variants && playing.length === 1) {
     const active = playing[0].take;
-    summary = `Playing version ${descriptions.indexOf(active) + 1}/${takes.length} · bar ${range(active)} · ${active.phrase}`;
+    const index = playing[0].state?.selectionIndex;
+    const selection = index === null || index === undefined ? undefined : song.selections[index];
+    if (views && selection?.voiceId === voice.id && selection.takeIds.includes(active.id)) {
+      if (selection.window.kind === 'slice') {
+        const begin = active.begin.beat + selection.window.beginCount;
+        const bar = active.begin.bar + Math.floor(begin / song.chart.beatsPerBar);
+        const beat = begin % song.chart.beatsPerBar;
+        const phrase = active.phrase.split('|')[Math.floor(selection.window.beginCount / song.chart.beatsPerBar)] ?? '';
+        const loop = selection.window.loopCounts;
+        const length = loop % song.chart.beatsPerBar === 0 ? `${loop / song.chart.beatsPerBar}-bar loop` : `${loop}-count loop`;
+        summary = `Playing bar ${bar}${beat ? `:${beat + 1}` : ''} · ${phrase} · ${length} · capture ${descriptions.indexOf(active) + 1}/${takes.length}`;
+      } else summary = `Playing capture ${descriptions.indexOf(active) + 1}/${takes.length} · bars ${range(active)} · ${period(active, song.chart.beatsPerBar)}`;
+    } else if (views) summary = '1 capture playing · view unavailable';
+    else summary = `Playing version ${descriptions.indexOf(active) + 1}/${takes.length} · bar ${range(active)} · ${active.phrase}`;
   } else if (playing.length) {
     summary = `${playing.length} ${unit}${playing.length === 1 ? '' : 's'} playing`;
     const length = period(playing[0].take, song.chart.beatsPerBar);
@@ -77,6 +100,12 @@ export function takePresentation(song: CompiledSong | undefined, channelId: Chan
   } else if (releasing.length) {
     summary = `Releasing · ${savedLabel}`;
   }
-  if (playing.some(reading => reading.state && reading.state.sourceEndFrames !== null)) summary += ' · Trimmed';
+  if (playing.some(reading => {
+    const index = reading.state?.selectionIndex;
+    const selection = index === null || index === undefined ? undefined : song.selections[index];
+    if (views && (!selection || selection.voiceId !== voice.id || !selection.takeIds.includes(reading.take.id))) return false;
+    if (selection?.window.kind === 'slice') return selection.window.endCount - selection.window.beginCount < selection.window.loopCounts;
+    return reading.state && reading.state.sourceEndFrames !== null;
+  })) summary += ' · Trimmed';
   return { plan: annotation, summary };
 }

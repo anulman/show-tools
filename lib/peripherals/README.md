@@ -143,3 +143,76 @@ For 6/8, chart and pedal count six eighth-note beats. The first pedal tap can oc
 The native tests cover reconnect latches, ordering, raw rotation, explicit light math, envelope endpoints, baseline changes at expiry, malformed descriptors, and exact SDK report encoding. The WASM build runs the same assertions and compares emitted values against native execution. The separate PF fixture applies four deliberately reordered button-to-channel bindings to the real C++ engine, captures generated PCM sequentially, commits and auto-plays four loops, renders their mix, and stops them. The fixture forwards identical signed rotation to two explicit host-side test bindings, one selecting a target and one enabling click. This proves the normalization seam can feed different operations; it does not test song-based resolution.
 
 Mac and Linux CI compile the probe and exercise its help and refusal paths without hardware. Stop/disconnect/error summary counters have synthetic coverage. The original implementation checks opened no physical I-PAC. Subsequent MacBook bench testing verified keyboard input, signed relative Y motion, and visible control of LED output 1. See the [bench verification record](../../docs/guides/ipac-mac/bench-verification.md) for the limits of those observations. The checked-in enable/pulse commands have automated protocol and failure-path tests; their packaged hardware execution still needs a repeat. Linux physical operation, the remaining input and LED map, latency, and exact physical pulse timing remain unverified.
+## Persistent Mac device host
+
+The `peripheral-host` target owns the confirmed I-PAC installation's Tab key
+(HID page 7, usage 43), relative Y axis (page 1, usage 49), and one explicitly
+selected SDK LED channel. It requires exactly one `d209:0410` device with unique
+matching input interfaces and a validated LED report descriptor. It opens only
+those input interfaces exclusively, keeping their Tab and mouse movement out of
+other apps until exit. Start it from the terminal granted Input Monitoring.
+It never opens the laptop keyboard.
+
+`peripheral-host SESSION SDK_CHANNEL --confirm-wiring` is a child-process
+interface rather than a stand-alone performance command. The gateway client
+supplies a fresh exact positive session integer and owns stdin. Build and
+`--help` perform no hardware IO. The current installation uses SDK channel 0,
+physical output 1, with its separate 5 V supply connected.
+
+Stdout emits version-one `ready`, `button`, `motion`, `detached` and `delivered`
+NDJSON. Unknown or initially held buttons require a release before admission;
+repeated held reports and zero motion produce no controls. Raw signed Y distance
+is preserved. Registry IDs are discovered per connection rather than saved.
+Removal ends the child, and EOF or signals close its interfaces. A parent must
+discard pending inputs and release native held state when the child exits.
+
+Stdin accepts `bind ENGINE SESSION REVISION FENCE`, then
+`light ENGINE SESSION REVISION FENCE` followed by the complete 78-number PE
+publication, or `clear` / `quit`. The existing delivery gate validates and fences
+each image; all brightness writes must succeed before commit. `clear` also
+disables delivery until a fresh bind. Only brightness reports are written:
+unknown peer enable masks are preserved. A disabled physical channel may need
+separately verified enable-mask initialization; this helper never guesses it.
+The 5 ms run-loop wait services IO and does not advance musical time or animate
+lights. This target is currently implemented for macOS; Linux device hosting
+remains a separate adapter.
+
+Enable hardware audio and leave transport stopped, then run from the permissioned
+terminal:
+
+```sh
+./show-tools peripheral connect --config /absolute/path/peripheral.json
+```
+
+Configuration contains no token value:
+
+```json
+{
+  "version": 1,
+  "origin": "https://YOUR-CONFIGURED-INSTRUMENT-ORIGIN",
+  "tokenFile": "/absolute/private/gateway-token",
+  "caFile": "/absolute/path/instrument-certificate.pem",
+  "helperExecutable": "/absolute/path/peripheral-host",
+  "sdkChannel": 0,
+  "bindingRevision": 1,
+  "jiggle": { "minimumTravel": 4, "minimumReversal": 2 }
+}
+```
+
+Omit `caFile` when using the system trust store. HTTP is accepted only on loopback.
+The token file must be caller-owned with mode 600. The bridge sends no transport
+Start or Stop. It resets held state and prepares native jiggle thresholds before
+admitting inputs. Reconnect after an engine attempt changes or USB is removed.
+
+The starting 4/2 thresholds are software tuning values in raw Y counts rather
+than a measured physical deadband. Native C++ owns confirmation and its
+quarter-count observation window. Adjacent same-direction reports may combine
+during a network acknowledgement; signed travel is retained and reversals stay
+ordered. Old queued input is never replayed into another engine attempt.
+
+Ctrl+C clears the local output, makes a fresh bounded release request against the
+same native target, and closes the helper. Release failures are reported. Native
+stdout and both input streams are bounded. A silently stalled network stream
+currently has no automatic fail-dark watchdog. Physical beat alignment remains
+subject to network latency. The bridge never guesses an LED enable mask.
+

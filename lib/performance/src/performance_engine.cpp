@@ -67,7 +67,10 @@ struct pf_engine {
   EffectProfile profiles[PF_VOICE_PROFILES];
   double tempo_info[PF_TEMPO_FIELDS]{};
   double tempo_epoch = -1;
-  bool live_authorized = false;
+  bool live_authorized = false, cue_button_held = false;
+  double light_run = 0, light_sequence = 0;
+  int jiggle_travel = 4, jiggle_reversal = 2;
+  double light_image[PF_LIGHT_FIELDS]{};
   double rate = 0, processed = 0, bpm = 120, epoch = 1, clock_beat = 0, clock_frame = 0, click_origin = 0, max_seconds = 30;
   int mode = PF_TRACKER, phase = PF_IDLE, start = 1, end = 1, selected = 2, beats_per_bar = 4;
   int bar = -1, beat = -1, count_beats = 0, count_elapsed = 0, count_remaining = 0, position = -1;
@@ -191,6 +194,7 @@ void emit(pf_engine* engine, int type, double when = -1, int applied = -1, int c
   for (int id = 0; id < PF_CHANNELS; ++id) pf_channel_info(engine, id, event + PF_EVENT_CHANNELS + id * PF_CHANNEL_FIELDS);
 }
 void silence(pf_engine* engine, int reason = 3) {
+  engine->cue_button_held = false;
   if (engine->compiled) engine->compiled->stop();
   clear_live(engine);
   sq_stop(engine->sequencer);
@@ -505,6 +509,7 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   if (identity) engine->profiles[PF_DEFAULT_PROFILE].rack = std::move(identity);
   if (backup) engine->profiles[PF_BACKUP_PROFILE].rack = std::move(backup);
   prepared->tempo_handler(engine, chart_tempo_hit);
+  prepared->jiggle_thresholds(engine->jiggle_travel, engine->jiggle_reversal);
   engine->beats_per_bar = prepared->beats_per_bar(); engine->bpm = prepared->initial_bpm(); engine->end = prepared->end_bar();
   delete engine->song; engine->song = song.release(); engine->compiled = std::move(prepared);
   engine->compiled->observe(engine, [](void* context, double when) {
@@ -515,7 +520,7 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   engine->compiled->outcomes(engine, [](void* context, double when, int button, int cue, int error) {
     auto* owner = static_cast<pf_engine*>(context);
     int previous_code = owner->error_code; const char* previous_message = owner->error;
-    fail(owner, error); emit(owner, PF_CONTROL, when, 0, button, 0, cue);
+    fail(owner, error); emit(owner, PF_CONTROL, when, error == PF_OK, button, 0, cue);
     owner->error_code = previous_code; owner->error = previous_message;
   });
   engine->error_code = PF_OK; engine->error = ""; emit(engine, PF_STATE); return 0;
@@ -534,7 +539,7 @@ int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t byte
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out) {
   if (!out) return;
   if (engine && engine->compiled) engine->compiled->take_info(take, out);
-  else { std::fill(out, out + PF_TAKE_FIELDS, 0); out[PF_TAKE_SOURCE_END] = -1; }
+  else { std::fill(out, out + PF_TAKE_FIELDS, 0); out[PF_TAKE_SOURCE_END] = out[PF_TAKE_SELECTION] = -1; }
 }
 int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int loop, int automatic) {
   if (!engine) return -1;
@@ -552,6 +557,7 @@ int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int l
   engine->phase = count ? PF_COUNT_IN : PF_PLAYING; engine->bar = engine->beat = -1; engine->last_beat = engine->run_epoch = -1;
   engine->error_code = PF_OK; engine->error = ""; engine->trigger_count = 0;
   silence(engine);
+  ++engine->light_run;
   for (bool& suppressed : engine->suppressed) suppressed = false;
   engine->live_authorized = engine->mode == PF_PRACTICE && engine->microphone && bool(engine->profiles[PF_DEFAULT_PROFILE].rack);
   if (engine->compiled) engine->compiled->start(start, engine->count_beats, engine->processed, bpm);
@@ -691,15 +697,15 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
   if (!engine) return -1;
   engine->error_code = PF_OK; engine->error = "";
   if ((!command_id && command_length) || (command_id && (!command_length || command_length > 200))) {
-    fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, 0, control, value); return -1;
+    fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, 0, control, value); return -1;
   }
   if (command_id) {
     bool nonspace = false;
     for (uint32_t index = 0; index < command_length; ++index) if (!whitespace(command_id[index])) nonspace = true;
-    if (!nonspace) { fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, 0, control, value); return -1; }
+    if (!nonspace) { fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, 0, control, value); return -1; }
     for (const Dedup& item : engine->dedup) if (item.present && item.length == command_length && std::memcmp(item.id, command_id, command_length * sizeof(uint16_t)) == 0) {
-      if (item.control != control || (control == 5 && item.value != value)) { fail(engine, PF_COMMAND_CONFLICT); emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, 0, control, value); return -1; }
-      emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, 1, control, value); return 0;
+      if (item.control != control || ((control == 5 || control == 7) && item.value != value)) { fail(engine, PF_COMMAND_CONFLICT); emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, 0, control, value); return -1; }
+      emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, 1, control, value); return 0;
     }
   }
   int result = 0;
@@ -711,13 +717,35 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
       int code = engine->compiled->rotate(value, engine->processed, engine->bpm);
       if (code != PF_OK) result = fail(engine, code);
     }
+  } else if (control == 7) {
+    if (value != 0 && value != 1) result = fail(engine, PF_INVALID_PROGRAM, "Cue button must be released or held");
+    else {
+      bool rising = value == 1 && !engine->cue_button_held;
+      engine->cue_button_held = value == 1;
+      if (rising && running(engine)) {
+        if (engine->compiled) {
+          int code = engine->compiled->press_current(engine->processed, engine->bpm, engine->microphone);
+          if (code != PF_OK) result = fail(engine, code);
+        } else {
+          int first_error = PF_OK;
+          for (int pass = 0; pass < 2; ++pass) for (int button = 0; button < PF_CHANNELS; ++button) {
+            int kind = current_cue(engine, button).kind;
+            if (kind == PF_NONE || ((kind == PF_COMMIT || kind == PF_COMMIT_ARM) != (pass == 0))) continue;
+            int accepted = press(engine, button);
+            emit(engine, PF_CONTROL, engine->processed, accepted >= 0, button, 0);
+            if (accepted < 0 && first_error == PF_OK) first_error = engine->error_code;
+          }
+          if (first_error != PF_OK) result = fail(engine, first_error);
+        }
+      }
+    }
   } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
   else result = fail(engine, PF_INVALID_CHANNEL);
   if (result >= 0 && command_id) {
     Dedup& item = engine->dedup[engine->dedup_cursor++ % dedup_capacity];
     item.present = true; std::memcpy(item.id, command_id, command_length * sizeof(uint16_t)); item.length = command_length; item.control = control; item.value = value;
   }
-  emit(engine, PF_CONTROL, control == 5 ? engine->processed : -1, result >= 0, control, value);
+  emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, result >= 0, control, value);
   return result;
 }
 int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
@@ -844,6 +872,62 @@ int pf_process_stems(pf_engine* engine, const float* input, float* left, float* 
   const float* spans[] = {input, left, right, live_left, live_right};
   if (!disjoint_audio(spans, 5, frames)) return -1;
   return process_stems(engine, input, left, right, live_left, live_right, frames);
+}
+int pf_set_jiggle_thresholds(pf_engine* engine, double travel, double reversal) {
+  if (!engine) return -1;
+  if (running(engine)) return fail(engine, PF_INVALID_PROGRAM, "Stop transport before configuring jiggle thresholds");
+  if (!integer(travel) || !integer(reversal) || travel < 1 || travel > 32767 || reversal < 1 || reversal > travel)
+    return fail(engine, PF_INVALID_PROGRAM, "Jiggle thresholds require integer travel 1..32767 and reversal 1..travel");
+  engine->jiggle_travel = int(travel); engine->jiggle_reversal = int(reversal);
+  if (engine->compiled) engine->compiled->jiggle_thresholds(int(travel), int(reversal));
+  engine->error_code = PF_OK; engine->error = "";
+  return 0;
+}
+void pf_light_output(pf_engine* engine, double* out) {
+  if (!out) return;
+  std::fill(out, out + PF_LIGHT_FIELDS, 0);
+  if (!engine) return;
+  if (engine->light_sequence == safe_frame) {
+    std::copy(engine->light_image, engine->light_image + PF_LIGHT_FIELDS, out);
+    out[PF_LIGHT_SEQUENCE] = safe_frame; return;
+  }
+  double clock[BT_S_COUNT]; bt_snapshot(engine->tracker, clock);
+  double image[PF_LIGHT_FIELDS]{};
+  image[PF_LIGHT_FORMAT] = PF_LIGHT_VERSION;
+  image[PF_LIGHT_GENERATION] = engine->light_run + 1;
+  image[PF_LIGHT_RUN] = engine->light_run;
+  image[PF_LIGHT_EPOCH] = clock[BT_S_EPOCH];
+  image[PF_LIGHT_TIMELINE] = clock[BT_S_REVISION];
+  image[PF_LIGHT_FRAME] = clock[BT_S_FRAME];
+  image[PF_LIGHT_RATE] = engine->rate;
+  image[PF_LIGHT_COUNT_BEAT] = clock[BT_S_BEAT_ID] + clock[BT_S_PHASE];
+  image[PF_LIGHT_RUNNING] = running(engine);
+  image[PF_LIGHT_COUNT] = 1;
+  image[PF_LIGHT_SAMPLES] = 1;
+  double level = 0;
+  bool capturing = engine->compiled && engine->compiled->recording(), playing = false;
+  for (int id = 0; id < PF_CHANNELS; ++id) {
+    double channel[PF_CHANNEL_FIELDS]; pf_channel_info(engine, id, channel);
+    capturing = capturing || (!engine->compiled && recording(engine, id));
+    playing = playing || channel[PF_CHANNEL_LOOPING] != 0;
+  }
+  if (!engine->compiled) for (int voice = 0; voice < ST_MAX_VOICES; ++voice) {
+    double sample[ST_VOICE_FIELDS]; st_voice_info(engine->sampler, voice, sample);
+    playing = playing || sample[ST_VOICE_CHANNEL] >= 0;
+  }
+  if (engine->cue_button_held) level = 1;
+  else if (capturing) {
+    constexpr double tau = 6.2831853071795864769;
+    level = .7 * (1 + std::cos(tau * clock[BT_S_PHASE])) / 2;
+  } else if (playing) level = .7;
+  image[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_LEVEL] = level;
+  if (engine->light_sequence == 0 || std::memcmp(image, engine->light_image, sizeof(image))) {
+    if (engine->light_sequence < safe_frame - 1) ++engine->light_sequence;
+    else { engine->light_sequence = safe_frame; std::fill(image + PF_LIGHT_COUNT, image + PF_LIGHT_FIELDS, 0); }
+    std::copy(image, image + PF_LIGHT_FIELDS, engine->light_image);
+  }
+  std::copy(engine->light_image, engine->light_image + PF_LIGHT_FIELDS, out);
+  out[PF_LIGHT_SEQUENCE] = engine->light_sequence;
 }
 void pf_snapshot(const pf_engine* engine, double* out) {
   if (!out) return;

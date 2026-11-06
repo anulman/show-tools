@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import sharp from 'sharp';
 import { Schema } from 'effect';
 import sourceInput from '../../songs/dance-yrself-clean.source.json';
-import mapping from '../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../songs/dance-yrself-clean.cutover.mapping.json';
 import promoted from '../../assets/video/motion/poof/scene-fits/street.json';
 import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
 import { readMusicXmlSong } from '../../lib/performance/musicxml-song.js';

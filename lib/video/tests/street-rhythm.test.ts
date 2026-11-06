@@ -6,7 +6,7 @@ import { readMusicXmlSong } from '../../performance/musicxml-song.js';
 import { parseSongSource } from '../../performance/song-source.js';
 import { discoverSheetVoices } from '../../voice-catalog/sheet-voices.js';
 import sourceInput from '../../../songs/dance-yrself-clean.source.json';
-import mapping from '../../../songs/dance-yrself-clean.mapping.json';
+import mapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
 
 const forms = ['-', "-'", "-'4]", '-4]', '(4)&a', '(4)&', '4', "(4)&'", "4'", '[2!-', "(4)&a'", '&e3a&', '&e3a&a', '&e3a', '&e3e', "&e3a&'", "&e3a&a'", "&e3a'", "&e3e'", '2 4', '2 4e&a', '&e3e&a', '2 4&a', '234&a', '2 4&', '2', '1', "1'", "-'!", '!', '!!', '!-', '4e&a]', '-4!', '-2!', '!4!!', '!2!!', '4e&a', '[3!', '1!]', '[4-', '-1]', '-3][4-', '-3]', '[1-', '-3] &'];
 test('all actual compact notation families classify with literal max emphasis', () => {

@@ -28,7 +28,7 @@ export interface GatewayConfig {
 	tls?: { cert: Buffer; key: Buffer };
 }
 
-export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
+export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
 type Session = { highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
 const MAX_SESSIONS = 128;
 const MAX_RESULTS = 256;
@@ -37,7 +37,7 @@ const MAX_CLIENTS = 128;
 const MAX_EVENT_BUFFER = 4 * 1024 * 1024;
 const requestFields = { sessionId: Schema.NonEmptyString, sequence: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })) };
 const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,
-  command: Schema.Literals(['start', 'stop', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile']),
+  command: Schema.Literals(['start', 'stop', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle']),
   args: Schema.Record(Schema.String, Schema.Unknown), target: NativeTargetSchema,
 }));
 const decodeAudio = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields, goal: AudioGoalSchema }));

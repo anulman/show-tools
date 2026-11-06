@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import { NativeEventSchema, NativeStateSchema, SongSchema } from './native-schema.js';
+import { NativeEventSchema, NativeStateSchema, SongSchema, LightPublicationSchema } from './native-schema.js';
 
 const id = Schema.NonEmptyString.check(Schema.isMaxLength(256));
 const revision = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/));
@@ -13,6 +13,7 @@ export const NativePerformanceSchema = Schema.Struct({
   hostEpoch: NativeEpochSchema,
   revision: NativeRevisionSchema,
   state: NativeStateSchema,
+  lights: LightPublicationSchema,
 });
 export const AudioStateSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('off') }),

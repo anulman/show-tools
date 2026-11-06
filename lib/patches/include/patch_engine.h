@@ -107,6 +107,9 @@ class Playback {
   Playback& operator=(const Playback&) = delete;
   bool start(bool loop, uint32_t start_frame = 0) noexcept;
   bool start_at_capture_end(bool loop) noexcept;
+  bool start_window(bool loop, uint32_t begin, uint32_t end, uint32_t period, const Rack& initial) noexcept;
+  bool start_window_at_capture_end(bool loop, uint32_t begin, uint32_t end, uint32_t period) noexcept;
+  bool set_window(uint32_t begin, uint32_t end, uint32_t period) noexcept;
   bool set_source_end(uint32_t exclusive_frame) noexcept;
   void clear_source_end() noexcept { source_end_ = UINT32_MAX; }
   double source_end() const noexcept { return source_end_ == UINT32_MAX ? -1 : double(source_end_); }
@@ -125,6 +128,7 @@ class Playback {
   PlaybackState state_ = PlaybackState::idle;
   uint32_t phase_ = 0;
   uint32_t source_end_ = UINT32_MAX;
+  uint32_t source_begin_ = 0, window_period_ = 0;
   uint64_t release_remaining_ = 0, iteration_ = 0;
   void finish() noexcept;
   bool loop_ = false;

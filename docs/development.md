@@ -178,6 +178,8 @@ Chrome verified the production adapter with synthetic microphone input. Four nat
 
 Read [the cutover guide](implementation/musicxml-cutover.md). `show-tools chart compile --musicxml SONG.musicxml --out SONG.json` followed by `show-tools chart encode --song SONG.json --out SONG.pfp` produces disposable compiled artifacts. `show-tools chart inspect SONG.musicxml` reads the canonical document. The Sheets `fetch`, workbook `import`, and `musicxml` commands are ingestion boundaries and require their mapping configuration.
 
+For multi-bar captures committed with `clb`, run `lib/performance/tests/capture-slices.test.ts` and the native CTest suite. Verify exact slice heads, count-based source cutoffs, original DSP checkpoints, evolving loop seams, phase-preserving switches, zero-source tails and no audio-thread allocation. `clb` commits at the start of its written bar and selects the last completed bar; source capture is bounded even if the commit press is missed. Native packet 6 window rows contain selection, source beginning, exclusive end and loop period. Full-song verification must use the current canonical document; frozen cutover evidence remains separate.
+
 Run `node --import tsx scripts/verify-musicxml-cutover.ts`, the `musicxml-song`, `musicxml-authoring`, `musicxml-cutover` and musician tests, and `npm run typecheck`. Run `npm run verify:dyc` for complete native/WASM conformance at 44.1 and 48 kHz. Do not restore JSON source/mapping fallbacks. MusicXML edits must invalidate semantic hashes, and removing audit archives must change no compiled or printed meaning.
 
 Build the optional bound-Sheets package with `node --import tsx scripts/build-sheets-musicxml.ts --out-dir NEW_DIRECTORY`. `scripts/sheets-musicxml/` owns the Google service adapter; `ui/sheets-musicxml/` owns the download dialog. Run `scripts/tests/sheets-musicxml.test.ts` alongside the exporter tests. The [installation guide](implementation/sheets-musicxml.md) distinguishes VM/browser fixture checks from actual Google authorization and installation. Keep generated Apps Script files and ZIPs outside Git.
@@ -216,7 +218,7 @@ The native `peripheral-probe` provides explicit `list`, `listen`, and guarded `l
 
 ## Verify the compact voice desk
 
-Use each voice footer to edit an ordered stack while stopped. Native applied readback owns the summary; unsaved drafts must remain visibly unapplied. Verify changing one voice leaves another voice and its compatible capture banks unchanged. Existing retained takes keep their recorded graph. Test the serial backup Slapback and Chorus stack with nonzero rotations inside a marked interval, strict next-quarter-count grid release, tempo changes, window exit, and Stop. Zero and duplicate observations cannot extend the grid deadline. Physical knob mapping remains an installation task.
+Use each voice footer to edit an ordered stack while stopped. Native applied readback owns the summary; unsaved drafts must remain visibly unapplied. Verify changing one voice leaves another voice and its compatible capture banks unchanged. Existing retained takes keep their recorded graph. Test the serial backup Slapback and Chorus stack with nonzero rotations inside a marked interval, full quarter-count inactivity release, tempo changes, window exit, and Stop. Zero and duplicate observations cannot extend the inactivity deadline. Physical knob mapping remains an installation task.
 
 Check Space on a focused effect disclosure or button before checking the body-level transport shortcut. Escape must still Panic while editing. Capture desktop and 390px screenshots from the integrated app, including expanded two-stage backup settings. Keep pad targets stable during count-in and recording. The layout comparison and verification contract are in [the desk rehab guide](implementation/practice-desk-rehab.md).
 
@@ -271,3 +273,25 @@ node --import tsx scripts/build-session-release.ts --native-artifact NATIVE_ARTI
 The builder requires committed source and an output basename of `show-tools-session-release-<HEAD7>`. It verifies native hashes and source equivalence, the reviewed standalone Linux Node executable, and song package integrity. It rebuilds the shared WASM and browser UI, bundles server/CLI/preparation tools, includes full lifecycle/native review sources, licenses and build provenance, refuses an existing output directory, and writes full file/archive checksums. Optional `--reviewed-revision FULL_SHA` requires the reviewed commit and packaged source to have identical Git trees. Private profiles, tokens and TLS files are installed separately and never enter the archive. The installed `bin/show-tools-session` accepts session subcommands directly.
 
 Use the [EliteDesk installation handoff](implementation/elitedesk-install.md) for scope, private credential migration, stage-only verification, and target acceptance. Run `python3 scripts/tests/stage-session-release.test.py` for adversarial extraction and idempotent promotion checks. The managed ALSA profile requires explicit identity and monitoring policy; never replace it with a floating default device.
+
+### Connect the laptop I-PAC
+
+Build `lib/peripherals` and read its [persistent host contract](../lib/peripherals/README.md#persistent-mac-device-host).
+`./show-tools peripheral connect --config /absolute/path/peripheral.json` connects
+the permissioned terminal's local helper to an enabled, stopped hardware-audio
+session. It starts no audio or browser. The gateway origin, private token,
+optional certificate, helper path and output mapping are explicit configuration.
+Do not put temporary USB registry IDs into a song.
+
+Run `node --import tsx --test lib/peripherals/tests/bridge.test.ts` for bounded
+ingress, reversal-preserving motion, stale sessions and cleanup ordering. Run the
+native peripheral CTest targets as well. The bridge integration test uses a real
+gateway/native fake host and synthetic child process without opening USB. Verify
+the physical LED and motion thresholds from the permissioned terminal before
+declaring the installed instrument ready.
+
+### Verify capture parents and the playing view
+
+Take readback appends `PF_TAKE_SELECTION` at field 9; `PF_TAKE_FIELDS` is 10 in the unreleased ABI 8 interface. A playing take reports its actual native selection index only when it belongs to that active selection. Idle and releasing readback use -1, decoded as `selectionIndex: null`. Keep browser/WASM and remote snapshot schemas together when changing this layout.
+
+Run the take-presentation and remote-schema UI tests, `capture-slices.test.ts` at both audio rates, and native compiled-program tests. Current DYC has five capture parents: Cowbell uses two captures with eleven distinct reusable source-bar views. Its shortened bar-82 view is another admission window over the same source bar. A whole-bar slice has a native source cutoff too; display Trimmed only when the selected source span is shorter than its loop period. Derive the playing source bar from native `selectionIndex`, never the chart's displayed current bar. Keep frozen historical doubling tests alongside current-chart tests.

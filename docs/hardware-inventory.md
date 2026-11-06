@@ -49,6 +49,26 @@ The observed `2a` label and `j` result are installation facts reported by the op
 
 The spinner initially occupied the wrong header row. Correcting that physical connection restored relative Y reports without changing firmware or input configuration. No persistent configuration or stored LED script was written during this session.
 
+## November 6 laptop installation
+
+The temporarily laptop-connected I-PAC emitted four complete Tab press/release
+pairs (keyboard page 7, usage 43), not the older bench J binding. The operator
+capture contained 689 signed relative Y reports, values -7 through 7, with no
+gaps or errors; X remained zero. Its descriptor has relative Y rather than a
+wheel usage. The new read-only host qualification found unique Tab, relative Y
+and supported LED interfaces without opening them. The operator's iTerm reader
+works after Input Monitoring approval; the Codex daemon context does not.
+
+The operator reconfirmed physical LED output 1 / SDK channel 0 and its separate
+connected 5 V supply. One press performs all current written button cues. While
+held the LED is 100%; otherwise actual recording pulses with the beat to 70%,
+taking precedence over steady 70% playback. Jiggle activates the armed Chorus
+route and expires after a full quarter chart-count of meaningful-motion
+inactivity. Tiny same-direction movement may be inactivity; small reversals
+count, but one isolated truly tiny reversal does not. Software thresholds require
+physical tuning and are not calibration measurements. USB placement remains
+configurable and is expected to move.
+
 ## Confirmed intended behavior
 
 - The operator expects controller inputs to appear as keyboard events, with direction and distance updates for the knob. Verify the actual SpinTrak/controller configuration and host reports before choosing an adapter. Intended behavior is not a measured USB report format.

@@ -36,9 +36,16 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
     cue.execution.kind === 'beat' ? cue.execution.beat : 0, optionalIndex(takes, cue.takeId),
     optionalIndex(takes, cue.commitTakeId), optionalIndex(selections, cue.selectionId), cue.tempoBeatHint]);
   const playback = song.playback.flatMap(cue => [cue.bar, indexOf(voices, cue.voiceId), indexOf(selections, cue.selectionId)]);
-  const rotation = song.rotation ? [PF.COMPILED_ROTATION_MAGIC, song.rotation.windows.length, song.rotation.releaseGridBeats,
+  const rotation = song.rotation ? [PF.COMPILED_ROTATION_MAGIC, song.rotation.windows.length, song.rotation.inactivityBeats,
     ...song.rotation.windows.flatMap(window => [window.begin.bar, window.begin.beat, window.end.bar, window.end.beat])] : [];
-  const windowRows = song.selections.flatMap((selection, index) => selection.window.kind === 'prefix' ? [index, selection.window.endCount] : []);
+  const windowRows = song.selections.flatMap((selection, index) => {
+    if (selection.window.kind === 'full') return [];
+    if (selection.window.kind === 'slice') return [index, selection.window.beginCount, selection.window.endCount, selection.window.loopCounts];
+    const take = song.takes.find(take => take.id === selection.takeIds[0]);
+    if (!take?.loopEnd) throw new Error('Missing prefix capture period.');
+    const counts = (take.loopEnd.bar - take.begin.bar) * song.meter.numerator + take.loopEnd.beat - take.begin.beat;
+    return [index, 0, selection.window.endCount, counts];
+  });
   const windows = windowRows.length ? [PF.COMPILED_WINDOW_MAGIC, windowRows.length / PF.COMPILED_WINDOW_FIELDS, ...windowRows] : [];
   const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS

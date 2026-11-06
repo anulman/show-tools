@@ -70,7 +70,7 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
   const native = new NativePerformance({ api: instance.exports, sampleRate: rate, mode: PF.PRACTICE, clickGain: 0 });
   let frame = 0, next = 0, events = 0, tempoHits = 0, rotations = 0;
-  let releaseCount: number | null = null;
+  let releaseFrame: number | null = null;
   const rotationCutoffs: number[] = [];
   function clock() {
     const state = Array.from(native.query('pf_snapshot'));
@@ -80,9 +80,8 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
       framesPerCount: rate * 60 / state[PF.BPM], nextBeatFrame: tracker[8] }; // BT_S_NEXT_BEAT_FRAME
   }
   function expectedCutoff() {
-    assert(releaseCount !== null);
-    const current = clock();
-    return Math.ceil(current.nextBeatFrame + (releaseCount - current.wholeCount - 1) * current.framesPerCount);
+    assert(releaseFrame !== null);
+    return Math.ceil(releaseFrame);
   }
   const stems = Array.from({ length: 4 }, () => ({ energy: 0, sum: 0, peak: 0, nonzero: 0 }));
   function drain() {
@@ -114,19 +113,20 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
     try { new Uint8Array(memory.buffer, pointer, bytes.length).set(bytes); native.call('pf_load_compiled_bytes', native.handle, pointer, bytes.length); }
     finally { native.invoke('free', pointer); }
     native.setMicrophone(true); native.setClick(false);
+    native.setJiggleThresholds(1, 1);
     native.start({ runId: 'dyc-scripted-input', bpm: song.chart.bpm, countInBars: 1, startBar: 1, endBar: song.chart.bars.length, loop: false, automatic: false });
     drain();
     while (native.state().phase !== 'ended') {
       assert(['count-in', 'playing'].includes(native.state().phase), 'transport did not fault or stop early');
       assert(frame < maxFrames, 'performance stays within its declared song-duration guard');
-      if (releaseCount !== null) {
+      if (releaseFrame !== null) {
         const cutoff = expectedCutoff();
         const backup = native.voiceEffects()[PF.BACKUP_PROFILE];
         if (frame === cutoff - 1) assert.equal(backup.activity, 'live', 'source remains active through the frame before its predicted cutoff');
         if (frame >= cutoff) {
           assert.equal(frame, cutoff, 'fixture observes the exact predicted source cutoff frame');
           assert.equal(backup.rotationRemainingBeats, 0); assert.notEqual(backup.activity, 'live');
-          rotationCutoffs.push(frame); releaseCount = null;
+          rotationCutoffs.push(frame); releaseFrame = null;
         }
       }
       while (next < plan.length && plan[next].frame === frame) {
@@ -137,12 +137,11 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
             const backup = native.voiceEffects().find(voice => voice.profile === PF.BACKUP_PROFILE);
             assert(backup?.rotationEligible && backup.rotationRemainingBeats > 0, `rotation did not activate at ${press.source}`);
             const current = clock();
-            const quarter = [1, 2, 3, 4].find(index => current.nextBeatFrame - (1 - index / 4) * current.framesPerCount > frame);
-            assert(quarter !== undefined, 'a strict future quarter boundary exists');
-            releaseCount = Math.min(current.wholeCount + quarter / 4, press.windowEndCount);
-            const predicted = current.nextBeatFrame + (releaseCount - current.wholeCount - 1) * current.framesPerCount;
+            const windowEndFrame = current.nextBeatFrame + (press.windowEndCount - current.wholeCount - 1) * current.framesPerCount;
+            releaseFrame = Math.min(frame + (song.rotation?.inactivityBeats ?? 0) * current.framesPerCount, windowEndFrame);
+            const predicted = releaseFrame;
             assert(Math.abs(frame + backup.rotationRemainingBeats * current.framesPerCount - predicted) < 1e-6,
-              `native deadline differs from the independent next-quarter/window-end oracle at ${press.source}`);
+              `native deadline differs from the independent full-inactivity/window-end oracle at ${press.source}`);
             rotations++;
           }
         }
@@ -150,7 +149,7 @@ function wasm(rate: number, plan: ReturnType<typeof presses>): Result {
         drain();
       }
       let count = Math.min(1024, maxFrames - frame, next < plan.length ? plan[next].frame - frame : Infinity);
-      if (releaseCount !== null) {
+      if (releaseFrame !== null) {
         const cutoff = expectedCutoff();
         count = Math.min(count, (frame < cutoff - 1 ? cutoff - 1 : cutoff) - frame);
       }
