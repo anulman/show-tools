@@ -87,3 +87,16 @@ test('explicit seeks are deterministic and do not retain a previous hit', () => 
   assert.deepEqual(tunerSceneFrame(input), initial);
   assert.throws(() => tunerSceneFrame({ ...input, timeSeconds: NaN }), /time/);
 });
+
+test('long accidental labels clear the notches in the chromatic layout', () => {
+  const targets = Array.from({ length:13 }, (_, index) => ({ midi:48 + index, letter:'E', accidental:-1, octave:-1 }));
+  const actual = frame({ ...idle, scale:'chromatic', targets });
+  for (const notch of actual.notches) {
+    const width = notch.label.length * 6 - 1;
+    const left = notch.labelPosition.x - Math.floor(width / 2);
+    const top = notch.labelPosition.y - 3;
+    const overlaps = left < notch.position.x + 2 && left + width > notch.position.x - 2
+      && top < notch.position.y + 2 && top + 7 > notch.position.y - 2;
+    assert.equal(overlaps,false,`Label ${notch.clockAngle} touches its notch`);
+  }
+});

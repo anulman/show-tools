@@ -58,7 +58,7 @@ export function tunerSceneFrame({ state, timeSeconds, aspect }: TunerSceneInput)
       y: Math.round(center.y - radius * Math.cos(angle)),
     });
     const light: 'live' | 'trail' | 'idle' = hitIndex === index ? 'live' : hitIndex !== null && index < hitIndex ? 'trail' : 'idle';
-    return { note, label: tunerSceneNoteLabel(note), clockAngle, position: radial(57), labelPosition: radial(68), light };
+    return { note, label: tunerSceneNoteLabel(note), clockAngle, position: radial(57), labelPosition: radial(72), light };
   });
   return { width, height, center, timeSeconds, hitIndex, notches };
 }
