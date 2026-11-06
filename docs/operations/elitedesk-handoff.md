@@ -11,12 +11,12 @@ The operator authorizes autonomous development through merge. The restricted SSH
 - [x] Implement the authenticated gateway and the desk's Hardware and Browser modes.
 - [x] Verify synthetic PCM, native IPC, gateway commands, and remote-session regressions locally.
 - [x] Verify the native foundation on Linux and macOS CI in [PR #103](https://github.com/anulman/show-tools/pull/103).
-- [ ] Complete integrated remote-feature CI and the actual browser acceptance run.
+- [x] Complete integrated remote-feature CI and the actual browser acceptance run in [PR #105](https://github.com/anulman/show-tools/pull/105).
 - [ ] Select a reviewed release revision, staging route, runtime, and device configuration.
 - [ ] Obtain approval for installation, the exact dry-monitor takeover, and the live device test.
 - [ ] Verify real capture, playback, frame continuity, restart, and reconnect against agreed limits.
 
-The current local verification includes 13 passing native CTest tests and a full suite with 529 passing tests and two explicit skips. These exercise fake devices and local IPC. The foundation's Linux build compiles the ALSA path; it does not open a Scarlett. Final browser acceptance and integrated remote CI remain separate checks.
+The integrated local verification includes 13 passing native CTest tests and a full suite with 593 passing tests and two explicit skips. Linux and macOS CI pass. An isolated Chrome run passes eight desktop and 390px phone-layout checks, including native controls, effects, natural completion and replay, mode switching, controller detachment, and gateway restart. Hardware mode makes no browser audio, microphone, or WASM calls. These checks use a synthetic native host and do not open a Scarlett or test an actual phone over Tailscale.
 
 ## Keep ownership at the implemented boundaries
 
@@ -59,7 +59,7 @@ Pi completed `handoff-001` and `handoff-002` with read-only commands under exist
 | Build tools | No compiler, CMake, Git, or ALSA development headers on the node | Linux CI supplies build evidence, not a target-node toolchain or authorized installation. |
 | Runtime | Pi's user-local Node v22.23.3 exists; no Docker or Podman runtime was found on the node | Do not silently depend on Pi's managed runtime or assume guest-runtime capabilities. |
 
-The gateway's Node executable and dependency installation need a reviewed runtime choice. Select the release revision from the integrated, tested branch. Historical `d7cbde2` and `1db0898` establish earlier engine baselines, not the new deployment artifact. The unmerged `fd8e53f` MusicXML reference is not adopted by this handoff.
+The gateway's Node executable and dependency installation need a reviewed runtime choice. Select the release revision from the integrated, tested branch. The canonical MusicXML path from [PR #104](https://github.com/anulman/show-tools/pull/104) is integrated and tested; historical unmerged compiler references are not deployment revisions. Linux CI retains its tested host binary with source revision, compiler and package versions, runtime dependencies, license notices, and checksums. A deployment also needs the matching gateway and UI package.
 
 The mailbox is not an artifact channel. A separately approved pull or transfer route, immutable release identity, hashes, dependency manifest, and Linux build provenance are still required before staging executable code. Do not send binaries or credentials as mailbox content.
 
