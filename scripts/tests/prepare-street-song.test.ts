@@ -10,7 +10,8 @@ import { Schema } from 'effect';
 import sourceInput from '../../songs/dance-yrself-clean.source.json';
 import mapping from '../../songs/dance-yrself-clean.mapping.json';
 import promoted from '../../assets/video/motion/poof/scene-fits/street.json';
-import { compileSong } from '../../lib/performance/compiled-song.js';
+import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
+import { readMusicXmlSong } from '../../lib/performance/musicxml-song.js';
 import { parseSongSource } from '../../lib/performance/song-source.js';
 import { discoverSheetVoices } from '../../lib/voice-catalog/sheet-voices.js';
 import { reconcileCatalog } from '../../lib/voice-catalog/session.js';
@@ -20,7 +21,9 @@ import { PoofCatalog, POOF_CATALOG_PATH } from '../video-expansion/poof-release.
 const checkout = fileURLToPath(new URL('../../', import.meta.url));
 const command = fileURLToPath(new URL('../prepare-street-song.ts', import.meta.url));
 const hash = (bytes: string | Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-const source = parseSongSource(sourceInput), compiled = await compileSong(source, mapping);
+const source = parseSongSource(sourceInput);
+const { xml: musicxml } = await importSheetMusicXml({ source, mapping });
+const { song: compiled } = await readMusicXmlSong(musicxml);
 const rows = discoverSheetVoices(compiled, source);
 let serial = 0;
 const saved = reconcileCatalog({ version: 2, revision: 0, voices: [], bindings: [] }, rows, new Map(), () => `cli-fixture-${++serial}`);
@@ -62,8 +65,8 @@ async function fixture() {
     })),
     provenance: { source: 'synthetic CLI publication fixture', assetsDigest: 'fixture', scoreDigest: 'fixture' },
   };
-  const inputs = ['catalog', 'source', 'mapping', 'scene-assets'].map(name => join(root, `${name}.json`));
-  await Promise.all(inputs.map((path, index) => writeFile(path, JSON.stringify([catalog, source, mapping, assets][index]))));
+  const inputs = [join(root, 'catalog.json'), join(root, 'song.musicxml'), join(root, 'scene-assets.json')];
+  await Promise.all(inputs.map((path, index) => writeFile(path, [JSON.stringify(catalog), musicxml, JSON.stringify(assets)][index])));
   const output = join(root, 'prepared.json');
   const flags = ['--poof-fit', fitPath, '--asset-root', assetRoot, '--fit-sha256', hash(fitText)];
   const run = (options: { output?: string; flags?: readonly string[] } = {}) => spawnSync(process.execPath,
@@ -72,7 +75,7 @@ async function fixture() {
     effectPath: join(assetRoot, poofs.candidates[0].drawings[0].native.path) };
 }
 
-test('CLI preserves five positional inputs and publishes pinned presence assets in the same atomic artifact', async () => {
+test('CLI accepts canonical MusicXML with four positional inputs and publishes pinned presence assets in the same atomic artifact', async () => {
   const f = await fixture();
   try {
     const original = f.run({ flags: [] }); assert.equal(original.status, 0, original.stderr);

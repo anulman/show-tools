@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileSong } from '../compiled-song.js';
+import { compileSheetsSong } from '../compiled-song.js';
 import type { SongMapping, CompiledSong } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
@@ -49,7 +49,7 @@ function selectedTakeIds(song: CompiledSong, a1: string): readonly string[] {
 test('DYC manual play cues resume the written Cowbell variant rather than the last capture', async () => {
   const values = dycSource.values.map(row => [...row]);
   for (const column of [21, 37, 53, 61]) values[18][column] = 'p';
-  const song = await compileSong({ ...dycSource, values }, dycMapping);
+  const song = await compileSheetsSong({ ...dycSource, values }, dycMapping);
   assert(song.executable, JSON.stringify(song.diagnostics));
   for (const a1 of ['V19', 'AL19', 'BB19', 'BJ19']) {
     const cue = song.cues.find(cue => cue.source.a1 === a1);
@@ -63,7 +63,7 @@ test('DYC manual play cues resume the written Cowbell variant rather than the la
 
 test('now and beat play cues use the current bar while next-bar play uses its execution bar', async () => {
   const input = fixture('variant');
-  const song = await compileSong(input.source, input.mapping);
+  const song = await compileSheetsSong(input.source, input.mapping);
   assert(song.executable, JSON.stringify(song.diagnostics));
   const first = song.takes[0];
   assert(first);
@@ -76,7 +76,7 @@ test('now and beat play cues use the current bar while next-bar play uses its ex
 
 test('play cues without a written variant preserve the latest cumulative layered selection', async () => {
   const input = fixture('layer');
-  const song = await compileSong(input.source, input.mapping);
+  const song = await compileSheetsSong(input.source, input.mapping);
   assert(song.executable, JSON.stringify(song.diagnostics));
   assert.equal(song.playback.length, 0);
   const both = song.takes.map(take => take.id);
@@ -89,7 +89,7 @@ test('written variants still reject a take whose capture has not committed', asy
   const values = input.source.values.map(row => [...row]);
   values[9][3] = "2'";
   const mapping = { ...input.mapping, variantRules: input.mapping.variantRules.map(rule => ({ ...rule, fromBar: 2 })) };
-  const song = await compileSong({ ...input.source, values }, mapping);
+  const song = await compileSheetsSong({ ...input.source, values }, mapping);
   assert.equal(song.executable, false);
   assert(song.diagnostics.some(diagnostic => diagnostic.code === 'unknown-variant' && diagnostic.source.a1 === 'D10'));
   assert(!song.playback.some(playback => playback.voiceId === 'voice' && playback.bar === 2));

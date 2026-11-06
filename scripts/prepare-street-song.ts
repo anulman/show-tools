@@ -3,6 +3,7 @@ import { readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Schema } from 'effect';
+import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
 import { prepareStreetSong } from '../lib/video/song-score.js';
 import { publishPreparedArtifact } from '../lib/video/prepared-artifact.js';
 import { StreetScene, type StreetPoofEffect } from '../lib/video/street-score.js';
@@ -12,12 +13,17 @@ import { POOF_CATALOG_PATH, readPoofRelease } from './video-expansion/poof-relea
 const { values, positionals } = parseArgs({ allowPositionals: true, options: {
   'poof-fit': { type: 'string' }, 'asset-root': { type: 'string' }, 'fit-sha256': { type: 'string' },
 } });
-const [catalogPath, sourcePath, mappingPath, assetsPath, output] = positionals;
-if (positionals.length !== 5 || !catalogPath || !sourcePath || !mappingPath || !assetsPath || !output) throw new Error('Usage: prepare-street-song.ts catalog.json source.json mapping.json assets-scene.json output.json [--poof-fit PROFILE --asset-root ROOT --fit-sha256 SHA256] (private inputs/output)');
+const [catalogPath, musicXmlPath, assetsPath, output] = positionals.length === 3 ? [undefined, ...positionals] : positionals;
+if (![3, 4].includes(positionals.length) || !musicXmlPath || !assetsPath || !output) throw new Error('Usage: prepare-street-song.ts [catalog.json] song.musicxml assets-scene.json output.json [--poof-fit PROFILE --asset-root ROOT --fit-sha256 SHA256] (private inputs/output)');
 const fitPath = values['poof-fit'], assetRoot = values['asset-root'], expectedFitHash = values['fit-sha256'];
 if ([fitPath, assetRoot, expectedFitHash].some(value => value !== undefined) && (!fitPath || !assetRoot || !expectedFitHash)) throw new Error('--poof-fit, --asset-root and --fit-sha256 must be supplied together');
-const [catalog, source, mapping, assets]: unknown[] = await Promise.all([catalogPath, sourcePath, mappingPath, assetsPath].map(async path => JSON.parse(await readFile(path, 'utf8'))));
-const inputs = new Set([catalogPath, sourcePath, mappingPath, assetsPath]);
+async function readJson(path: string): Promise<unknown> { return JSON.parse(await readFile(path, 'utf8')); }
+const [musicxml, assets] = await Promise.all([readFile(musicXmlPath, 'utf8'), readJson(assetsPath)]);
+const document = await readMusicXmlSong(musicxml);
+if (document.voices === null && !catalogPath) throw new Error('MusicXML has no portable voice catalog; supply catalog.json before song.musicxml.');
+const catalog = document.voices ?? (catalogPath ? await readJson(catalogPath) : undefined);
+const inputs = new Set([musicXmlPath, assetsPath]);
+if (document.voices === null && catalogPath) inputs.add(catalogPath);
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 let presence: { effects: readonly StreetPoofEffect[]; fitProfile: StreetFitProfile; poofCatalogSha256: string; fitProfileSha256: string } | undefined;
 if (fitPath && assetRoot && expectedFitHash) {
@@ -53,7 +59,7 @@ if (fitPath && assetRoot && expectedFitHash) {
     .map(asset => protectedAsset(asset.path)));
   presence = { effects, fitProfile, poofCatalogSha256: release.catalogSha256, fitProfileSha256 };
 }
-const result = await prepareStreetSong({ catalog, source, mapping, assets, ...(presence ? { presence } : {}) });
+const result = await prepareStreetSong({ catalog, musicxml, assets, ...(presence ? { presence } : {}) });
 if (result.kind === 'blocked') {
   process.stderr.write(`${JSON.stringify(result.diagnostics, null, 2)}\n`);
   process.exitCode = 1;

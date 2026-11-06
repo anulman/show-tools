@@ -65,9 +65,19 @@ Native diagnostic queries can expose borrowed PCM views in the WASM heap. These 
 
 ## A chart supplies actions, and a press performs them
 
-Each song is a loadable module under [songs](../songs/README.md), beside its JSON chart snapshot. `SongScript` supplies a parsed chart, a `Program`, and a practice range. The registry loads the selected module on demand.
+Each song is a loadable module under [songs](../songs/README.md), beside its canonical MusicXML document. `SongScript` supplies a parsed chart, a `Program`, and a practice range. The registry loads the selected module on demand.
 
-The practice desk can explicitly fetch public worksheet values and notes, import frozen source or compiled JSON, inspect diagnostics, and load executable artifacts while stopped. Browser and CLI share the importer and compiler; SHA-256 digests identify their inputs. Selecting columns in Sheets does not refresh the loaded song. Unknown notation and missing capture or cue policies remain visible with source coordinates and block execution.
+The practice desk imports complete MusicXML songs, inspects derived instructions and loads executable artifacts while stopped. Sheets JSON and mapping are ingestion inputs only. `compileSheetsSong` interprets that boundary and `importSheetMusicXml` immediately writes and rereads the canonical document. No downstream consumer recompiles archived source JSON. The [cutover guide](implementation/musicxml-cutover.md) defines the profile, commands and verification.
+
+`lib/performance/musicxml-song.ts` reads and writes the `show-tools-song-v2` MusicXML 4.0 profile. Standard elements own title, parts, meter, reference tempo, sections, arrangement words and onset positions. Versioned application metadata owns capture, retained takes, selection windows and controls. A semantic digest covers the interpreted document and song voice metadata, excluding optional import archives and UI selection. Unsupported notation or contradictory displayed commands fail visibly. `musicxml-model.ts` defines the shared parsed report. `musicxml-source-view.ts` projects a bounded sheet-shaped view for catalog discovery and following from that report and typed actions, without consulting the archive.
+
+The [bound Sheets exporter](implementation/sheets-musicxml.md) reads the configured chart through a thin Apps Script adapter and downloads the complete canonical song. Selected rows choose optional musician handouts rather than remove other semantic parts. The rebuilt installer still needs operator installation and Google authorization verification.
+
+Saved song effects and character assignments travel in validated MusicXML voice metadata. The local SQLite/IndexedDB library remains an editor and asset library. Export preserves a staged document's assignments until that exact document is loaded for editing. Imported assignments merge into qualified song bindings without overwriting voices used by other songs. Artwork and recorded audio remain referenced assets.
+
+For discovered parts not managed by the `AF -` prefix, [musician sheets](implementation/musician-sheets.md) provide individual five-line writing staves with section labels, readable arrangement annotations and source vocal cues. `lib/performance/musician-sheets.ts` derives MusicXML and print-native SVG/HTML from the report read from canonical MusicXML. The optional offline PDF renderer consumes those SVG pages; these handouts do not infer instrumental notes or modify performance instructions.
+
+`musician-sheet-plan.ts` condenses literal inactive spans into counted rests while retaining their original cells, and validates explicitly confirmed section references. `musician-annotations.ts` derives section-bounded feel ranges and confirmed vocal annotations. The renderer shares section feel summaries between SVG and MusicXML and anchors vocal text to its source bar. Page-aware headings suppress redundant same-page continuations. Repeated activity markings produce suggestions, not inferred musical equivalence. The MusicXML timeline and PE execution order remain chronological.
 
 Compiled songs separate buttons, logical voices, immutable takes, and retained selections. Schema 5 preserves capture cutoff, logical loop end, phrase anchors, source-backed voice parts, and explicit full or prefix playback views. Version 5 numeric tables retain four pad capture bindings and append rotation eligibility and selection-window tables. ABI 7 loaders prepare them atomically. C++ owns cue resolution, pending actions, exact capture, layers, variants, fractional stops, and events. Programs support 4/4 and six eighth-note counts in 6/8. The shared native tempo-hit intent preserves clock phase, serial, and epoch; physical pedal input remains disconnected pending its installation facts.
 
@@ -85,7 +95,7 @@ F21 arms Bing-Bong during bar 4 while R1 records through bar 5. Their recording 
 
 A playback prefix is a selection view over an immutable take, not another recording. Native capture observes its exclusive source-frame cutoff against the actual clock and retains that observation per bank. Playback feeds zero source after the cutoff while continuing the selected rack, preserving earlier effects tails. It invalidates the printed-cache shortcut once source history diverges. Selecting a full view restores source admission without changing playback phase or recorded PCM. A view change never authorizes a stopped voice to play.
 
-Drunk Girls and I Can Change have timing and section snapshots, but their pad-action rows are blank. Choosing one does not supply a completed arrangement. All current songs start with empty samples.
+Drunk Girls and I Can Change have timing and section snapshots, but their pad-action rows are blank. They preserve timing-only practice with an empty program derived from the canonical chart. Any authored performance instructions must validate before loading audio. All current songs start with empty samples.
 
 ## The UI observes the instrument
 

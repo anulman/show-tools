@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compileSong } from '../../performance/compiled-song.js';
+import { importSheetMusicXml } from '../../performance/sheet-musicxml.js';
+import { readMusicXmlSong } from '../../performance/musicxml-song.js';
 import { parseSongSource } from '../../performance/song-source.js';
 import { columnName } from '../../performance/columns.js';
 import sourceInput from '../../../songs/dance-yrself-clean.source.json';
@@ -8,10 +9,11 @@ import mapping from '../../../songs/dance-yrself-clean.mapping.json';
 import { deriveMainVocalSections } from '../main-vocal-sections.js';
 
 const source = parseSongSource(sourceInput);
-const compiled = await compileSong(source, mapping);
+const { xml: musicxml } = await importSheetMusicXml({ source, mapping });
+const { song: compiled, report } = await readMusicXmlSong(musicxml);
 
 test('DYC lyric starts enable complete sections even when their section name is Instrumental', () => {
-  const sections = deriveMainVocalSections({ compiled, source });
+  const sections = deriveMainVocalSections({ compiled, source, annotations: report.annotations });
   assert.deepEqual(sections.filter(section => section.eligibility.kind === 'lyric').map(section => section.startBar), [13, 29, 53, 85, 93, 101, 109, 117, 125, 137, 153, 161, 169, 177, 185, 193, 201, 209]);
   assert.equal(sections.some(section => section.eligibility.kind === 'unresolved'), false);
   const instrumental = sections.find(section => section.startBar === 201);
@@ -28,12 +30,13 @@ test('section eligibility uses its leftmost vocal cell and retains exact source 
   values[7][firstBar.column] = '';
   const cell = `${columnName(firstBar.column)}8`;
   const changedSource = { ...source, values, notes: { ...source.notes, [cell]: 'Section lyric' } };
-  const changed = await compileSong(changedSource, mapping);
-  const first = deriveMainVocalSections({ compiled: changed, source: changedSource })[0];
+  const { xml } = await importSheetMusicXml({ source: changedSource, mapping });
+  const { song: changed, report: changedReport } = await readMusicXmlSong(xml);
+  const first = deriveMainVocalSections({ compiled: changed, source: changedSource, annotations: changedReport.annotations })[0];
   assert.equal(first.eligibility.kind, 'lyric');
   assert.deepEqual([first.startCount, first.endCount], [0, 48]);
   assert.deepEqual(first.source, { sheetId: source.sheetId, a1: cell, text: 'Hello!', note: 'Section lyric' });
-  const next = deriveMainVocalSections({ compiled: changed, source: changedSource })[1];
+  const next = deriveMainVocalSections({ compiled: changed, source: changedSource, annotations: changedReport.annotations })[1];
   assert.equal(first.endCount, next.startCount);
 });
 
@@ -42,12 +45,13 @@ test('unsupported marks remain unresolved and known notation does not become a l
     const values = source.values.map(row => [...row]);
     values[7][compiled.chart.bars[0].column - 1] = text;
     const changedSource = { ...source, values };
-    const changed = await compileSong(changedSource, mapping);
-    assert.equal(deriveMainVocalSections({ compiled: changed, source: changedSource })[0].eligibility.kind, expected);
+    const { xml } = await importSheetMusicXml({ source: changedSource, mapping });
+    const { song: changed, report: changedReport } = await readMusicXmlSong(xml);
+    assert.equal(deriveMainVocalSections({ compiled: changed, source: changedSource, annotations: changedReport.annotations })[0].eligibility.kind, expected);
   }
 });
 
 test('main section lookup respects a snapshot range outside A1', () => {
   const offsetSource = { ...source, range: 'C7:HL55', values: source.values.slice(6).map(row => row.slice(2)) };
-  assert.deepEqual(deriveMainVocalSections({ compiled, source: offsetSource }), deriveMainVocalSections({ compiled, source }));
+  assert.deepEqual(deriveMainVocalSections({ compiled, source: offsetSource, annotations: report.annotations }), deriveMainVocalSections({ compiled, source, annotations: report.annotations }));
 });

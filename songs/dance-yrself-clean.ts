@@ -1,19 +1,5 @@
-import source from './dance-yrself-clean.source.json';
-import mapping from './dance-yrself-clean.mapping.json';
-import { parseSongSource } from '../lib/performance/song-source.js';
-import { compileSong } from '../lib/performance/compiled-song.js';
-import type { SongScript } from '../lib/performance/model.js';
+import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
+import { readBundledMusicXml, musicXmlSongScript } from './load-musicxml.js';
 
-const compiled = await compileSong(source, mapping);
-
-export default {
-  id: compiled.id,
-  chart: compiled.chart,
-  program: { lengthBeats: compiled.chart.beatsPerBar, events: [] },
-  compiled,
-  source: parseSongSource(source),
-  practice: { startBar: mapping.startBar, endBar: mapping.endBar },
-  description: compiled.executable
-    ? 'Chart-compiled A section. Native capture, layers, variants, and effects.'
-    : 'Chart inspection needs authoring decisions. Open Chart source & inspection below.',
-} satisfies SongScript;
+const document = await readMusicXmlSong(await readBundledMusicXml('dance-yrself-clean'));
+export default { ...musicXmlSongScript(document), compiled: document.song };

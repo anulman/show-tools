@@ -1,26 +1,27 @@
 import { createHash } from 'node:crypto';
 import { Schema } from 'effect';
-import { compileSong } from '../performance/compiled-song.js';
+import { readMusicXmlSong } from '../performance/musicxml-song.js';
+import { musicXmlSourceView } from '../performance/musicxml-source-view.js';
 import { columnName } from '../performance/columns.js';
-import { parseSongSource } from '../performance/song-source.js';
 import { parseCatalogDocument } from '../voice-catalog/model.js';
 import { discoverSheetVoices } from '../voice-catalog/sheet-voices.js';
 import { resolveVoice } from '../voice-catalog/session.js';
 import { deriveMainVocalSections } from './main-vocal-sections.js';
-import { parseStreetCell } from './street-rhythm.js';
 import { prepareStreetScore, StreetScene, streetClipPlayback, type StreetActor, type StreetWindow } from './street-score.js';
 import { prepareStreetPresence, type StreetPresenceAssets } from './street-presence.js';
 
 const digest = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex');
 export interface SourceDiagnostic { readonly cell: string; readonly text: string; readonly message: string }
 
-export async function prepareStreetSong(input: { readonly catalog: unknown; readonly source: unknown; readonly mapping: unknown; readonly assets: unknown;
+export async function prepareStreetSong(input: { readonly catalog: unknown; readonly musicxml: string; readonly assets: unknown;
   readonly presence?: StreetPresenceAssets }) {
-  const catalog = parseCatalogDocument(input.catalog), source = parseSongSource(input.source);
-  const compiled = await compileSong(source, input.mapping);
+  const document = await readMusicXmlSong(input.musicxml);
+  const catalog = parseCatalogDocument(document.voices ?? input.catalog), source = musicXmlSourceView(document);
+  const compiled = document.song;
+  const stageCells = new Map(document.report.annotations.stageCells.map(cell => [cell.cell, cell]));
   const diagnostics: SourceDiagnostic[] = compiled.diagnostics.map(item => ({ cell: item.source.a1, text: item.source.text, message: item.message }));
   const assets = Schema.decodeUnknownSync(StreetScene)(input.assets);
-  const sections = deriveMainVocalSections({ compiled, source });
+  const sections = deriveMainVocalSections({ compiled, source, annotations: document.report.annotations });
   for (const section of sections) if (section.eligibility.kind === 'unresolved') diagnostics.push({ cell: section.source.a1, text: section.source.text, message: section.eligibility.message });
   const resolved = discoverSheetVoices(compiled, source).map(row => {
     const voice = resolveVoice(catalog, row);
@@ -48,7 +49,9 @@ export async function prepareStreetSong(input: { readonly catalog: unknown; read
       const cue = cues.get(bar.bar), text = cue?.text ?? '', cell = cue?.cell ?? `${columnName(bar.column)}${rowNumber}`;
       const start = (bar.bar - 1) * beats, end = start + beats;
       try {
-        const parsed = parseStreetCell(text, beats, actor.role === 'main-vocals');
+        const parsed = stageCells.get(cell);
+        if (!parsed) throw new Error('Missing canonical stage annotation');
+        if (parsed.kind === 'unresolved') throw new Error(parsed.message);
         cells.push({ actor: index, bar: bar.bar, cell, text, accents: parsed.accents, anchor: parsed.anchor });
         const mainActive = sections.some(section => section.eligibility.kind === 'lyric' && section.startCount <= start && start < section.endCount);
         const splits = actor.role === 'backup-vocals' ? [...new Set([start, end, ...(compiled.rotation?.windows ?? []).flatMap(window => [(window.begin.bar - 1) * beats + window.begin.beat, (window.end.bar - 1) * beats + window.end.beat]).filter(at => start < at && at < end)])].sort((a, b) => a - b) : [start, end];
@@ -73,7 +76,7 @@ export async function prepareStreetSong(input: { readonly catalog: unknown; read
     sections: compiled.chart.sections.map(section => ({ start: (section.startBar - 1) * beats, end: section.endBar * beats })), assets: input.presence }) : null;
   const scene = presence?.scene ?? prepared.scene;
   const receipt = { kind: 'private-chart-planned-street-song', durationCounts, bpm: compiled.chart.bpm, sourceDigest: compiled.source.digest, mappingDigest: compiled.mappingDigest,
-    catalogSha256: digest(input.catalog), assetsSha256: digest(input.assets), mainVocalSections: sections, cells, windows, accentDecisions: prepared.accentDecisions.map(decision => ({ ...decision, cell: cells.find(cell => cell.actor === decision.actor && cell.bar === Math.floor(decision.at / beats) + 1)?.cell })),
+    musicXmlSha256: createHash('sha256').update(input.musicxml).digest('hex'), catalogSha256: digest(catalog), assetsSha256: digest(input.assets), mainVocalSections: sections, cells, windows, accentDecisions: prepared.accentDecisions.map(decision => ({ ...decision, cell: cells.find(cell => cell.actor === decision.actor && cell.bar === Math.floor(decision.at / beats) + 1)?.cell })),
     savedBindings: resolved.map(({ row, voice }) => ({ labelCell: row.labelCell, sourceLabel: row.sourceLabel, voiceId: voice.id, characterId: voice.characterId })),
     clipPlayback: actors.flatMap(actor => actor.clips.map(clip => ({ characterId: actor.characterId, clipId: clip.id, authoredCycleQuarters: clip.cycleQuarters, actionQuarters: clip.actionQuarters, ...streetClipPlayback(clip) }))),
     presence: presence && input.presence ? { policy: 'singer always present; backup first eligible cue through section end; overlapping poofs merge at opaque peak',

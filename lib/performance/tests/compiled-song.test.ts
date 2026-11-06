@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { compileSong, canonicalSongJson, decodeCompiledSong, inspectCompiledSong, parseArrangementHits } from '../compiled-song.js';
+import { compileSheetsSong, canonicalSongJson, decodeCompiledSong, inspectCompiledSong, parseArrangementHits } from '../compiled-song.js';
 import type { SongMapping } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
@@ -31,7 +31,7 @@ function fixture(): { source: SongSource; mapping: SongMapping } {
 
 test('known capture cues retain source identity and immutable layered takes', async () => {
   const { source, mapping } = fixture();
-  const song = await compileSong(source, mapping);
+  const song = await compileSheetsSong(source, mapping);
   assert.equal(song.executable, true);
   assert.deepEqual(song.diagnostics, []);
   assert.equal(song.chart.leadInColumn, 2);
@@ -53,7 +53,7 @@ test('known capture cues retain source identity and immutable layered takes', as
 test('fractional stop separates applicability from execution and preserves source note', async () => {
   const { source, mapping } = fixture();
   const values = source.values.map(row => [...row]); values[18][4] = '4xe';
-  const song = await compileSong({ ...source, values, notes: { ...source.notes, E19: 'Exit after beat four' } }, mapping);
+  const song = await compileSheetsSong({ ...source, values, notes: { ...source.notes, E19: 'Exit after beat four' } }, mapping);
   const cue = song.cues.find(c => c.source.a1 === 'E19');
   assert.equal(cue?.cueBeat, 3);
   assert.deepEqual(cue?.execution, { kind: 'beat', beat: 3.25 });
@@ -65,9 +65,9 @@ test('fractional stop separates applicability from execution and preserves sourc
 
 test('whitespace-only control cells stay blank in display and leave native instructions unchanged', async () => {
   const { source, mapping } = fixture();
-  const baseline = await compileSong(source, mapping);
+  const baseline = await compileSheetsSong(source, mapping);
   const values = source.values.map(row => [...row]); values[18][4] = '    ';
-  const spaced = await compileSong({ ...source, values }, mapping);
+  const spaced = await compileSheetsSong({ ...source, values }, mapping);
   assert.equal(spaced.chart.bars[2].cues.R2, '');
   assert.notEqual(spaced.source.digest, baseline.source.digest, 'provenance still preserves the actual source edit');
   assert.deepEqual(encodeCompiledProgram(spaced), encodeCompiledProgram(baseline));
@@ -77,7 +77,7 @@ test('unknown action syntax and unbound knob spans block execution without disca
   const { source, mapping } = fixture();
   const values = source.values.map(row => [...row]);
   values[18][3] = '2c?'; values[18][4] = '1p?'; values[16][2] = '[4d-';
-  const song = await compileSong({ ...source, values }, mapping);
+  const song = await compileSheetsSong({ ...source, values }, mapping);
   assert.equal(song.executable, false);
   assert.equal(song.cues.filter(c => c.buttonId === 'R1').length, 3);
   assert.deepEqual(song.diagnostics.filter(d => d.code === 'unknown-cue').map(d => d.source.a1), ['D19', 'E19']);
@@ -90,20 +90,20 @@ test('explicit overrides are pinned to exact source text and carry the chosen ac
   const { source, mapping } = fixture();
   const values = source.values.map(row => [...row]); values[18][3] = '2c3';
   const override = { a1: 'D19', notation: '2c3', kind: 'stop', cueBeat: 1, execution: { kind: 'beat', beat: 2 }, captureTail: 'none', tempoBeatHint: 0 };
-  const song = await compileSong({ ...source, values }, { ...mapping, overrides: [override] });
+  const song = await compileSheetsSong({ ...source, values }, { ...mapping, overrides: [override] });
   assert.equal(song.executable, true);
   const cue = song.cues.find(c => c.source.a1 === 'D19');
   assert.equal(cue?.cueBeat, 1);
   assert.deepEqual(cue?.execution, { kind: 'beat', beat: 2 });
   values[18][3] = '2c4';
-  const changed = await compileSong({ ...source, values }, { ...mapping, overrides: [override] });
+  const changed = await compileSheetsSong({ ...source, values }, { ...mapping, overrides: [override] });
   assert(changed.diagnostics.some(d => d.code === 'stale-override'));
   assert.equal(changed.executable, false);
 });
 
 test('missing approved cue and capture policies remain explicit blockers', async () => {
   const { source, mapping } = fixture();
-  const song = await compileSong(source, { ...mapping, cueWindow: null, capturePolicies: [] });
+  const song = await compileSheetsSong(source, { ...mapping, cueWindow: null, capturePolicies: [] });
   assert.equal(song.executable, false);
   assert(song.diagnostics.some(d => d.code === 'cue-window'));
   assert(song.diagnostics.some(d => d.code === 'capture-policy'));
@@ -113,7 +113,7 @@ test('missing approved cue and capture policies remain explicit blockers', async
 test('operator-approved deferred controls are visible metadata, never executable actions', async () => {
   const { source, mapping } = fixture();
   const values = source.values.map(row => [...row]); values[16][2] = 'd';
-  const song = await compileSong({ ...source, values }, { ...mapping, deferredRows: [{ row: 17, reason: 'Fixture explicitly defers this operation.' }] });
+  const song = await compileSheetsSong({ ...source, values }, { ...mapping, deferredRows: [{ row: 17, reason: 'Fixture explicitly defers this operation.' }] });
   assert.equal(song.executable, true);
   assert.equal(song.diagnostics[0].code, 'deferred-control');
   assert.equal(song.diagnostics[0].severity, 'info');
@@ -138,7 +138,7 @@ test('explicit variant rule selects only already-committed matching patterns', a
   values[17] = Array(6).fill('');
   values[18][1] = 'rb'; values[18][2] = 'crb'; values[18][3] = 'cb';
   values[10] = ['', '', '(4)&a', '(4)&', "(4)&a'", "(4)&'"];
-  const song = await compileSong({ ...source, values }, { ...mapping,
+  const song = await compileSheetsSong({ ...source, values }, { ...mapping,
     capturePolicies: [{ voiceId: 'cowbell', retention: 'variant', gain: 1 }],
     layerGroups: [],
     variantRules: [{ voiceId: 'cowbell', row: 11, fromBar: 3, sampledOnly: true }],
@@ -152,7 +152,7 @@ test('explicit variant rule selects only already-committed matching patterns', a
 });
 
 test('current DYC compiles answered semantics and permits F21 future arming for its disjoint recording interval', async () => {
-  const song = await compileSong(dycSource, dycMapping);
+  const song = await compileSheetsSong(dycSource, dycMapping);
   assert.equal(song.executable, true);
   assert(!song.diagnostics.some(diagnostic => diagnostic.severity === 'error'));
   assert(song.takes.every(take => take.gain === 1));
@@ -196,13 +196,13 @@ test('genuinely overlapping recording intervals reject without forbidding earlie
   const values = dycSource.values.map(row => [...row]);
   values[20][5] = ''; values[20][4] = 'rb';
   const mapping = { ...dycMapping, layerGroups: dycMapping.layerGroups.map(group => group.voiceId === 'bing-bong' ? { ...group, armCells: ['E21', 'H21'] } : group) };
-  const song = await compileSong({ ...dycSource, values }, mapping);
+  const song = await compileSheetsSong({ ...dycSource, values }, mapping);
   assert.equal(song.executable, false);
   assert(song.diagnostics.some(diagnostic => diagnostic.code === 'capture-record-overlap' && diagnostic.source.a1 === 'E21'));
 });
 
 test('DYC source parts survive import independently of the four pad bindings', async () => {
-  const song = await compileSong(dycSource, dycMapping);
+  const song = await compileSheetsSong(dycSource, dycMapping);
   assert.equal(song.schemaVersion, 5);
   assert.equal(song.voices.length, 4);
   assert.deepEqual(song.parts.map(part => [part.id, part.name, part.source.a1, part.profile, part.role.kind]), [
@@ -215,19 +215,19 @@ test('DYC source parts survive import independently of the four pad bindings', a
   ]);
   assert.deepEqual(decodeCompiledSong(JSON.parse(canonicalSongJson(song))).parts, song.parts);
   const values = dycSource.values.map(row => [...row]); values[8][0] = 'AF - Harmony';
-  const renamed = await compileSong({ ...dycSource, values }, dycMapping);
+  const renamed = await compileSheetsSong({ ...dycSource, values }, dycMapping);
   assert.equal(renamed.parts.find(part => part.id === 'backup-vocals')?.name, 'Harmony');
   assert.notEqual(renamed.source.digest, song.source.digest);
   assert.deepEqual(encodeCompiledProgram(renamed), encodeCompiledProgram(song), 'source label edits preserve musical instructions');
   const { source, mapping } = fixture();
-  const legacy = await compileSong(source, mapping);
+  const legacy = await compileSheetsSong(source, mapping);
   assert.equal(legacy.parts.length, 4);
   assert(legacy.parts.every(part => part.role.kind === 'pad'));
   assert.equal(legacy.rotation, null);
 });
 
 test('actual DYC rotation windows preserve written half-open beat boundaries and source cells', async () => {
-  const song = await compileSong(dycSource, dycMapping);
+  const song = await compileSheetsSong(dycSource, dycMapping);
   assert.equal(song.rotation?.voiceId, 'backup-vocals');
   assert.equal(song.rotation?.releaseGridBeats, .25);
   assert.deepEqual(song.rotation?.windows.map(window => [window.begin.bar, window.begin.beat, window.end.bar, window.end.beat, window.source.a1, window.endSource.a1]), [
@@ -250,7 +250,7 @@ test('actual DYC rotation windows preserve written half-open beat boundaries and
 });
 
 test('full DYC play cues select the Cowbell identity written at their execution bar', async () => {
-  const song = await compileSong(dycSource, dycMapping);
+  const song = await compileSheetsSong(dycSource, dycMapping);
   for (const a1 of ['V19', 'AL19', 'BB19', 'BJ19', 'CQ19', 'DO19', 'FG19', 'FW19', 'GL19']) {
     const cue = song.cues.find(cue => cue.source.a1 === a1);
     assert(cue, a1);
@@ -262,12 +262,12 @@ test('full DYC play cues select the Cowbell identity written at their execution 
 });
 
 test('quarter-grid authoring and imports reject old inactivity artifacts and invalid count grids', async () => {
-  const song = await compileSong(dycSource, dycMapping);
+  const song = await compileSheetsSong(dycSource, dycMapping);
   assert.throws(() => decodeCompiledSong({ ...song, schemaVersion: 3 }));
-  await assert.rejects(() => compileSong(dycSource, { ...dycMapping, mappingVersion: 3 }));
+  await assert.rejects(() => compileSheetsSong(dycSource, { ...dycMapping, mappingVersion: 3 }));
   const rule = dycMapping.rotationRule;
   for (const releaseGridBeats of [0, -1, 1.25, .0001]) {
-    const rejected = await compileSong(dycSource, { ...dycMapping, rotationRule: { ...rule, releaseGridBeats } });
+    const rejected = await compileSheetsSong(dycSource, { ...dycMapping, rotationRule: { ...rule, releaseGridBeats } });
     assert.equal(rejected.executable, false);
     assert(rejected.diagnostics.some(diagnostic => diagnostic.code === 'rotation-rule' && diagnostic.source.a1 === 'A17'));
     assert.throws(() => encodeCompiledProgram(rejected));
@@ -278,22 +278,22 @@ test('quarter-grid authoring and imports reject old inactivity artifacts and inv
 
 test('rotation source edits produce exact boundary changes and malformed spans block with source diagnostics', async () => {
   const values = dycSource.values.map(row => [...row]); values[16][23] = '-2d]';
-  const moved = await compileSong({ ...dycSource, values }, dycMapping);
+  const moved = await compileSheetsSong({ ...dycSource, values }, dycMapping);
   assert.equal(moved.executable, true);
   assert.deepEqual(moved.rotation?.windows[0].end, { bar: 22, beat: 1 });
   const malformed = dycSource.values.map(row => [...row]); malformed[16][22] = 'twiddle'; malformed[16][77] = '';
-  const rejected = await compileSong({ ...dycSource, values: malformed }, dycMapping);
+  const rejected = await compileSheetsSong({ ...dycSource, values: malformed }, dycMapping);
   assert.equal(rejected.executable, false);
   assert(rejected.diagnostics.some(diagnostic => diagnostic.code === 'rotation-notation' && diagnostic.source.a1 === 'W17'));
   assert(rejected.diagnostics.some(diagnostic => diagnostic.code === 'rotation-unclosed' && diagnostic.source.a1 === 'BX17'));
   const missing = dycSource.values.map(row => [...row]); missing[16][22] = '';
-  assert((await compileSong({ ...dycSource, values: missing }, dycMapping)).diagnostics.some(diagnostic => diagnostic.code === 'rotation-continuation' && diagnostic.source.a1 === 'W17'));
+  assert((await compileSheetsSong({ ...dycSource, values: missing }, dycMapping)).diagnostics.some(diagnostic => diagnostic.code === 'rotation-continuation' && diagnostic.source.a1 === 'W17'));
   const leadIn = dycSource.values.map(row => [...row]); leadIn[16][1] = 'd';
-  assert((await compileSong({ ...dycSource, values: leadIn }, dycMapping)).diagnostics.some(diagnostic => diagnostic.code === 'rotation-lead-in' && diagnostic.source.a1 === 'B17'));
+  assert((await compileSheetsSong({ ...dycSource, values: leadIn }, dycMapping)).diagnostics.some(diagnostic => diagnostic.code === 'rotation-lead-in' && diagnostic.source.a1 === 'B17'));
 });
 
 test('executable imports reject forged source profiles and overlapping or unbound rotation windows', async () => {
-  const song = await compileSong(dycSource, dycMapping);
+  const song = await compileSheetsSong(dycSource, dycMapping);
   const rotation = song.rotation;
   assert(rotation);
   const first = rotation.windows[0];
@@ -312,26 +312,26 @@ test('declared layer groups fail on source phrase or period edits instead of reg
   const { source, mapping } = fixture();
   const changedPhrase = source.values.map(row => [...row]);
   changedPhrase[9][4] = 'different';
-  const phrase = await compileSong({ ...source, values: changedPhrase }, mapping);
+  const phrase = await compileSheetsSong({ ...source, values: changedPhrase }, mapping);
   assert.equal(phrase.executable, false);
   assert(phrase.diagnostics.some(diagnostic => diagnostic.code === 'doubling-invariant' && diagnostic.source.a1 === 'D18'));
   const changedPeriod = source.values.map(row => [...row]);
   changedPeriod[17][3] = ''; changedPeriod[17][4] = 'crb';
-  const period = await compileSong({ ...source, values: changedPeriod }, { ...mapping, layerGroups: [{ ...mapping.layerGroups[0], armCells: ['B18', 'E18'] }] });
+  const period = await compileSheetsSong({ ...source, values: changedPeriod }, { ...mapping, layerGroups: [{ ...mapping.layerGroups[0], armCells: ['B18', 'E18'] }] });
   assert.equal(period.executable, false);
   assert(period.diagnostics.some(diagnostic => diagnostic.code === 'doubling-invariant' && /12 counted beats/.test(diagnostic.message) && /and 4\./.test(diagnostic.message)));
-  const baseline = await compileSong(source, mapping);
+  const baseline = await compileSheetsSong(source, mapping);
   assert.throws(() => decodeCompiledSong({ ...baseline, takes: [{ ...baseline.takes[0], phraseAnchorTakeId: 'missing' }, ...baseline.takes.slice(1)] }), /phrase group/);
 });
 
 test('repeated frozen compilation produces byte-identical artifacts and SHA-256 provenance', async () => {
   const { source, mapping } = fixture();
-  const first = await compileSong(source, mapping);
-  const second = await compileSong({ ...source, notes: { A21: 'Synth', A20: 'Whistle', A19: 'Cowbell', A18: 'Drums' } }, mapping);
+  const first = await compileSheetsSong(source, mapping);
+  const second = await compileSheetsSong({ ...source, notes: { A21: 'Synth', A20: 'Whistle', A19: 'Cowbell', A18: 'Drums' } }, mapping);
   assert.equal(canonicalSongJson(first), canonicalSongJson(second));
   assert.match(first.source.digest, /^[a-f0-9]{64}$/);
   assert.match(first.mappingDigest, /^[a-f0-9]{64}$/);
-  const changed = await compileSong(source, { ...mapping, cueWindow: { earlyMs: 50, lateMs: 12.5, ties: 'reject' } });
+  const changed = await compileSheetsSong(source, { ...mapping, cueWindow: { earlyMs: 50, lateMs: 12.5, ties: 'reject' } });
   assert.notEqual(first.mappingDigest, changed.mappingDigest);
   assert.equal(first.source.digest, changed.source.digest);
   assert.deepEqual(decodeCompiledSong(JSON.parse(canonicalSongJson(first))), first);
@@ -339,14 +339,14 @@ test('repeated frozen compilation produces byte-identical artifacts and SHA-256 
 
 test('malformed mappings, bar gaps, duplicate IDs, and invalid timing do not become executable songs', async () => {
   const { source, mapping } = fixture();
-  await assert.rejects(compileSong(source, { ...mapping, notationVersion: 'legacy' }));
+  await assert.rejects(compileSheetsSong(source, { ...mapping, notationVersion: 'legacy' }));
   const values = source.values.map(row => [...row]); values[4][3] = '3';
-  const song = await compileSong({ ...source, values }, { ...mapping, controls: [mapping.controls[0], mapping.controls[0]] });
+  const song = await compileSheetsSong({ ...source, values }, { ...mapping, controls: [mapping.controls[0], mapping.controls[0]] });
   assert.equal(song.executable, false);
   assert(song.diagnostics.some(d => d.code === 'bindings'));
   assert(song.diagnostics.some(d => d.code === 'duplicate-bar'));
   assert(song.diagnostics.some(d => d.code === 'missing-bar'));
-  const invalid = await compileSong(source, { ...mapping, cueWindow: { earlyMs: -1, lateMs: 0, ties: 'reject' } });
+  const invalid = await compileSheetsSong(source, { ...mapping, cueWindow: { earlyMs: -1, lateMs: 0, ties: 'reject' } });
   assert(invalid.diagnostics.some(d => d.code === 'cue-window'));
 });
 
@@ -356,19 +356,19 @@ test('take admission and imported executable references are checked before loadi
   values[0][1] = 'Fixture song'; values[1][5] = '98'; values[3][2] = 'A';
   values[17][1] = 'rb';
   for (let bar = 1; bar <= 29; bar++) { values[4][bar + 1] = String(bar); values[9][bar + 1] = '-'; values[17][bar + 1] = bar === 29 ? 'cb' : 'crb'; }
-  const draft = await compileSong({ ...source, range: 'A1:AE24', values }, { ...mapping, endBar: 29 });
+  const draft = await compileSheetsSong({ ...source, range: 'A1:AE24', values }, { ...mapping, endBar: 29 });
   assert.equal(draft.takes.length, 29);
   assert.equal(draft.executable, false);
   assert(draft.diagnostics.some(d => d.code === 'take-limit'));
   assert.throws(() => decodeCompiledSong({ ...draft, executable: true }), /unresolved|errors/);
-  const song = await compileSong(source, mapping);
+  const song = await compileSheetsSong(source, mapping);
   assert.throws(() => decodeCompiledSong({ ...song, cues: [{ ...song.cues[0], takeId: 'missing-take' }] }), /reference/);
   assert.throws(() => decodeCompiledSong({ ...song, selections: [{ ...song.selections[0], takeIds: ['missing-take'] }] }), /selection/);
 });
 
 test('imported executable programs reject forged timing, bindings, and gains', async () => {
   const { source, mapping } = fixture();
-  const song = await compileSong(source, mapping);
+  const song = await compileSheetsSong(source, mapping);
   for (const changed of [
     { ...song, cueWindow: { earlyMs: -1, lateMs: 0, ties: 'reject' } },
     { ...song, meter: { numerator: 0, denominator: 7 } },
@@ -386,7 +386,7 @@ test('bare numbered tap controls report a known capability gap rather than unkno
   const { source, mapping } = fixture();
   const values = source.values.map(row => [...row]);
   values[18][4] = '4e&a';
-  const song = await compileSong({ ...source, values }, mapping);
+  const song = await compileSheetsSong({ ...source, values }, mapping);
   assert.equal(song.executable, false);
   assert(song.diagnostics.some(d => d.source.a1 === 'E19' && d.code === 'manual-tap-capability'));
   assert(!song.diagnostics.some(d => d.source.a1 === 'E19' && d.code === 'unknown-cue'));
@@ -394,10 +394,10 @@ test('bare numbered tap controls report a known capability gap rather than unkno
 
 test('immediate lead-in capture is blocked before runtime preparation', async () => {
   const { source, mapping } = fixture();
-  const baseline = await compileSong(source, mapping);
+  const baseline = await compileSheetsSong(source, mapping);
   const values = source.values.map(row => [...row]);
   values[17][1] = 'r';
-  const draft = await compileSong({ ...source, values }, mapping);
+  const draft = await compileSheetsSong({ ...source, values }, mapping);
   assert.equal(draft.executable, false);
   assert(draft.diagnostics.some(diagnostic => diagnostic.code === 'lead-in-capture-capability' && diagnostic.source.a1 === 'B18'));
   assert.throws(() => decodeCompiledSong({ ...baseline, cues: [{ ...baseline.cues[0], execution: { kind: 'now' } }, ...baseline.cues.slice(1)] }), /lead-in capture/);
@@ -405,7 +405,7 @@ test('immediate lead-in capture is blocked before runtime preparation', async ()
 
 test('imported capture graph preserves each unique arm, commit, and boundary', async () => {
   const { source, mapping } = fixture();
-  const song = await compileSong(source, mapping);
+  const song = await compileSheetsSong(source, mapping);
   for (const changed of [
     { ...song, cues: [{ ...song.cues[0], takeId: song.takes[1].id }, ...song.cues.slice(1)] },
     { ...song, cues: song.cues.slice(1) },

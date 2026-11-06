@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import source from '../../../songs/dance-yrself-clean.source.json';
 import mapping from '../../../songs/dance-yrself-clean.mapping.json';
-import { compileSong } from '../compiled-song.js';
+import { compileSheetsSong } from '../compiled-song.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { CONTROL_IDS } from '../model.js';
@@ -14,7 +14,7 @@ const module = await WebAssembly.compile(await readFile(new URL('../../../ui/pra
 for (const rate of [44100, 48000]) test(`DYC Cowbell play renders the written bar identity at ${rate} Hz`, async () => {
   const values = source.values.map(row => [...row]);
   values[18][21] = 'p';
-  const song = await compileSong({ ...source, values }, mapping);
+  const song = await compileSheetsSong({ ...source, values }, mapping);
   assert(song.executable, JSON.stringify(song.diagnostics));
   let memory: WebAssembly.Memory;
   const instance = new WebAssembly.Instance(module, {

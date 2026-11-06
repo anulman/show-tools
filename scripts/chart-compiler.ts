@@ -2,19 +2,24 @@ import { readFile, writeFile, rename, mkdir, mkdtemp, rm, stat } from 'node:fs/p
 import { realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { Schema } from 'effect';
-import { compileSong, decodeCompiledSong, decodeSongMapping, inspectCompiledSong, canonicalSongJson } from '../lib/performance/compiled-song.js';
+import { decodeCompiledSong, decodeSongMapping, inspectCompiledSong, canonicalSongJson } from '../lib/performance/compiled-song.js';
 import { compiledProgramBytes } from '../lib/performance/compiled-native.js';
-import { fetchSongSource, parseSongSource, parseWorkbookSource, parseWorksheetUrl, canonicalSourceJson } from '../lib/performance/song-source.js';
+import { fetchSongSource, parseSongSource, parseWorkbookSource, parseWorksheetUrl } from '../lib/performance/song-source.js';
+import { readMusicXmlSong, MusicXmlValidationError } from '../lib/performance/musicxml-song.js';
+import { importSheetMusicXml } from '../lib/performance/sheet-musicxml.js';
+import type { SongSource } from '../lib/performance/song-source.js';
+import type { SongMapping } from '../lib/performance/compiled-song.js';
 import { productFailure } from './lib/command-diagnostics.js';
 
 export const CHART_HELP = `Usage:
-  show-tools chart fetch --url WORKSHEET_URL --out SOURCE.json [--sheet-name NAME]
-  show-tools chart import --csv CHART.csv --workbook CHART.xlsx --url WORKSHEET_URL --out SOURCE.json
-  show-tools chart compile --source SOURCE.json --mapping MAPPING.json --out SONG.json [--draft]
+  show-tools chart fetch --url WORKSHEET_URL --mapping MAPPING.json --out SONG.musicxml [--sheet-name NAME]
+  show-tools chart import --csv CHART.csv --workbook CHART.xlsx --url WORKSHEET_URL --mapping MAPPING.json --out SONG.musicxml
+  show-tools chart compile --musicxml SONG.musicxml --out SONG.json [--draft]
   show-tools chart encode --song SONG.json --out SONG.pfp
-  show-tools chart inspect SONG.json
+  show-tools chart inspect SONG.musicxml
+  show-tools chart musicxml --source SOURCE.json --mapping MAPPING.json --out-dir NEW_DIRECTORY
 
-Fetch reads public worksheet values and cell notes. Compile runs offline.
+Fetch imports public worksheet values and cell notes into canonical MusicXML. Compile reads MusicXML offline.
 Executable output requires resolved notation and explicit capture/cue policies.
 --draft writes a reviewable artifact with diagnostics and never emits native audio data.
 Encode reads the validated compiled JSON; each command publishes one output atomically.
@@ -45,6 +50,25 @@ async function jsonFile<T>(path: string, decode: (input: unknown) => T): Promise
     throw productFailure({ code: 'CHART_INPUT_SCHEMA', message: Schema.isSchemaError(error)
       ? 'The input does not satisfy the supported chart schema.' : error.message,
       nextSteps: ['Check the input version and chart timing, bindings, and references. Regenerate it with the current compiler.'], locations: [path] });
+  }
+}
+async function musicXmlFile(path: string) {
+  const text = await readFile(path, 'utf8');
+  try { return await readMusicXmlSong(text); }
+  catch (error) {
+    if (!(error instanceof MusicXmlValidationError || Schema.isSchemaError(error) || error instanceof SyntaxError)) throw error;
+    throw productFailure({ code: 'CHART_INPUT_MUSICXML', message: error instanceof MusicXmlValidationError ? error.message : 'The input does not satisfy the canonical MusicXML song profile.',
+      nextSteps: ['Correct the MusicXML document or import the worksheet again with the current converter. Preserve required performance metadata.'], locations: [path] });
+  }
+}
+async function sheetsMusicXml(source: SongSource, mapping: SongMapping, mappingPath: string) {
+  try { return await importSheetMusicXml({ source, mapping }); }
+  catch (error) {
+    if (error instanceof Error && error.message.startsWith('Invalid mapped cell ')) throw productFailure({ code: 'CHART_MAPPING_CELL', message: 'The mapping contains an invalid source-cell address.',
+      nextSteps: ['Use A1-style cell addresses in the mapping, then import again.'], locations: [mappingPath] });
+    if (!(error instanceof MusicXmlValidationError || Schema.isSchemaError(error) || error instanceof Error && /XML 1\.0 cannot represent/.test(error.message))) throw error;
+    throw productFailure({ code: 'CHART_IMPORT_MUSICXML', message: Schema.isSchemaError(error) ? 'The imported data does not satisfy the canonical MusicXML profile.' : error.message,
+      nextSteps: ['Correct the worksheet data and import mapping, then import again.'], locations: [mappingPath] });
   }
 }
 async function atomicWrite(path: string, data: string | Uint8Array, inputs: readonly string[] = []) {
@@ -83,14 +107,19 @@ export async function runChartCompiler(args: readonly string[], report = (messag
 async function executeChartCompiler(args: readonly string[], report: (message: string) => void): Promise<void> {
   if (!args.length || args.includes('--help') || args.includes('-h')) { report(CHART_HELP); return; }
   const command = args[0];
-  if (command === 'inspect') {
-    if (args.length !== 2) throw invalidArguments('Specify one compiled song JSON file to inspect.');
-    report(inspectCompiledSong(await jsonFile(args[1], decodeCompiledSong)));
+  if (command === 'musicxml') {
+    const { runSheetsMusicXmlImport } = await import('./import-sheet-musicxml.js');
+    await runSheetsMusicXmlImport(args.slice(1), report);
     return;
   }
-  const allowed = command === 'fetch' ? ['--url', '--out', '--sheet-name']
-    : command === 'import' ? ['--url', '--out', '--csv', '--workbook']
-      : command === 'compile' ? ['--source', '--mapping', '--out', '--draft']
+  if (command === 'inspect') {
+    if (args.length !== 2) throw invalidArguments('Specify one canonical MusicXML song file to inspect.');
+    report(inspectCompiledSong((await musicXmlFile(args[1])).song));
+    return;
+  }
+  const allowed = command === 'fetch' ? ['--url', '--mapping', '--out', '--sheet-name']
+    : command === 'import' ? ['--url', '--mapping', '--out', '--csv', '--workbook']
+      : command === 'compile' ? ['--musicxml', '--out', '--draft']
         : command === 'encode' ? ['--song', '--out'] : [];
   if (!allowed.length) throw invalidArguments('Expected chart fetch, import, compile, encode, or inspect.');
   const options = new Map<string, string>();
@@ -126,7 +155,9 @@ async function executeChartCompiler(args: readonly string[], report: (message: s
           ? 'The fetched worksheet does not satisfy the supported source schema.' : error.message,
           nextSteps: ['Check the worksheet URL, public read access and network. Retry, or import matching frozen CSV and XLSX exports.'], locations: [] });
       }
-      await atomicWrite(output, canonicalSourceJson(source));
+      const mappingPath = required('--mapping');
+      const { xml } = await sheetsMusicXml(source, await jsonFile(mappingPath, decodeSongMapping), mappingPath);
+      await atomicWrite(output, xml, [mappingPath]);
       report(`Fetched ${source.sheetName}, gid ${source.sheetId}, ${Object.keys(source.notes).length} cell notes.\n`);
     } finally { process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop); }
     return;
@@ -142,7 +173,9 @@ async function executeChartCompiler(args: readonly string[], report: (message: s
         ? 'The workbook does not satisfy the supported worksheet and notes schema.' : error.message,
         nextSteps: ['Refresh both exports from the same worksheet, correct formula errors or ambiguous sheet matches, then import again.'], locations: [required('--csv'), required('--workbook')] });
     }
-    await atomicWrite(output, canonicalSourceJson(source), [required('--csv'), required('--workbook')]);
+    const mappingPath = required('--mapping');
+    const { xml } = await sheetsMusicXml(source, await jsonFile(mappingPath, decodeSongMapping), mappingPath);
+    await atomicWrite(output, xml, [required('--csv'), required('--workbook'), mappingPath]);
     report(`Imported ${source.sheetName}, gid ${source.sheetId}.\n`);
     return;
   }
@@ -154,23 +187,14 @@ async function executeChartCompiler(args: readonly string[], report: (message: s
     report(`Encoded ${song.id}, schema ${song.schemaVersion}.\n`);
     return;
   }
-  const source = await jsonFile(required('--source'), parseSongSource);
-  const mapping = await jsonFile(required('--mapping'), decodeSongMapping);
-  let compiled;
-  try { compiled = await compileSong(source, mapping); }
-  catch (error) {
-    if (!(error instanceof Error && error.message.startsWith('Invalid mapped cell '))) throw error;
-    throw productFailure({ code: 'CHART_MAPPING_CELL', message: 'The mapping contains an invalid source-cell address.',
-      nextSteps: ['Use A1-style cell addresses in the mapping, then compile again.'], locations: [required('--mapping')] });
-  }
-  const song = decodeCompiledSong(compiled);
+  const { song } = await musicXmlFile(required('--musicxml'));
   const draft = options.has('--draft');
   report(inspectCompiledSong(song));
   if (!song.executable && !draft) {
     const diagnostics = song.diagnostics.filter(item => item.severity === 'error');
     throw productFailure({ code: 'CHART_COMPILE_BLOCKED', message: 'Compilation is blocked. ' + diagnostics.map(item => `${item.code}: ${item.message}`).join('\n'),
-      nextSteps: ['Resolve the listed source/mapping diagnostics, then compile again. Use --draft only for a non-executable review artifact.'],
-      locations: diagnostics.map(item => `${required('--source')}#${item.source.a1} ${JSON.stringify(item.source.text)}`) });
+      nextSteps: ['Resolve the listed MusicXML performance diagnostics, then compile again. Use --draft only for a non-executable review artifact.'],
+      locations: diagnostics.map(item => `${required('--musicxml')}#${item.source.a1} ${JSON.stringify(item.source.text)}`) });
   }
-  await atomicWrite(output, canonicalSongJson(song), [required('--source'), required('--mapping')]);
+  await atomicWrite(output, canonicalSongJson(song), [required('--musicxml')]);
 }
