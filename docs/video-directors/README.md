@@ -36,6 +36,14 @@ Use perspective consistently across performers and crowds. Define the ground pla
 
 Ask Art for the current approved release and scene-fit pins before export. A newer-looking filename is not an approval. The Sardine pose2 correction is a future release; the reviewed Dance Yrself Clean video retains its existing asset pins.
 
+## Compose every scene in both aspect ratios
+
+All twelve directors provide both 16:9 and 4:3 renders for every scene and animatic handoff. Compose each aspect deliberately. Preserve each actor's native pixel grid and integer pixel scale across the pair. Do not stretch sprites or blindly crop a widescreen frame into 4:3.
+
+Keep performers, key props, and any required UI readable within each composition. Record each aspect's frame dimensions, placements, occupied bounds, and fit policy. Use separate fit checks and export receipts for the two outputs. A passing fit check for one aspect does not approve the other.
+
+The working review canvases are 1280 × 720 and 960 × 720. These are provisional authoring defaults, not approved final delivery or CRT resolutions. Confirm delivery requirements before final export. Preserve existing approved releases and pins until replacement outputs pass review.
+
 ## Compose with confirmed musical facts
 
 Read the canonical `songs/<song-id>.musicxml` when one exists. Saved song effects and character assignments travel in validated MusicXML voice metadata. SQLite/IndexedDB remains the editor's library and backup format. Inspect the document's actual assignments before using a cast. Ask about missing song-specific facts while continuing independent visual exploration. Do not invent voices, character assignments, tempo, sections, cue semantics, or hardware bindings.
@@ -61,7 +69,8 @@ Send focused review requests to Art at the first composed scene, a new visual di
 Send approved scenes to Video (Procedural), thread `01a189eb-3e69-7172-9d51-df02e3c8f9fd`, with Art included. A handoff contains:
 
 - Song ID and confirmed source revision, plus saved casting references or explicit missing bindings.
-- Figma file, page, scene and actor node IDs; the chosen frame size and fit policy.
+- Figma file, page, scene and actor node IDs; both 16:9 and 4:3 compositions with their frame sizes and fit policies.
+- Separate visual evidence, fit results, and export receipts for each aspect.
 - Character and effect release pins, component identities, named layers, pivots, placement, scale and depth.
 - Scene changes, presence rules, beat units, cue and source-mode behavior, transition policy and defaults.
 - Operator-approved choices, visual evidence, outstanding questions and unsupported capabilities.
