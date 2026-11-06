@@ -3,8 +3,8 @@ import type { SongSource } from './song-source.js';
 import type { CompiledSong } from './compiled-song.js';
 
 export type ChannelId = 'L1' | 'L2' | 'R1' | 'R2';
-export type ControlId = ChannelId | 'mushroom' | 'knob' | 'tempo';
-export type Control = { readonly id: Exclude<ControlId, 'knob'> } | { readonly id: 'knob'; readonly value: number };
+export type ControlId = ChannelId | 'mushroom' | 'knob' | 'tempo' | 'cueButton';
+export type Control = { readonly id: Exclude<ControlId, 'knob' | 'cueButton'> } | { readonly id: 'knob'; readonly value: number } | { readonly id: 'cueButton'; readonly value: 0 | 1 };
 export const CONTROL_IDS: readonly ChannelId[] = ['L1', 'L2', 'R1', 'R2'];
 export const CONTROLS: readonly { id: ChannelId; key: string; shortcut: string; color: string }[] = [
   { id: 'L1', key: 'KeyQ', shortcut: 'Q', color: '#8bb7ff' },

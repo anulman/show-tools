@@ -50,13 +50,13 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   uint64_t needed = PF_COMPILED_HEADER_FIELDS + uint64_t(data[8]) * PF_COMPILED_TAKE_FIELDS + uint64_t(data[9]) * PF_COMPILED_CUE_FIELDS
     + uint64_t(data[10]) * PF_COMPILED_MEMBER_FIELDS + uint64_t(data[11]) * PF_COMPILED_PLAYBACK_FIELDS;
   if (needed > fields) return nullptr;
-  int rotation_count = 0, window_count = 0; double rotation_grid = .25;
+  int rotation_count = 0, window_count = 0; double rotation_inactivity = .25;
   uint64_t rotation_offset = 0, window_offset = 0, cursor = needed;
   while (cursor < fields) {
     if (data[cursor] == PF_COMPILED_ROTATION_MAGIC) {
       if (rotation_offset || window_offset || fields - cursor < PF_COMPILED_ROTATION_HEADER_FIELDS
         || !whole(data[cursor + 1], PF_MAX_EVENTS) || !whole(data[cursor + 2] * 960, 960) || data[cursor + 2] <= 0) return nullptr;
-      rotation_offset = cursor; rotation_count = int(data[cursor + 1]); rotation_grid = data[cursor + 2];
+      rotation_offset = cursor; rotation_count = int(data[cursor + 1]); rotation_inactivity = data[cursor + 2];
       cursor += PF_COMPILED_ROTATION_HEADER_FIELDS + uint64_t(rotation_count) * PF_COMPILED_ROTATION_FIELDS;
     } else if (data[cursor] == PF_COMPILED_WINDOW_MAGIC) {
       if (window_offset || fields - cursor < PF_COMPILED_WINDOW_HEADER_FIELDS || !whole(data[cursor + 1], PF_MAX_EVENTS)) return nullptr;
@@ -75,7 +75,7 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   program->early_ = data[6]; program->late_ = data[7]; program->take_count_ = int(data[8]); program->cue_count_ = int(data[9]);
   program->member_count_ = int(data[10]); program->playback_count_ = int(data[11]);
   for (int button = 0; button < PF_CHANNELS; ++button) program->binding_[button] = int(data[12 + button]);
-  program->rotation_count_ = rotation_count; program->rotation_grid_ = rotation_grid;
+  program->rotation_count_ = rotation_count; program->rotation_inactivity_ = rotation_inactivity;
   program->rotation_windows_.reset(new (std::nothrow) RotationWindow[rotation_count]);
   if (!program->rotation_windows_) return nullptr;
   for (int id = 0; id < rotation_count; ++id) {
@@ -385,13 +385,7 @@ int Program::rotate(double value, double frame, double bpm) noexcept {
   bpm_ = bpm; query_position_ = position(frame, bpm); query_frame_ = frame;
   if (!value || phase_ != PF_PLAYING) return PF_OK;
   for (int id = 0; id < rotation_count_; ++id) if (frame >= frame_at(rotation_windows_[id].begin) && frame < frame_at(rotation_windows_[id].end)) {
-    double grid = std::floor(query_position_ / rotation_grid_);
-    double next = (grid + 1) * rotation_grid_;
-    // Correct either rounding direction in count conversion without merging
-    // distinct source frames at a strict grid boundary.
-    if (frame_at(grid * rotation_grid_) > frame) next = grid * rotation_grid_;
-    else if (frame_at(next) <= frame) next = (grid + 2) * rotation_grid_;
-    rotation_deadline_ = std::min(next, rotation_windows_[id].end); break;
+    rotation_deadline_ = std::min(query_position_ + rotation_inactivity_, rotation_windows_[id].end); break;
   }
   return PF_OK;
 }
@@ -401,11 +395,11 @@ int Program::profile_activity(int profile) const noexcept {
   if (profile < PF_CHANNELS && active_capture_.take >= 0 && takes_[active_capture_.take].voice == profile) return PF_VOICE_CAPTURE;
   return profile >= 0 && profile < PF_VOICE_PROFILES && drain_[profile] ? PF_VOICE_TAIL : PF_VOICE_STANDBY;
 }
-int Program::press(int button, double frame, double bpm, bool microphone) noexcept {
-  if (button < 0 || button >= PF_CHANNELS || phase_ == PF_IDLE || phase_ == PF_ENDED) return PF_INVALID_CHANNEL;
+int Program::resolve(int button, double frame, double bpm) noexcept {
+  if (button < 0 || button >= PF_CHANNELS || phase_ == PF_IDLE || phase_ == PF_ENDED) return -PF_INVALID_CHANNEL;
   error_ = PF_OK;
   remember_cues(frame, bpm);
-  double now = position(frame, bpm), best = std::numeric_limits<double>::infinity(); int found = -1; bool tied = false;
+  double best = std::numeric_limits<double>::infinity(); int found = -1; bool tied = false;
   for (int id = 0; id < cue_count_; ++id) {
     const Cue& cue = cues_[id]; if (cue.button != button) continue;
     double at = cue_frame(cue, bpm), delta = frame - at;
@@ -415,11 +409,42 @@ int Program::press(int button, double frame, double bpm, bool microphone) noexce
     if (distance < best - epsilon) { found = id; best = distance; tied = false; }
     else if (std::abs(distance - best) <= epsilon) tied = true;
   }
-  if (tied) return PF_CUE_AMBIGUOUS;
-  if (found < 0) {
-    for (int id = 0; id < cue_count_; ++id) if (cues_[id].button == button && cues_[id].bar == bar_) return PF_CUE_LATE;
-    return PF_OK;
+  if (tied) return -PF_CUE_AMBIGUOUS;
+  return found < 0 ? -PF_CUE_LATE : found;
+}
+int Program::press(int button, double frame, double bpm, bool microphone) noexcept {
+  int selected = resolve(button, frame, bpm);
+  if (selected < 0) {
+    if (selected == -PF_CUE_LATE) {
+      for (int id = 0; id < cue_count_; ++id) if (cues_[id].button == button && cues_[id].bar == bar_) return PF_CUE_LATE;
+      return PF_OK;
+    }
+    return -selected;
   }
+  return press_selected(selected, frame, bpm, microphone);
+}
+int Program::press_current(double frame, double bpm, bool microphone) noexcept {
+  int selected[PF_CHANNELS], result = PF_OK;
+  for (int button = 0; button < PF_CHANNELS; ++button) selected[button] = resolve(button, frame, bpm);
+  for (int pass = 0; pass < 2; ++pass) for (int button = 0; button < PF_CHANNELS; ++button) {
+    int id = selected[button];
+    if (id < 0) {
+      if (pass == 0 && id != -PF_CUE_LATE && outcome_) outcome_(outcome_context_, frame, button, -1, -id);
+      if (id != -PF_CUE_LATE && result == PF_OK) result = -id;
+      continue;
+    }
+    const Cue& cue = cues_[id];
+    bool commits = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
+    if (commits != (pass == 0)) continue;
+    int code = press_selected(id, frame, bpm, microphone);
+    if (outcome_) outcome_(outcome_context_, frame, button, id, code);
+    if (code != PF_OK && result == PF_OK) result = code;
+  }
+  return result;
+}
+int Program::press_selected(int found, double frame, double bpm, bool microphone) noexcept {
+  int button = cues_[found].button;
+  double now = position(frame, bpm);
   Cue& cue = cues_[found]; if (cue.used || pending_[button].cue == found) return PF_OK;
   if (pending_[button].cue >= 0) return PF_CAPTURE_BUSY;
   if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) {

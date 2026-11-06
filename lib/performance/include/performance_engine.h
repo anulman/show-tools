@@ -3,6 +3,7 @@
 #include "beat_tracker.h"
 #include "sample_engine.h"
 #include "audio_sequence_engine.h"
+#include "performance_light_output.h"
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -76,9 +77,8 @@ sq_engine* pf_sequencer(pf_engine* engine);
 int pf_configure(pf_engine* engine, double bpm, int beats_per_bar, int bar_count, int default_end_bar,
   int program_length, const double* events, int event_count,
   const double* cues, int cue_count, const double* playback, int playback_count);
-/* Packet 4 rotation extension: [magic, window count, release grid in chart-count
-   beats, ...window rows]. Grid boundaries are strictly after accepted movement.
-   Packet 3's inactivity-duration field is incompatible and is rejected.
+/* Packet 6 rotation extension: [magic, window count, inactivity duration in
+   chart-count beats, ...window rows]. Older packet semantics are rejected.
    Compiled records use the versioned double-table format. All tables and capture
    resources are validated/prepared before an atomic stopped replacement. */
 int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields);
@@ -92,7 +92,12 @@ int pf_start(pf_engine* engine, double bpm, int count_in_bars, int start_bar, in
 void pf_stop(pf_engine* engine);
 /* IDs preserve JavaScript UTF-16 code-unit identity, including embedded NULs.
    Null pointer with zero length means no ID. Other IDs contain 1..200 units. */
+/* Controls 0..3 pads, 4 Panic, 5 signed relative jiggle, 6 tempo hit,
+   7 cue button (0 released, 1 held). Only a fresh rising edge performs cues. */
 int pf_control(pf_engine* engine, int control, double value, const uint16_t* command_id, uint32_t command_length);
+/* Complete engine-authored brightness image. Query on the engine owner thread.
+   Repeated queries without a changed image retain their publication sequence. */
+void pf_light_output(pf_engine* engine, double* out);
 int pf_select(pf_engine* engine, int channel);
 int pf_set_channel(pf_engine* engine, int channel, double gain, int muted);
 int pf_set_automatic(pf_engine* engine, int automatic);

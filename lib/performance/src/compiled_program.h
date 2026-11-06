@@ -25,6 +25,7 @@ class Program {
   void stop() noexcept;
   void microphone_lost() noexcept;
   int press(int button, double frame, double bpm, bool microphone) noexcept;
+  int press_current(double frame, double bpm, bool microphone) noexcept;
   void beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm) noexcept;
   void render(const float* input, float* left, float* right, float* live_left, float* live_right,
     uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack, patches::Rack& backup_rack) noexcept;
@@ -38,6 +39,7 @@ class Program {
   int error() const noexcept { return error_; }
   void clear_error() noexcept { error_ = PF_OK; }
   bool has_capture() const noexcept;
+  bool recording() const noexcept { return active_capture_.take >= 0; }
   const double* table() const noexcept { return table_.get(); }
   uint32_t table_fields() const noexcept { return fields_; }
  private:
@@ -51,6 +53,8 @@ class Program {
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   Program() = default;
+  int resolve(int button, double frame, double bpm) noexcept;
+  int press_selected(int cue, double frame, double bpm, bool microphone) noexcept;
   bool reservation_available(int take, int button, int committing) const noexcept;
   int available_bank(int take) const noexcept;
   int preflight_commit(const Cue& cue, CommitPlan& plan) const noexcept;
@@ -76,7 +80,7 @@ class Program {
   std::unique_ptr<SelectionWindow[]> selection_windows_;
   int window_count_ = 0;
   int rotation_count_ = 0, monitor_route_ = PF_DEFAULT_PROFILE;
-  double rotation_grid_ = .25, rotation_deadline_ = -1;
+  double rotation_inactivity_ = .25, rotation_deadline_ = -1;
   bool handed_off_[PF_CHANNELS]{};
   std::unique_ptr<Take[]> takes_;
   std::unique_ptr<Cue[]> cues_;
