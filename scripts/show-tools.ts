@@ -10,6 +10,7 @@ import { spawnCDP } from './start-cdp.js';
 import { chiefHandoff, commandFailureExitCode, formatCommandFailure, parseCommandFailure } from './lib/command-diagnostics.js';
 
 export const HELP = `Usage: show-tools sheets [SONG_SLUG_OR_SET_LIST_NUMBER] [--no-cdp] [--skip-open]
+       show-tools ui <preview|live|status|stop|shutdown|gc>
        show-tools songs
        show-tools session <install|start|stop|status|audio> [--profile FILE]
        show-tools peripheral connect --config FILE
@@ -17,6 +18,7 @@ export const HELP = `Usage: show-tools sheets [SONG_SLUG_OR_SET_LIST_NUMBER] [--
 Commands:
   chart          Fetch, compile, and inspect mapped performance charts
   sheets [song]  Run Sheets following; open the set list or a song's lead-in
+  ui             Manage stable live and worktree preview origins
   session        Manage the persistent web desk and optional native audio
   peripheral     Connect the local I-PAC to the enabled hardware instrument
   songs          List song slugs and 1-indexed set-list numbers
@@ -151,6 +153,10 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
 
 export async function main(args = process.argv.slice(2)) {
   try {
+    if (args[0] === 'ui') {
+      await (await import('../lib/ui-host/cli.js')).runUiCli(args.slice(1));
+      return;
+    }
     if (args[0] === 'peripheral') {
       await (await import('../lib/peripherals/bridge-cli.js')).runPeripheralCli(args.slice(1));
       return;

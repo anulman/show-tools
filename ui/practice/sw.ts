@@ -1,13 +1,21 @@
 /// <reference lib="webworker" />
 export {};
 declare const self: ServiceWorkerGlobalScope;
-const CACHE = 'show-tools-practice-__BUILD_CACHE_ID__';
+const BUILD = '__BUILD_CACHE_ID__';
+const CACHE_SCOPE = 'show-tools-practice-' + self.registration.scope + ':';
+const CACHE = CACHE_SCOPE + BUILD;
 const MODULE_FILES = '__BUILD_MODULE_FILES__';
 const FILES: string[] = Array.isArray(MODULE_FILES) ? MODULE_FILES : [];
-const ASSET_URLS = new Set(FILES.map(path => new URL(path, self.location.href).href));
+const ASSET_URLS = new Set(FILES.map(path => new URL(path.replace(/^\/ui\/practice\//, './'), self.location.href).href));
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(FILES.map(path => new Request(path, { cache: 'reload' })))));
+  event.waitUntil(caches.open(CACHE).then(cache => Promise.all([...ASSET_URLS].map(async path => {
+    const pinned = new URL(path);
+    pinned.searchParams.set('__show_tools_build', BUILD);
+    const response = await fetch(new Request(pinned, { cache: 'reload' }));
+    if (!response.ok) throw new Error('This build could not be cached');
+    return { path, response };
+  })).then(assets => Promise.all(assets.map(({ path, response }) => cache.put(path, response))))));
 });
 self.addEventListener('message', event => {
   const data: unknown = event.data;
@@ -18,7 +26,7 @@ self.addEventListener('message', event => {
   }));
 });
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('show-tools-practice-') && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith(CACHE_SCOPE) && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
 });
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);

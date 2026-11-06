@@ -70,22 +70,24 @@ Treat the Sheets helper and its Chrome profile as shared state too. Use one owne
 
 ## Build a browser checkout
 
-Install Node.js, npm, Python 3, and Emscripten with `em++` on `PATH`. From the assigned worktree, run these commands in order.
+Install Node.js, npm, and Emscripten with `em++` on `PATH`. From the assigned worktree, run these commands in order.
 
 ```sh
 npm ci
 npm run build
 ```
 
-The full build compiles the C++ performance engine, clock, sequencer, and sampler into one manual-tempo WASM module. It runs clock checks, bundles the browser code, and writes static assets into `dist/`. Run `npm test` for engine and practice integration checks. Serve that directory on a port assigned to this worktree.
+The full build compiles the C++ performance engine, clock, sequencer, and sampler into one manual-tempo WASM module. It runs clock checks, bundles the browser code, and writes static assets into `dist/`. Run `npm test` for engine and practice integration checks. Publish a verified immutable snapshot through the UI manager.
 
 ```sh
-python3 -m http.server 8084 --bind 127.0.0.1 --directory dist
+./show-tools ui preview
 ```
 
-Open `http://127.0.0.1:8084/ui/practice/`. Use a different port for another session. `npm start` is the equivalent static server on port 8082. The optional relay also defaults to 8082, so do not start both there.
+The manager prints the worktree’s permanent URL and actual build revision/cache identity. `npm start` runs the same command. Use `--session NAME` for a separate browser library within the same worktree. Do not launch ad hoc static servers or choose another port when one is occupied; the manager fails closed and leaves its existing owner untouched.
 
-For browser-only changes, run `npm run build:ui` after the first full build. Reload the test page after rebuilding. That command needs the generated `ui/practice/wasm/manual-clock.wasm` to exist and replaces `dist/`; it does not rebuild C++.
+After a reviewed merge, `./show-tools ui live --publish origin/main` builds that merged revision in an isolated checkout and publishes it at `http://127.0.0.1:8084/`. `ui live` reuses the last publication. This does not fetch automatically. Follow the [UI manager guide](ui-manager.md) before the first handover from a legacy server.
+
+For browser-only changes, run `npm run build:ui` after the first full build. Run `./show-tools ui preview` after rebuilding, then reopen its printed stable URL. Existing pages keep their pinned release. That command needs the generated `ui/practice/wasm/manual-clock.wasm` to exist and replaces `dist/`; it does not rebuild C++.
 
 For mobile checks, serve `dist/` over HTTPS. Microphone access requires a secure context. A phone's `127.0.0.1` refers to the phone, not the development computer. Static hosting is enough for practice audio. Desktop Sheets following is optional and local to its helper computer.
 

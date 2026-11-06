@@ -137,7 +137,7 @@ The helper selects only the requested column through the Name box. It preserves 
 
 The [Chrome extension](../ui/practice/sheets-extension/README.md) is a separate implementation using direct tab events and range fragments. Its complete installed path remains unverified. The helper's live jitter verification does not establish that the extension behaves identically. Neither integration changes chart values.
 
-The [relay](../lib/relay/README.md) is another separate component. It can forward versioned events and simulated controls for a future hardware producer. It stores no audio. Its default port 8082 conflicts with the development static server unless you choose another port. The current practice page does not connect to it, and the native producer does not exist yet.
+The [relay](../lib/relay/README.md) is another separate component. It can forward versioned events and simulated controls for a future hardware producer. It stores no audio. Its default port is 8082; managed practice previews use reserved ports in 20000–29999. The current practice page does not connect to it, and the native producer does not exist yet.
 
 Hardware mode uses the gateway as an alternate control surface for the native host. Browser mode uses local WASM and remains independent on an HTTPS static host. The [native-host handoff](operations/elitedesk-handoff.md) records deployment and verification gates.
 
@@ -226,6 +226,7 @@ The [session CLI](implementation/session-cli.md) manages the web service and the
 
 The native owner publishes copied state and events with a process epoch, run identity, and publication revision. Commands report the result applied by the owner. A lost connection leaves an in-flight outcome unknown; neither gateway nor desk replays it. The gateway validates package metadata and hashes before submitting the compiled packet and initial profiles. The native owner prepares a replacement while stopped and retains the existing instrument if preparation fails.
 
+The [UI host](../lib/ui-host/) is a separate static-only service. A caller-owned Unix socket serializes lifecycle commands through one broker per repository. Its durable registry owns the stable live origin (8084) and permanent worktree/session preview assignments. Immutable snapshots retain verified asset hashes and source receipts. Versioned navigation and scope-specific service-worker caches pin each open page to one build; only the existing browser idle gate can activate a waiting worker. This service owns no musical state, device controls, browser automation, or audio-process lifecycle. See [UI manager operations](ui-manager.md).
 The separate [I-PAC device bridge](../lib/peripherals/README.md#persistent-mac-device-host)
 runs on the computer carrying USB. Its native helper owns only the qualified
 I-PAC interfaces, normalizes input edges, and writes fenced PE-authored light
