@@ -44,6 +44,25 @@ jobs:
           cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-host --parallel
           ctest --test-dir build/native-host --output-on-failure
+      - name: Stage Linux host with provenance
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p build/artifact
+          cp build/native-host/native_alsa_host build/artifact/
+          cp lib/native-alsa/README.md build/artifact/ALSA-NOTICE.md
+          cp /usr/share/common-licenses/LGPL-2.1 build/artifact/
+          git rev-parse HEAD > build/artifact/source-revision.txt
+          c++ --version > build/artifact/compiler.txt
+          dpkg-query -W libasound2-dev libasound2t64 libc6 libstdc++6 > build/artifact/packages.txt
+          ldd build/artifact/native_alsa_host > build/artifact/runtime-dependencies.txt
+          cd build/artifact
+          sha256sum * > SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: native-alsa-linux-x86_64-${{ github.sha }}
+          path: build/artifact/
+          if-no-files-found: error
 
   controls:
     runs-on: ubuntu-24.04
