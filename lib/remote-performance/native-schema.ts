@@ -33,7 +33,7 @@ const state = Schema.Struct({ phase: Schema.Literals(['idle', 'count-in', 'playi
   voiceEffects: Schema.optionalKey(list(voice, 6).check(Schema.isMinLength(6)).check(Schema.makeFilter(value => new Set(value.map(item => item.profile)).size === 6 || 'Duplicate voice profile'))),
   tempoHits: Schema.optionalKey(Schema.Struct({ count, latest: Schema.NullOr(Schema.Struct({ ...tempo.fields, frame: frameCoordinate, bpm: finite })) })),
   compiledTakes: Schema.optionalKey(list(Schema.Struct({ index: count, ready: Schema.Boolean, frames: count, period: count,
-    playback: Schema.Literals(['idle', 'playing', 'releasing']), sourceEndFrames: Schema.NullOr(count) }), 32)),
+    playback: Schema.Literals(['idle', 'playing', 'releasing']), sourceEndFrames: Schema.NullOr(count), selectionIndex: Schema.NullOr(count) }), 32)),
 }).check(Schema.makeFilter(value => new Set(value.channels.map(item => item.id)).size === 4 || 'Duplicate channel'));
 const cue = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('none') }), Schema.Struct({ kind: Schema.Literal('unsupported'), notation: text }),

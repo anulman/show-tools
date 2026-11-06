@@ -891,7 +891,7 @@ VoiceInfo Program::channel_info(int button, double bpm) const noexcept {
 void Program::take_info(uint32_t id, double* out) const noexcept {
   if (!out) return;
   std::fill(out, out + PF_TAKE_FIELDS, 0);
-  out[PF_TAKE_SOURCE_END] = -1;
+  out[PF_TAKE_SOURCE_END] = out[PF_TAKE_SELECTION] = -1;
   if (id >= uint32_t(take_count_)) return;
   const Take& take = takes_[id]; int bank = active_capture_.take == int(id) ? active_capture_.bank : take.latest >= 0 ? take.latest : 0;
   out[PF_TAKE_VOICE] = take.voice; out[PF_TAKE_READY] = take.latest >= 0;
@@ -900,5 +900,12 @@ void Program::take_info(uint32_t id, double* out) const noexcept {
   out[PF_TAKE_REVISION] = double(take.cache[bank]->revision());
   out[PF_TAKE_SOURCE_END] = take.playback[bank]->source_end();
   out[PF_TAKE_PHASE] = take.playback[bank]->phase(); out[PF_TAKE_PLAYBACK_STATE] = int(take.playback[bank]->state());
+  if (take.playback[bank]->state() == patches::PlaybackState::playing) {
+    const int selected = selection_[take.voice];
+    for (int member = 0; member < member_count_; ++member)
+      if (members_[member].selection == selected && members_[member].take == int(id)) {
+        out[PF_TAKE_SELECTION] = selected; break;
+      }
+  }
 }
 }

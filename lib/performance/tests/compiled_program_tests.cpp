@@ -1240,18 +1240,20 @@ void prefix_capture_maps_and_selection() {
       render_frames(length + 1, std::ceil(origin));
       std::array<double, PF_TAKE_FIELDS> info{}; program->take_info(0, info.data());
       require(info[PF_TAKE_READY] && info[PF_TAKE_LENGTH] == length && info[PF_TAKE_SOURCE_END] == -1, "commit keeps original complete recording");
+      require(info[PF_TAKE_SELECTION] == 0, "native readback names the actual full selection");
       double prior_phase = info[PF_TAKE_PHASE];
       program->beat(PF_PLAYING, 84, 1, 0, 337 * count, 98); program->take_info(0, info.data());
       require(info[PF_TAKE_SOURCE_END] == cut && info[PF_TAKE_PHASE] == prior_phase, "prefix uses actual source-frame crossing without phase reset");
+      require(info[PF_TAKE_SELECTION] == 1, "native readback follows the active prefix view without bar inference");
       if (rate == 48000) require(cut == 102857 && info[PF_TAKE_PERIOD] == 117552, "prefix excludes absolute-grid hit that period ratio would leak");
       require(program->press(0, std::ceil(337 * count), 98, true) == PF_OK, "manual Stop still suppresses playback");
       program->beat(PF_PLAYING, 85, 1, 0, 341 * count, 98); program->take_info(0, info.data());
-      require(info[PF_TAKE_PLAYBACK_STATE] != int(patches::PlaybackState::playing), "automatic full selection cannot restart stopped voice");
+      require(info[PF_TAKE_PLAYBACK_STATE] != int(patches::PlaybackState::playing) && info[PF_TAKE_SELECTION] == -1, "stopped readback cannot claim a cached automatic selection is playing");
       program->beat(PF_PLAYING, 86, 1, 0, 345 * count, 98);
       require(program->press(0, std::ceil(345 * count), 98, true) == PF_OK, "manual Play can authorize prefix");
-      program->take_info(0, info.data()); require(info[PF_TAKE_SOURCE_END] == cut, "manual Play applies retained prefix view");
+      program->take_info(0, info.data()); require(info[PF_TAKE_SOURCE_END] == cut && info[PF_TAKE_SELECTION] == 1, "manual Play applies and reports retained prefix view");
       program->beat(PF_PLAYING, 87, 1, 0, 349 * count, 98); program->take_info(0, info.data());
-      require(info[PF_TAKE_SOURCE_END] == -1, "full view restores source after prefix without replacing recording");
+      require(info[PF_TAKE_SOURCE_END] == -1 && info[PF_TAKE_SELECTION] == 0, "full view restores source and reports actual selection without replacing recording");
       program->stop(); watch_heap = false;
       require(!heap_allocations && !heap_frees, "prefix capture, bank reuse and selection perform no heap operations");
     }

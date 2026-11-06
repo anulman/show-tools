@@ -539,7 +539,7 @@ int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t byte
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out) {
   if (!out) return;
   if (engine && engine->compiled) engine->compiled->take_info(take, out);
-  else { std::fill(out, out + PF_TAKE_FIELDS, 0); out[PF_TAKE_SOURCE_END] = -1; }
+  else { std::fill(out, out + PF_TAKE_FIELDS, 0); out[PF_TAKE_SOURCE_END] = out[PF_TAKE_SELECTION] = -1; }
 }
 int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int loop, int automatic) {
   if (!engine) return -1;

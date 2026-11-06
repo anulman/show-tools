@@ -237,3 +237,5 @@ level. Native snapshots and remote SSE carry the complete image unchanged. The
 delivery gate owns freshness and successful-write commit, and sends brightness
 reports for its explicit mapping. Mac Input Monitoring, real USB delivery and a
 future Linux peripheral adapter remain separate from fake-host verification.
+
+Compiled take readback includes the actual native playing selection index. The desk uses that index to describe a source-bar view independently of its parent recording. Current DYC's Cowbell has two parent captures and eleven reusable bar identities; its shortened bar-82 admission reuses that same identity. Whole-bar views and shortened views both bound source admission, so the selected view's source span relative to its loop period determines the Trimmed annotation. An absent native selection stays visibly unavailable rather than being inferred from the displayed chart position.

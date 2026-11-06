@@ -287,3 +287,9 @@ native peripheral CTest targets as well. The bridge integration test uses a real
 gateway/native fake host and synthetic child process without opening USB. Verify
 the physical LED and motion thresholds from the permissioned terminal before
 declaring the installed instrument ready.
+
+### Verify capture parents and the playing view
+
+Take readback appends `PF_TAKE_SELECTION` at field 9; `PF_TAKE_FIELDS` is 10 in the unreleased ABI 8 interface. A playing take reports its actual native selection index only when it belongs to that active selection. Idle and releasing readback use -1, decoded as `selectionIndex: null`. Keep browser/WASM and remote snapshot schemas together when changing this layout.
+
+Run the take-presentation and remote-schema UI tests, `capture-slices.test.ts` at both audio rates, and native compiled-program tests. Current DYC has five capture parents: Cowbell uses two captures with eleven distinct reusable source-bar views. Its shortened bar-82 view is another admission window over the same source bar. A whole-bar slice has a native source cutoff too; display Trimmed only when the selected source span is shorter than its loop period. Derive the playing source bar from native `selectionIndex`, never the chart's displayed current bar. Keep frozen historical doubling tests alongside current-chart tests.

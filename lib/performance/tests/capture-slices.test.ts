@@ -77,6 +77,7 @@ for (const rate of [44100, 48000]) test(`actual DYC chopped Cowbell views admit 
     return last;
   }
   try {
+    assert.equal(native.compiledTake(0).selectionIndex, null);
     native.setMicrophone(true);
     native.start({ runId: 'capture-slices', bpm: song.chart.bpm, countInBars: 1, startBar: 1, endBar: 98, loop: false });
     for (const id of CONTROL_IDS) native.setChannel(id, { gain: id === 'R2' ? 1 : 0 });
@@ -84,6 +85,17 @@ for (const rate of [44100, 48000]) test(`actual DYC chopped Cowbell views admit 
       until(at(bar, count));
       const output = until(frame + 32);
       assert(output.every(sample => Math.abs(sample - expected) < 1e-6), `bar ${bar}:${count} expected ${expected}, received ${output[0]}`);
+      const sourceBar = bar === 20 ? 11 : 82;
+      const parent = song.takes.findIndex(take => take.voiceId === 'cowbell' && sourceBar >= take.begin.bar && sourceBar < (take.captureEnd?.bar ?? 0));
+      const selected = song.selections.findIndex(selection => selection.takeIds.includes(song.takes[parent].id)
+        && selection.window.kind === 'slice' && selection.window.beginCount === (sourceBar - song.takes[parent].begin.bar) * 4
+        && selection.window.endCount === (sourceBar - song.takes[parent].begin.bar) * 4 + (bar === 96 ? 3.5 : 4));
+      assert(selected >= 0);
+      assert.equal(native.compiledTake(parent).selectionIndex, selected, `bar ${bar} reports its actual native playing view`);
+      assert.equal(native.state().compiledTakes?.find(take => take.index === parent)?.selectionIndex, selected);
+
     }
+    native.stop();
+    assert(native.state().compiledTakes?.every(take => take.selectionIndex === null));
   } finally { native.dispose(); }
 });

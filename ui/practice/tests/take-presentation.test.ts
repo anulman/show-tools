@@ -4,16 +4,18 @@ import song from '../../../songs/dance-yrself-clean.js';
 import { CONTROL_IDS } from '../../../lib/performance/model.js';
 import type { ChannelId, ChannelState, CompiledTakeState } from '../../../lib/performance/model.js';
 import { takePresentation } from '../take-presentation.js';
+import { frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.js';
+import { readMusicXmlSong } from '../../../lib/performance/musicxml-song.js';
 import { compiledCaptureFixture } from '../../../lib/performance/tests/fixtures/compiled-capture.js';
 
-const compiled = song.compiled;
+const compiled = (await readMusicXmlSong(await frozenCutoverMusicXml())).song;
 const channels: ChannelState[] = CONTROL_IDS.map(id => ({ id, ready: false, muted: false, gain: 1, looping: false, status: 'empty', light: { kind: 'off' } }));
 function readback(channelId: ChannelId, playback: CompiledTakeState['playback'], readyCount: number) {
   const voice = compiled.voices.find(voice => voice.buttonId === channelId);
   let ready = 0;
   return compiled.takes.map((take, index): CompiledTakeState => {
     const present = take.voiceId === voice?.id && ready++ < readyCount;
-    return { index, ready: present, frames: present ? 123 : 0, period: present ? 456 : 0, playback: present ? playback : 'idle', sourceEndFrames: null };
+    return { index, ready: present, frames: present ? 123 : 0, period: present ? 456 : 0, playback: present ? playback : 'idle', sourceEndFrames: null, selectionIndex: null };
   });
 }
 
@@ -70,5 +72,32 @@ test('trimmed playback is reported from native source admission without adding a
   const take = compiled.takes.findIndex(take => take.voiceId === 'cowbell' && take.begin.bar === 82);
   const compiledTakes = readings.map(reading => reading.index === take ? { ...reading, playback: 'playing', sourceEndFrames: 102857 } satisfies CompiledTakeState : reading);
   assert.equal(takePresentation(compiled, 'R2', { channels, compiledTakes }).summary, 'Playing version 4/6 · bar 82 · &e3a& · Trimmed');
-  assert.equal(takePresentation(compiled, 'R2', { channels, compiledTakes: compiledTakes.map(reading => ({ ...reading, sourceEndFrames: null })) }).summary, 'Playing version 4/6 · bar 82 · &e3a&');
+  assert.equal(takePresentation(compiled, 'R2', { channels, compiledTakes: compiledTakes.map(reading => ({ ...reading, sourceEndFrames: null, selectionIndex: null })) }).summary, 'Playing version 4/6 · bar 82 · &e3a&');
+});
+
+test('current DYC describes five capture parents and eleven distinct reusable Cowbell bar views', () => {
+  const current = song.compiled;
+  assert.equal(current.takes.length, 5);
+  assert.equal(takePresentation(current, 'R1', { channels }).plan, 'Record bars 1–2 · 2-bar loop');
+  assert.equal(takePresentation(current, 'L2', { channels }).plan, 'Record bars 5–6 · 2-bar loop');
+  assert.equal(takePresentation(current, 'R2', { channels }).plan, '2 captures · bars 8–12 + 79–84 · 11 reusable bar views');
+});
+
+test('Cowbell playback names the native-selected source bar and trim rather than a parent capture or chart position', () => {
+  const current = song.compiled;
+  const parent = current.takes.findIndex(take => take.voiceId === 'cowbell' && take.begin.bar === 79);
+  const read = (selectionIndex: number | null) => current.takes.map((_, index): CompiledTakeState => ({ index, ready: true, frames: 96000,
+    period: 96000, playback: index === parent ? 'playing' : 'idle', selectionIndex: index === parent ? selectionIndex : null,
+    sourceEndFrames: index === parent ? 62000 : null }));
+  const fullBar = current.selections.findIndex(selection => selection.id.endsWith('/bar-82'));
+  assert(fullBar >= 0);
+  assert.equal(takePresentation(current, 'R2', { channels, compiledTakes: read(fullBar) }).summary,
+    'Playing bar 82 · &e3a& · 1-bar loop · capture 2/2');
+  const trimmed = current.selections.findIndex(selection => selection.window.kind === 'slice' && selection.window.loopCounts > selection.window.endCount - selection.window.beginCount);
+  assert(trimmed >= 0);
+  assert.equal(takePresentation(current, 'R2', { channels, compiledTakes: read(trimmed) }).summary,
+    'Playing bar 82 · &e3a& · 1-bar loop · capture 2/2 · Trimmed');
+  assert.equal(takePresentation(current, 'R2', { channels, compiledTakes: read(null) }).summary, '1 capture playing · view unavailable');
+  const idle = read(trimmed).map(reading => ({ ...reading, playback: 'idle' as const, selectionIndex: null }));
+  assert.equal(takePresentation(current, 'R2', { channels, compiledTakes: idle }).summary, '2 of 2 captures saved');
 });

@@ -197,6 +197,7 @@ export class NativePerformance {
     const info = this.query('pf_compiled_take_info', index);
     return { voice: info[PF.TAKE_VOICE], ready: info[PF.TAKE_READY] === 1, frames: info[PF.TAKE_LENGTH],
       capacity: info[PF.TAKE_CAPACITY], revision: info[PF.TAKE_REVISION], phase: info[PF.TAKE_PHASE], playbackState: info[PF.TAKE_PLAYBACK_STATE], period: info[PF.TAKE_PERIOD],
+      selectionIndex: info[PF.TAKE_SELECTION] < 0 ? null : info[PF.TAKE_SELECTION],
       sourceEndFrames: info[PF.TAKE_SOURCE_END] < 0 ? null : info[PF.TAKE_SOURCE_END] };
   }
   tempoHitInfo(): TempoHitState {

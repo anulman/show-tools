@@ -73,5 +73,6 @@ export function decodeNativeTake(info: ArrayLike<number>, index: number): Compil
   const playback = (['idle', 'playing', 'releasing'] as const)[info[PF.TAKE_PLAYBACK_STATE]];
   if (!playback) throw new Error('Invalid native take playback state');
   return { index, ready: info[PF.TAKE_READY] === 1, frames: info[PF.TAKE_LENGTH], period: info[PF.TAKE_PERIOD], playback,
-    sourceEndFrames: info[PF.TAKE_SOURCE_END] < 0 ? null : info[PF.TAKE_SOURCE_END] };
+    selectionIndex: info[PF.TAKE_SELECTION] < 0 ? null : info[PF.TAKE_SELECTION],
+      sourceEndFrames: info[PF.TAKE_SOURCE_END] < 0 ? null : info[PF.TAKE_SOURCE_END] };
 }
