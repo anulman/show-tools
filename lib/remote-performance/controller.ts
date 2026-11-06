@@ -25,7 +25,8 @@ const diagnosticMessage = (attempt: Attempt, message: string) => {
   const prefix = message.slice(0, 1024);
   return tail ? `${prefix}\n${tail.slice(-(8192 - prefix.length - 1))}` : prefix;
 };
-type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Promise<void>; finish: 'off' | 'fault'; stderr: Buffer; instrument?: NativeInstrument; child?: ChildProcessSpawner.ChildProcessHandle };
+type ChildOwnership = { kind: 'not-requested' } | { kind: 'pending' } | { kind: 'known'; handle: ChildProcessSpawner.ChildProcessHandle };
+type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Promise<void>; finish: 'off' | 'fault'; stderr: Buffer; instrument?: NativeInstrument; child: ChildOwnership };
 
 export class PersistentDesk implements DeskController {
   private view: DeskView;
@@ -75,7 +76,7 @@ export class PersistentDesk implements DeskController {
     this.publish({ type: 'native', serverEpoch: this.view.serverEpoch, revision: this.view.revision, attempt: attempt.id, performance: next });
   }
   private start() {
-    const attempt: Attempt = { id: Schema.decodeUnknownSync(AttemptSchema)(randomUUID()), abort: new AbortController(), done: Promise.resolve(), finish: 'fault', stderr: Buffer.alloc(0) };
+    const attempt: Attempt = { id: Schema.decodeUnknownSync(AttemptSchema)(randomUUID()), abort: new AbortController(), done: Promise.resolve(), finish: 'fault', stderr: Buffer.alloc(0), child: { kind: 'not-requested' } };
     this.attempt = attempt;
     this.update({ kind: 'starting', attempt: attempt.id });
     attempt.done = Effect.runPromise(this.runAttempt(attempt).pipe(Effect.scoped, Effect.provide(NodeServices.layer)), { signal: attempt.abort.signal })
@@ -83,8 +84,12 @@ export class PersistentDesk implements DeskController {
   }
   private async finished(attempt: Attempt, error: string) {
     if (this.attempt !== attempt) return;
-    if (attempt.child) {
-      const running = await Effect.runPromise(attempt.child.isRunning).catch(() => true);
+    if (attempt.child.kind === 'pending') {
+      this.update({ kind: 'stopping', attempt: attempt.id, error: 'Native launch ownership is uncertain. Stop the managed service before enabling audio again.' });
+      return;
+    }
+    if (attempt.child.kind === 'known') {
+      const running = await Effect.runPromise(attempt.child.handle.isRunning).catch(() => true);
       if (running) {
         this.update({ kind: 'stopping', attempt: attempt.id, error: 'Native cleanup could not confirm exit. Stop the managed service before enabling audio again.' });
         return;
@@ -114,8 +119,9 @@ export class PersistentDesk implements DeskController {
         '--usb-identity', driver.identity.byId, driver.identity.usbSerial, driver.identity.usbVendor, driver.identity.usbProduct, driver.identity.alsaCardId, String(driver.identity.pcmDevice), driver.identity.monitorOff]),
       '--owner-pid', String(process.pid)];
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+    attempt.child = { kind: 'pending' };
     const child = yield* spawner.spawn(ChildProcess.make(native.executable, args, { shell: false, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', killSignal: 'SIGTERM', forceKillAfter: 1000 }));
-    attempt.child = child;
+    attempt.child = { kind: 'known', handle: child };
     const diagnostics = yield* child.stderr.pipe(
       Stream.runForEach(chunk => Effect.sync(() => {
         attempt.stderr = Buffer.from(Buffer.concat([attempt.stderr, chunk]).subarray(-8192));
