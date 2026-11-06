@@ -164,3 +164,13 @@ test('concurrent stale-lock recovery cannot remove a newly acquired startup lock
     assert.equal(new Set(owners.map(owner => owner.owner.pid)).size, 1);
   } finally { await f.cleanup(); }
 });
+
+test('an incomplete startup owner remains fail-closed and is left intact', async () => {
+  const f = await fixture();
+  try {
+    await mkdir(join(f.config.controlDirectory, 'starting'), { recursive: true, mode: 0o700 });
+    await assert.rejects(ensureManager(f.config), /startup ownership is incomplete/);
+    const { stat } = await import('node:fs/promises');
+    assert((await stat(join(f.config.controlDirectory, 'starting'))).isDirectory());
+  } finally { await f.cleanup(); }
+});
