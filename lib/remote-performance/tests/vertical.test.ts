@@ -12,6 +12,7 @@ import { encodeInitialProfiles } from '../commands.js';
 import { createGateway } from '../gateway.js';
 import { NativeInstrument } from '../instrument.js';
 import { prepareHost } from '../prepare.js';
+import { decodePublication } from '../../../ui/practice/remote-schema.js';
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -61,13 +62,34 @@ test('gateway commands reach the native engine and attachment does not stop it',
     assert.deepEqual(updated.state.voiceEffects[0].effects, slapback);
     assert.deepEqual(updated.state.voiceEffects[1].effects, slapback);
     assert.equal((await edit(bootstrap.sessionId, 2, 0, 1, [])).outcome, 'rejected');
-    const started = await command(3, 'start', { bpm: 120, startBar: 1, endBar: 10, countInBars: 1 });
+    const stream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': bootstrap.sessionId } });
+    assert.ok(stream.body);
+    const reader = stream.body.pipeThrough(new TextDecoderStream()).getReader();
+    const fractionalBeat = (async () => {
+      let pending = '';
+      while (true) {
+        const chunk = await reader.read();
+        if (chunk.done) throw new Error('Event stream ended before a fractional beat');
+        pending += chunk.value;
+        const messages = pending.split('\n\n');
+        pending = messages.pop() ?? '';
+        for (const message of messages) {
+          if (!message.startsWith('data: ')) continue;
+          const decoded = decodePublication(JSON.parse(message.slice(6)));
+          if (decoded.type === 'event' && decoded.event.type === 'beat' && decoded.event.frame !== undefined && !Number.isInteger(decoded.event.frame)) return decoded.event.frame;
+        }
+      }
+    })();
+    const started = await command(3, 'start', { bpm: 134, startBar: 1, endBar: 10, countInBars: 1 });
     assert.equal(started.outcome, 'applied');
     assert.notEqual(started.state.runId, bootstrap.state.runId);
+    const frame = await Promise.race([fractionalBeat, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('No fractional beat arrived')), 5000).unref())]);
+    assert.ok(frame > 0);
     const again = await (await fetch(`${base}/api/session`, { headers })).json();
     assert.equal(again.state.runId, started.state.runId);
     const stopped = await command(4, 'stop', {});
     assert.equal(stopped.outcome, 'applied');
+    await reader.cancel();
   } finally {
     instrument?.close();
     server?.close();

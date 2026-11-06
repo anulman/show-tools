@@ -3,6 +3,7 @@ import { ChartSchema, CompiledSongSchema } from '../../lib/performance/compiled-
 import { SongSourceSchema } from '../../lib/performance/song-source.js';
 
 const finite = Schema.Number.check(Schema.isFinite());
+const frameCoordinate = finite.check(Schema.isGreaterThanOrEqualTo(0));
 const count = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER }));
 const text = Schema.String.check(Schema.isMaxLength(8192));
 const id = Schema.NonEmptyString.check(Schema.isMaxLength(256));
@@ -29,7 +30,7 @@ const state = Schema.Struct({ phase: Schema.Literals(['idle', 'count-in', 'playi
   chart: Schema.optionalKey(Schema.Struct({ spreadsheetId: text, sheetId: count, columns: list(count, 4096), leadInColumn: count })),
   liveEffects: Schema.optionalKey(Schema.Struct({ prepared: Schema.Boolean, active: Schema.Boolean, revision: count, stageCount: count, captureSupported: Schema.Boolean })),
   voiceEffects: Schema.optionalKey(list(voice, 6).check(Schema.isMinLength(6)).check(Schema.makeFilter(value => new Set(value.map(item => item.profile)).size === 6 || 'Duplicate voice profile'))),
-  tempoHits: Schema.optionalKey(Schema.Struct({ count, latest: Schema.NullOr(Schema.Struct({ ...tempo.fields, frame: count, bpm: finite })) })),
+  tempoHits: Schema.optionalKey(Schema.Struct({ count, latest: Schema.NullOr(Schema.Struct({ ...tempo.fields, frame: frameCoordinate, bpm: finite })) })),
   compiledTakes: Schema.optionalKey(list(Schema.Struct({ index: count, ready: Schema.Boolean, frames: count, period: count,
     playback: Schema.Literals(['idle', 'playing', 'releasing']), sourceEndFrames: Schema.NullOr(count) }), 32)),
 }).check(Schema.makeFilter(value => new Set(value.channels.map(item => item.id)).size === 4 || 'Duplicate channel'));
@@ -52,7 +53,7 @@ const song = Schema.Struct({ id, chart: ChartSchema, program: Schema.Struct({ le
     if (value.source && (value.source.values.length > 4096 || value.source.values.some(row => row.length > 4096))) return 'Invalid source size';
   }));
 const event = Schema.Struct({ v: Schema.Literal(1), runId: id, seq: count, type: Schema.Literals(['state', 'beat', 'control', 'fault', 'tempo-hit']), state,
-  frame: Schema.optionalKey(count), sampleRate: Schema.optionalKey(finite), control: Schema.optionalKey(control), commandId: Schema.optionalKey(text),
+  frame: Schema.optionalKey(frameCoordinate), sampleRate: Schema.optionalKey(finite), control: Schema.optionalKey(control), commandId: Schema.optionalKey(text),
   applied: Schema.optionalKey(Schema.Boolean), error: Schema.optionalKey(text), tempoHit: Schema.optionalKey(tempo), cueIndex: Schema.optionalKey(count) });
 const observation = { hostEpoch: id, revision, state };
 export const decodeBootstrap = Schema.decodeUnknownSync(Schema.Struct({ sessionId: id, song, ...observation }));
