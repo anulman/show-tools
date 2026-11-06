@@ -17,6 +17,14 @@
     <a class="brand" href="./">SHOW TOOLS</a><span class="brand-divider" aria-hidden="true">/</span>
     <select id="song-select" aria-label="Song"></select>
   </header>
+  <div class="audio-mode">
+    <label for="audio-mode-select">Audio mode</label>
+    <select id="audio-mode-select" aria-describedby="audio-mode-hint">
+      <option value="browser">Browser mode (this device)</option>
+      <option value="hardware">Hardware mode (EliteDesk)</option>
+    </select>
+    <span id="audio-mode-hint">Stop browser audio before changing modes. Changing modes reloads the desk; download your take first. Hardware mode requires the EliteDesk gateway.</span>
+  </div>
   <div id="error" class="error" role="alert" hidden></div>
   <noscript><p class="error">Enable JavaScript to use the practice desk.</p></noscript>
   <section class="transport" aria-label="Song transport">

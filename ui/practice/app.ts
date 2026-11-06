@@ -1,3 +1,4 @@
+import { audioMode, canChangeAudioMode, changeAudioMode, type AudioMode } from './audio-mode.js';
 import { renderVoiceAvatar } from './voice-avatar.js';
 import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
@@ -26,6 +27,7 @@ function requiredElement<T extends Element>(selector: string, constructor: { new
 }
 
 const elements = {
+  'audio-mode-select': requiredElement('#audio-mode-select', HTMLSelectElement),
   'practice-desk': requiredElement('#practice-desk', HTMLElement),
   'song-select': requiredElement('#song-select', HTMLSelectElement),
   'sheet-link': requiredElement('#sheet-link', HTMLButtonElement),
@@ -89,7 +91,8 @@ let song: SongScript | undefined;
 let songGeneration = 0;
 let switching = false;
 let outputCapture: 'idle' | 'starting' | 'waiting' | 'recording' | 'stopping' = 'idle';
-const remote = new URLSearchParams(location.search).has('remote');
+const mode = audioMode(new URL(location.href));
+const remote = mode === 'hardware';
 type PerformanceSession = PracticeAudio | RemoteSession;
 let audio: PerformanceSession | undefined;
 let preparing: Promise<PerformanceSession> | null = null;
@@ -419,6 +422,23 @@ function mountVoiceRows() {
   elements['live-voices'].hidden = !liveVoiceStates.size;
 }
 
+function browserModeBusy(): boolean {
+  return voiceCatalog.busy || isRunning() || starting || switching || effectsApplying || Boolean(preparing) || outputCapture !== 'idle' || state.channels.some(channel => ['armed', 'recording', 'stopping'].includes(channel.status));
+}
+
+let changingAudioMode = false;
+elements['audio-mode-select'].value = mode;
+elements['audio-mode-select'].addEventListener('change', () => {
+  const select = elements['audio-mode-select'];
+  const next = select.value as AudioMode;
+  changingAudioMode = true;
+  select.disabled = true;
+  void changeAudioMode({ current: mode, next, browserBusy: browserModeBusy(), url: new URL(location.href),
+    dispose: async () => { await audio?.dispose(); }, navigate: url => location.assign(url.href) })
+    .then(changed => { if (!changed) { changingAudioMode = false; select.value = mode; select.disabled = false; } })
+    .catch(error => { changingAudioMode = false; select.value = mode; select.disabled = false; showError(error); });
+});
+
 function render(next: Partial<PracticeState>) {
   const ended = next.phase === 'ended' && state.phase !== 'ended';
   state = { ...state, ...next };
@@ -428,6 +448,7 @@ function render(next: Partial<PracticeState>) {
     if (audio && !remote) void audio.disableMicrophone().catch(showError);
   }
   applyPendingPracticeUpdate();
+  elements['audio-mode-select'].disabled = changingAudioMode || !canChangeAudioMode(mode, browserModeBusy());
   if (!chart) return;
   if (remote && state.click !== undefined && document.activeElement !== elements.click) elements.click.checked = state.click;
   const running = isRunning();
@@ -788,7 +809,9 @@ if (remote) {
   await act(async () => {
     const token = window.prompt('Enter the remote performance token');
     if (!token) throw new Error('A token is required to connect. Refresh to try again.');
-    const session = await RemoteSession.create(token);
+    let session: RemoteSession;
+    try { session = await RemoteSession.create(token); }
+    catch (error) { throw new Error('Hardware mode could not connect. Open the desk from the EliteDesk gateway and check the token.', { cause: error }); }
     await switchSong(session.song.id, undefined, undefined, session.song);
     audio = session;
     syncRemoteTransport(session.snapshot());

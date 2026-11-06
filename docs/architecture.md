@@ -127,7 +127,7 @@ The [Chrome extension](../ui/practice/sheets-extension/README.md) is a separate 
 
 The [relay](../lib/relay/README.md) is another separate component. It can forward versioned events and simulated controls for a future hardware producer. It stores no audio. Its default port 8082 conflicts with the development static server unless you choose another port. The current practice page does not connect to it, and the native producer does not exist yet.
 
-The intended EliteDesk owns audio processing and hardware controls. The operator's November 5 milestone adds a locally served performance desk that a laptop or phone can use as alternative controls, while all audio stays on the EliteDesk. Remote mode is not implemented yet. It must attach to host-owned state without starting browser audio or treating network receipt as musical time. Today's browser WASM practice remains independent and works from an HTTPS static host. The [native-host handoff](operations/elitedesk-handoff.md) records implementation and verification gates.
+Hardware mode uses the gateway as an alternate control surface for the native host. Browser mode uses local WASM and remains independent on an HTTPS static host. The [native-host handoff](operations/elitedesk-handoff.md) records deployment and verification gates.
 
 ## The next features cross different boundaries
 
@@ -201,6 +201,6 @@ A sheet binding also holds an optional cue-row connection, distinct from its AF 
 
 ## Remote practice instrument
 
-The remote practice desk is an alternate control surface for a persistent native instrument. The native host owns the performance engine and the device audio path. The TypeScript gateway serves the desk and translates authenticated browser commands to a private Unix socket. Attaching or disconnecting a browser does not start, stop, or reconfigure the instrument. Browser audio resources are not used in remote mode.
+The remote practice desk is an alternate control surface for a persistent native instrument. The native host owns the performance engine and the device audio path. The TypeScript gateway serves the desk and translates authenticated browser commands to a private Unix socket. Attaching or disconnecting a browser does not start, stop, or reconfigure the instrument. Browser audio resources are not used in remote mode. The desk mode selector maps Hardware mode to the existing remote URL flag and Browser mode to the local path. Changing modes reloads the desk; leaving hardware detaches the client without stopping the instrument. Browser audio must be stopped before switching.
 
 The native owner publishes copied state and events with a process epoch, run identity, and publication revision. Commands report the result applied by the owner. A lost connection leaves an in-flight outcome unknown; neither gateway nor desk replays it. The gateway validates package metadata and hashes before submitting the compiled packet and initial profiles. The native owner prepares a replacement while stopped and retains the existing instrument if preparation fails.
