@@ -5,6 +5,7 @@ import { compiledCaptureFixture as fixture } from './fixtures/compiled-capture.j
 import { encodeCompiledProgram, compiledProgramBytes } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
+import { PF as LIGHT } from '../light-abi.js';
 
 const module = await WebAssembly.compile(await readFile(new URL('../../../ui/practice/wasm/manual-clock.wasm', import.meta.url)));
 function engine(program: readonly number[], rate = 8000, initialVoiceEffects?: Parameters<NativePerformance['prepareVoiceEffects']>[0]) {
@@ -72,7 +73,7 @@ test('compiled artifact drives effected WASM capture, crb handoff, layer autopla
     native.control({ id: 'R1' }, 'fractional-stop');
     const pendingLight = native.state().channels.find(channel => channel.id === 'R1')?.light;
     assert(pendingLight?.kind === 'releasing' && pendingLight.remainingMs > 0);
-    const clock = native.query('pf_snapshot');
+    const clock = Array.from(native.query('pf_snapshot'));
     const target = Math.ceil(clock[PF.CLOCK_BEAT_FRAME] + 1000);
     const remaining = target - native.processedFrames;
     const stopped = render(native, remaining + 1);
@@ -241,7 +242,7 @@ test('independent native voice graphs survive equal-revision compiled loads and 
   } finally { native.dispose(); }
 });
 
-test('real WASM backup graph follows relative rotation and native quarter-count grid release with ordered PCM and natural tails', () => {
+test('real WASM backup graph follows relative rotation and native quarter-count inactivity release with ordered PCM and natural tails', () => {
   const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
     PF.COMPILED_ROTATION_MAGIC, 2, .25, 1, 0, 1, 1, 2, 0, 3, 2];
   const native = engine(program);
@@ -260,7 +261,7 @@ test('real WASM backup graph follows relative rotation and native quarter-count 
     native.setMicrophone(true); native.start({ runId: 'rotation-graph', bpm: 120, countInBars: 0, endBar: 4, loop: false }); until(native, 1, 1, 0);
     native.control({ id: 'knob', value: -2 }, 'rotation/1');
     assert.equal(backup().activity, 'live');
-    const boundary = native.query('pf_snapshot')[PF.CLOCK_BEAT_FRAME] + 1000;
+    const boundary = native.processedFrames + 1000;
     assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * 4000 - boundary) < 1e-6);
     const first = render(native, 1, 1), response = render(native, 400, 0);
     assert.equal(first.live[0][0], 1);
@@ -284,20 +285,20 @@ test('real WASM backup graph follows relative rotation and native quarter-count 
     until(native, 2, 1, 0); native.control({ id: 'knob', value: 2 }, 'rotation/3'); render(native, 500, 0);
     const before = backup().rotationRemainingBeats;
     native.control({ id: 'knob', value: 2 }, 'rotation/3'); native.control({ id: 'knob', value: 0 }, 'rotation/4');
-    assert.equal(backup().rotationRemainingBeats, before, 'replayed producer command and zero delta do not extend the grid deadline');
+    assert.equal(backup().rotationRemainingBeats, before, 'replayed producer command and zero delta do not extend the inactivity deadline');
     native.stop();
     assert.equal(backup().rotationRemainingBeats, 0);
     assert(render(native, 512, 1).live.every(channel => channel.every(value => value === 0)));
   } finally { native.dispose(); }
 });
 
-test('WASM rejects old duration packets instead of treating their field as a release grid', () => {
+test('WASM rejects old grid packets instead of reinterpreting their duration field', () => {
   const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
     PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
   const native = engine(program);
   try {
     const before = native.state();
-    assert.throws(() => native.configureCompiled(program.map((field, index) => index === 1 ? 3 : field)), /compiled/i);
+    for (const version of [3, 4, 5]) assert.throws(() => native.configureCompiled(program.map((field, index) => index === 1 ? version : field)), /compiled/i);
     assert.equal(native.state().phase, before.phase);
     assert.equal(native.state().startBar, before.startBar);
     assert.throws(() => new NativePerformance({
@@ -307,25 +308,26 @@ test('WASM rejects old duration packets instead of treating their field as a rel
 });
 
 for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
-  test(`WASM quarter grid uses processed frames and fresh movement at the deadline (${rate} Hz, ${beats} counts)`, () => {
+  test(`WASM full inactivity uses processed frames and fresh movement at the deadline (${rate} Hz, ${beats} counts)`, () => {
     const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
     const native = engine(program, rate);
     try {
       native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })));
-      native.setMicrophone(true); native.start({ runId: `quarter-grid-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      native.setMicrophone(true); native.start({ runId: `inactivity-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
       const advanceTo = (frame: number) => render(native, frame - native.processedFrames, 0);
       advanceTo(Math.ceil(rate / 2) + 8);
       const anchor = native.query('pf_snapshot')[PF.CLOCK_BEAT_FRAME], framesPerBeat = rate / 2;
       const backup = () => native.voiceEffects()[PF.BACKUP_PROFILE];
       advanceTo(Math.ceil(anchor + .1 * framesPerBeat));
       native.control({ id: 'knob', value: 4 }, 'first');
-      const deadline = native.processedFrames + backup().rotationRemainingBeats * framesPerBeat;
-      assert(Math.abs(deadline - (anchor + .25 * framesPerBeat)) < 1e-6);
+      let deadline = native.processedFrames + backup().rotationRemainingBeats * framesPerBeat;
+      assert(Math.abs(deadline - (native.processedFrames + .25 * framesPerBeat)) < 1e-6);
       advanceTo(Math.ceil(anchor + .2 * framesPerBeat));
       native.control({ id: 'knob', value: -2 }, 'second');
-      assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * framesPerBeat - deadline) < 1e-6,
-        'motion within the same quarter does not add another quarter of inactivity');
+      const extended = native.processedFrames + backup().rotationRemainingBeats * framesPerBeat;
+      assert(extended > deadline, 'continued motion extends to a full quarter-count after the latest report');
+      deadline = extended;
       const boundary = Math.ceil(deadline);
       advanceTo(boundary - 1); assert.equal(backup().activity, 'live');
       advanceTo(boundary); assert.notEqual(backup().activity, 'live');
@@ -335,18 +337,18 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
       native.control({ id: 'knob', value: -3 }, 'at-boundary');
       assert.equal(backup().activity, 'live');
       assert(Math.abs(native.processedFrames + backup().rotationRemainingBeats * framesPerBeat
-        - (anchor + .5 * framesPerBeat)) < 1e-6, 'fresh movement at the processed boundary selects the following quarter');
+        - (native.processedFrames + .25 * framesPerBeat)) < 1e-6, 'fresh movement starts a full inactivity duration');
       native.stop(); assert.equal(backup().rotationRemainingBeats, 0);
     } finally { native.dispose(); }
   });
 
-  test(`WASM quarter-grid deadline follows a native tempo hit (${rate} Hz, ${beats} counts)`, () => {
+  test(`WASM inactivity deadline follows a native tempo hit (${rate} Hz, ${beats} counts)`, () => {
     const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
     const native = engine(program, rate);
     try {
       native.prepareVoiceEffects(Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [] })));
-      native.setMicrophone(true); native.start({ runId: `quarter-grid-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      native.setMicrophone(true); native.start({ runId: `inactivity-${rate}-${beats}`, bpm: 120, countInBars: 0, endBar: 4, loop: false });
       native.control({ id: 'tempo' }, 'tempo-first');
       const advanceTo = (frame: number) => render(native, frame - native.processedFrames, 0);
       advanceTo(Math.round(rate * .525)); native.control({ id: 'knob', value: 1 }, 'motion');
@@ -443,4 +445,44 @@ test('DYC short practice loops discard unfinished source spans instead of overfl
       if (endBar === 7) assert(native.compiledTake(2).ready, 'earlier complete Bing Bong layer survives the truncated replacement');
     } finally { native.dispose(); }
   }
+});
+
+
+for (const rate of [44100, 48000]) test(`WASM cue button edges and engine light publications (${rate} Hz)`, async () => {
+  const song = await fixture();
+  const native = engine(Array.from(encodeCompiledProgram(song)), rate);
+  try {
+    native.prepareLiveEffects([]); native.setMicrophone(true);
+    native.start({ runId: 'one-button', bpm: 120, countInBars: 1, endBar: 4, loop: false });
+    const brightness = () => native.lightOutput()[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL];
+    native.control({ id: 'cueButton', value: 1 }, 'down-arm');
+    assert.equal(brightness(), 1);
+    native.control({ id: 'cueButton', value: 0 }, 'up-arm');
+    until(native, 1, 1, .25, 64);
+    assert(native.state().channels.some(channel => channel.status === 'recording'));
+    const image = native.lightOutput(); assert.deepEqual(native.lightOutput(), image);
+    render(native, Math.round(rate / 8)); assert(brightness() > .34 && brightness() < .36);
+    native.control({ id: 'cueButton', value: 1 }, 'down-commit-arm');
+    native.control({ id: 'cueButton', value: 1 }, 'repeat');
+    assert.equal(brightness(), 1);
+    native.control({ id: 'cueButton', value: 0 }, 'up-commit-arm');
+    render(native, Math.round(rate / 8)); assert(brightness() < .01, 'queued commit-arm does not hide actual ongoing recording from LED');
+    until(native, 2, 1, .25, 64);
+    assert.equal(native.compiledTake(0).ready, true);
+    render(native, Math.round(rate / 8)); assert(brightness() > .34 && brightness() < .36, 'recording pulse overrides playing');
+    native.control({ id: 'cueButton', value: 1 }, 'down-commit');
+    native.control({ id: 'cueButton', value: 0 }, 'up-commit');
+    until(native, 3, 1, .25, 64); assert.equal(brightness(), .7);
+    const clock = Array.from(native.query('pf_snapshot'));
+    const publication = native.lightOutput();
+    assert.equal(publication[LIGHT.LIGHT_FRAME], clock[PF.FRAME]);
+    assert.equal(publication[LIGHT.LIGHT_RUNNING], 1);
+    until(native, 4, 1, .25, 64);
+    native.control({ id: 'cueButton', value: 1 }, 'down-play');
+    const accepted = native.events().findLast(event => event.control?.id === 'cueButton');
+    assert.deepEqual(accepted?.control, { id: 'cueButton', value: 1 });
+    native.control({ id: 'mushroom' }, 'panic'); assert.equal(brightness(), 0);
+    native.control({ id: 'cueButton', value: 0 }, 'disconnect-release'); assert.equal(brightness(), 0);
+    assert.throws(() => native.control({ id: 'cueButton', value: 1 }, 'disconnect-release'), /already used/i);
+  } finally { native.dispose(); }
 });
