@@ -11,7 +11,7 @@ const Effect = Schema.Union([
 const Commands = Schema.Union([
 	Schema.Struct({ command: Schema.Literal('start'), args: Schema.Struct({ bpm: Schema.optionalKey(Finite), countInBars: Schema.optionalKey(Schema.Int), startBar: Schema.optionalKey(Schema.Int), endBar: Schema.optionalKey(Schema.Int), loop: Schema.optionalKey(Schema.Boolean), automatic: Schema.optionalKey(Schema.Boolean), runId: Schema.optionalKey(Schema.String) }) }),
 	Schema.Struct({ command: Schema.Literal('stop'), args: Schema.Struct({}) }),
-	Schema.Struct({ command: Schema.Literal('control'), args: Schema.Struct({ control: Schema.Union([Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2', 'mushroom', 'tempo']) }), Schema.Struct({ id: Schema.Literal('knob'), value: Finite })]), commandId: Schema.optionalKey(Schema.String) }) }),
+	Schema.Struct({ command: Schema.Literal('control'), args: Schema.Struct({ control: Schema.Union([Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2', 'mushroom', 'tempo']) }), Schema.Struct({ id: Schema.Literal('knob'), value: Finite }), Schema.Struct({ id: Schema.Literal('cueButton'), value: Schema.Literals([0, 1]) })]), commandId: Schema.optionalKey(Schema.String) }) }),
 	Schema.Struct({ command: Schema.Literal('selectChannel'), args: Schema.Struct({ channelId: Channel }) }),
 	Schema.Struct({ command: Schema.Literal('setChannel'), args: Schema.Struct({ channelId: Channel, settings: Schema.Struct({ gain: Schema.optionalKey(Finite), muted: Schema.optionalKey(Schema.Boolean) }) }) }),
 	Schema.Struct({ command: Schema.Literal('setClick'), args: Schema.Struct({ enabled: Schema.Boolean }) }),
@@ -86,8 +86,8 @@ export function encodeCommand(input: unknown, state: PracticeState) {
 		case 'stop': return numeric(2);
 		case 'control': {
 			const control = command.args.control;
-			const id = ['L1', 'L2', 'R1', 'R2', 'mushroom', 'knob', 'tempo'].indexOf(control.id);
-			return numeric(3, [id, control.id === 'knob' ? control.value : 0]);
+			const id = ['L1', 'L2', 'R1', 'R2', 'mushroom', 'knob', 'tempo', 'cueButton'].indexOf(control.id);
+			return numeric(3, [id, control.id === 'knob' || control.id === 'cueButton' ? control.value : 0]);
 		}
 		case 'selectChannel': return numeric(4, [CONTROL_IDS.indexOf(command.args.channelId)]);
 		case 'setChannel': {

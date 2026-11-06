@@ -1,6 +1,7 @@
 #include "instrument.h"
 #include "frame.h"
 #include "spsc_queue.h"
+#include "performance_light_output.h"
 #ifdef NATIVE_ALSA_HOST
 #include "alsa_pcm.h"
 #include "alsa_run.h"
@@ -50,6 +51,7 @@ struct Observation {
   std::array<double,PF_LIVE_FIELDS> live{};
   std::array<double,PF_COMPILED_MAX_TAKES*PF_TAKE_FIELDS> takes{};
   std::array<double,PF_TEMPO_FIELDS> tempo{};
+  std::array<double,PF_LIGHT_FIELDS> lights{};
 };
 struct Request { uint64_t connection=0, order=0; uint32_t sequence=0; uint16_t op=0; std::array<double,6> args{}; Bytes manifest,packet; std::array<uint8_t,32> digest{}; std::array<uint32_t,6> counts{},revisions{}; std::vector<pf_effect_definition> effects; int status=1,code=0; Observation observation; };
 void observe(Instrument& instrument,Observation& out,uint64_t revision) {
@@ -60,11 +62,12 @@ void observe(Instrument& instrument,Observation& out,uint64_t revision) {
   for(int i=0;i<PF_COMPILED_MAX_TAKES;++i) pf_compiled_take_info(e,i,out.takes.data()+i*PF_TAKE_FIELDS);
   pf_live_info(e,out.live.data());
   pf_tempo_info(e,out.tempo.data());
+  pf_light_output(e,out.lights.data());
 }
 struct Presentation { Bytes manifest; std::array<uint8_t,32> digest{}; };
 Bytes snapshot(const Observation& state,const Presentation& presentation) {
   Bytes out; out.reserve(22000+presentation.manifest.size()); put64(out,state.revision); put64(out,state.run); put32(out,uint32_t(presentation.manifest.size())); out.insert(out.end(),presentation.manifest.begin(),presentation.manifest.end()); out.insert(out.end(),presentation.digest.begin(),presentation.digest.end());
-  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); return out;
+  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); array(out,state.lights); return out;
 }
 int64_t discard(void*,const float*,uint32_t frames) { return frames; }
 }

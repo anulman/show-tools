@@ -28,7 +28,7 @@ export interface GatewayConfig {
 	tls?: { cert: Buffer; key: Buffer };
 }
 
-export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
+export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
 type Session = { highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
 const MAX_SESSIONS = 128;
 const MAX_RESULTS = 256;
