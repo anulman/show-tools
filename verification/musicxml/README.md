@@ -76,6 +76,12 @@ The original command failed with `SOURCE_DRIFT`. Bypassing the hash gate exposed
 
 Whole-file hashes force review when any branch changes. They do not imply exhaustive verification of every function in those files. In particular, rotation inactivity, `clb`, capture slices, source-bar reuse, sequential continuation, and v2 migration remain outside the finite grammar.
 
+## Shared-tuner source review
+
+Outcome: in sync at `9b51479061fa48fbfffb8271541c1cf475a7e101`. All eleven covered files, including the package lock, are byte-identical to source sync `09e5ecf`. Reviewed the intervening covered-file history and confirmed there are no changed MusicXML entry points or writers. Runtime tuner scale selection, previews, observations, and confirmation are not stored song semantics and add no branch to this finite grammar.
+
+The unchanged checker passes all 7,488 canonical cases, 624 voice groups, 312 action pairs, and 3,744 equivalent tempo cases with the same `f2d4e6cbbd1e772ed53efb433af054fee36e76d39ee498a47d0dd3dfaa3cbe1b` fingerprint. Both actual-source mutants fail their intended structured properties and both restored witnesses pass. No model, grammar, property, bound, or production file changed. Advancing only the source sync records this reviewed source equivalence; it does not broaden the existing capture, reuse, migration, or tuner exclusions.
+
 ## Scope limits
 
 This proves these executable assertions for the finite Cartesian domain under the current Node, locked dependency, filesystem, and SHA-256 assumptions. It does not establish arbitrary XML correctness, every supported notation or voice graph, XML-library internals, hash collision impossibility, native packet encoding, capture/playback/DSP correctness, atomic publication, browser authoring IO, or full set-list equivalence. It does not replace the existing MusicXML and DYC regression suites.

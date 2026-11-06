@@ -11,7 +11,7 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 
 ## Covered source and sync record
 
-`verification/musicxml/coverage.json` records exact file hashes and source sync commit `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`. It covers:
+`verification/musicxml/coverage.json` records exact file hashes and source sync commit `9b51479061fa48fbfffb8271541c1cf475a7e101`. All covered files were byte-identical to the preceding sync; the complete finite domain and both source mutants passed again. Runtime tuner selection and pitch observations do not add MusicXML authoring semantics and are outside this verifier. It covers:
 
 - `lib/performance/musicxml-song.ts`: `semanticDigest`, `writeMusicXmlSong`, `readMusicXmlSong`, and `compileMusicXmlSong`.
 - `lib/performance/sheet-musicxml.ts`: `importSheetMusicXml`.

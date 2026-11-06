@@ -4,6 +4,7 @@ import { Sampler } from '../../lib/sampler/sampler.js';
 import { CONTROL_IDS } from '../../lib/performance/model.js';
 import { encodeCompiledProgram } from '../../lib/performance/compiled-native.js';
 import type { CompiledSong } from '../../lib/performance/compiled-song.js';
+import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
 import type { ChannelId, ChannelSettings, Chart, ChartMetadata, Control, PracticeEvent, PracticeState, Program, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 
 export type MonitoringRelationship = 'unknown' | 'different-devices' | 'same-usb-interface' | 'same-non-usb';
@@ -24,6 +25,26 @@ export class PracticeAudio {
   readonly liveMonitor: GainNode;
   readonly listeners = new Set<(state: PracticeState) => void>();
   readonly eventListeners = new Set<(event: PracticeEvent) => void>();
+  readonly tunerListeners = new Set<(state: TunerState) => void>();
+  private latestTuner: TunerState | null = null;
+  readonly tuner: TunerPort = {
+    snapshot: () => {
+      if (this.disposed || !this.latestTuner) throw new Error('Shared audio tuner is unavailable');
+      return this.latestTuner;
+    },
+    subscribe: listener => {
+      this.tunerListeners.add(listener);
+      if (this.latestTuner && !this.disposed) listener(this.latestTuner);
+      return () => this.tunerListeners.delete(listener);
+    },
+    command: async command => {
+      if (this.disposed) throw new Error('Shared audio tuner is unavailable');
+      await this.tracker.resume();
+      if (command.kind === 'listen' && command.enabled && !this.microphone) await this.enableMicrophone();
+      await this.request('practice.tuner', { command });
+      return this.tuner.snapshot();
+    },
+  };
   readonly onMessage: (event: MessageEvent<{ event?: PracticeEvent }>) => void;
   readonly detachState: () => void;
   readonly detachTracker: () => void;
@@ -99,6 +120,12 @@ export class PracticeAudio {
     };
     endpoint.port.addEventListener('message', this.onMessage);
     this.detachState = endpoint.subscribe(state => {
+      if (state.tuner) {
+        this.latestTuner = state.tuner;
+        for (const listener of this.tunerListeners) {
+          try { listener(state.tuner); } catch (error) { globalThis.reportError?.(error); }
+        }
+      }
       if (!state.practice) return;
       this.latest = state.practice;
       this.syncMonitoring();
@@ -261,6 +288,7 @@ export class PracticeAudio {
     this.endpoint.dispose();
     await Promise.all([this.sampler.dispose(), this.tracker.dispose()]);
     this.listeners.clear();
+    this.tunerListeners.clear();
     this.eventListeners.clear();
   }
 }

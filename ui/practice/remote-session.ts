@@ -1,3 +1,4 @@
+import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
 import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
 import { decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome } from './remote-schema.js';
 import type { DeskView, NativePerformance, NativeTarget } from '../../lib/remote-performance/session-schema.js';
@@ -119,17 +120,27 @@ export class RemoteDesk {
 
 export class RemoteSession {
   private readonly listeners = new Set<(state: PracticeState) => void>();
+  private readonly tunerListeners = new Set<(state: TunerState) => void>();
+  readonly tuner: TunerPort;
   private readonly eventListeners = new Set<(event: PracticeEvent) => void>();
   readonly outputStream = undefined;
   readonly monitoringRelationship = 'unknown' as const;
   private valid = true;
   private latest: NativePerformance;
-  constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance) { this.latest = performance; }
+  constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance) {
+    this.latest = performance;
+    this.tuner = {
+      snapshot: () => { if (!this.valid) throw new Error('Hardware audio session is stale.'); return this.latest.tuner; },
+      subscribe: listener => { if (!this.valid) throw new Error('Hardware audio session is stale.'); this.tunerListeners.add(listener); listener(this.latest.tuner); return () => { this.tunerListeners.delete(listener); }; },
+      command: async command => { await this.command('tuner', command); if (!this.valid) throw new Error('Hardware audio session is stale.'); return this.latest.tuner; },
+    };
+  }
   matches(target: NativeTarget) { return this.valid && target.attempt === this.target.attempt && target.hostEpoch === this.target.hostEpoch; }
-  invalidate() { this.valid = false; this.listeners.clear(); this.eventListeners.clear(); }
+  invalidate() { this.valid = false; this.listeners.clear(); this.eventListeners.clear(); this.tunerListeners.clear(); }
   observe(performance: NativePerformance) {
     if (!this.valid || performance.hostEpoch !== this.target.hostEpoch || BigInt(performance.revision) <= BigInt(this.latest.revision)) return;
     this.latest = performance; for (const listener of this.listeners) listener(performance.state);
+    for (const listener of this.tunerListeners) listener(performance.tuner);
   }
   event(event: PracticeEvent) { for (const listener of this.eventListeners) listener(event); }
   get microphone() { return this.latest.state.microphone; }

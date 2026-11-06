@@ -29,10 +29,13 @@ bool Instrument::prepare_profiles(const Profiles& profiles) {
     pf_prepare_voice_effects(engine_.get(), profiles.effects, profiles.counts.data(), profiles.revisions.data()) == 0;
 }
 bool Instrument::start(const Start& start) {
-  if (lifecycle_ != Lifecycle::Prepared || pending() || pf_start(engine_.get(), start.bpm, start.count_in_bars, start.start_bar,
+  if (!can_start() || pf_start(engine_.get(), start.bpm, start.count_in_bars, start.start_bar,
       start.end_bar, start.loop, start.automatic) < 0) return false;
+  if (utility_output_) pump_->discard();
+  utility_output_ = false;
   lifecycle_ = Lifecycle::Running; return true;
 }
+bool Instrument::can_start() const { return lifecycle_ == Lifecycle::Prepared && (!pending() || utility_output_); }
 void Instrument::stop() {
   if (!engine_) return;
   pf_stop(engine_.get()); pump_->discard();
@@ -50,9 +53,17 @@ int Instrument::set_automatic(int enabled) { return engine_ && lifecycle_ != Lif
 int Instrument::set_click(int enabled) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_click(engine_.get(), enabled) : -1; }
 int Instrument::set_click_gain(double gain) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_click_gain(engine_.get(), gain) : -1; }
 int Instrument::set_jiggle_thresholds(double travel, double reversal) { return engine_ && lifecycle_ == Lifecycle::Prepared ? pf_set_jiggle_thresholds(engine_.get(), travel, reversal) : -1; }
+int Instrument::tuner(int operation, uint32_t expected_revision, int value, int scale) {
+  return engine_ && (lifecycle_ == Lifecycle::Prepared || ((operation == PF_TUNER_CLOSE || operation == PF_TUNER_SILENCE) && lifecycle_ == Lifecycle::Running))
+    ? pf_tuner_command_apply(engine_.get(), operation, expected_revision, value, scale) : -1;
+}
+bool Instrument::audio_needed() const { return engine_ && lifecycle_ != Lifecycle::Faulted && pf_audio_needed(engine_.get()); }
 int Instrument::render(const float* input, uint32_t frames) {
-  if (lifecycle_ != Lifecycle::Running) return -1;
+  if (!audio_needed()) return -1;
+  const bool running = lifecycle_ == Lifecycle::Running;
   if (pump_->render(input, frames) < 0) { lifecycle_ = Lifecycle::Faulted; return -1; }
+  utility_output_ = !running;
+  if (!running) return 0;
   std::array<double, PF_FIELDS> state{};
   pf_snapshot(engine_.get(), state.data());
   if (state[PF_PHASE] == PF_ENDED) lifecycle_ = Lifecycle::Prepared;

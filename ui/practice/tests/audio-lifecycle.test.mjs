@@ -71,7 +71,7 @@ for (const action of ['stopPractice', 'panic']) {
       HTMLElement: FakeElement, HTMLSpanElement: FakeElement, HTMLHeadingElement: FakeElement,
       HTMLAnchorElement: FakeElement, HTMLDivElement: FakeElement, HTMLButtonElement: FakeElement,
       HTMLParagraphElement: FakeElement, HTMLInputElement: FakeElement, HTMLSelectElement: FakeElement,
-      HTMLOutputElement: FakeElement, HTMLDetailsElement: FakeElement,
+      HTMLOutputElement: FakeElement, HTMLDetailsElement: FakeElement, HTMLDialogElement: FakeElement,
       document: { querySelector, querySelectorAll: () => [] },
       playableBars: chart => chart.bars.length - 1,
       PracticeAudio: { create: () => preparing.promise },
@@ -106,7 +106,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
   const context = { Map, Set, window: { isSecureContext: true, MediaRecorder: Recorder }, MediaRecorder: Recorder, CONTROLS: [],
     HTMLElement: Element, HTMLSpanElement: Element, HTMLHeadingElement: Element, HTMLAnchorElement: Element,
     HTMLDivElement: Element, HTMLButtonElement: Element, HTMLParagraphElement: Element, HTMLInputElement: Element,
-    HTMLSelectElement: Element, HTMLOutputElement: Element, HTMLDetailsElement: Element,
+    HTMLSelectElement: Element, HTMLOutputElement: Element, HTMLDetailsElement: Element, HTMLDialogElement: Element,
     document: { querySelector: () => new Element(), querySelectorAll: () => [] },
     PracticeAudio: { create: () => preparing.promise },
   };
@@ -162,7 +162,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     window: { isSecureContext: true, MediaRecorder: Recorder }, MediaRecorder: Recorder, CONTROLS: [],
     HTMLElement: Element, HTMLSpanElement: Element, HTMLHeadingElement: Element, HTMLAnchorElement: Element,
     HTMLDivElement: Element, HTMLButtonElement: Element, HTMLParagraphElement: Element, HTMLInputElement: Element,
-    HTMLSelectElement: Element, HTMLOutputElement: Element, HTMLDetailsElement: Element,
+    HTMLSelectElement: Element, HTMLOutputElement: Element, HTMLDetailsElement: Element, HTMLDialogElement: Element,
     document: { querySelector: selector => { const element = new Element(selector); elements.set(selector, element); return element; }, querySelectorAll: () => [] },
     playableBars: () => 76, PracticeAudio: { create: async options => { creations++; creationOptions.push(options); return audio; } },
   };
@@ -380,7 +380,7 @@ test('disposing failed audio disconnects every output without waiting for a work
     recordDestination: { stream: { getTracks: () => [{ stop() { released.push('recording-track'); } }] }, disconnect() { released.push('recording-node'); } },
     tracker: { node: { disconnect(...targets) { assert.equal(targets.length, 0); released.push('all-output'); } }, async dispose() { released.push('microphone'); } },
     sampler: { async dispose() { released.push('sampler'); } },
-    listeners: new Set(), eventListeners: new Set(),
+    listeners: new Set(), eventListeners: new Set(), tunerListeners: new Set(),
   });
   await audio.dispose();
   assert(released.includes('all-output'));

@@ -10,6 +10,16 @@ npm start
 
 Open <http://127.0.0.1:8082/ui/practice/>. The page runs audio locally through its WASM/worklet bridge. The development server serves static files only.
 
+## Hear a reference or identify a sung note
+
+Open **Tuner** in the header. **Use shared audio** connects the tuner to the desk's existing session. In Hardware mode, enable audio on the desk first. Opening the tuner does not request a microphone or start the song.
+
+Choose a root note, octave, and scale. Each selection applies immediately. Major and C3 are the defaults. **Hear note** plays the current reference. **Play scale** previews the complete ascending scale without changing your confirmed progress. **Stop sound** cancels a reference or scale preview. **Confirm** advances silently; confirming the final note completes the exercise.
+
+Click **Listen** to display the note you sing, its frequency, and how sharp or flat it is. Listen uses the same microphone as practice. Reference playback briefly pauses pitch detection. The detector handles one note at a time. Closing the tuner stops its analysis and reference without terminating the shared audio session.
+
+Stop practice and finish the demo recording before tuning. Starting practice, Stop, Panic, and microphone loss close native tuning.
+
 ## Load and inspect a chart
 
 Open **MusicXML song & inspection** to import a complete MusicXML song or fetch a public worksheet into MusicXML. Inspect the source-located report, then load the resolved song while practice and output export are stopped. Worksheet JSON and mappings are import/audit inputs. CLI commands are documented in the [performance guide](../../lib/performance/README.md#compile-a-canonical-song).

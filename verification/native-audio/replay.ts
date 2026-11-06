@@ -7,6 +7,7 @@ import { pathToFileURL } from 'node:url';
 import { Effect, Layer, Schema, Sink, Stream } from 'effect';
 import { ChildProcessSpawner } from 'effect/process';
 import { NativeStateSchema } from '../../lib/remote-performance/native-schema.js';
+import { TunerStateSchema } from '../../lib/tuner/schema.js';
 import { lightFixture } from '../../lib/remote-performance/tests/light-fixture.js';
 import { installedPackage, sessionProfile } from '../../lib/remote-performance/tests/session-fixture.js';
 import type { Observation } from '../../lib/remote-performance/gateway.js';
@@ -42,6 +43,13 @@ const state = Schema.decodeUnknownSync(NativeStateSchema)({
   channels: ['L1', 'L2', 'R1', 'R2'].map(id => ({ id, gain: 1, muted: false, looping: false, ready: false,
     status: 'empty', light: { kind: 'off' } })),
   looping: [], recording: null, microphone: true, error: null,
+});
+const tuning = Schema.decodeUnknownSync(TunerStateSchema)({
+  revision: 0, root: 48, scale: 'major', step: 0,
+  targets: [48, 50, 52, 53, 55, 57, 59, 60].map((midi, index) => ({
+    midi, letter: ['C', 'D', 'E', 'F', 'G', 'A', 'B', 'C'][index], accidental: 0, octave: index === 7 ? 4 : 3,
+  })),
+  complete: false, listening: false, preview: { kind: 'silent' }, pitch: { kind: 'off' },
 });
 type SyntheticChild = { alive: boolean; exit: ReturnType<typeof deferred<ChildProcessSpawner.ExitCode>> };
 interface ReplayDependencies {
@@ -115,7 +123,8 @@ async function fixture(options: ReplayOptions) {
     prepare: async () => { prepareCalls++; await prepared.promise; },
     Instrument: class extends ReplayInstrument {
       constructor() {
-        super({ type: 'session', song: song.song, state, lights: lightFixture(), revision: '1', hostEpoch: `native-${children.length}` }, commandDone, () => { commandCalls++; });
+        super({ type: 'session', song: song.song, state, lights: lightFixture(), tuner: tuning,
+          revision: '1', hostEpoch: `native-${children.length}` }, commandDone, () => { commandCalls++; });
         instruments.push(this);
       }
       override snapshot() { return readback.ready ? super.snapshot() : null; }

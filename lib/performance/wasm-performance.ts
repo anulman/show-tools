@@ -6,6 +6,8 @@ import { PF } from './wasm-abi.js';
 import { PF as LIGHT } from './light-abi.js';
 import { decodeNativeState, decodeNativeTempo, decodeNativeVoices, decodeNativeLiveEffects, decodeNativeEvent, decodeNativeTake } from './native-observation.js';
 import { ST } from '../sampler/wasm-abi.js';
+import { decodeTunerState, tunerCommandValues } from '../tuner/observation.js';
+import type { TunerCommand } from '../tuner/model.js';
 
 const BLOCK = 8192;
 type Options = { api: WebAssembly.Exports; sampleRate: number; mode?: number; maxVoices?: number; maxSeconds?: number; clickGain?: number;
@@ -307,6 +309,8 @@ export class NativePerformance {
     return { ...state, compiledTakes };
   }
   snapshot() { return this.state(); }
+  tunerState() { return decodeTunerState(this.query('pf_tuner_info')); }
+  tunerCommand(command: TunerCommand) { this.call('pf_tuner_command_apply', this.handle, ...tunerCommandValues(command)); return this.tunerState(); }
   setJiggleThresholds(minimumTravel: number, minimumReversal: number) {
     this.call('pf_set_jiggle_thresholds', this.handle, minimumTravel, minimumReversal);
   }

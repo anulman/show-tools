@@ -10,7 +10,7 @@ Use the pinned runtime and TLC jar described in [the toolchain guide](../tools/R
 node verification/capture/verify.ts
 ```
 
-By default, the command creates a fresh owned temporary output directory and reports its receipt path. To retain a result at a chosen location, pass `--out /absolute/path/to/new-result`; that directory must be new. `CXX` can name a compiler executable. The command checks the TLC checksum and Temurin version, verifies source hashes, exhausts the model, rejects five model mutants, builds a narrow native witness host, rejects five actual-source mutants, reruns the pristine witnesses, and writes `receipt.json`. Mutants are separate temporary files; production sources are never rewritten. No device, service, browser, or live audio is opened. TLC needs permission for its internal localhost coordination socket.
+By default, the command creates a fresh owned temporary output directory and reports its receipt path. To retain a result at a chosen location, pass `--out /absolute/path/to/new-result`; that directory must be new. `CXX` can name a compiler executable. The command checks the TLC checksum and Temurin version, verifies source hashes, exhausts the model, rejects five model mutants, builds a narrow native witness host, rejects six actual-source mutants, reruns the pristine witnesses, and writes `receipt.json`. Mutants are separate temporary files; production sources are never rewritten. No device, service, browser, or live audio is opened. TLC needs permission for its internal localhost coordination socket.
 
 A missing dependency, changed source mapping, wrong tool version, unfinished state queue, surviving mutant, or unrelated assertion failure rejects the run. No success receipt is written for a partial run. Logs and generated counterexamples remain in the chosen result directory.
 
@@ -37,7 +37,7 @@ This is a safety proof of the model under these abstractions. It does not establ
 
 ## Source mapping and sensitivity
 
-The last source sync is `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
+The last source sync is `9b51479061fa48fbfffb8271541c1cf475a7e101`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
 
 | Model action or rule | Current source boundary |
 | --- | --- |
@@ -59,6 +59,8 @@ The model mutants and actual-source mutants represent the same broken policy. Th
 | Skip authored automatic completion | `AutomaticEndpointCompletes` | `authored_capture_end_finishes_without_finish_press`. |
 
 The native host also checks independent failed admission, full selection preflight, both button orders, complete-draft Stop without playback, repeated Stop idempotence, and loop-wrap retention. Current-source additions check unified cue-button ordering and independent outcomes, and automatic publication of a final-bar slice across three captures into reusable protected banks. Slice readback retains the full immutable parent and reports the playing selection; these finite witnesses do not prove arbitrary slice arithmetic or rack checkpoint fidelity. All checks use the actual engine and patch sources. A first attempted execute-only admission mutant survived because the public `press` guard rejected it earlier. It was not credited; the final mutation changes the reachable admission boundary itself.
+
+The eleventh native scenario, `tuner-isolation`, uses the shared engine to start a scale preview and listening, then Start and record. It checks that Start clears tuning, reference playback rejects during capture, tuner Close/Silence preserve the draft, and automatic completion retains the expected microphone PCM. A sixth actual-source mutant removes the running-transport tuner gate and must fail the reference-rejection assertion. This is selected native integration evidence, separate from the five formal-model mutants. The runner links and pins the actual tuner sources. Pitch accuracy, preview timing, stopped utility pumping, and browser/remote modal lifecycle are outside this model.
 
 ## Read the statechart
 

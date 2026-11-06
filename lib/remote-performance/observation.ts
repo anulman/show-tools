@@ -1,3 +1,4 @@
+import { decodeTunerState } from '../tuner/observation.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Schema } from 'effect';
 import { CompiledSongSchema, decodeCompiledSong } from '../performance/compiled-song.js';
@@ -66,8 +67,10 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	const takes = reader.array(PF.COMPILED_MAX_TAKES * PF.TAKE_FIELDS);
 	const tempo = reader.array(PF.TEMPO_FIELDS);
 	const lightImage = reader.array(LIGHT.LIGHT_FIELDS);
+	const tunerData = reader.array(PF.TUNER_FIELDS);
 	reader.end();
 	if (revision === 0n && manifestBytes.length === 0 && digest.every(byte => byte === 0)) return null;
+	const tuner = decodeTunerState(tunerData);
 	const lights = Schema.decodeUnknownSync(LightPublicationSchema)(Array.from(lightImage));
 	const manifest = parseManifest(manifestBytes, digest);
 	const voiceRows = Array.from({ length: PF.VOICE_PROFILES }, (_, i) => voices.subarray(i * PF.VOICE_FIELDS, (i + 1) * PF.VOICE_FIELDS));
@@ -80,7 +83,7 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	state.liveEffects = decodeNativeLiveEffects(live);
 	state.compiledTakes = Array.from({ length: manifest.takeCount }, (_, i) => decodeNativeTake(takes.subarray(i * PF.TAKE_FIELDS, (i + 1) * PF.TAKE_FIELDS), i));
 	state.tempoHits = decodeNativeTempo(tempo);
-	return { revision, song: manifest.song, state, lights };
+	return { revision, song: manifest.song, state, lights, tuner };
 }
 
 export function decodeEvent(payload: Buffer, runId: string) {

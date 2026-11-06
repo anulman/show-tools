@@ -1,3 +1,4 @@
+import { TunerStateSchema } from '../tuner/schema.js';
 import { Schema } from 'effect';
 import { PF as LIGHT } from '../performance/light-abi.js';
 import { ChartSchema, CompiledSongSchema } from '../performance/compiled-song.js';
@@ -81,7 +82,7 @@ export const LightPublicationSchema = Schema.mutable(Schema.Array(finite)
     if (image[LIGHT.LIGHT_SEQUENCE] === Number.MAX_SAFE_INTEGER && image[LIGHT.LIGHT_PENDING] !== 0) return 'Terminal light publication cannot be pending';
     return true;
   })));
-const observation = { hostEpoch: id, revision, state, lights: LightPublicationSchema };
+const observation = { hostEpoch: id, revision, state, lights: LightPublicationSchema, tuner: TunerStateSchema };
 export const decodeBootstrap = Schema.decodeUnknownSync(Schema.Struct({ sessionId: id, song, ...observation }));
 export const decodePublication = Schema.decodeUnknownSync(Schema.Union([
   Schema.Struct({ type: Schema.Literal('session'), song, ...observation }),
