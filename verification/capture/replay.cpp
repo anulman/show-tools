@@ -1,9 +1,6 @@
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wreturn-type"
 #define main compiled_program_original_test_main
 #include "../../lib/performance/tests/compiled_program_tests.cpp"
 #undef main
-#pragma GCC diagnostic pop
 
 void complete_stop_retains_without_playback() {
   auto live = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
