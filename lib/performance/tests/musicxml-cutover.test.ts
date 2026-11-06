@@ -94,7 +94,7 @@ test('unsupported authored notation fails visibly instead of disappearing from t
 
 test('a displayed performance command cannot contradict its executable application instruction', async () => {
   const xml = await fixture();
-  const edited = xml.replace('<words id="command-R1-2">crb</words>', '<words id="command-R1-2">xb</words>');
+  const edited = xml.replace('<words id="command-R1-2">cb</words>', '<words id="command-R1-2">xb</words>');
   assert.notEqual(edited, xml);
   await assert.rejects(readMusicXmlSong(edited));
 });

@@ -7,6 +7,7 @@ import { canonicalSongJson, type CompiledSong } from '../lib/performance/compile
 import { encodeCompiledProgram } from '../lib/performance/compiled-native.js';
 import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
 import { createMusicianSheets } from '../lib/performance/musician-sheets.js';
+import { PF } from '../lib/performance/wasm-abi.js';
 
 const baseline = {
   commit: '4eb0569',
@@ -55,12 +56,31 @@ export async function verifyMusicXmlCutover(musicxml: string) {
   assert.equal(song.schemaVersion, 6, 'The current compiled schema must be explicit.');
   const program = encodeCompiledProgram(song);
   assert.equal(program[1], 6, 'The inactivity packet must use native version 6.');
-  // The historical fixture proves the original MusicXML cutover. Project only
-  // the explicitly migrated version marker; every instruction field stays pinned.
   program[1] = 5;
-  const bytes = new Uint8Array(program.length * 8);
+  let cursor = PF.COMPILED_HEADER_FIELDS + program[8] * PF.COMPILED_TAKE_FIELDS + program[9] * PF.COMPILED_CUE_FIELDS
+    + program[10] * PF.COMPILED_MEMBER_FIELDS + program[11] * PF.COMPILED_PLAYBACK_FIELDS;
+  const historical = Array.from(program.slice(0, cursor));
+  while (cursor < program.length) {
+    const magic = program[cursor], count = program[cursor + 1];
+    if (magic === PF.COMPILED_ROTATION_MAGIC) {
+      const end = cursor + PF.COMPILED_ROTATION_HEADER_FIELDS + count * PF.COMPILED_ROTATION_FIELDS;
+      historical.push(...program.slice(cursor, end)); cursor = end;
+    } else {
+      assert.equal(magic, PF.COMPILED_WINDOW_MAGIC);
+      historical.push(magic, count);
+      for (let row = 0; row < count; row++) {
+        const offset = cursor + PF.COMPILED_WINDOW_HEADER_FIELDS + row * PF.COMPILED_WINDOW_FIELDS;
+        const selection = song.selections[program[offset]];
+        assert.equal(selection.window.kind, 'prefix', 'The frozen fixture cannot acquire a slice.');
+        assert.equal(program[offset + 1], 0, 'Historical prefixes must begin at source zero.');
+        historical.push(program[offset], program[offset + 2]);
+      }
+      cursor += PF.COMPILED_WINDOW_HEADER_FIELDS + count * PF.COMPILED_WINDOW_FIELDS;
+    }
+  }
+  const bytes = new Uint8Array(historical.length * 8);
   const view = new DataView(bytes.buffer);
-  program.forEach((value, index) => view.setFloat64(index * 8, value, true));
+  historical.forEach((value, index) => view.setFloat64(index * 8, value, true));
   assert.equal(digest(bytes), baseline.native, 'Native instructions beyond the explicit v6 jiggle migration changed.');
   const sheets = await createMusicianSheets({ musicxml });
   const actualSheets = sheets.map(sheet => ({ name: sheet.name, labelCell: sheet.labelCell, pages: sheet.pages.map(digest) }));

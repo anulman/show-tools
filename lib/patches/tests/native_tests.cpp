@@ -791,7 +791,49 @@ void demo(const char* prefix) {
   std::snprintf(path.data(), path.size(), "%s-wet.f32", prefix); require(write_pcm(path.data(), wet), "write wet demo");
 }
 }
+void source_slice_views() {
+  for (double rate : {44100., 48000.}) {
+    const uint32_t begin = uint32_t(rate / 10), period = uint32_t(rate / 5), end = begin + period;
+    auto live = slap(rate, {40, .4, .5});
+    auto initial = live->snapshot(), oracle = live->snapshot();
+    auto take = ProcessedTake::create(*live, end + 100, 77, 1);
+    auto player = Playback::create(*take);
+    std::vector<float> source(end + 100), left(end + 100), right(end + 100);
+    for (uint32_t i = 0; i < source.size(); ++i) source[i] = i % 173 == 0 ? .6f : 0;
+    require(take->begin(*live), "slice parent capture starts");
+    require(take->capture(*live, source.data(), source.data(), left.data(), right.data(), begin), "slice parent prefix captures");
+    require(initial->copy_state(*live) && oracle->copy_state(*live), "slice snapshots include prior DSP history");
+    require(take->capture(*live, source.data() + begin, source.data() + begin, left.data() + begin, right.data() + begin, uint32_t(source.size()) - begin)
+      && take->commit(), "slice parent is immutable committed PCM");
+    auto end_oracle = live->snapshot();
+    {
+      NoHeap guard;
+      require(player->start_window(true, begin, end, period, *initial), "slice starts from captured rack without prefix replay");
+      require(!player->set_window(end, begin, period), "inverted view rejected");
+      for (uint32_t i = 0; i < period * 3; ++i) {
+        const auto expected = oracle->process({source[begin + i % period], source[begin + i % period]});
+        equal(player->next(), expected, "slice head, loop seam and evolving history match independent oracle");
+      }
+      require(player->set_window(begin, end - 50, period), "shorter slice source keeps period and phase");
+      for (uint32_t i = 0; i < period * 2; ++i) {
+        const float value = i % period < period - 50 ? source[begin + i % period] : 0;
+        equal(player->next(), oracle->process({value, value}), "slice cuts source while preserving effects tails");
+      }
+      player->next(); oracle->process({source[begin], source[begin]});
+      require(player->set_window(0, period, period) && player->phase() == 1, "switching source slices retains relative loop phase");
+      equal(player->next(), oracle->process({source[1], source[1]}), "switch evolves existing rack rather than resetting it");
+      const uint32_t final_begin = uint32_t(source.size()) - period, final_end = uint32_t(source.size());
+      require(player->start_window_at_capture_end(true, final_begin, final_end, period) && player->phase() == 0,
+        "last-bar commit starts at phase zero independently of parent frame divisibility");
+      for (uint32_t i = 0; i < period * 2; ++i) {
+        const float value = source[final_begin + i % period];
+        equal(player->next(), end_oracle->process({value, value}), "last-bar commit continues the original capture-end DSP history");
+      }
+    }
+  }
+}
 int main(int argc, char** argv) {
+  source_slice_views();
   source_prefix_views(); validation_and_order(); impulses(); arbitrary_stop(false); arbitrary_stop(true); block_partitioning_and_heap(); appended_capture_and_reuse(); mono_source_storage(); finite_slapback_release(); evolving_history(); capture_period_history(); capture_period_admission(); chorus_validation_and_impulses(); chorus_independent_oracle_and_state(); chorus_order_and_capture(); chorus_release_bounds();
   if (argc == 3 && std::strcmp(argv[1], "--fixture") == 0) require(write_pcm(argv[2], fixture), "write deterministic fixture");
   else if (argc == 3 && std::strcmp(argv[1], "--demo") == 0) demo(argv[2]);

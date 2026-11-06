@@ -5,6 +5,8 @@ import { compiledCaptureFixture as fixture } from './fixtures/compiled-capture.j
 import { encodeCompiledProgram, compiledProgramBytes } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
+import { frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.js';
+import { readMusicXmlSong } from '../musicxml-song.js';
 
 const module = await WebAssembly.compile(await readFile(new URL('../../../ui/practice/wasm/manual-clock.wasm', import.meta.url)));
 function engine(program: readonly number[], rate = 8000, initialVoiceEffects?: Parameters<NativePerformance['prepareVoiceEffects']>[0]) {
@@ -365,8 +367,9 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
   });
 }
 
-test('DYC missing Bing Bong finish matches the written finish through bar 10 beat 3 and later playback', async () => {
-  const { default: song } = await import('../../../songs/dance-yrself-clean.js');
+test('historical DYC missing Bing Bong finish preserves its partial-bar capture and later playback', async () => {
+  const { song: compiled } = await readMusicXmlSong(await frozenCutoverMusicXml());
+  const song = { compiled, chart: compiled.chart };
   assert(song.compiled?.executable);
   const program = Array.from(encodeCompiledProgram(song.compiled));
   for (const rate of [44100, 48000]) {
@@ -414,8 +417,9 @@ test('DYC missing Bing Bong finish matches the written finish through bar 10 bea
   }
 });
 
-test('DYC short practice loops discard unfinished source spans instead of overflowing across wraps', async () => {
-  const { default: song } = await import('../../../songs/dance-yrself-clean.js');
+test('historical DYC short practice loops discard unfinished source spans instead of overflowing across wraps', async () => {
+  const { song: compiled } = await readMusicXmlSong(await frozenCutoverMusicXml());
+  const song = { compiled, chart: compiled.chart };
   assert(song.compiled?.executable);
   for (const endBar of [1, 7]) {
     const rate = 8000;

@@ -1,8 +1,8 @@
-# DYC import awaiting cue definition
+# Latest DYC capture import
 
-The public `01 Dance Yrself Clean` worksheet (gid `101`) was fetched through `show-tools chart fetch` on November 6, 2026 at 06:32 UTC. The import contains all 218 bars, the used range `A1:HL55`, and 468 unchanged cell notes. Google public exports supply no revision identifier. This observation does not assert a later worksheet revision is identical.
+The public `01 Dance Yrself Clean` worksheet (gid `101`) was fetched through `show-tools chart fetch` on November 6, 2026 at 06:32 UTC and fetched again at 06:42 UTC with identical values and notes. The import contains all 218 bars, the used range `A1:HL55`, and 468 unchanged cell notes. Google public exports supply no revision identifier. This observation does not assert a later worksheet revision is identical.
 
-The resulting `show-tools-song-v2` MusicXML passes the canonical reader and preserves the compiled model and musician report through write/read round trips. Neither the previous document nor the fresh import contains portable voice metadata. The fresh document is **non-executable** and has not replaced the runnable bundled song.
+The canonical song uses `show-tools-song-v3`. It preserves the compiled model and musician report through write/read round trips and is executable. Neither the previous document nor the fresh import contains portable voice metadata.
 
 ## Changes since the single-take Whistle revision
 
@@ -19,14 +19,16 @@ The resulting `show-tools-song-v2` MusicXML passes the canonical reader and pres
 | CI19; CI20 | `x`; blank | `clb`; `x` |
 | H21; J21 | `crb`; `2c3` | `cb`; blank |
 
-The Drums & Claps and Bing Bong changes remove their second captures. Their explicit doubling-group mappings still reference those removed arms and need a deliberate authoring-policy revision. Cowbell now arms earlier and removes its individual bar commits. Its retained-variant source references still point at the removed `CE19` arm.
+The Drums & Claps and Bing Bong changes remove their second captures. Their groups now each contain one take. Cowbell arms earlier and retains each complete multi-bar recording as one immutable parent. Explicit shortened reuses select bar 82 from the parent armed at `CB19`.
 
-## Execution remains blocked
+## Commit last bar and reuse recorded bars
 
-`clb` at `O19` and `CI19` is undefined by the current grammar and sheet legend. These cells have no explanatory notes. The historical [performance plan](../plans/performance-engine.md) defines `cl` as committing the last bar, explicitly distinct from next-bar commit; it does not define `clb`. That historical proposal does not establish the meaning of this new spelling or authorize splitting these new multi-bar recordings.
+The operator confirmed `clb`: commit the last completed bar, retaining recorded material for later matching reuse. At the start of its written bar, this commits the preceding recording and selects its final completed bar for looping. `O19` commits bars 8–12 at bar 13; `CI19` commits bars 79–84 at bar 85. This spelling does not postpone source capture until the following bar.
 
-The current import reports 98 errors: two unknown cues, one overlapping take, one uncommitted take, four layer-group errors, two variant-source errors, 78 unresolved variants and ten unresolved play selections. Most follow from the unknown commit operation and obsolete mapping references. Preserve these diagnostics until the cue meaning and capture/selection policy are resolved; do not substitute `cb`, invent retained takes, or relax executable validation.
+Each performed Cowbell bar supplies a source slice identified by its normalized written phrase. Consecutive matching slices from the same recording continue sequentially when available; otherwise the latest previously recorded matching identity is selected. Shortened bars 96 and 164 reuse bar 82 through count 3.5, then admit zero source for the remainder of their four-count loops.
+
+Selections carry an explicit source beginning, exclusive end and loop period in chart counts. C++ observes their exact frame boundaries and captures the source rack state at each slice beginning. Playback references immutable parent PCM and starts from that captured history; it never copies PCM, replays a long prefix on the audio thread or adds fake operator cues. Changing views keeps the running effect history and loop phase. Independent slice starts restore their original boundary state.
 
 The original frozen cutover fixture and verifier remain unchanged. Staged import evidence belongs in temporary working storage until promotion, following [data retention](../data-retention.md).
 
-Verification passed 44 focused MusicXML reader, exporter, cutover and chart-CLI tests. The deterministic CLI produced a reviewable compiled draft and correctly rejected native encoding with `CHART_ENCODE_BLOCKED`.
+The initial unsupported import failed closed with 98 diagnostics. After implementing the confirmed semantics and updating stale mappings, native and WASM complete-song execution passed at 44.1 and 48 kHz. Independent PCM checks cover slice heads, evolving loops, omitted source, retained tails, phase-preserving switches and allocation-free playback. The canonical song retains five parent takes, eleven complete Cowbell bar views and one shortened view reused at two positions; the earlier fixed cutover fixture remains separate.

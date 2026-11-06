@@ -185,10 +185,18 @@ void early_capture_admission_has_bounded_source_capacity() {
     0, 0, 1};
   auto rack = patches::Rack::create(nullptr, 0);
   auto program = compiled::Program::create(long_song, std::size(long_song), 8000, *rack, 1);
-  require(bool(program), "maximum thirty-second authored source remains loadable");
+  require(bool(program), "long authored source remains loadable within the explicit memory budget");
   program->start(1, 0, 0, 40); program->beat(PF_PLAYING, 1, 1, 0, 0, 40);
-  require(program->press(0, 11840, 40, true) == PF_LOOP_MISMATCH && !program->has_capture(),
-    "an early start exceeding the fixed thirty-second source bound rejects before capture mutation");
+  require(program->press(0, 11840, 40, true) == PF_OK && program->has_capture(),
+    "approved early timing fits its prepared allowance beyond thirty seconds");
+  float source = .25f, output = 0;
+  auto backup = patches::Rack::create(nullptr, 0);
+  heap_allocations = heap_frees = 0; watch_heap = true;
+  for (int frame = 11840; frame <= 252000; ++frame)
+    program->render(&source, &output, &output, nullptr, nullptr, 1, frame, 40, true, *rack, *backup);
+  watch_heap = false;
+  require(!program->has_capture() && program->error() == PF_OK && !heap_allocations && !heap_frees,
+    "long early capture reaches its authored cutoff without exhausting capacity or callback allocation");
 }
 void load_atomicity_and_six_counts() {
   Engine engine; auto data = table(); prepare(engine, data);
@@ -1065,7 +1073,7 @@ std::vector<double> prefix_table() {
     0, 0, 86, 0, PF_PLAY, 0, 0, -1, -1, 1, 0,
     0, 0, 1, 1, 0, 1,
     84, 0, 1, 85, 0, 0, 87, 0, 0,
-    PF_COMPILED_WINDOW_MAGIC, 1, 1, 3.5};
+    PF_COMPILED_WINDOW_MAGIC, 1, 1, 0, 3.5, 4};
 }
 void prefix_effected_source_oracle() {
   for (double rate : {44100., 48000.}) for (bool effects : {false, true}) {
@@ -1111,7 +1119,7 @@ void prefix_effected_source_oracle() {
 }
 void prefix_late_arm_zero_cut() {
   auto definition = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
-  auto data = prefix_table(); data.back() = 1. / 960;
+  auto data = prefix_table(); data[data.size() - 2] = 1. / 960;
   auto program = compiled::Program::create(data.data(), data.size(), 1000, *definition, 1);
   require(bool(program), "sub-frame source prefix loads");
   program->start(82, 0, 82000, 240); program->beat(PF_PLAYING, 82, 1, 0, 82250, 240);
@@ -1166,11 +1174,11 @@ void prefix_capture_maps_and_selection() {
     auto saved = take(retained, 0); require(saved[PF_TAKE_READY], "atomic replacement fixture retains committed source");
     for (int mutation = 0; mutation < 8; ++mutation) {
       auto invalid = data;
-      if (mutation == 0) invalid.back() = 4;
+      if (mutation == 0) invalid.back() = 5;
       if (mutation == 1) invalid.back() = 0;
       if (mutation == 2) invalid.back() = std::numeric_limits<double>::quiet_NaN();
       if (mutation == 3) invalid.back() = .0001;
-      if (mutation == 4) invalid[invalid.size() - 2] = 0;
+      if (mutation == 4) invalid[invalid.size() - 4] = 2;
       if (mutation == 5) invalid.insert(invalid.end(), {PF_COMPILED_WINDOW_MAGIC, 0});
       if (mutation == 6) invalid.push_back(42);
       if (mutation == 7) invalid.pop_back();

@@ -4,6 +4,8 @@ The song document is MusicXML 4.0 with the `show-tools-song-v3` application prof
 
 The XML reader produces the shared song model in memory. Compiled JSON and native instruction bytes are generated outputs. C++ retains clock advancement, cue execution, capture, mixing, and DSP.
 
+The latest DYC import retains complete multi-bar Cowbell parents and explicit per-bar source views. `clb` commits at the start of its written bar and loops the last completed bar. Standard source notation is preserved, while validated application selections carry source beginning, exclusive end and loop counts. See the [latest import record](dyc-latest-import.md) for the revision and verification.
+
 ## Data ownership
 
 Standard MusicXML owns the title, part names, measure structure, meter, tempo, sections, and readable musical indications. The current profile supports the existing fixed-meter charts and onset-only directions. It rejects authored pitches, harmony, repeats, tempo changes, and other unsupported notation instead of discarding them. Standard harmony elements can carry chord symbols or Nashville numerals after the importer and profile gain that capability.
