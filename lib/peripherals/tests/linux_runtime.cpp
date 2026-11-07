@@ -25,12 +25,13 @@ void send(int fd, const void* value, size_t bytes) { require(write(fd, value, by
 struct Child {
   int key[2], mouse[2], led[2], commands[2], output[2];
   pid_t pid;
-  Child(bool held = false, bool bench = false, bool queued = false, bool interrupt_poll = false) {
+  Child(bool held = false, bool bench = false, bool queued = false, bool interrupt_poll = false, bool fresh_on_stop = false) {
     for (auto pair : {key, mouse, led, commands, output}) require(pipe2(pair, O_NONBLOCK | O_CLOEXEC) == 0, "create owned fixture pipe");
     if (queued) {
       event(key[1], EV_KEY, KEY_TAB, 1, 10); event(key[1], EV_KEY, KEY_TAB, 0, 20);
       event(mouse[1], EV_SYN, SYN_DROPPED, 0, 12); event(mouse[1], EV_REL, REL_Y, 11, 15);
     }
+    if (fresh_on_stop) event(key[1], EV_KEY, KEY_TAB, 1, 100);
     pid = fork(); require(pid >= 0, "fork owned runtime fixture");
     if (!pid) {
       close(key[1]); close(mouse[1]); close(led[0]); close(commands[1]); close(output[0]);
@@ -123,6 +124,10 @@ void startup_and_signal_barriers() {
   Child signaled(false, false, false, true);
   signaled.finish(0, false, true);
   require(signaled.report()[2] == 0, "SIGTERM immediately before idle poll still exits and clears");
+  Child signaled_ready(false, false, false, true, true);
+  signaled_ready.finish(0, false, true);
+  require(signaled_ready.report()[2] == 0 && !signaled_ready.available(signaled_ready.output[0], 30),
+    "SIGTERM before a ready poll does not admit queued button input");
 }
 }
 int main() {

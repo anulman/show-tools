@@ -120,6 +120,7 @@ int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool 
   while (running && !failed) {
     pollfd pollers[]{{handles.keyboard, POLLIN, 0}, {handles.mouse, POLLIN, 0}, {handles.commands, short(bench ? 0 : POLLIN), 0}};
     int result = poll(pollers, bench ? 2 : 3, 250);
+    if (!running) break;
     if (result < 0 && errno == EINTR) continue;
     if (result < 0) { failed = true; break; }
     if ((pollers[0].revents | pollers[1].revents) & (POLLHUP | POLLERR | POLLNVAL)) { disconnected = true; break; }
@@ -128,10 +129,11 @@ int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool 
       std::cerr << "I-PAC input gap, invalid record or ambiguous cross-interface event order. Reconnect.\n"; failed = true; break;
     }
     for (const auto& value : batch) {
+      if (!running) break;
       if (!host.input(value)) { failed = true; break; }
       last = {value.nanoseconds, value.source};
     }
-    if (bench || failed) continue;
+    if (bench || failed || !running) continue;
     if (pollers[2].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) {
       char bytes[4096]; ssize_t count = read(handles.commands, bytes, sizeof(bytes));
       if (count == 0) { if (!pending.empty()) failed = true; break; }
