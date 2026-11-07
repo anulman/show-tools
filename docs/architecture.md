@@ -253,3 +253,17 @@ Compiled take readback includes the actual native playing selection index. The d
 ## Host delegation remains separate from the app
 
 The [host delegation bundle](../lib/remote-performance/delegation/README.md) prepares a conditional retained-consent process for the confirmed EliteDesk host-user app. It is not installed or active. The existing messaging gateway remains unchanged. A separately reviewed root-frozen verifier authenticates signed deployment candidates and owns their bounded claim ledger; it runs no app actions. The trusted host steward still verifies actual source and host preconditions. Routine app releases cannot expand or replace the protected grant, signer or verifier.
+
+### Local physical controls in browser practice
+
+`show-tools peripheral browser` serves a separate, verified practice build on a
+private loopback origin and owns one native I-PAC helper. Browser audio remains
+the complete WASM C++ engine. An authenticated, single-page connection forwards
+physical edges to that engine and its actual `pf_light_output()` image back to
+the helper. The transport never derives beat phase or cue windows in JavaScript.
+The worklet publishes light images only while this connection is enabled.
+
+The loopback API checks its exact Host, Origin, pairing secret, and connection
+lease. Disconnects invalidate the lease and clear the owned output. A heartbeat
+watchdog clears stalled output without advancing the musical clock. Physical
+USB timing and visible light output remain hardware acceptance checks.

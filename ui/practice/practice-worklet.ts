@@ -5,6 +5,8 @@ import type { TunerCommand } from '../../lib/tuner/model.js';
 type PracticeMessage = { id: number } & (
   | { command: 'practice.start'; payload: StartOptions & { runId: string } }
   | { command: 'practice.stop'; payload?: object }
+  | { command: 'practice.peripheral-lights'; payload: { enabled: boolean } }
+  | { command: 'practice.jiggle'; payload: { minimumTravel: number; minimumReversal: number } }
   | { command: 'practice.tuner'; payload: { command: TunerCommand } }
   | { command: 'practice.effects'; payload: { effects: readonly LiveEffectDefinition[] } }
   | { command: 'practice.voice-effects'; payload: { configurations: readonly VoiceEffectConfiguration[] } }
@@ -15,10 +17,12 @@ type PracticeMessage = { id: number } & (
 );
 
 export class PracticeProcessor extends PerformanceProcessor {
+  peripheralLights = false;
   nativeMode() { return 2; }
   practiceState() { return this.native.state(); }
   performanceState() { return { ...super.performanceState(), practice: this.native.state(), tuner: this.native.tunerState() }; }
   publishNativeEvents() {
+    if (this.peripheralLights) this.performancePort?.postMessage({ lights: Array.from(this.native.lightOutput()) });
     for (const event of this.native.events()) this.performancePort?.postMessage({ event, state: this.performanceState() });
   }
   command(message: PracticeMessage) {
@@ -29,6 +33,8 @@ export class PracticeProcessor extends PerformanceProcessor {
       switch (command) {
         case 'practice.start': this.native.start(message.payload); break;
         case 'practice.stop': this.native.stop(); break;
+        case 'practice.peripheral-lights': this.peripheralLights = message.payload.enabled; break;
+        case 'practice.jiggle': this.native.setJiggleThresholds(message.payload.minimumTravel, message.payload.minimumReversal); break;
         case 'practice.tuner': this.native.tunerCommand(message.payload.command); break;
         case 'practice.effects': this.native.prepareLiveEffects(message.payload.effects); break;
         case 'practice.voice-effects': this.native.prepareVoiceEffects(message.payload.configurations); break;

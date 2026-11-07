@@ -149,9 +149,16 @@ The `peripheral-host` target owns the confirmed I-PAC installation's Tab key
 (HID page 7, usage 43), relative Y axis (page 1, usage 49), and one explicitly
 selected SDK LED channel. It requires exactly one `d209:0410` device with unique
 matching input interfaces and a validated LED report descriptor. It opens only
-those input interfaces exclusively, keeping their Tab and mouse movement out of
-other apps until exit. Start it from the terminal granted Input Monitoring.
+those interfaces without exclusive seizure. The I-PAC's Tab and cursor-Y events
+also reach macOS. Exclusive opening requires privileges that Input Monitoring
+alone does not grant. Start it from the context granted Input Monitoring.
 It never opens the laptop keyboard.
+
+`peripheral-host --access-status` reports granted, denied or unknown Input
+Monitoring permission without prompting. `--inspect` also qualifies the device
+without opening any interfaces. Permission and USB enumeration are separate
+checks; open failures report their actual macOS error rather than assuming a
+permission cause.
 
 `peripheral-host SESSION SDK_CHANNEL --confirm-wiring` is a child-process
 interface rather than a stand-alone performance command. The gateway client
@@ -216,3 +223,72 @@ stdout and both input streams are bounded. A silently stalled network stream
 currently has no automatic fail-dark watchdog. Physical beat alignment remains
 subject to network latency. The bridge never guesses an LED enable mask.
 
+
+## Hold-to-light wiring test without audio
+
+Build `peripheral-host`, then run this from the terminal granted Input Monitoring
+for the confirmed Tab switch and physical LED output 1, SDK channel 0:
+
+```sh
+/path/to/peripheral-host --bench-held 0 --confirm-wiring
+```
+
+The host clears only that output, then lights it at brightness 255 while a fresh
+Tab press is held and clears it on release. An initially held or unknown switch
+must be released before a fresh press is admitted. Repeated held reports do not
+produce extra activations. Ctrl+C ends the test and attempts to clear the owned
+output. Disconnect or a failed USB write ends the process. Physical darkness
+after unplugging cannot be guaranteed by software.
+
+This is a wiring test. It opens no microphone, audio device, performance engine,
+or network connection, and it generates no cue timing. It sends brightness
+reports only and preserves the unknown eight-output enable mask. A disabled
+channel therefore remains disabled. It does not monitor the other three button
+or LED mappings, which still require individual observation.
+
+## Run browser practice with the local I-PAC
+
+Stop any separate wiring-test monitor before starting this command. One process
+owns the board at a time. Build the matching WASM and UI from this checkout, then
+use the native `peripheral-host` built with its nonseizing Mac transport.
+
+```sh
+npm run build
+./show-tools peripheral browser --helper /absolute/path/peripheral-host --static-root /absolute/path/dist
+```
+
+Open the printed loopback URL on this Mac. The command serves its own verified
+practice build and does not replace the managed practice server. It binds only
+`127.0.0.1` and owns LED output 1, SDK channel 0. This is the confirmed one-button
+installation, not a guessed map for the other three buttons.
+
+Start practice in the page to prepare browser audio and connect the controller.
+The page reports **Controller connected** before transport Start completes. The
+local pairing secret stays in this origin's session storage so reload can pair
+again. It is removed from the URL before device connection. A second connected
+page is rejected rather than taking ownership from the first.
+
+If the button is held or unknown when the helper opens, release it before the
+first accepted press. The native input latch does not synthesize an activation.
+
+The browser forwards ordered Tab-button edges and signed spinner motion to its
+WASM engine. It sends the engine's complete evaluated light publication to the
+native helper. C++ owns every cue window, pulse phase, and brightness decision.
+The helper sends brightness reports only and preserves unknown enable masks.
+Ordinary Tab focus traversal is suppressed while the helper owns the input.
+
+Closing the page, ending the stream, or missing transport heartbeats for 2.5
+seconds requests an LED clear and invalidates the old connection. This heartbeat does
+not advance musical time. A background page whose browser suspends timers may
+disconnect; the page reports that condition instead of replaying old input.
+Restart the local controller session to reconnect after a device disconnect.
+
+This command does not provide held-button feedback before browser audio is
+prepared. Use `peripheral-host --bench-held 0 --confirm-wiring` for the separate,
+audio-free wiring test, then stop that process before opening this mode.
+
+HTTP acknowledgement means the helper accepted the image into its bounded input
+queue. It does not prove completed USB delivery or measured physical timing.
+If that queue stalls, the server stops and reaps the owned helper with bounded
+TERM and KILL deadlines. A disconnected or unresponsive device can prevent the
+final off report from reaching the LED.

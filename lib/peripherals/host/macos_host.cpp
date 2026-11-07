@@ -2,6 +2,8 @@
 #include "peripheral_controls.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDManager.h>
+#include <IOKit/hidsystem/IOHIDLib.h>
+#include <mach/mach_error.h>
 #include <algorithm>
 #include <cerrno>
 #include <charconv>
@@ -17,6 +19,14 @@
 namespace {
 volatile std::sig_atomic_t running = 1;
 void stop(int) { running = 0; }
+const char* input_access() {
+  switch (IOHIDCheckAccess(kIOHIDRequestTypeListenEvent)) {
+    case kIOHIDAccessTypeGranted: return "granted";
+    case kIOHIDAccessTypeDenied: return "denied";
+    case kIOHIDAccessTypeUnknown: return "unknown";
+  }
+  return "unknown";
+}
 int property(IOHIDDeviceRef device, CFStringRef key) {
   auto value = IOHIDDeviceGetProperty(device, key);
   int out = 0;
@@ -58,7 +68,7 @@ struct Host {
   double session = 0, sequence = 0;
   uint32_t channel = 0;
   bool disconnected = false, failed = false;
-  bool bound = false;
+  bool bound = false, bench_held = false;
 
   bool write(const uint8_t* report) {
     auto status = IOHIDDeviceSetReport(output, kIOHIDReportTypeOutput, report[0], report, PP_LED_REPORT_BYTES);
@@ -68,10 +78,11 @@ struct Host {
     }
     return true;
   }
-  bool clear() {
+  bool brightness(uint32_t level) {
     uint8_t report[PP_LED_REPORT_BYTES];
-    return pp_ipac_led_report(channel, 0, report) == PP_LED_REPORT_BYTES && write(report);
+    return pp_ipac_led_report(channel, level, report) == PP_LED_REPORT_BYTES && write(report);
   }
+  bool clear() { return brightness(0); }
   bool command(const peripheral_host::Command& command) {
     using peripheral_host::Operation;
     if (command.operation == Operation::Clear) { bound = false; return clear(); }
@@ -107,9 +118,11 @@ void input(void* context, IOReturn status, void*, IOHIDValueRef value) {
   if (element == host.button) {
     if (raw != 0 && raw != 1) { host.failed = true; running = 0; return; }
     int result = pp_key(host.inputs.get(), host.session, sequence, 0, int(raw));
-    if (result == PP_PRESS || result == PP_RELEASE)
+    if (result == PP_PRESS || result == PP_RELEASE) {
+      if (host.bench_held && !host.brightness(result == PP_PRESS ? 255 : 0)) return;
       std::cout << "{\"type\":\"button\",\"session\":" << host.session << ",\"sequence\":" << sequence
         << ",\"down\":" << (result == PP_PRESS ? "true" : "false") << "}" << std::endl;
+    }
   } else if (pp_rotate(host.inputs.get(), host.session, sequence, raw) == PP_MOVEMENT) {
     std::cout << "{\"type\":\"motion\",\"session\":" << host.session << ",\"sequence\":" << sequence
       << ",\"deltaY\":" << raw << "}" << std::endl;
@@ -125,18 +138,27 @@ void removed(void* context, IOReturn, void*) {
 int main(int argc, char** argv) {
   if (argc == 2 && std::string(argv[1]) == "--help") {
     std::cout << "peripheral-host SESSION SDK_CHANNEL --confirm-wiring\n"
+      "peripheral-host --bench-held SDK_CHANNEL --confirm-wiring (hold-to-light wiring test, no audio)\n"
       "peripheral-host --inspect (qualifies interfaces without opening them)\n"
-      "Owns the sole d209:0410 I-PAC Tab button and relative Y interfaces exclusively.\n"
-      "Reads native light publications on stdin; brightness-only writes, no enable-mask changes.\n";
+      "peripheral-host --access-status (checks Input Monitoring without prompting)\n"
+      "Reads the sole d209:0410 I-PAC Tab usage 43 and relative Y interfaces without seizure.\n"
+      "Reads native light publications on stdin; brightness-only writes, no enable-mask changes.\n"
+      "Bench mode tests held feedback only, never practice cue completion.\n";
+    return 0;
+  }
+  if (argc == 2 && std::string(argv[1]) == "--access-status") {
+    std::cout << "{\"type\":\"input-access\",\"state\":\"" << input_access() << "\",\"pid\":" << getpid() << "}\n";
     return 0;
   }
   uint64_t session = 0, channel = 0;
+  bool bench = argc == 4 && std::string(argv[1]) == "--bench-held";
+  if (bench) session = 1;
   bool inspect = argc == 2 && std::string(argv[1]) == "--inspect";
-  if (!inspect && (argc != 4 || !number(argv[1], 9007199254740991ULL, session) || !session
+  if (!inspect && (argc != 4 || (!bench && !number(argv[1], 9007199254740991ULL, session)) || !session
     || !number(argv[2], 95, channel) || std::string(argv[3]) != "--confirm-wiring")) {
     std::cerr << "Use peripheral-host SESSION SDK_CHANNEL --confirm-wiring (or --help).\n"; return 2;
   }
-  Host host; host.session = double(session); host.channel = uint32_t(channel);
+  Host host; host.session = double(session); host.channel = uint32_t(channel); host.bench_held = bench;
   if (!host.inputs || !host.delivery) return 1;
   std::cout.precision(17);
   auto manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
@@ -176,14 +198,15 @@ int main(int argc, char** argv) {
       << locations.size() << " physical locations, " << keyboards << " Tab, " << mice << " relative-Y and "
       << outputs << " LED interfaces. No interfaces opened.\n";
   } else if (inspect) {
-    std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonUsage\":43,\"relativeYUsage\":49,\"opened\":false}" << std::endl;
+    std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonUsage\":43,\"relativeYUsage\":49,\"inputAccess\":\""
+      << input_access() << "\",\"opened\":false}" << std::endl;
     result = 0;
   } else {
     for (auto device : {host.keyboard, host.mouse, host.output}) {
-      auto options = device == host.output ? kIOHIDOptionsTypeNone : kIOHIDOptionsTypeSeizeDevice;
-      auto status = IOHIDDeviceOpen(device, options);
+      auto status = IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone);
       if (status != kIOReturnSuccess) {
-        std::cerr << "I-PAC open failed (" << status << "). Launch from the terminal granted Input Monitoring.\n";
+        std::cerr << "I-PAC open failed (" << status << ": " << mach_error_string(status)
+          << "). Input Monitoring is " << input_access() << ".\n";
         break;
       }
       opened.push_back(device);
@@ -200,7 +223,7 @@ int main(int argc, char** argv) {
       }
       int flags = fcntl(STDIN_FILENO, F_GETFL);
       int output_flags = fcntl(STDOUT_FILENO, F_GETFL);
-      if (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) host.failed = true;
+      if (!bench && (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0)) host.failed = true;
       if (output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) host.failed = true;
       std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGPIPE, SIG_IGN);
       if (!host.failed && host.clear()) {
@@ -209,6 +232,7 @@ int main(int argc, char** argv) {
         std::string pending;
         while (running && !host.failed && std::cout.good()) {
           CFRunLoopRunInMode(kCFRunLoopDefaultMode, .005, false);
+          if (bench) continue;
           char bytes[4096];
           ssize_t count = read(STDIN_FILENO, bytes, sizeof(bytes));
           if (count == 0) break;
