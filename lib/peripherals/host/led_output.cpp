@@ -35,11 +35,12 @@ int write_led_output(const Request& request, const LedWriter& write) {
     const auto start = std::chrono::steady_clock::now();
     for (unsigned step = 0; step <= 400; ++step) {
       std::this_thread::sleep_until(start + std::chrono::milliseconds(step * 24));
-      if (!brightness(bench_pulse_level(step))) return 1;
+      if (!brightness(bench_pulse_level(step))) { brightness(0); return 1; }
     }
+    if (!brightness(0)) return 1;
   } else if (!brightness(request.mode == Mode::led_on ? 255 : request.level)) return 1;
   std::cout << "{\"type\":\"led-write\",\"channel\":" << request.channel
-    << ",\"level\":" << (request.mode == Mode::led ? request.level : 255)
+    << ",\"level\":" << (request.mode == Mode::led ? request.level : request.mode == Mode::led_pulse ? 0 : 255)
     << ",\"operation\":\"" << (request.mode == Mode::led ? "brightness" : request.mode == Mode::led_on ? "on" : "pulse")
     << "\",\"reports\":" << reports << "}\n";
   return 0;

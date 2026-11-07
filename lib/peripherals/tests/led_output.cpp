@@ -35,8 +35,11 @@ int main() {
   check(write_led_output({Mode::led_pulse, "unused", 0}, [&](const uint8_t*, size_t) { return ++calls != 1; }) == 1 && calls == 1,
     "Failed enable prevents brightness writes");
   calls = 0;
-  check(write_led_output({Mode::led_pulse, "unused", 0}, [&](const uint8_t*, size_t) { return ++calls != 2; }) == 1 && calls == 2,
-    "Failed brightness stops the pulse immediately");
+  reports.clear();
+  check(write_led_output({Mode::led_pulse, "unused", 0}, [&](const uint8_t* bytes, size_t size) {
+    record(bytes, size); return ++calls != 2;
+  }) == 1 && calls == 3, "Failed brightness stops the pulse and attempts off once");
+  check(reports.back() == std::array<uint8_t, 5>{3, 0, 0, 0, 0}, "Failed pulse leaves an off request as its final write");
   for (unsigned cycle = 0; cycle < 4; ++cycle) {
     const unsigned origin = cycle * 100;
     check(bench_pulse_level(origin) == 255 && bench_pulse_level(origin + 50) == 0 && bench_pulse_level(origin + 100) == 255,
@@ -48,12 +51,12 @@ int main() {
   }
   reports.clear();
   check(write_led_output({Mode::led_pulse, "unused", 0}, record) == 0, "Complete pulse sequence succeeds through fake transport");
-  check(reports.size() == 402, "One enable and 401 brightness samples cover four cycles");
+  check(reports.size() == 403, "One enable, 401 brightness samples and an off request cover four cycles");
   check(reports.front() == std::array<uint8_t, 5>{3, 0x81, 1, 0, 0}, "Pulse begins by enabling only the selected group bit");
   for (unsigned cycle = 0; cycle < 4; ++cycle) {
     check(reports[1 + cycle * 100][2] == 255 && reports[51 + cycle * 100][2] == 0,
       "Transport receives each full-brightness peak and off trough");
   }
-  check(reports.back() == std::array<uint8_t, 5>{3, 0, 255, 0, 0}, "Complete pulse ends fully on at the selected channel");
+  check(reports.back() == std::array<uint8_t, 5>{3, 0, 0, 0, 0}, "Complete pulse leaves the selected channel off");
   std::puts("LED sequencing, transport failure, group boundaries, and four smooth cycles passed. No devices opened.");
 }

@@ -19,6 +19,8 @@ Both LED orientations were tried before the successful onboard-script test. Earl
 
 The original working helpers and captures were temporary files outside the repository. The checked-in `led-on` and `led-pulse` commands reproduce their report sequence and pulse shape through the existing guarded Mac and Linux transports. They replace one eight-output enable mask and disable the selected output's seven peers.
 
+The current `led-pulse` command adds an off request after the four cycles. It also attempts off once if a pulse brightness write fails. This follows the operator's default-off policy for idle LEDs and completed tests. The historical observations below describe the earlier demonstration that ended at full brightness; the new final-off behavior still needs a physical repeat.
+
 Automated tests open no devices. They cover exact SDK enable reports at group boundaries, selected-channel brightness, explicit off without a mask change, invalid requests, failed enable and brightness writes, CLI confirmation refusal, and monotonic fades through four cosine cycles. The existing portable native/WASM and performance fixtures remain separate checks.
 
 Physical success applies to the temporary Mac bench diagnostic. The packaged commands need an operator-run repeat before claiming their complete hardware path is verified. Linux hardware behavior and exact USB or visible pulse timing have not been measured. No persistent firmware, input-map, or stored-script writes were made.
