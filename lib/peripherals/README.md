@@ -278,7 +278,7 @@ The helper sends brightness reports only and preserves unknown enable masks.
 Ordinary Tab focus traversal is suppressed while the helper owns the input.
 
 Closing the page, ending the stream, or missing transport heartbeats for 2.5
-seconds clears this LED and invalidates the old connection. This heartbeat does
+seconds requests an LED clear and invalidates the old connection. This heartbeat does
 not advance musical time. A background page whose browser suspends timers may
 disconnect; the page reports that condition instead of replaying old input.
 Restart the local controller session to reconnect after a device disconnect.
@@ -286,3 +286,9 @@ Restart the local controller session to reconnect after a device disconnect.
 This command does not provide held-button feedback before browser audio is
 prepared. Use `peripheral-host --bench-held 0 --confirm-wiring` for the separate,
 audio-free wiring test, then stop that process before opening this mode.
+
+HTTP acknowledgement means the helper accepted the image into its bounded input
+queue. It does not prove completed USB delivery or measured physical timing.
+If that queue stalls, the server stops and reaps the owned helper with bounded
+TERM and KILL deadlines. A disconnected or unresponsive device can prevent the
+final off report from reaching the LED.

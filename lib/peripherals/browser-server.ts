@@ -120,24 +120,29 @@ export async function runBrowserPeripheralServer(options: { staticRoot: string; 
   if (!Number.isInteger(options.sdkChannel) || options.sdkChannel < 0 || options.sdkChannel > 95) throw new Error('Invalid SDK channel');
   const session = randomBytes(6).readUIntBE(0, 6) + 1;
   const child = spawn(options.helperExecutable, [String(session), String(options.sdkChannel), '--confirm-wiring'], { stdio: ['pipe', 'pipe', 'inherit'] });
-  child.stdin.on('error', () => child.kill('SIGTERM'));
+  let fatal: (error: unknown) => void = () => {};
+  const failed = new Promise<never>((_, reject) => { fatal = reject; });
+  void failed.catch(() => {});
+  child.stdin.on('error', fatal);
   const exited = new Promise<void>((resolve, reject) => { child.once('error', reject); child.once('exit', (code, signal) => { if (code === 0) resolve(); else reject(new Error(`Peripheral helper exited (${signal ?? code})`)); }); });
   void exited.catch(() => {});
   const transport: BrowserPeripheralTransport = { session,
     input: (async function* () { for await (const line of boundedLines(child.stdout, 8192)) yield JSON.parse(line); })(),
     write(line) {
-      if (!child.stdin.writable || child.stdin.writableLength > 32768) { child.kill('SIGTERM'); throw new Error('Peripheral output stalled'); }
+      if (!child.stdin.writable || child.stdin.writableLength > 32768) {
+        const error = new Error('Peripheral output stalled'); fatal(error); child.kill('SIGTERM'); throw error;
+      }
       child.stdin.write(line + '\n');
     },
     async close() {
       child.stdin.end('clear\nquit\n');
       const terminate = setTimeout(() => child.kill('SIGTERM'), 1000), kill = setTimeout(() => child.kill('SIGKILL'), 2000);
-      try { await exited; } finally { clearTimeout(terminate); clearTimeout(kill); }
+      try { await exited; } catch {} finally { clearTimeout(terminate); clearTimeout(kill); }
     } };
   let server: Awaited<ReturnType<typeof startBrowserPeripheralServer>> | undefined;
   try {
     server = await startBrowserPeripheralServer({ ...options, transport });
     if (options.onReady) options.onReady(server.url); else process.stdout.write(server.url + '\n');
-    await Promise.race([exited, server.completed, new Promise<void>(resolve => { if (signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true }); })]);
+    await Promise.race([exited, server.completed, failed, new Promise<void>(resolve => { if (signal.aborted) resolve(); else signal.addEventListener('abort', () => resolve(), { once: true }); })]);
   } finally { if (server) await server.close(); else await transport.close(); }
 }

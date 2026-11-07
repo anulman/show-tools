@@ -76,3 +76,65 @@ test('browser client forwards actual publications and ordered physical controls 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+test('stopping during every pairing stage leaves the final publication disabled', async t => {
+  for (const stage of ['cue', 'jiggle', 'lights']) for (const exit of ['stop', 'pagehide']) {
+    await t.test(`${exit} while awaiting ${stage}`, async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'browser-ipac-pairing-'));
+      await mkdir(join(directory, 'ui/practice'), { recursive: true });
+      await writeFile(join(directory, 'ui/practice/index.html'), '<main></main>');
+      const input = new PassThrough({ objectMode: true }), writes: string[] = [];
+      const server = await startBrowserPeripheralServer({ staticRoot: directory,
+        transport: { session: 75, input, write: line => { writes.push(line); }, async close() { input.end(); } } });
+      input.write({ type: 'ready', version: 1, session: 75, released: true }); await setImmediate();
+      const token = new URLSearchParams(new URL(server.url).hash.slice(1)).get('peripheral'); assert.ok(token);
+      const originalFetch = globalThis.fetch;
+      const saved = new Map(['document', 'window', 'reportError'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+      const status = { textContent: '', id: '', setAttribute() {} }, windowEvents = new EventTarget(), port = new EventTarget();
+      Object.defineProperty(globalThis, 'document', { configurable: true, value: { getElementById: () => status, createElement: () => status, querySelector: () => ({ prepend() {} }) } });
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: windowEvents });
+      const errors: unknown[] = [], paths: string[] = [];
+      Object.defineProperty(globalThis, 'reportError', { configurable: true, value: (error: unknown) => { errors.push(error); } });
+      globalThis.fetch = (url, init) => {
+        paths.push(String(url));
+        const headers = new Headers(init?.headers); headers.set('origin', server.origin);
+        return originalFetch(new URL(String(url), server.origin), { ...init, headers });
+      };
+      let entered = false, unblock: () => void = () => {}, cueCalls = 0;
+      const blocked = new Promise<void>(resolve => { unblock = resolve; });
+      const lights: boolean[] = [], controls: Control[] = [], commands: string[] = [];
+      const audio = { disposed: false, async control(control: Control) {
+        controls.push(control);
+        if (cueCalls++ === 0 && stage === 'cue') { entered = true; await blocked; }
+      }, endpoint: { port, async request(command: string, payload?: object) {
+        commands.push(command);
+        const enabled = payload && 'enabled' in payload && payload.enabled === true;
+        if (command === 'practice.peripheral-lights') lights.push(Boolean(enabled));
+        if ((stage === 'jiggle' && command === 'practice.jiggle') || (stage === 'lights' && command === 'practice.peripheral-lights' && enabled)) {
+          entered = true; await blocked;
+        }
+      } } };
+      const client = connectBrowserPeripheral(audio, token);
+      const ready = client.ready.then(() => true, () => false);
+      try {
+        await until(() => entered);
+        if (exit === 'stop') client.stop(); else windowEvents.dispatchEvent(new Event('pagehide'));
+        assert.equal(await ready, false);
+        unblock();
+        await until(() => lights.at(-1) === false && controls.length === 2);
+        await new Promise(resolve => setTimeout(resolve, 525));
+        assert.deepEqual(lights, stage === 'lights' ? [true, false] : [false]);
+        assert.deepEqual(controls.at(-1), { id: 'cueButton', value: 0 });
+        assert.equal(commands.at(-1), 'practice.peripheral-lights');
+        assert.equal(paths.filter(path => path.endsWith('/heartbeat')).length, 0);
+        assert.deepEqual(errors, []);
+        assert.match(status.textContent, /disconnected/);
+        assert.equal(writes.at(-1), 'clear');
+      } finally {
+        unblock(); client.stop(); await server.close(); globalThis.fetch = originalFetch;
+        for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+  }
+});

@@ -150,11 +150,11 @@ test('a helper that stops consuming LED writes is terminated before queued image
   const helper = join(directory, 'helper'), log = join(directory, 'exit.log');
   await writeFile(helper, `#!${process.execPath}
 const fs = require('node:fs');
-fs.writeFileSync(${JSON.stringify(log)}, 'started');
+fs.writeFileSync(${JSON.stringify(log)}, 'started:' + process.pid);
 process.stdin.pause();
 setInterval(() => {}, 1000);
 process.stdout.write(JSON.stringify({ type: 'ready', version: 1, session: Number(process.argv[2]), released: true }) + String.fromCharCode(10));
-process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(log)}, ':terminated'); process.exit(0); });
+process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(log)}, ':term'); });
 `, { mode: 0o700 });
   const abort = new AbortController();
   let ready: (url: string) => void = () => {};
@@ -180,16 +180,20 @@ process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(log)}, ':termin
     let overflow = false;
     for (let sequence = 1; sequence <= 1024; sequence++) {
       values[PF.LIGHT_SEQUENCE] = sequence;
-      const response = await fetch(origin + '/api/peripheral/light', { method: 'POST', headers, body: JSON.stringify({ lease, values }) });
+      let response: Response;
+      try { response = await fetch(origin + '/api/peripheral/light', { method: 'POST', headers, body: JSON.stringify({ lease, values }) }); }
+      catch { overflow = true; break; }
       if (response.status === 400) { overflow = true; break; }
       assert.equal(response.status, 204);
       if (sequence % 20 === 0) await fetch(origin + '/api/peripheral/heartbeat', { method: 'POST', headers, body: JSON.stringify({ lease }) });
     }
     assert.equal(overflow, true, 'the bounded output queue rejects a stalled helper');
     let deadline: ReturnType<typeof setTimeout> | undefined;
-    try { await Promise.race([running, new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error('Stalled helper remained alive')), 1500); })]); }
+    try { await assert.rejects(Promise.race([running, new Promise<never>((_, reject) => { deadline = setTimeout(() => reject(new Error('Stalled helper remained alive')), 3500); })]), /Peripheral output stalled/); }
     finally { clearTimeout(deadline); }
-    assert.equal(await readFile(log, 'utf8'), 'started:terminated');
+    const record = await readFile(log, 'utf8');
+    assert.match(record, /^started:[0-9]+(?::term)+$/);
+    assert.throws(() => process.kill(Number(record.split(':')[1]), 0), /ESRCH/);
     await assert.rejects(fetch(origin));
     reader.releaseLock();
   } finally { abort.abort(); await running.catch(() => {}); await rm(directory, { recursive: true, force: true }); }

@@ -61,7 +61,12 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     window.removeEventListener('pagehide', stop);
     abort.abort();
     if (lease) void fetch('/api/peripheral/clear', { method: 'POST', headers, body: JSON.stringify({ lease }), keepalive: true }).catch(() => {});
-    void controls.finally(async () => { if (!audio.disposed) { await audio.endpoint.request('practice.peripheral-lights', { enabled: false }); await audio.control({ id: 'cueButton', value: 0 }); } }).catch(error => { if (!intentional && !audio.disposed) globalThis.reportError?.(error); });
+    const release = async () => {
+      if (audio.disposed) return;
+      await audio.endpoint.request('practice.peripheral-lights', { enabled: false });
+      if (!audio.disposed) await audio.control({ id: 'cueButton', value: 0 });
+    };
+    void controls.then(release, release).catch(error => { if (!intentional && !audio.disposed) globalThis.reportError?.(error); });
     status('Controller disconnected. Reconnect the local controller session to resume.');
   };
   const stop = () => shutdown(true);
@@ -83,17 +88,24 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     try { pending = lightMessage(event.data).lights; void pump(); }
     catch (error) { fail(error); }
   }
+  const cancelled = () => { if (audio.disposed && !stopped) stop(); return stopped || audio.disposed; };
   function suppressTab(event: KeyboardEvent) { if (active && event.code === 'Tab') event.preventDefault(); }
   async function receive(value: unknown) {
     if (!lease) {
       lease = connected(value).lease;
-      await audio.control({ id: 'cueButton', value: 0 });
-      await audio.endpoint.request('practice.jiggle', { minimumTravel: 4, minimumReversal: 2 });
-      await audio.endpoint.request('practice.peripheral-lights', { enabled: true });
-      if (stopped) return;
-      active = true; connectedReady();
-      heartbeat = setInterval(() => { void post('heartbeat', { lease }).catch(fail); }, 500);
-      status('Controller connected. Button and spinner use this browser audio engine.');
+      controls = controls.then(async () => {
+        if (cancelled()) return;
+        await audio.control({ id: 'cueButton', value: 0 });
+        if (cancelled()) return;
+        await audio.endpoint.request('practice.jiggle', { minimumTravel: 4, minimumReversal: 2 });
+        if (cancelled()) return;
+        await audio.endpoint.request('practice.peripheral-lights', { enabled: true });
+        if (cancelled()) return;
+        active = true; connectedReady();
+        heartbeat = setInterval(() => { void post('heartbeat', { lease }).catch(fail); }, 500);
+        status('Controller connected. Button and spinner use this browser audio engine.');
+      });
+      await controls;
       return;
     }
     const input = decodeBrowserInput(value);
@@ -104,7 +116,7 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     const control = input.type === 'button' ? { id: 'cueButton', value: input.down ? 1 : 0 } satisfies Control
       : { id: 'knob', value: input.deltaY } satisfies Control;
     controls = controls.then(async () => {
-      if (stopped) return;
+      if (cancelled()) return;
       try { await audio.control(control); }
       catch (error) {
         if (control.id === 'cueButton' && control.value === 0) throw error;
