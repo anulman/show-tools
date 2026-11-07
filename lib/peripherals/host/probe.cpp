@@ -34,7 +34,7 @@ void usage() {
     "\nHelp and invalid commands never open hardware. list/listen are read-only.\n"
     "led changes brightness only. led-on/led-pulse enable the selected output,\n"
     "disabling the other seven outputs in its group. Pulse: four 2.4-second cosine\n"
-    "cycles ending fully on. Interruption may leave the last brightness.\n"
+    "cycles followed by off. Interruption may leave the last brightness.\n"
     "No command changes firmware, input maps, or stored LED scripts.\n"
     "On macOS, device IDs come from list. On Linux, select the listed event/hidraw path.\n";
 }
