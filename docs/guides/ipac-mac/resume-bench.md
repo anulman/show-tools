@@ -64,7 +64,7 @@ lib/peripherals/build/peripheral-probe led-on OUTPUT_DEVICE_ID 0 --confirm-wirin
 lib/peripherals/build/peripheral-probe led-pulse OUTPUT_DEVICE_ID 0 --confirm-wiring
 ```
 
-4. Confirm four visible fades down and back up. The command ends fully on.
+4. Confirm four visible fades down and back up, followed by the LED turning off.
 5. Turn the selected output off when finished.
 
 ```sh
