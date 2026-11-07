@@ -138,3 +138,54 @@ test('stopping during every pairing stage leaves the final publication disabled'
     });
   }
 });
+
+test('shutdown releases a held button when disabling light publications times out', async t => {
+  for (const exit of ['stop', 'pagehide']) await t.test(exit, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'browser-ipac-release-'));
+    await mkdir(join(directory, 'ui/practice'), { recursive: true });
+    await writeFile(join(directory, 'ui/practice/index.html'), '<main></main>');
+    const input = new PassThrough({ objectMode: true }), writes: string[] = [];
+    const server = await startBrowserPeripheralServer({ staticRoot: directory,
+      transport: { session: 76, input, write: line => { writes.push(line); }, async close() { input.end(); } } });
+    input.write({ type: 'ready', version: 1, session: 76, released: true }); await setImmediate();
+    const token = new URLSearchParams(new URL(server.url).hash.slice(1)).get('peripheral'); assert.ok(token);
+    const originalFetch = globalThis.fetch;
+    const saved = new Map(['document', 'window', 'reportError'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+    const status = { textContent: '', id: '', setAttribute() {} }, windowEvents = new EventTarget();
+    Object.defineProperty(globalThis, 'document', { configurable: true, value: { getElementById: () => status, createElement: () => status, querySelector: () => ({ prepend() {} }) } });
+    Object.defineProperty(globalThis, 'window', { configurable: true, value: windowEvents });
+    const errors: unknown[] = [], controls: Control[] = [];
+    Object.defineProperty(globalThis, 'reportError', { configurable: true, value: (error: unknown) => { errors.push(error); } });
+    globalThis.fetch = (url, init) => {
+      const headers = new Headers(init?.headers); headers.set('origin', server.origin);
+      return originalFetch(new URL(String(url), server.origin), { ...init, headers });
+    };
+    let held = false, disableAttempted = false;
+    const audio = { disposed: false, async control(control: Control) {
+      controls.push(control);
+      if (control.id === 'cueButton') held = control.value === 1;
+    }, endpoint: { port: new EventTarget(), async request(command: string, payload?: object) {
+      if (command === 'practice.peripheral-lights' && payload && 'enabled' in payload && payload.enabled === false) {
+        disableAttempted = true;
+        throw new Error('Synthetic AudioEndpoint acknowledgement timeout');
+      }
+    } } };
+    const client = connectBrowserPeripheral(audio, token);
+    try {
+      await client.ready;
+      input.write({ type: 'button', session: 76, sequence: 1, down: true });
+      await until(() => held);
+      if (exit === 'stop') client.stop(); else windowEvents.dispatchEvent(new Event('pagehide'));
+      await until(() => disableAttempted);
+      await setImmediate();
+      assert.deepEqual(controls.at(-1), { id: 'cueButton', value: 0 }, 'release must be attempted even if light disable acknowledgement fails');
+      assert.equal(held, false);
+      await until(() => writes.at(-1) === 'clear');
+      assert.deepEqual(errors, []);
+    } finally {
+      client.stop(); await server.close(); globalThis.fetch = originalFetch;
+      for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+});

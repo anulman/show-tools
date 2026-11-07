@@ -63,8 +63,8 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     if (lease) void fetch('/api/peripheral/clear', { method: 'POST', headers, body: JSON.stringify({ lease }), keepalive: true }).catch(() => {});
     const release = async () => {
       if (audio.disposed) return;
-      await audio.endpoint.request('practice.peripheral-lights', { enabled: false });
-      if (!audio.disposed) await audio.control({ id: 'cueButton', value: 0 });
+      try { await audio.endpoint.request('practice.peripheral-lights', { enabled: false }); }
+      finally { if (!audio.disposed) await audio.control({ id: 'cueButton', value: 0 }); }
     };
     void controls.then(release, release).catch(error => { if (!intentional && !audio.disposed) globalThis.reportError?.(error); });
     status('Controller disconnected. Reconnect the local controller session to resume.');
