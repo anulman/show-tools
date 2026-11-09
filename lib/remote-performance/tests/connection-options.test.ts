@@ -43,7 +43,7 @@ test('explicit routes preserve authority, TLS identity and failure boundaries fo
   const bound = server.address(); if (!bound || typeof bound === 'string') throw new Error('Missing test port');
   const origin = `https://desk.invalid:${bound.port}`;
   const profile = (value = origin, connectAddress: unknown = '127.0.0.1') => decodeSessionProfile({ ...sessionProfile(directory), origin: value,
-    connectAddress, tls: { cert, key } });
+    connectAddress, caFile: cert, tls: { cert, key } });
   const bridge = (value = origin, connectAddress: unknown = '127.0.0.1') => decodePeripheralBridgeConfig({ version: 1, origin: value,
     connectAddress, tokenFile: join(directory, 'token'), caFile: cert, helperExecutable: '/no-helper-must-run',
     sdkChannel: 1, bindingRevision: 1, jiggle: { minimumTravel: 10, minimumReversal: 2 } });
@@ -59,7 +59,7 @@ test('explicit routes preserve authority, TLS identity and failure boundaries fo
     const wrong = `https://wrong.invalid:${bound.port}`;
     await assert.rejects((await createSessionClient(profile(wrong))).status(), error => error instanceof Error && !(error instanceof DeskUnavailableError));
     await assert.rejects(runPeripheralBridge(bridge(wrong), new AbortController().signal), /Hostname\/IP does not match/);
-    const noTrust = { ...profile(), tls: undefined };
+    const noTrust = { ...profile(), caFile: undefined };
     await assert.rejects((await createSessionClient(noTrust)).status(), error => error instanceof Error && !(error instanceof DeskUnavailableError));
     await assert.rejects(runPeripheralBridge({ ...bridge(), caFile: undefined }, new AbortController().signal), /self.signed certificate/);
     assert.equal(requests.length, before);
