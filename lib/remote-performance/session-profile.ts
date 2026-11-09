@@ -1,4 +1,5 @@
 import { Schema } from 'effect';
+import { ConnectAddressSchema } from './connection-options.js';
 
 const path = Schema.NonEmptyString.check(Schema.isPattern(/^\//), Schema.isMaxLength(4096));
 const integer = (minimum: number, maximum: number) => Schema.Int.check(Schema.isBetween({ minimum, maximum }));
@@ -24,6 +25,7 @@ export const SessionProfileSchema = Schema.Struct({
   host: Schema.NonEmptyString.check(Schema.isMaxLength(256)),
   port: integer(1, 65535),
   origin: Schema.NonEmptyString.check(Schema.isMaxLength(8192)),
+  connectAddress: Schema.optionalKey(ConnectAddressSchema),
   tokenFile: path, staticRoot: path, runtimeRoot: path,
   tls: Schema.optionalKey(Schema.Struct({ cert: path, key: path })),
   native: Schema.Struct({ executable: path, sampleRate: integer(8000, 192000), blockFrames: integer(1, 16384),

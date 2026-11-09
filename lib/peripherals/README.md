@@ -331,3 +331,5 @@ queue. It does not prove completed USB delivery or measured physical timing.
 If that queue stalls, the server stops and reaps the owned helper with bounded
 TERM and KILL deadlines. A disconnected or unresponsive device can prevent the
 final off report from reaching the LED.
+
+The bridge configuration accepts an optional literal-IP `connectAddress` when the host cannot resolve its configured origin. This changes only the connection destination: Host, Origin, TLS SNI and certificate identity still use `origin`, with normal CA verification. HTTP overrides must be loopback; omit the field for normal DNS resolution.

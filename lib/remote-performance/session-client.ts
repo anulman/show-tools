@@ -5,6 +5,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { Schema } from 'effect';
 import type { SessionProfile } from './session-profile.js';
 import { decodeAudioDecision, decodeDeskBootstrap, DeskViewSchema, type AudioGoal, type DeskView } from './session-schema.js';
+import { connectionOptions } from './connection-options.js';
 
 const decodeView = Schema.decodeUnknownSync(DeskViewSchema);
 export class DeskUnavailableError extends Error {
@@ -22,6 +23,7 @@ export async function createSessionClient(profile: SessionProfile) {
   if (url.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) {
     throw new Error('A non-loopback desk requires HTTPS. Configure TLS in the profile.');
   }
+  const route = connectionOptions(url, profile.connectAddress);
   const metadata = await stat(profile.tokenFile);
   if (!metadata.isFile() || metadata.size > 4096 || (metadata.mode & 0o077) !== 0 || (process.getuid && metadata.uid !== process.getuid())) {
     throw new Error('Token file must be an owner-only regular file owned by the current user (chmod 600).');
@@ -33,8 +35,8 @@ export async function createSessionClient(profile: SessionProfile) {
     return await new Promise((resolve, reject) => {
       const payload = body === undefined ? undefined : JSON.stringify(body);
       const req = (url.protocol === 'https:' ? httpsRequest : httpRequest)(new URL(path, url), {
-        method: payload ? 'POST' : 'GET', ca,
-        headers: { authorization: `Bearer ${token}`, origin: profile.origin,
+        ...route, method: payload ? 'POST' : 'GET', ca,
+        headers: { ...route.headers, authorization: `Bearer ${token}`, origin: profile.origin,
           ...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}) },
       }, res => {
         const chunks: Buffer[] = [];

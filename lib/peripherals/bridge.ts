@@ -7,11 +7,13 @@ import type { Readable } from 'node:stream';
 import { Schema } from 'effect';
 import { decodeDeskBootstrap, decodeDeskPublication, decodeNativeOutcome, DeskViewSchema, type NativePerformance, type NativeTarget } from '../remote-performance/session-schema.js';
 import type { Control } from '../performance/model.js';
+import { ConnectAddressSchema, connectionOptions } from '../remote-performance/connection-options.js';
 
 const integer = (minimum: number, maximum = Number.MAX_SAFE_INTEGER) => Schema.Int.check(Schema.isBetween({ minimum, maximum }));
 const path = Schema.NonEmptyString.check(Schema.isPattern(/^\//));
 export const PeripheralBridgeConfigSchema = Schema.Struct({
 	version: Schema.Literal(1), origin: Schema.NonEmptyString,
+	connectAddress: Schema.optionalKey(ConnectAddressSchema),
 	tokenFile: path, caFile: Schema.optionalKey(path), helperExecutable: path,
 	sdkChannel: integer(0, 95), bindingRevision: integer(1),
 	jiggle: Schema.Struct({ minimumTravel: integer(1, 32767), minimumReversal: integer(1, 32767) })
@@ -107,14 +109,15 @@ async function connection(config: PeripheralBridgeConfig, signal: AbortSignal) {
 	const origin = new URL(config.origin);
 	if (origin.origin !== config.origin || origin.username || origin.password || !['http:', 'https:'].includes(origin.protocol)) throw new Error('Gateway origin must be a plain HTTP(S) origin');
 	if (origin.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)) throw new Error('Remote gateway requires HTTPS');
+	const route = connectionOptions(origin, config.connectAddress);
 	const token = await privateToken(config.tokenFile);
 	const ca = config.caFile ? await readFile(config.caFile) : undefined;
 	function open(path: string, body?: object, headers?: Record<string, string>): Promise<IncomingMessage> {
 		return new Promise((resolve, reject) => {
 			const payload = body ? JSON.stringify(body) : undefined;
 			const request = (origin.protocol === 'https:' ? httpsRequest : httpRequest)(new URL(path, origin), {
-				method: payload ? 'POST' : 'GET', ca, signal,
-				headers: { authorization: `Bearer ${token}`, origin: config.origin, ...headers,
+				...route, method: payload ? 'POST' : 'GET', ca, signal,
+				headers: { ...route.headers, authorization: `Bearer ${token}`, origin: config.origin, ...headers,
 					...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}) },
 			}, response => {
 				clearTimeout(timeout);
