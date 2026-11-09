@@ -340,3 +340,5 @@ server untouched. Follow the [peripheral guide](../lib/peripherals/README.md#run
 for the one-owner handoff from the audio-free wiring test to browser practice.
 
 Verify explicit app connection routing with `node --import tsx --test lib/remote-performance/tests/connection-options.test.ts`. Owned loopback HTTP/TLS fixtures cover both clients, certificate authority and hostname rejection, original Host/Origin/SNI, literal-IP validation, and HTTP loopback confinement without opening audio or peripheral hardware.
+
+Run `node --import tsx --test lib/remote-performance/tests/client-ca.test.ts` to verify client trust independently of server certificate configuration. The test generates an owned root, intermediate and leaf, serves only the leaf/intermediate fullchain, and exercises default trust and explicit CA bundles in fresh Node processes.

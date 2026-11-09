@@ -26,6 +26,7 @@ export const SessionProfileSchema = Schema.Struct({
   port: integer(1, 65535),
   origin: Schema.NonEmptyString.check(Schema.isMaxLength(8192)),
   connectAddress: Schema.optionalKey(ConnectAddressSchema),
+  caFile: Schema.optionalKey(path),
   tokenFile: path, staticRoot: path, runtimeRoot: path,
   tls: Schema.optionalKey(Schema.Struct({ cert: path, key: path })),
   native: Schema.Struct({ executable: path, sampleRate: integer(8000, 192000), blockFrames: integer(1, 16384),

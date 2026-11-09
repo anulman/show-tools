@@ -30,7 +30,7 @@ export async function createSessionClient(profile: SessionProfile) {
   }
   const token = (await readFile(profile.tokenFile, 'utf8')).trim();
   if (token.length < 32 || /\s/.test(token)) throw new Error('Token file must contain a bearer token of at least 32 characters without whitespace.');
-  const ca = profile.tls ? await readFile(profile.tls.cert) : undefined;
+  const ca = profile.caFile ? await readFile(profile.caFile) : undefined;
   async function request(path: string, body?: unknown): Promise<unknown> {
     return await new Promise((resolve, reject) => {
       const payload = body === undefined ? undefined : JSON.stringify(body);
