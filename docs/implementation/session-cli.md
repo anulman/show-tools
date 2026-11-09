@@ -36,6 +36,8 @@ The unit uses `KillMode=control-group`, a 15-second stop deadline, and `Restart=
 
 `scripts/session-cli.ts` is a standalone bundle entry for a deployment package. It accepts the session subcommands directly, such as `start --profile FILE`. `scripts/show-tools.ts` imports the session command implementation on demand. Existing chart and Sheets commands remain separate.
 
+The release also includes `bin/show-tools-peripheral`, which accepts the existing peripheral subcommands directly. Its private configuration names the installed `native/peripheral/peripheral-host` executable, gateway origin, token file, optional certificate, confirmed output channel, and binding revision. Run `bin/show-tools-peripheral connect --config FILE` after enabling native audio and leaving transport stopped. The bridge starts no audio and needs a new connection after the engine attempt changes. See the [peripheral guide](../../lib/peripherals/README.md#persistent-mac-device-host) for the configuration schema.
+
 ## Verification
 
 The process tests run the real CLI with an isolated XDG configuration directory, fake `systemctl` and `loginctl`, and authenticated loopback HTTP. They exercise a fake managed server that survives the invoking CLI process and ends on stop. They never contact live DBus or audio hardware.

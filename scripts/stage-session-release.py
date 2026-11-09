@@ -31,6 +31,45 @@ REQUIRED = {
     "native/source-revision.txt", "native/compiler.txt", "native/packages.txt",
     "native/runtime-dependencies.txt", "runtime/NODE-LICENSE",
 }
+PERIPHERAL_INPUTS = {
+    "lib/peripherals/host/linux_host.cpp", "lib/peripherals/host/linux_runtime.cpp",
+    "lib/peripherals/host/linux_runtime.h", "lib/peripherals/host/linux_order.h",
+    "lib/peripherals/host/control_stream.cpp", "lib/peripherals/host/control_stream.h",
+    "lib/peripherals/src/peripheral_controls.cpp", "lib/peripherals/src/peripheral_lights.cpp",
+    "lib/peripherals/src/peripheral_light_delivery.cpp", "lib/peripherals/include/peripheral_controls.h",
+    "lib/peripherals/include/peripheral_light_delivery.h", "lib/peripherals/include/peripheral_lights.h",
+    "lib/performance/include/performance_light_output.h",
+}
+PERIPHERAL_ARTIFACT_FILES = {"peripheral-host", "source-revision.txt", "compiler.txt", "build.json",
+    "ZIG-LICENSE", "MUSL-COPYRIGHT", "LIBCXX-LICENSE", "LIBCXXABI-LICENSE", "LIBUNWIND-LICENSE"}
+PERIPHERAL_REQUIRED = {"native/peripheral/" + path for path in PERIPHERAL_ARTIFACT_FILES | {"SHA256SUMS"}} | {
+    "gateway/peripheral-cli.mjs", "provenance/peripheral-cli.mjs.inputs.json", "bin/show-tools-peripheral",
+    "provenance/source/scripts/peripheral-cli.ts", "provenance/source/scripts/peripheral-artifact.ts",
+    "provenance/source/scripts/build-peripheral-artifact.ts",
+} | {"provenance/source/" + path for path in PERIPHERAL_INPUTS}
+
+
+def validate_peripheral(extracted, manifest, provenance, files):
+    build = read_json(extracted / "native/peripheral/build.json")
+    revision = small_bytes(extracted / "native/peripheral/source-revision.txt", 128).decode().strip()
+    identity = provenance.get("peripheral")
+    if not re.fullmatch(r"[a-f0-9]{40}", revision) or revision != manifest.get("peripheralRevision") or not isinstance(identity, dict) or identity.get("revision") != revision or provenance.get("peripheralSourcesEquivalent") is not True:
+        raise RuntimeError("Peripheral source provenance mismatch")
+    if not isinstance(build, dict) or type(build.get("schemaVersion")) is not int or build["schemaVersion"] != 1 or build.get("sourceRevision") != revision or build.get("target") != "x86_64-linux-musl":
+        raise RuntimeError("Peripheral build provenance mismatch")
+    if not isinstance(build.get("compiler"), str) or not build["compiler"] or small_bytes(extracted / "native/peripheral/compiler.txt", MAX_JSON).decode().strip() != build["compiler"] or build.get("flags") != ["-std=c++17", "-static", "-O2", "-DNDEBUG"]:
+        raise RuntimeError("Peripheral compiler provenance mismatch")
+    inputs = build.get("sourceFiles")
+    if not isinstance(inputs, dict) or inputs.keys() != PERIPHERAL_INPUTS or any(inputs[path] != files["provenance/source/" + path][1] for path in inputs):
+        raise RuntimeError("Peripheral compiled source input mismatch")
+    sums = {}
+    for line in small_bytes(extracted / "native/peripheral/SHA256SUMS", MAX_CHECKSUMS).decode().splitlines():
+        match = re.fullmatch(r"([a-f0-9]{64})  ([A-Za-z0-9_.-]+)", line)
+        if not match or match[2] in sums:
+            raise RuntimeError("Invalid peripheral checksum list")
+        sums[match[2]] = match[1]
+    if sums.keys() != PERIPHERAL_ARTIFACT_FILES or any(sums[path] != files["native/peripheral/" + path][1] for path in sums):
+        raise RuntimeError("Peripheral artifact checksum mismatch")
 
 
 def private_directory(path, create=True):
@@ -198,12 +237,18 @@ def validate_release(extracted, expected_source):
         raise RuntimeError("Release file byte count mismatch")
     if not REQUIRED <= files.keys() or not (extracted / "licenses").is_dir():
         raise RuntimeError("Required release layout is missing")
-    for path in ("native/native_alsa_host", "runtime/node", "bin/show-tools-session"):
+    peripheral = "peripheralRevision" in manifest or any(path.startswith("native/peripheral/") or path in {"gateway/peripheral-cli.mjs", "bin/show-tools-peripheral"} for path in files)
+    if peripheral and not PERIPHERAL_REQUIRED <= files.keys():
+        raise RuntimeError("Required peripheral release layout is missing")
+    executables = ["native/native_alsa_host", "runtime/node", "bin/show-tools-session"]
+    if peripheral:
+        executables += ["native/peripheral/peripheral-host", "bin/show-tools-peripheral"]
+    for path in executables:
         if not (extracted / path).stat().st_mode & 0o100:
             raise RuntimeError("Required release executable is not executable")
     if manifest.get("platform") != "linux-x64" or manifest.get("nodeVersion") != "22.23.4":
         raise RuntimeError("Unexpected release platform or Node version")
-    for path in ("native/native_alsa_host", "runtime/node"):
+    for path in ["native/native_alsa_host", "runtime/node"] + (["native/peripheral/peripheral-host"] if peripheral else []):
         with (extracted / path).open("rb") as executable:
             header = executable.read(20)
         if len(header) != 20 or header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\x3e\x00":
@@ -244,6 +289,10 @@ def validate_release(extracted, expected_source):
     sources = provenance.get("files")
     if not isinstance(sources, list) or len(sources) != len(set(sources)) or set(sources) != {path.removeprefix("provenance/source/") for path in files if path.startswith("provenance/source/")}:
         raise RuntimeError("Source review file set mismatch")
+    if peripheral:
+        validate_peripheral(extracted, manifest, provenance, files)
+    elif "peripheral" in provenance or "peripheralSourcesEquivalent" in provenance:
+        raise RuntimeError("Peripheral provenance has no release component")
     return manifest
 
 

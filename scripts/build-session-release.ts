@@ -1,4 +1,5 @@
-import { buildSessionBundles } from './session-bundles.js';
+import { buildSessionBundles, SESSION_BUNDLES, writeSessionLaunchers } from './session-bundles.js';
+import { readPeripheralArtifact } from './peripheral-artifact.js';
 import { Schema } from 'effect';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -12,11 +13,12 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const required = Schema.NonEmptyString;
 const revisionString = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/));
 const options = Schema.decodeUnknownSync(Schema.Struct({
-  'native-artifact': required, 'node-runtime': required, 'song-package': required, out: required,
+  'native-artifact': required, 'peripheral-artifact': required, 'node-runtime': required, 'song-package': required, out: required,
   'reviewed-revision': Schema.optionalKey(revisionString),
-}))(parseArgs({ options: { 'native-artifact': { type: 'string' }, 'node-runtime': { type: 'string' },
+}))(parseArgs({ options: { 'native-artifact': { type: 'string' }, 'peripheral-artifact': { type: 'string' }, 'node-runtime': { type: 'string' },
   'song-package': { type: 'string' }, out: { type: 'string' }, 'reviewed-revision': { type: 'string' } } }).values);
 const native = resolve(options['native-artifact']);
+const peripheral = await readPeripheralArtifact(root, resolve(options['peripheral-artifact']));
 const runtime = resolve(options['node-runtime']);
 const song = resolve(options['song-package']);
 const output = resolve(options.out);
@@ -52,12 +54,14 @@ execFileSync('bash', ['lib/beat-tracker/scripts/build-manual-wasm.sh'], { cwd: r
 execFileSync(process.execPath, ['--import', 'tsx', 'scripts/build-ui.ts'], { cwd: root, stdio: 'inherit' });
 assertCommittedSource();
 await Promise.all([
-  mkdir(join(output, 'native')), mkdir(join(output, 'song')),
+  mkdir(join(output, 'native/peripheral'), { recursive: true }), mkdir(join(output, 'song')),
   cp(join(root, 'dist'), join(output, 'static'), { recursive: true }),
   mkdir(join(output, 'gateway')), mkdir(join(output, 'runtime')), mkdir(join(output, 'bin')),
   mkdir(join(output, 'provenance')), mkdir(join(output, 'licenses')),
 ]);
 for (const name of [...nativeFiles, 'SHA256SUMS']) await cp(join(native, name), join(output, 'native', name));
+for (const [name, bytes] of peripheral.files) await writeFile(join(output, 'native/peripheral', name), bytes);
+await chmod(join(output, 'native/peripheral/peripheral-host'), 0o755);
 for (const name of ['manifest.json', 'song.pfp', 'effects.json']) await cp(join(song, name), join(output, 'song', name));
 await writeFile(join(output, 'runtime/node'), nodeBytes, { mode: 0o755 });
 await chmod(join(output, 'native/native_alsa_host'), 0o755);
@@ -68,10 +72,11 @@ for (const name of ['manual-clock-build.json', 'manual-clock-compiler.txt']) awa
 await buildSessionBundles(root, output);
 const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
 const reviewSources = new Set(git('ls-files', '-z', '--', 'lib', 'scripts/build-session-release.ts',
-  'scripts/session-bundles.ts', 'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
-  'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', '.github/workflows/native-host.yml',
+  'scripts/session-bundles.ts', 'scripts/peripheral-artifact.ts', 'scripts/build-peripheral-artifact.ts',
+  'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
+  'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', '.github/workflows/native-host.yml', '.github/workflows/peripherals.yml',
   'package.json', 'package-lock.json').split('\0').filter(Boolean));
-for (const name of ['server.mjs', 'session-cli.mjs', 'prepare.mjs']) {
+for (const name of Object.keys(SESSION_BUNDLES)) {
   const inputs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
     JSON.parse(await readFile(join(output, 'provenance', `${name}.inputs.json`), 'utf8')));
   for (const path of Object.keys(inputs)) if (!path.split('/').includes('node_modules')) {
@@ -86,10 +91,11 @@ for (const path of [...reviewSources].sort()) {
 }
 await writeFile(join(output, 'provenance/source.json'), JSON.stringify({ schemaVersion: 1, source: sourceIdentity,
   reviewed: reviewedIdentity, native: commitIdentity(nativeRevision), nativeSourcesEquivalent: true,
+  peripheral: commitIdentity(peripheral.sourceRevision), peripheralSourcesEquivalent: true,
   build: { nodeVersion: process.version, platform: process.platform, arch: process.arch },
   runtime: { nodeVersion: '22.23.4', nodeExecutableSha256: sha256(nodeBytes) },
   files: [...reviewSources].sort() }, null, 2));
-await writeFile(join(output, 'bin/show-tools-session'), '#!/bin/sh\nset -eu\nST_RELEASE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\nexec "$ST_RELEASE/runtime/node" "$ST_RELEASE/gateway/session-cli.mjs" "$@"\n', { mode: 0o755 });
+await writeSessionLaunchers(output);
 const LockedPackages = Schema.Struct({ packages: Schema.Record(Schema.String, Schema.Struct({
   version: Schema.optionalKey(Schema.String), dev: Schema.optionalKey(Schema.Boolean),
 })) });
@@ -117,7 +123,7 @@ async function collect(directory: string, relative = '') {
   }
 }
 await collect(output);
-await writeFile(join(output, 'release.json'), JSON.stringify({ schemaVersion: 1, sourceRevision, nativeRevision,
+await writeFile(join(output, 'release.json'), JSON.stringify({ schemaVersion: 1, sourceRevision, nativeRevision, peripheralRevision: peripheral.sourceRevision,
   nodeVersion: '22.23.4', platform: 'linux-x64', totalFileBytes: files.reduce((sum, file) => sum + file.bytes, 0), files }, null, 2));
 await writeFile(join(output, 'SHA256SUMS'), [...files.map(file => `${file.sha256}  ${file.path}`),
   `${sha256(await readFile(join(output, 'release.json')))}  release.json`].join('\n') + '\n');
