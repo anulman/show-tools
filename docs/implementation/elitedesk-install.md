@@ -24,6 +24,8 @@ The stager derives archive root `show-tools-session-release-<source7>` and desti
 
 Review `release.json`, `SHA256SUMS`, `provenance/source.json`, native compiler/package/runtime-dependency records, and the complete sources under `provenance/source/`. The source record compares reviewed and packaged Git trees and checks native-source equivalence with the CI artifact. Review the full installer ownership/drop-in checks, native lifecycle, identity resolver, and acquisition code before running the CLI.
 
+Peripheral-enabled releases also include `native/peripheral/` with its own source revision, build input hashes, compiler record, and checksums. The bundled `bin/show-tools-peripheral` runs using the release's Node executable. Staging checks its layout and Linux executable without starting it. Device permissions and physical Linux acceptance remain separate installation checks. Older releases without this component retain their original staging contract.
+
 ## Provision only the reviewed app paths
 
 Use these confirmed target locations:

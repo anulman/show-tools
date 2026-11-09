@@ -39,6 +39,36 @@ def package(source=SOURCE, omit=None, schema=1, runtime=ELF):
     return files
 
 
+def reseal(files):
+    manifest = json.loads(files.pop("release.json"))
+    files.pop("SHA256SUMS", None)
+    records = [{"path": path, "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest()} for path, data in sorted(files.items())]
+    manifest.update(files=records, totalFileBytes=sum(len(data) for data in files.values()))
+    files["release.json"] = json.dumps(manifest).encode()
+    files["SHA256SUMS"] = "".join(hashlib.sha256(data).hexdigest() + "  " + path + "\n" for path, data in sorted(files.items())).encode()
+    return files
+
+
+def peripheral_package():
+    files = package()
+    files.update({path: b"fixture" for path in stage.PERIPHERAL_REQUIRED})
+    files["native/peripheral/peripheral-host"] = ELF
+    files["native/peripheral/source-revision.txt"] = SOURCE.encode()
+    files["native/peripheral/compiler.txt"] = b"Fixture compiler"
+    files["native/peripheral/build.json"] = json.dumps({"schemaVersion": 1, "sourceRevision": SOURCE, "target": "x86_64-linux-musl",
+        "compiler": "Fixture compiler", "flags": ["-std=c++17", "-static", "-O2", "-DNDEBUG"],
+        "sourceFiles": {path: hashlib.sha256(files["provenance/source/" + path]).hexdigest() for path in stage.PERIPHERAL_INPUTS}}).encode()
+    files["native/peripheral/SHA256SUMS"] = "".join(hashlib.sha256(files["native/peripheral/" + path]).hexdigest() + "  " + path + "\n" for path in sorted(stage.PERIPHERAL_ARTIFACT_FILES)).encode()
+    provenance = json.loads(files["provenance/source.json"])
+    provenance.update(peripheral={"revision": SOURCE}, peripheralSourcesEquivalent=True,
+        files=sorted(path.removeprefix("provenance/source/") for path in files if path.startswith("provenance/source/")))
+    files["provenance/source.json"] = json.dumps(provenance).encode()
+    manifest = json.loads(files["release.json"])
+    manifest["peripheralRevision"] = SOURCE
+    files["release.json"] = json.dumps(manifest).encode()
+    return reseal(files)
+
+
 def archive(files=None, extra=()):
     output = io.BytesIO()
     with tarfile.open(fileobj=output, mode="w:gz") as tar:
@@ -49,7 +79,7 @@ def archive(files=None, extra=()):
         for path, data in (files if files is not None else package()).items():
             member = tarfile.TarInfo(NAME + "/" + path)
             member.size = len(data)
-            member.mode = 0o755 if path in {"runtime/node", "native/native_alsa_host", "bin/show-tools-session"} else 0o644
+            member.mode = 0o755 if path in {"runtime/node", "native/native_alsa_host", "bin/show-tools-session", "native/peripheral/peripheral-host", "bin/show-tools-peripheral"} else 0o644
             tar.addfile(member, io.BytesIO(data))
         for member in extra:
             tar.addfile(member)
@@ -101,6 +131,44 @@ class StagingTests(unittest.TestCase):
 
     def test_valid_staging_and_idempotent_retry(self):
         self.execute(archive(), twice=True)
+
+    def test_peripheral_staging_is_data_only_and_idempotent(self):
+        self.execute(archive(peripheral_package()), twice=True)
+
+    def test_partial_peripheral_or_foreign_executable_is_rejected(self):
+        for path in ["bin/show-tools-peripheral", "native/peripheral/peripheral-host"]:
+            with self.subTest(path=path):
+                files = peripheral_package()
+                del files[path]
+                with self.assertRaisesRegex(RuntimeError, "Required peripheral release layout"):
+                    self.execute(archive(reseal(files)))
+        files = peripheral_package()
+        files["native/peripheral/peripheral-host"] = bytes(20)
+        with self.assertRaisesRegex(RuntimeError, "Linux x86-64 executable"):
+            self.execute(archive(reseal(files)))
+
+    def test_peripheral_provenance_and_inner_checksums_are_verified(self):
+        for scenario, message in [("revision", "Peripheral build provenance"), ("manifest-revision", "Peripheral source provenance"),
+                                  ("inputs", "Peripheral compiled source input"), ("input-hash", "Peripheral compiled source input"),
+                                  ("checksum", "Peripheral artifact checksum")]:
+            with self.subTest(scenario=scenario):
+                files = peripheral_package()
+                build = json.loads(files["native/peripheral/build.json"])
+                if scenario == "revision":
+                    build["sourceRevision"] = "0" * 40
+                elif scenario == "manifest-revision":
+                    manifest = json.loads(files["release.json"])
+                    manifest["peripheralRevision"] = "0" * 40
+                    files["release.json"] = json.dumps(manifest).encode()
+                elif scenario == "inputs":
+                    build["sourceFiles"].pop(next(iter(build["sourceFiles"])))
+                elif scenario == "input-hash":
+                    build["sourceFiles"][next(iter(build["sourceFiles"]))] = "0" * 64
+                else:
+                    files["native/peripheral/SHA256SUMS"] = files["native/peripheral/SHA256SUMS"].replace(b"  peripheral-host", b"  wrong-name")
+                files["native/peripheral/build.json"] = json.dumps(build).encode()
+                with self.assertRaisesRegex(RuntimeError, message):
+                    self.execute(archive(reseal(files)))
 
     def test_source_and_schema_rejected_before_promotion(self):
         for files in [package(source="0" * 40), package(schema=2)]:

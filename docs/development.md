@@ -281,10 +281,13 @@ Use [the session CLI guide](implementation/session-cli.md) for `./show-tools ses
 Build a relocatable Linux release after CI has produced the matching native artifact:
 
 ```sh
-node --import tsx scripts/build-session-release.ts --native-artifact NATIVE_ARTIFACT_DIRECTORY --node-runtime NODE22_DIRECTORY --song-package PREPARED_SONG_DIRECTORY --out NEW_RELEASE_DIRECTORY
+node --import tsx scripts/build-peripheral-artifact.ts --out NEW_PERIPHERAL_ARTIFACT_DIRECTORY
+node --import tsx scripts/build-session-release.ts --native-artifact NATIVE_ARTIFACT_DIRECTORY --peripheral-artifact NEW_PERIPHERAL_ARTIFACT_DIRECTORY --node-runtime NODE22_DIRECTORY --song-package PREPARED_SONG_DIRECTORY --out NEW_RELEASE_DIRECTORY
 ```
 
-The builder requires committed source and an output basename of `show-tools-session-release-<HEAD7>`. It verifies native hashes and source equivalence, the reviewed standalone Linux Node executable, and song package integrity. It rebuilds the shared WASM and browser UI, bundles server/CLI/preparation tools, includes full lifecycle/native review sources, licenses and build provenance, refuses an existing output directory, and writes full file/archive checksums. Optional `--reviewed-revision FULL_SHA` requires the reviewed commit and packaged source to have identical Git trees. Private profiles, tokens and TLS files are installed separately and never enter the archive. The installed `bin/show-tools-session` accepts session subcommands directly.
+The peripheral artifact builder uses Zig to cross-compile a static Linux x86-64 helper from committed source. It records all compiled repository inputs, compiler identity, flags, source revision, and file checksums. It does not execute the resulting ELF or open hardware. Pass `--compiler PATH` to select the Zig executable.
+
+The release builder requires committed source and an output basename of `show-tools-session-release-<HEAD7>`. It verifies native and peripheral hashes and source equivalence, the reviewed standalone Linux Node executable, and song package integrity. It rebuilds the shared WASM and browser UI, bundles server/CLI/preparation tools, includes full lifecycle/native review sources, licenses and build provenance, refuses an existing output directory, and writes full file/archive checksums. Optional `--reviewed-revision FULL_SHA` requires the reviewed commit and packaged source to have identical Git trees. Private profiles, tokens and TLS files are installed separately and never enter the archive. The installed `bin/show-tools-session` accepts session subcommands directly. `bin/show-tools-peripheral` supplies the existing peripheral commands without checkout dependencies.
 
 Use the [EliteDesk installation handoff](implementation/elitedesk-install.md) for scope, private credential migration, stage-only verification, and target acceptance. Run `python3 scripts/tests/stage-session-release.test.py` for adversarial extraction and idempotent promotion checks. The managed ALSA profile requires explicit identity and monitoring policy; never replace it with a floating default device.
 

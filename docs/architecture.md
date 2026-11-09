@@ -237,6 +237,13 @@ and reports independent failures. Release changes held state without performing
 cues. Device detach releases held state through the same attempt/host-epoch fence,
 leaving musical transport alone.
 
+The Linux release includes the verified helper at `native/peripheral/peripheral-host`
+and a standalone `bin/show-tools-peripheral` launcher using the packaged Node runtime.
+The release builder and data-only stager check the component's ELF architecture,
+checksums, committed source inputs, and provenance. Starting the web service does
+not start this bridge; `connect --config FILE` attaches it to an enabled, stopped
+native engine.
+
 The complete light getter samples continuous native count-beat time. Held
 brightness overrides actionable compiled cue warnings and recording's beat pulse,
 which override playing's steady level. A timed warning begins two chart counts
