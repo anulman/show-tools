@@ -277,3 +277,5 @@ The loopback API checks its exact Host, Origin, pairing secret, and connection
 lease. Disconnects invalidate the lease and clear the owned output. A heartbeat
 watchdog clears stalled output without advancing the musical clock. Physical
 USB timing and visible light output remain hardware acceptance checks.
+
+Session CLI and native peripheral bridge share an optional explicit-IP connection route. The configured origin remains the HTTP and TLS identity; routing does not modify host DNS or relax certificate verification.

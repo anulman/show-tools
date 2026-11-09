@@ -338,3 +338,5 @@ node --import tsx --test --test-name-pattern='physical LED publications' ui/prac
 The local browser bridge has its own loopback server and leaves the managed UI
 server untouched. Follow the [peripheral guide](../lib/peripherals/README.md#run-browser-practice-with-the-local-i-pac)
 for the one-owner handoff from the audio-free wiring test to browser practice.
+
+Verify explicit app connection routing with `node --import tsx --test lib/remote-performance/tests/connection-options.test.ts`. Owned loopback HTTP/TLS fixtures cover both clients, certificate authority and hostname rejection, original Host/Origin/SNI, literal-IP validation, and HTTP loopback confinement without opening audio or peripheral hardware.
