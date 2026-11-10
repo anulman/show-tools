@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "files": {
+    "check.py": {
+      "bytes": 24554,
+      "sha256": "1863b46fef07a92b6775a5b3447bb86dbf3ad323dae69c0fd24c89350991a85a"
+    },
+    "grant.inactive.json": {
+      "bytes": 4245,
+      "sha256": "bcac88f973491669450d7b188f8bf1efb81e53b830a1c855d794c9680b1831bb"
+    },
+    "allowed_signers": {
+      "bytes": 140,
+      "sha256": "367f4cd6685d962f7fac2e4e406f691e6c3c4da92a40b36c1170d95c1df5adc7"
+    },
+    "bootstrap.py": {
+      "bytes": 13928,
+      "sha256": "fa73b3f18acc501a49757b86b06ec4d1665eff6023dc46c2ed67c042a2d9e305"
+    }
+  },
+  "activeGrantSha256": "a79c68d5e68f9a2f0208401bf6c65cf95c6c420a2cc5c5ab9cd2f9aa136e41af"
+}
