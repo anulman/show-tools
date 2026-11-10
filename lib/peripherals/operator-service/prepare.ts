@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFile, writeFile, mkdir, cp, chmod } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -9,7 +10,7 @@ import { renderPeripheralUnit } from '../service-unit.js';
 
 const options = parseArgs({ options: {
   release: { type: 'string' }, 'source-revision': { type: 'string' }, out: { type: 'string' },
-  'web-profile': { type: 'string' }, 'web-source-revision': { type: 'string' },
+  'installer-source-revision': { type: 'string' }, 'web-profile': { type: 'string' }, 'web-source-revision': { type: 'string' },
   'disable-jiggle': { type: 'boolean' }, 'jiggle-travel': { type: 'string' }, 'jiggle-reversal': { type: 'string' },
 } }).values;
 function revision(value: string | undefined) {
@@ -45,11 +46,14 @@ await mkdir(out, { mode: 0o700 });
 await cp(join(base, 'install.py'), join(out, 'install.py'));
 await chmod(join(out, 'install.py'), 0o600);
 await writeFile(join(out, unitName), unit, { mode: 0o600, flag: 'wx' });
-if (!options['web-profile'] || !options['web-source-revision'] || jiggle === undefined) {
+if (!options['installer-source-revision'] || !options['web-profile'] || !options['web-source-revision'] || jiggle === undefined) {
   await writeFile(join(out, 'profile-fields.proposal.json'), JSON.stringify({ ...fields, ...(jiggle !== undefined ? { jiggle } : {}) }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-  await writeFile(join(out, 'pending.json'), JSON.stringify({ ready: false, missing: ['explicit jiggle object or --disable-jiggle', 'exact reviewed installed web profile and its independent source revision'], releaseSource: source, releasePins }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(join(out, 'pending.json'), JSON.stringify({ ready: false, missing: ['explicit jiggle object or --disable-jiggle', 'exact reviewed installed web profile and its independent source revision', 'explicit standalone installer source revision'], releaseSource: source, releasePins }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   process.stdout.write(JSON.stringify({ ready: false, out, activationCommand: null }) + '\n');
 } else {
+  const installerSource = revision(options['installer-source-revision']);
+  const reviewedInstaller = execFileSync('git', ['show', `${installerSource}:lib/peripherals/operator-service/install.py`], { cwd: fileURLToPath(new URL('../../../', import.meta.url)), stdio: 'pipe' });
+  if (sha(reviewedInstaller) !== sha(await readFile(join(out, 'install.py')))) throw new Error('Standalone installer does not match its explicit source revision');
   const profile = decodePeripheralBridgeConfig({ ...fields, jiggle });
   const profileData = JSON.stringify(profile, null, 2) + '\n';
   const webSource = revision(options['web-source-revision']);
@@ -58,12 +62,12 @@ if (!options['web-profile'] || !options['web-source-revision'] || jiggle === und
   const web = decodeSessionProfile(JSON.parse(webData.toString('utf8')));
   if (web.serviceName !== 'show-tools-web.service' || web.origin !== fields.origin || web.connectAddress !== fields.connectAddress || web.tokenFile !== fields.tokenFile || web.caFile !== undefined || web.server.nodeExecutable !== `${webDestination}/runtime/node` || web.server.entrypoint !== `${webDestination}/gateway/server.mjs`) throw new Error('Reviewed web profile differs from its separate source/target/TLS contract');
   await writeFile(join(out, 'profile.json'), profileData, { mode: 0o600, flag: 'wx' });
-  const manifest = { schemaVersion: 1, sourceRevision: source, webSourceRevision: webSource, webProfileSha256: sha(webData), files: { 'install.py': sha(await readFile(join(out, 'install.py'))), 'profile.json': sha(profileData), [unitName]: sha(unit) }, releaseFiles: releasePins };
+  const manifest = { schemaVersion: 2, sourceRevision: source, webSourceRevision: webSource, installerSourceRevision: installerSource, webProfileSha256: sha(webData), files: { 'install.py': sha(await readFile(join(out, 'install.py'))), 'profile.json': sha(profileData), [unitName]: sha(unit) }, releaseFiles: releasePins };
   const manifestData = JSON.stringify(manifest, null, 2) + '\n';
   await writeFile(join(out, 'manifest.json'), manifestData, { mode: 0o600, flag: 'wx' });
-  const stage = `/home/anulman/.local/share/show-tools/staging/peripheral-service-${source.slice(0, 7)}`;
+  const stage = `/home/anulman/.local/share/show-tools/staging/peripheral-service-${source.slice(0, 7)}-${installerSource.slice(0, 7)}`;
   const sourcePin = manifest.files['install.py'];
   const command = `/usr/bin/env -i HOME=/home/anulman USER=anulman LOGNAME=anulman PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus /usr/bin/python3 -I -c 'import hashlib; p="${stage}/install.py"; b=open(p,"rb").read(65537); assert len(b)<=65536 and hashlib.sha256(b).hexdigest()=="${sourcePin}"; __file__=p; exec(compile(b,p,"exec"))' --manifest-sha256 ${sha(manifestData)} --activate`;
   await writeFile(join(out, 'OPERATOR-COMMAND.txt'), command + '\n', { mode: 0o600, flag: 'wx' });
-  process.stdout.write(JSON.stringify({ ready: true, out, sourceRevision: source, webSourceRevision: webSource, manifestSha256: sha(manifestData), installerSha256: sourcePin }) + '\n');
+  process.stdout.write(JSON.stringify({ ready: true, out, sourceRevision: source, webSourceRevision: webSource, installerSourceRevision: installerSource, manifestSha256: sha(manifestData), installerSha256: sourcePin }) + '\n');
 }
