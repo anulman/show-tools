@@ -158,9 +158,59 @@ def install_file(path, data):
         os.close(parent)
 
 
+def observe_client_exit(process, deadline):
+    # WNOWAIT reserves the leader identity even after its trusted command exits.
+    while True:
+        status = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+        if status is not None:
+            return status.si_status if status.si_code == os.CLD_EXITED else -status.si_status
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, 'Command client deadline expired; daemon effects uncertain; inspect status before retry')
+        time.sleep(min(0.01, remaining))
+
+
+def owned_group_live(group, deadline):
+    # start_new_session makes SID == PGID == reserved leader PID. Linux ps -g
+    # selects that session; Darwin selects that process group. Filter exact PGID.
+    query = subprocess.Popen(['/bin/ps', '-o', 'pid=,pgid=,stat=', '-g', str(group)],
+                             env=ENV, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                             stderr=subprocess.DEVNULL)
+    data = bytearray()
+    try:
+        with selectors.DefaultSelector() as observer:
+            observer.register(query.stdout, selectors.EVENT_READ)
+            while observer.get_map():
+                remaining = deadline - time.monotonic()
+                require(remaining > 0, 'Owned group metadata deadline expired')
+                for key, _ in observer.select(remaining):
+                    chunk = os.read(key.fd, min(4096, 65537 - len(data)))
+                    if not chunk:
+                        observer.unregister(key.fileobj)
+                    else:
+                        data.extend(chunk)
+                        require(len(data) <= 65536, 'Owned group metadata exceeds bound')
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, 'Owned group metadata deadline expired')
+        code = query.wait(timeout=remaining)
+        require(code in (0, 1) and (code == 0 or not data.strip()), 'Owned group metadata unavailable')
+        live = []
+        for line in data.decode('ascii').splitlines():
+            fields = line.split()
+            require(len(fields) == 3 and fields[0].isdecimal() and fields[1].isdecimal()
+                    and re.fullmatch('[A-Za-z+<>NslLWX-]+', fields[2]) is not None,
+                    'Owned group metadata ambiguous')
+            if int(fields[1]) == group and fields[2][0] not in {'Z', 'X'}:
+                live.append(int(fields[0]))
+        return live
+    finally:
+        if query.returncode is None:
+            query.kill()
+            query.wait(timeout=1)
+        query.stdout.close()
+
+
 def cleanup_client(process, timeout):
-    if process.returncode is not None:
-        return
+    require(process.returncode is None, 'Owned command leader identity was released before group cleanup')
     watched = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP}
     previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, watched)
     previous_handlers = {value: signal.getsignal(value) for value in watched}
@@ -168,23 +218,46 @@ def cleanup_client(process, timeout):
         for value in watched:
             signal.signal(value, signal.SIG_IGN)
         signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
-        # Keep the leader unreaped until both signals are sent, so its PID cannot be reused.
-        if process.returncode is None:
-            signal_error = False
-            for action in (signal.SIGTERM, signal.SIGKILL):
+        # Never poll/wait the leader until the owned group is confirmed inactive.
+        deadline = time.monotonic() + timeout
+        signal_error = False
+        clean = False
+        try:
+            exited = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+            clean = exited is not None and not owned_group_live(process.pid, deadline)
+            for action in (() if clean else (signal.SIGTERM, signal.SIGKILL)):
                 try:
                     os.killpg(process.pid, action)
                 except ProcessLookupError:
                     pass
                 except OSError:
                     signal_error = True
-                if action == signal.SIGTERM:
-                    time.sleep(min(0.1, timeout / 2))
+                phase_end = min(deadline, time.monotonic() + (0.1 if action == signal.SIGTERM else timeout))
+                while time.monotonic() < phase_end:
+                    exited = os.waitid(os.P_PID, process.pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                    if exited is not None and not owned_group_live(process.pid, deadline):
+                        clean = True
+                        break
+                    time.sleep(min(0.01, max(0, phase_end - time.monotonic())))
+                if clean:
+                    break
+        finally:
+            if not clean:
+                # Even unavailable metadata must not bypass our final owned-group
+                # stop attempt. Identity remains reserved until after this signal.
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    signal_error = True
+            # Release identity only after the last possible group signal. A failed
+            # verification remains a failure even when the leader can be reaped.
             try:
-                process.wait(timeout=timeout)
+                process.wait(timeout=max(0.01, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:
-                raise ValueError('Owned command client cleanup unconfirmed; daemon effects uncertain; inspect status before retry') from None
-            require(not signal_error, 'Owned command client group cleanup unconfirmed; daemon effects uncertain; inspect status before retry')
+                raise ValueError('Owned command client reap unconfirmed; daemon effects uncertain; inspect status before retry') from None
+        require(clean and not signal_error, 'Owned command client group cleanup unconfirmed; daemon effects uncertain; inspect status before retry')
     finally:
         signal.pthread_sigmask(signal.SIG_BLOCK, watched)
         for value, handler in previous_handlers.items():
@@ -217,12 +290,7 @@ def command(args, allowed=(0,), output_limit=65536, timeout=10, cleanup_timeout=
                         require(len(target) + len(chunk) <= output_limit,
                                 'Command client output limit exceeded; daemon effects uncertain; inspect status before retry')
                         target.extend(chunk)
-        remaining = deadline - time.monotonic()
-        require(remaining > 0, 'Command client deadline expired; daemon effects uncertain; inspect status before retry')
-        try:
-            code = process.wait(timeout=remaining)
-        except subprocess.TimeoutExpired:
-            raise ValueError('Command client deadline expired; daemon effects uncertain; inspect status before retry') from None
+        code = observe_client_exit(process, deadline)
         require(code in allowed, 'Command client failed; daemon effects uncertain; inspect the named user service before retry')
         try:
             return bytes(buffers['stdout']).decode('utf8').strip()

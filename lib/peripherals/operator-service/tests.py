@@ -427,6 +427,47 @@ class CommandClientTests(unittest.TestCase):
         finally:
             service.terminate(); service.wait(timeout=2)
 
+    def test_metadata_failure_still_kills_and_reaps_owned_client(self):
+        clients = []
+        original = m.subprocess.Popen
+        def spawn(*args, **kwargs):
+            child = original(*args, **kwargs); clients.append(child); return child
+        with patch.object(m.subprocess, 'Popen', side_effect=spawn), patch.object(m, 'owned_group_live', side_effect=ValueError('metadata unavailable')):
+            with self.assertRaisesRegex(ValueError, 'deadline'):
+                self.run_client("import time; time.sleep(30)", timeout=.1)
+        self.assertIsNotNone(clients[0].returncode)
+
+    def test_exited_leader_cannot_leave_same_group_heartbeat_running(self):
+        service = subprocess.Popen([sys.executable, '-I', '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        try:
+            for exit_code in (0, 3):
+                with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory(prefix='owned-descendant-') as root:
+                    heartbeat = Path(root) / 'heartbeat'
+                    code = """
+import os,signal,time
+from pathlib import Path
+pid=os.fork()
+if pid:
+ while not Path(%r).exists(): time.sleep(.001)
+ os._exit(%d)
+os.close(1); os.close(2)
+signal.signal(signal.SIGTERM,signal.SIG_IGN)
+while True:
+ Path(%r).write_text(str(time.monotonic_ns()))
+ time.sleep(.005)
+""" % (str(heartbeat), exit_code, str(heartbeat))
+                    if exit_code:
+                        with self.assertRaisesRegex(ValueError, 'client failed'):
+                            self.run_client(code)
+                    else:
+                        self.assertEqual(self.run_client(code), '')
+                    before = heartbeat.read_text()
+                    time.sleep(.08)
+                    self.assertEqual(heartbeat.read_text(), before)
+                    self.assertIsNone(service.poll())
+        finally:
+            service.terminate(); service.wait(timeout=2)
+
     def test_real_repeat_term_int_hup_cannot_interrupt_owned_client_cleanup(self):
         with tempfile.TemporaryDirectory(prefix='repeat-client-cancel-') as root:
             ready, entered, result = (Path(root) / name for name in ('ready', 'cleanup', 'result'))
