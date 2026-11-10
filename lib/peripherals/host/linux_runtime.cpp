@@ -14,6 +14,7 @@
 #include <string>
 
 namespace peripheral_host {
+static_assert(linux_button_code(ButtonKey::Tab) == KEY_TAB && linux_button_code(ButtonKey::Escape) == KEY_ESC, "Supported Linux key codes");
 namespace {
 volatile std::sig_atomic_t running = 1;
 void stop(int) { running = 0; }
@@ -75,7 +76,7 @@ struct Host {
     return std::cout.good();
   }
 };
-bool drain(int fd, unsigned source, int64_t cutoff, std::vector<LinuxObservation>& batch) {
+bool drain(int fd, unsigned source, int64_t cutoff, std::vector<LinuxObservation>& batch, ButtonKey button_key) {
   size_t observed = 0;
   for (;;) {
     input_event events[32];
@@ -92,7 +93,7 @@ bool drain(int fd, unsigned source, int64_t cutoff, std::vector<LinuxObservation
       int64_t time = int64_t(event.time.tv_sec) * 1000000000 + int64_t(event.time.tv_usec) * 1000;
       if (time <= cutoff) continue;
       if (event.type == EV_SYN && event.code == SYN_DROPPED) { std::cerr << "I-PAC SYN_DROPPED: lost rotation cannot be recovered. Reconnect after releasing the button.\n"; return false; }
-      bool key = source == 0 && event.type == EV_KEY && event.code == KEY_TAB;
+      bool key = source == 0 && event.type == EV_KEY && event.code == linux_button_code(button_key);
       bool motion = source == 1 && event.type == EV_REL && event.code == REL_Y;
       if (!key && !motion) continue;
       if (key && event.value == 2) continue;
@@ -104,11 +105,11 @@ bool drain(int fd, unsigned source, int64_t cutoff, std::vector<LinuxObservation
   }
 }
 }
-int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool initially_held, bool bench, int64_t startup_cutoff_ns) {
+int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool initially_held, bool bench, int64_t startup_cutoff_ns, ButtonKey button_key) {
   Host host{handles, session, 0, channel, bench};
   if (!host.inputs || !host.delivery || pp_begin(host.inputs.get(), session, initially_held ? 0 : 1, initially_held ? 1 : 0) != 0) return 1;
   running = 1;
-  std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGPIPE, SIG_IGN);
+  std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGHUP, stop); std::signal(SIGPIPE, SIG_IGN);
   std::cout.precision(17);
   if (!host.brightness(0)) return 1;
   host.owns_output = true;
@@ -125,7 +126,7 @@ int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool 
     if (result < 0) { failed = true; break; }
     if ((pollers[0].revents | pollers[1].revents) & (POLLHUP | POLLERR | POLLNVAL)) { disconnected = true; break; }
     std::vector<LinuxObservation> batch;
-    if (!drain(handles.keyboard, 0, startup_cutoff_ns, batch) || !drain(handles.mouse, 1, startup_cutoff_ns, batch) || !order_linux_input(batch, last)) {
+    if (!drain(handles.keyboard, 0, startup_cutoff_ns, batch, button_key) || !drain(handles.mouse, 1, startup_cutoff_ns, batch, button_key) || !order_linux_input(batch, last)) {
       std::cerr << "I-PAC input gap, invalid record or ambiguous cross-interface event order. Reconnect.\n"; failed = true; break;
     }
     for (const auto& value : batch) {

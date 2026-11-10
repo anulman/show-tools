@@ -21,6 +21,8 @@
 
 namespace {
 namespace fs = std::filesystem;
+using peripheral_host::ButtonKey;
+static_assert(peripheral_host::linux_button_code(ButtonKey::Tab) == KEY_TAB && peripheral_host::linux_button_code(ButtonKey::Escape) == KEY_ESC, "Supported Linux key codes");
 struct File {
   int fd = -1;
   File() = default;
@@ -70,7 +72,7 @@ std::string usb_instance(const fs::path& path) {
   if (stat(path.c_str(), &metadata) < 0) return {};
   return std::to_string(metadata.st_dev) + ":" + std::to_string(metadata.st_ino) + ":" + text(path / "busnum") + ":" + text(path / "devnum");
 }
-bool discover(Devices& out, bool inspect) {
+bool discover(Devices& out, bool inspect, ButtonKey button_key) {
   std::set<fs::path> boards;
   std::error_code error;
   for (const auto& entry : fs::directory_iterator("/sys/bus/usb/devices", error)) if (board(entry.path())) boards.insert(fs::canonical(entry.path()));
@@ -86,9 +88,9 @@ bool discover(Devices& out, bool inspect) {
     auto path = fs::path("/dev/input") / name; auto file = open_device(path, O_RDONLY);
     if (file.fd < 0 || !input_identity(file.fd)) continue;
     Bits<KEY_MAX> keys; Bits<REL_MAX> relative;
-    bool key = ioctl(file.fd, EVIOCGBIT(EV_KEY, sizeof(keys.data)), keys.data.data()) >= 0 && keys.has(KEY_TAB);
+    bool key = ioctl(file.fd, EVIOCGBIT(EV_KEY, sizeof(keys.data)), keys.data.data()) >= 0 && keys.has(peripheral_host::linux_button_code(button_key));
     bool axis = ioctl(file.fd, EVIOCGBIT(EV_REL, sizeof(relative.data)), relative.data.data()) >= 0 && relative.has(REL_Y);
-    if (key && axis) { std::cerr << "Tab and relative Y must be distinct input interfaces.\n"; return false; }
+    if (key && axis) { std::cerr << "Selected button and relative Y must be distinct input interfaces.\n"; return false; }
     if (key) { ++keyboards; out.keyboard = std::move(file); out.keyboard_path = path; }
     if (axis) { ++mice; out.mouse = std::move(file); out.mouse_path = path; }
   }
@@ -101,8 +103,8 @@ bool discover(Devices& out, bool inspect) {
     ++outputs; out.output = std::move(file); out.output_path = path;
   }
   if (error || keyboards != 1 || mice != 1 || outputs != 1) {
-    std::cerr << "Require unique accessible Tab, relative-Y and validated LED interfaces on one USB parent. Observed "
-      << keyboards << " Tab, " << mice << " relative-Y and " << outputs << " LED. Nothing written.\n";
+    std::cerr << "Require unique accessible selected-button, relative-Y and validated LED interfaces on one USB parent. Observed "
+      << keyboards << " selected-button, " << mice << " relative-Y and " << outputs << " LED. Nothing written.\n";
     return false;
   }
   if (usb_instance(out.usb) != instance || !input_identity(out.keyboard.fd) || !input_identity(out.mouse.fd) || !led_identity(out.output.fd)) {
@@ -112,11 +114,15 @@ bool discover(Devices& out, bool inspect) {
 }
 }
 int main(int argc, char** argv) {
+  auto button_key = peripheral_host::ButtonKey::Tab;
+  if (!peripheral_host::parse_button_key_option(argc, argv, button_key)) {
+    std::cerr << "Use --button-key tab|escape. Nothing opened.\n"; return 2;
+  }
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "peripheral-host SESSION SDK_CHANNEL --confirm-wiring\n"
-      "peripheral-host --bench-held SDK_CHANNEL --confirm-wiring\n"
-      "peripheral-host --inspect (read-only interface qualification, no LED writes)\n"
-      "Discovers the sole d209:0410 USB device with unique Tab, relative-Y and supported LED interfaces.\n"
+    std::cout << "peripheral-host SESSION SDK_CHANNEL --confirm-wiring [--button-key tab|escape]\n"
+      "peripheral-host --bench-held SDK_CHANNEL --confirm-wiring [--button-key tab|escape]\n"
+      "peripheral-host --inspect [--button-key tab|escape] (read-only interface qualification, no LED writes)\n"
+      "Discovers the sole d209:0410 USB device with unique selected-button, relative-Y and supported LED interfaces.\n"
       "Uses evdev without an exclusive grab and brightness-only hidraw reports, preserving enable masks.\n"
       "Device permissions are required; this command never modifies them.\n";
     return 0;
@@ -130,9 +136,9 @@ int main(int argc, char** argv) {
   }
   try {
     Devices devices;
-    if (!discover(devices, inspect)) return 1;
+    if (!discover(devices, inspect, button_key)) return 1;
     if (inspect) {
-      std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonUsage\":43,\"relativeYUsage\":49,\"openedReadOnly\":true,\"ledWrites\":false,\"keyboard\":"
+      std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonKey\":\"" << peripheral_host::button_name(button_key) << "\",\"buttonUsage\":" << peripheral_host::button_usage(button_key) << ",\"relativeYUsage\":49,\"openedReadOnly\":true,\"ledWrites\":false,\"keyboard\":"
         << devices.keyboard_path << ",\"mouse\":" << devices.mouse_path << ",\"output\":" << devices.output_path << ",\"usbParent\":" << devices.usb << "}\n";
       return 0;
     }
@@ -150,7 +156,7 @@ int main(int argc, char** argv) {
     if ((!bench && (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0))
       || output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) return 1;
     int result = peripheral_host::run_linux_host({devices.keyboard.fd, devices.mouse.fd, devices.output.fd, STDIN_FILENO},
-      double(session), uint32_t(channel), held.has(KEY_TAB), bench, int64_t(cutoff.tv_sec) * 1000000000 + cutoff.tv_nsec);
+      double(session), uint32_t(channel), held.has(peripheral_host::linux_button_code(button_key)), bench, int64_t(cutoff.tv_sec) * 1000000000 + cutoff.tv_nsec, button_key);
     if (flags >= 0) fcntl(STDIN_FILENO, F_SETFL, flags);
     fcntl(STDOUT_FILENO, F_SETFL, output_flags);
     return result;
