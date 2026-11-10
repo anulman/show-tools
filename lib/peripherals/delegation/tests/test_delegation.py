@@ -474,4 +474,3 @@ class Delegation(unittest.TestCase):
                     self.assertEqual(str(errors[0]), {'expired': 'stale or future request',
                         'revoked': 'grant inactive', 'changed-grant': 'current grant mismatch'}[cause])
                     self.assertEqual([row['operation'] for row in rows], ['deny'])
-
