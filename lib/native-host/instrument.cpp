@@ -52,7 +52,10 @@ int Instrument::set_channel(int channel, double gain, int muted) { return engine
 int Instrument::set_automatic(int enabled) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_automatic(engine_.get(), enabled) : -1; }
 int Instrument::set_click(int enabled) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_click(engine_.get(), enabled) : -1; }
 int Instrument::set_click_gain(double gain) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_click_gain(engine_.get(), gain) : -1; }
-int Instrument::set_jiggle_thresholds(double travel, double reversal) { return engine_ && lifecycle_ == Lifecycle::Prepared ? pf_set_jiggle_thresholds(engine_.get(), travel, reversal) : -1; }
+int Instrument::set_jiggle_thresholds(double travel, double reversal) {
+  return engine_ && (lifecycle_ == Lifecycle::Prepared || lifecycle_ == Lifecycle::Running)
+    ? pf_set_jiggle_thresholds(engine_.get(), travel, reversal) : -1;
+}
 int Instrument::tuner(int operation, uint32_t expected_revision, int value, int scale) {
   return engine_ && (lifecycle_ == Lifecycle::Prepared || ((operation == PF_TUNER_CLOSE || operation == PF_TUNER_SILENCE) && lifecycle_ == Lifecycle::Running))
     ? pf_tuner_command_apply(engine_.get(), operation, expected_revision, value, scale) : -1;
