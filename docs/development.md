@@ -345,6 +345,8 @@ Run `node --import tsx --test lib/remote-performance/tests/client-ca.test.ts` to
 
 ### Verify managed peripheral reconnection
 
+The separate fixed peripheral admission packet lives in `lib/peripherals/delegation/`. Freeze it with `python3 -I lib/peripherals/delegation/freeze.py`, then run `python3 -I -m unittest discover -s lib/peripherals/delegation/tests -v`. These tests exercise real signatures, audit locks and local filesystem boundaries without root or hardware; ownership IDs alone are adapted in bootstrap fixtures. A change here never updates the old web delegation bundle. Exact operator bootstrap, fresh host admission and actual peripheral activation are separate from these local checks; follow the packet README.
+
 `show-tools peripheral serve --config FILE` is the Linux readiness/reconnection
 entry point. Run `node --import tsx --test lib/peripherals/tests/managed-runtime.test.ts
 lib/peripherals/tests/bridge-integration.test.ts` after building the native fake

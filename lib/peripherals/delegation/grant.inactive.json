@@ -1,0 +1,124 @@
+{
+  "schemaVersion": 1,
+  "grantId": "show-tools-peripheral-host-user-v1",
+  "version": 1,
+  "active": false,
+  "expiresAt": null,
+  "principal": {
+    "id": "show-tools-pi",
+    "sshKeyFingerprint": "SHA256:Hs0pgUC/Wrw+FyKxWFATPcmKFZNI+tETqhyBs5z++FU",
+    "sshPublicKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPo2Th5j5NFoyux/SW8CM2m4sR8GIlqWBozuWoZ7qI4A",
+    "sourceIPv4": "100.91.87.3",
+    "signatureNamespace": "show-tools-peripheral-deploy-v1"
+  },
+  "target": {
+    "id": "proxmox/anulman/show-tools-peripheral",
+    "hostname": "proxmox",
+    "uid": 1000,
+    "gid": 1000,
+    "repo": "anulman/show-tools",
+    "service": "show-tools-peripheral.service",
+    "profile": "/home/anulman/.config/show-tools/peripheral.json",
+    "unitFile": "/home/anulman/.config/systemd/user/show-tools-peripheral.service",
+    "stagingRoot": "/home/anulman/.local/share/show-tools/staging",
+    "releaseRoot": "/home/anulman/.local/share/show-tools/releases",
+    "releaseNamePattern": "^session-[a-f0-9]{7,40}$",
+    "runnerRelativePath": "bin/show-tools-peripheral",
+    "helperRelativePath": "native/peripheral/peripheral-host",
+    "gateway": {
+      "origin": "https://proxmox.tail54fc55.ts.net:8443",
+      "connectAddress": "100.93.139.99",
+      "tokenFile": "/home/anulman/.config/show-tools/credentials/token",
+      "caFile": null
+    },
+    "peripheralAssignment": {
+      "usbVendor": "d209",
+      "usbProduct": "0410",
+      "reportedSerial": "4",
+      "serialIsAuthenticatedUnique": false,
+      "buttonKey": "escape",
+      "linuxKeyCode": 1,
+      "hidUsagePage": 7,
+      "hidButtonUsage": 41,
+      "relativeYUsage": 49,
+      "logicalLed": 1,
+      "sdkChannel": 0,
+      "inputAccess": "evdev-read-only",
+      "outputAccess": "validated-brightness-only-hidraw",
+      "preserveEnableMasks": true
+    }
+  },
+  "allowedActions": [
+    "configure",
+    "peripheral-start",
+    "peripheral-stop",
+    "status",
+    "rollback"
+  ],
+  "artifactOrigin": {
+    "scheme": "http",
+    "host": "100.91.87.3",
+    "port": 18742,
+    "objectPattern": "^/show-tools-session-release-[a-f0-9]{7,40}\\.tar\\.gz$",
+    "redirects": false,
+    "ambientProxy": false,
+    "maxArchiveBytes": 104857600,
+    "maxExpandedBytes": 268435456,
+    "maxMembers": 2048,
+    "memberCountMeaning": "raw-tar-headers-including-pax-and-directories"
+  },
+  "constraints": {
+    "requireReviewedImmutableArtifacts": true,
+    "requireHostVerifiedEvidence": true,
+    "requireCompletedWebStage": true,
+    "requireExactOldAndNewFilePins": true,
+    "requireFreshAudioOffAndIdleForDisruptiveActions": true,
+    "preserveOperatorEnablement": true,
+    "requireFreshSessionEpochSequenceHeldFences": true,
+    "audioLifecycleAllowed": false,
+    "nativeEngineSpawnAllowed": false,
+    "syntheticMusicalStartStopAllowed": false,
+    "firmwareAllowed": false,
+    "enableMaskChangesAllowed": false,
+    "devicePermissionChangesAllowed": false,
+    "udevChangesAllowed": false,
+    "unitEnableAllowed": false,
+    "lingerAllowed": false,
+    "systemPackagesAllowed": false,
+    "sudoGrantsAllowed": false,
+    "sshChangesAllowed": false,
+    "networkChangesAllowed": false,
+    "credentialChangesAllowed": false,
+    "deleteReleasesOrBackupsAllowed": false,
+    "stopOtherServicesAllowed": false,
+    "managerRestartPolicy": "on-abnormal",
+    "unknownPerformanceOrOwnership": "deny-disruptive-action",
+    "appDependencies": "verified-bundled-only-no-install-hooks",
+    "configureInitialFiles": "create-only-if-signed-old-pin-null",
+    "stopScope": "named-peripheral-service-only-with-owned-output-release",
+    "runtimeAuthority": "fresh-physical-inputs-and-explicit-non-triggering-housekeeping-only",
+    "attachmentHousekeeping": {
+      "releaseControl": {
+        "id": "cueButton",
+        "value": 0
+      },
+      "releaseWhen": "initial-attachment-or-cleanup-only",
+      "jiggleConfiguration": "validated-profile-while-prepared-stopped-or-authoritative-identical-running-noop",
+      "requiredFences": "reviewed-native-epoch-session-sequence-held"
+    },
+    "ownerEvidence": "cooperating-controller-and-known-owner-checks-not-global-exclusion"
+  },
+  "requestLimits": {
+    "maxAgeSeconds": 900,
+    "clockSkewSeconds": 60,
+    "maxPayloadBytes": 8192,
+    "maxSignatureBytes": 2048
+  },
+  "audit": {
+    "path": "/home/anulman/.local/state/show-tools-mailbox/authorization-peripheral.jsonl",
+    "maxBytes": 8388608,
+    "onFailure": "deny"
+  },
+  "checkerSha256": "206d7526ce7bf3d31c09e4fc0c30ac44903e4281630689f1d70e979bc0f48d62",
+  "signersSha256": "367f4cd6685d962f7fac2e4e406f691e6c3c4da92a40b36c1170d95c1df5adc7"
+}
