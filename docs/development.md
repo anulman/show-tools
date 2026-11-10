@@ -355,3 +355,17 @@ devices. Live attach during playback additionally requires native same-config
 jiggle acknowledgement without resetting its gesture state. The source user-unit
 renderer has no installation side effects; installed persistence and actual LED,
 button and knob behavior remain target acceptance evidence.
+
+
+### Verify web startup recovery policy
+
+The session unit renderer retries failed web startup/process exits with a
+three-second manager backoff and no start-limit cutoff. Each fresh server stays
+audio-off; native faults under a healthy web process still require explicit
+operator recovery. Session CLI tests inspect the concrete unit and refuse silent
+replacement of an installed older policy. The server test occupies an owned
+loopback listener, proves startup fails without native acquisition, releases the
+listener, and proves a later startup remains audio-off. A second controlled case
+reads the local interface list, selects an unassigned documentation IPv4 address,
+and observes actual `EADDRNOTAVAIL` without changing any interface. These are source and
+process checks, not a systemd/Tailscale reboot acceptance claim.

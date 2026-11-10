@@ -23,7 +23,7 @@ function unitArgument(value: string) {
 }
 
 export function renderSessionUnit(profile: SessionProfile, profilePath: string) {
-  return `# Managed by show-tools session install. Do not edit this unit.\n[Unit]\nDescription=Show Tools performance desk\n\n[Service]\nType=exec\nExecStart=${unitArgument(profile.server.nodeExecutable)} ${unitArgument(profile.server.entrypoint)} --profile ${unitArgument(resolve(profilePath))}\nRestart=no\nKillMode=control-group\nTimeoutStopSec=15s\nSendSIGKILL=yes\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
+  return `# Managed by show-tools session install. Do not edit this unit.\n[Unit]\nDescription=Show Tools performance desk\nStartLimitIntervalSec=0\n\n[Service]\nType=exec\nExecStart=${unitArgument(profile.server.nodeExecutable)} ${unitArgument(profile.server.entrypoint)} --profile ${unitArgument(resolve(profilePath))}\nRestart=on-failure\nRestartSec=3s\nKillMode=control-group\nTimeoutStopSec=15s\nSendSIGKILL=yes\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
 }
 
 export function sessionConfigDirectory(env: NodeJS.ProcessEnv = process.env) {
