@@ -4,6 +4,10 @@ import importlib.util
 import io
 import json
 import os
+import signal
+import subprocess
+import sys
+import time
 from pathlib import Path
 import tempfile
 import stat
@@ -16,6 +20,7 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 directory_impl = m.directory
 private_group_impl = m.private_group
+command_impl = m.command
 REVISION = 'd8fa3cf199496d0f4897357f8e9cfad9f1415e9c'
 WEB_REVISION = '1' * 40
 
@@ -63,7 +68,7 @@ class InstallerTests(unittest.TestCase):
             data = json.dumps({'sourceRevision': REVISION}).encode() if name == 'release.json' else ('synthetic owned release fixture ' + name).encode()
             self.write(self.release / name, data, 0o700)
             release_pins[name] = m.digest(data)
-        self.manifest = {'schemaVersion': 1, 'sourceRevision': REVISION, 'webSourceRevision': WEB_REVISION, 'webProfileSha256': m.digest(self.web_data), 'files': {name: m.digest(data) for name, data in packet_files.items()}, 'releaseFiles': release_pins}
+        self.manifest = {'schemaVersion': 2, 'sourceRevision': REVISION, 'webSourceRevision': WEB_REVISION, 'installerSourceRevision': '3' * 40, 'webProfileSha256': m.digest(self.web_data), 'files': {name: m.digest(data) for name, data in packet_files.items()}, 'releaseFiles': release_pins}
         self.manifest_pin = self.pin_manifest()
 
     def write(self, path, data, mode=0o600):
@@ -90,9 +95,11 @@ class InstallerTests(unittest.TestCase):
                     'FragmentPath=' + (str(self.unit) if present else ''),
                     'DropInPaths=', 'TasksCurrent=' + ('1' if self.state == 'active' else '0'), 'NeedDaemonReload=no'])
             if action == 'daemon-reload': self.state = 'loaded'; return ''
-            if action == 'enable': self.wants.joinpath(m.UNIT_NAME).symlink_to(self.unit); return ''
+            if action == 'enable':
+                if not self.wants.joinpath(m.UNIT_NAME).exists(): self.wants.joinpath(m.UNIT_NAME).symlink_to(self.unit)
+                return ''
             if action == 'start': self.state = 'active'; return ''
-        if args == [str(self.release) + '/bin/show-tools-session', 'audio', 'status', '--profile', str(self.web)]: return getattr(self, 'audio', 'Audio off')
+        if args == [str(self.release) + '/bin/show-tools-session', 'audio', 'status', '--profile', str(self.web)]: return self.audio.pop(0) if isinstance(getattr(self, 'audio', None), list) else getattr(self, 'audio', 'Audio off')
         raise AssertionError('Unexpected command ' + str(args))
 
     def run_apply(self):
@@ -135,7 +142,7 @@ class InstallerTests(unittest.TestCase):
 
     def test_active_performance_holds_before_any_file_install_or_activation(self):
         self.audio = 'Audio ready; transport playing'
-        with self.assertRaisesRegex(ValueError, 'Performance active'): self.run_apply()
+        with self.assertRaisesRegex(ValueError, 'Fresh audio-off'): self.run_apply()
         self.assertFalse(self.profile.exists())
         self.assertFalse(self.unit.exists())
         self.assertFalse(any('start' in args or 'enable' in args or 'daemon-reload' in args for args in self.calls))
@@ -263,9 +270,260 @@ class InstallerTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'separately reviewed release'): self.run_apply()
         self.assertEqual(self.calls, [])
 
+    def test_hardlinks_in_every_metadata_boundary_hold_before_service_calls(self):
+        self.write(self.profile, self.profile_data)
+        self.write(self.unit, self.unit_data)
+        targets = [self.packet / name for name in ('manifest.json', 'install.py', 'profile.json', m.UNIT_NAME)]
+        targets += [self.release / name for name in m.RELEASE_FILES]
+        targets += [self.profile, self.unit, self.web, self.token]
+        for index, target in enumerate(targets):
+            with self.subTest(target=target.name):
+                alias = self.root / ('hardlink-' + str(index))
+                os.link(target, alias)
+                try:
+                    with self.assertRaises(ValueError): self.run_apply()
+                    self.assertEqual(self.calls, [])
+                finally: alias.unlink()
+
+    def test_publication_unlink_is_followed_by_directory_fsync_then_independent_readback(self):
+        events = []
+        fsync, unlink, read = m.os.fsync, m.os.unlink, m.file_bytes
+        def sync(fd):
+            events.append('dirsync' if stat.S_ISDIR(os.fstat(fd).st_mode) else 'filesync')
+            return fsync(fd)
+        def remove(*args, **kwargs):
+            events.append('unlink')
+            return unlink(*args, **kwargs)
+        def readback(*args, **kwargs):
+            if self.profile.exists(): events.append('readback')
+            return read(*args, **kwargs)
+        with patch.object(m.os, 'fsync', side_effect=sync), patch.object(m.os, 'unlink', side_effect=remove), patch.object(m, 'file_bytes', side_effect=readback):
+            m.install_file(str(self.profile), b'complete')
+        self.assertEqual(events, ['filesync', 'dirsync', 'unlink', 'dirsync', 'readback'])
+        self.assertEqual(self.profile.stat().st_nlink, 1)
+
+    def test_partial_publication_fsync_failure_holds_and_exact_singlelink_retry_is_safe(self):
+        original = m.os.fsync
+        calls = 0
+        def fail_once(fd):
+            nonlocal calls
+            calls += 1
+            if calls == 2: raise OSError('injected publication directory fsync failure')
+            return original(fd)
+        with patch.object(m.os, 'fsync', side_effect=fail_once):
+            with self.assertRaises(OSError): m.install_file(str(self.profile), b'complete')
+        self.assertEqual(self.profile.read_bytes(), b'complete')
+        self.assertEqual(self.profile.stat().st_nlink, 1)
+        self.assertFalse(m.install_file(str(self.profile), b'complete'))
+
+    def test_unlink_failure_retains_linked_evidence_and_retry_fails_closed(self):
+        with patch.object(m.os, 'unlink', side_effect=OSError('injected temporary unlink failure')):
+            with self.assertRaises(OSError): m.install_file(str(self.profile), b'complete')
+        self.assertEqual(self.profile.stat().st_nlink, 2)
+        self.assertEqual(len(list(self.profile.parent.glob('.show-tools-peripheral-*'))), 1)
+        with self.assertRaises(ValueError): m.install_file(str(self.profile), b'complete')
+        self.assertEqual(self.calls, [])
+
+    def test_final_independent_readback_rejects_postpublication_metadata_drift(self):
+        original = m.os.unlink
+        def change_after_unlink(*args, **kwargs):
+            result = original(*args, **kwargs)
+            self.profile.chmod(0o640)
+            return result
+        with patch.object(m.os, 'unlink', side_effect=change_after_unlink):
+            with self.assertRaisesRegex(ValueError, 'Unsafe file mode'): m.install_file(str(self.profile), b'complete')
+        self.assertEqual(self.profile.read_bytes(), b'complete')
+        self.assertEqual(self.calls, [])
+
+    def test_ready_audio_idle_and_ended_do_not_authorize_initial_activation(self):
+        for status in ('Audio ready; transport idle', 'Audio ready; transport ended', 'Audio ready; transport count-in'):
+            self.audio = status
+            self.calls.clear()
+            with self.assertRaisesRegex(ValueError, 'Fresh audio-off'): self.run_apply()
+            self.assertFalse(self.profile.exists())
+            self.assertFalse(self.unit.exists())
+            self.assertFalse(any('enable' in call or 'start' in call for call in self.calls))
+
+    def test_audio_must_still_be_off_immediately_before_start_without_forcing_it(self):
+        self.audio = ['Audio off', 'Audio ready; transport idle']
+        with self.assertRaisesRegex(ValueError, 'before start'): self.run_apply()
+        self.assertTrue(self.profile.exists())
+        self.assertTrue(self.unit.exists())
+        self.assertFalse(any('start' in call for call in self.calls))
+        self.assertFalse(any('off' in call or 'stop' in call for call in self.calls))
+
+    def test_fifo_is_opened_nonblocking_and_rejected_before_read(self):
+        fifo = self.root / 'fifo'
+        os.mkfifo(fifo, 0o600)
+        driver = """
+import importlib.util,os,sys
+spec=importlib.util.spec_from_file_location('fifo_installer',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.UID=os.getuid();m.GID=os.getgid();m.directory=lambda path:os.open(path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+try:m.file_bytes(sys.argv[2],private=True)
+except ValueError:print('nonregular rejected');sys.exit(0)
+sys.exit(1)
+"""
+        result = subprocess.run([sys.executable, '-I', '-c', driver, str(Path(m.__file__).resolve()), str(fifo)], capture_output=True, text=True, timeout=2)
+        self.assertEqual((result.returncode,result.stdout.strip()), (0,'nonregular rejected'))
+        self.assertEqual(self.calls, [])
+
+
     def test_strict_json_rejects_duplicate_and_nonfinite_values(self):
         for value in (b'{"a":1,"a":2}', b'{"a":NaN}'):
             with self.assertRaises(ValueError): m.strict_json(value)
+
+
+class CommandClientTests(unittest.TestCase):
+    def setUp(self):
+        if sys.platform == 'darwin':
+            original = os.killpg
+            def darwin_empty_group(pid, action):
+                try:
+                    return original(pid, action)
+                except PermissionError:
+                    # Darwin reports EPERM for an exited child-only group. Normalize
+                    # only after a non-reaping wait confirms this is our dead child.
+                    exited = os.waitid(os.P_PID, pid, os.WEXITED | os.WNOHANG | os.WNOWAIT)
+                    if action == signal.SIGKILL and exited is not None and exited.si_pid == pid:
+                        raise ProcessLookupError from None
+                    raise
+            self.normalized = patch.object(m.os, 'killpg', side_effect=darwin_empty_group)
+            self.normalized.start()
+            self.addCleanup(self.normalized.stop)
+
+    def run_client(self, code, **options):
+        return command_impl([sys.executable, '-I', '-c', code], **options)
+
+    def test_exact_output_bound_succeeds_and_stdout_stderr_overflow_fail(self):
+        self.assertEqual(self.run_client("import sys; sys.stdout.write('x'*64)", output_limit=64), 'x'*64)
+        for stream in ('stdout', 'stderr'):
+            with self.subTest(stream=stream):
+                with self.assertRaisesRegex(ValueError, 'output limit'):
+                    self.run_client("import sys,time; sys.%s.write('x'*65); sys.%s.flush(); time.sleep(30)" % (stream, stream), output_limit=64)
+
+    def test_capture_deadline_and_pipe_closed_live_client_are_cleaned_up(self):
+        original = m.subprocess.Popen
+        for code in ("import time; time.sleep(30)", "import os,time; os.close(1); os.close(2); time.sleep(30)"):
+            clients = []
+            def spawn(*args, **kwargs):
+                child = original(*args, **kwargs); clients.append(child); return child
+            with patch.object(m.subprocess, 'Popen', side_effect=spawn):
+                began = time.monotonic()
+                with self.assertRaisesRegex(ValueError, 'deadline'):
+                    self.run_client(code, timeout=0.1)
+                self.assertLess(time.monotonic()-began, 2)
+                self.assertIsNotNone(clients[0].returncode)
+
+    def test_client_failure_retains_daemon_effect_evidence_and_does_not_kill_other_session(self):
+        service = subprocess.Popen([sys.executable, '-I', '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        try:
+            with tempfile.TemporaryDirectory(prefix='client-effects-') as root:
+                marker = str(Path(root) / 'effect')
+                code = "from pathlib import Path; import sys,time; Path(%r).write_text('daemon request may have applied'); sys.stdout.write('x'*65); sys.stdout.flush(); time.sleep(30)" % marker
+                with self.assertRaisesRegex(ValueError, 'effects uncertain'):
+                    self.run_client(code, output_limit=64)
+                self.assertEqual(Path(marker).read_text(), 'daemon request may have applied')
+                self.assertIsNone(service.poll())
+        finally:
+            service.terminate(); service.wait(timeout=2)
+
+    def test_metadata_failure_still_kills_and_reaps_owned_client(self):
+        clients = []
+        original = m.subprocess.Popen
+        def spawn(*args, **kwargs):
+            child = original(*args, **kwargs); clients.append(child); return child
+        with patch.object(m.subprocess, 'Popen', side_effect=spawn), patch.object(m, 'owned_group_live', side_effect=ValueError('metadata unavailable')):
+            with self.assertRaisesRegex(ValueError, 'deadline'):
+                self.run_client("import time; time.sleep(30)", timeout=.1)
+        self.assertIsNotNone(clients[0].returncode)
+
+    def test_exited_leader_cannot_leave_same_group_heartbeat_running(self):
+        service = subprocess.Popen([sys.executable, '-I', '-c', 'import time; time.sleep(30)'], start_new_session=True)
+        try:
+            for exit_code in (0, 3):
+                with self.subTest(exit_code=exit_code), tempfile.TemporaryDirectory(prefix='owned-descendant-') as root:
+                    heartbeat = Path(root) / 'heartbeat'
+                    code = """
+import os,signal,time
+from pathlib import Path
+pid=os.fork()
+if pid:
+ while not Path(%r).exists(): time.sleep(.001)
+ os._exit(%d)
+os.close(1); os.close(2)
+signal.signal(signal.SIGTERM,signal.SIG_IGN)
+while True:
+ Path(%r).write_text(str(time.monotonic_ns()))
+ time.sleep(.005)
+""" % (str(heartbeat), exit_code, str(heartbeat))
+                    if exit_code:
+                        with self.assertRaisesRegex(ValueError, 'client failed'):
+                            self.run_client(code)
+                    else:
+                        self.assertEqual(self.run_client(code), '')
+                    before = heartbeat.read_text()
+                    time.sleep(.08)
+                    self.assertEqual(heartbeat.read_text(), before)
+                    self.assertIsNone(service.poll())
+        finally:
+            service.terminate(); service.wait(timeout=2)
+
+    def test_real_repeat_term_int_hup_cannot_interrupt_owned_client_cleanup(self):
+        with tempfile.TemporaryDirectory(prefix='repeat-client-cancel-') as root:
+            ready, entered, result = (Path(root) / name for name in ('ready', 'cleanup', 'result'))
+            child_code = "import signal,time; from pathlib import Path; [signal.signal(s,signal.SIG_IGN) for s in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP)]; Path(%r).write_text('ready'); time.sleep(30)" % str(ready)
+            driver = """
+import importlib.util,json,signal,subprocess,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('owned_installer',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+clients=[]; spawn=m.subprocess.Popen
+
+def record(*args,**kwargs):
+ p=spawn(*args,**kwargs); clients.append(p); return p
+m.subprocess.Popen=record
+cleanup=m.cleanup_client
+
+def marked(*args):
+ Path(sys.argv[3]).write_text('cleanup'); return cleanup(*args)
+m.cleanup_client=marked
+
+def interrupted(_signum,_frame): raise InterruptedError('first cancellation')
+for value in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP): signal.signal(value,interrupted)
+try: m.command([sys.executable,'-I','-c',sys.argv[2]])
+except BaseException as error:
+ Path(sys.argv[4]).write_text(json.dumps({'error':type(error).__name__,'clientReturncode':clients[0].returncode})); sys.exit(7)
+sys.exit(0)
+"""
+            parent = subprocess.Popen([sys.executable, '-I', '-c', driver, str(Path(m.__file__).resolve()), child_code, str(entered), str(result)])
+            try:
+                for _ in range(300):
+                    if ready.exists(): break
+                    time.sleep(0.01)
+                self.assertTrue(ready.exists())
+                os.kill(parent.pid, signal.SIGTERM)
+                for _ in range(300):
+                    if entered.exists(): break
+                    time.sleep(0.001)
+                self.assertTrue(entered.exists())
+                for value in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                    time.sleep(0.01)
+                    try: os.kill(parent.pid, value)
+                    except ProcessLookupError: pass
+                self.assertEqual(parent.wait(timeout=3), 7)
+                evidence = json.loads(result.read_text())
+                self.assertTrue(evidence['error'])
+                self.assertEqual(evidence['clientReturncode'], -signal.SIGKILL)
+            finally:
+                if parent.poll() is None: parent.kill(); parent.wait(timeout=2)
+
+    def test_cancellation_cleans_only_owned_client_and_reports_no_success(self):
+        clients = []
+        original = m.subprocess.Popen
+        def spawn(*args, **kwargs):
+            child = original(*args, **kwargs); clients.append(child); return child
+        with patch.object(m.subprocess, 'Popen', side_effect=spawn), patch.object(m.selectors.DefaultSelector, 'select', side_effect=KeyboardInterrupt):
+            with self.assertRaises(KeyboardInterrupt): self.run_client("import sys,time; print('ready',flush=True); time.sleep(30)")
+        self.assertIsNotNone(clients[0].returncode)
 
 
 if __name__ == '__main__': unittest.main()

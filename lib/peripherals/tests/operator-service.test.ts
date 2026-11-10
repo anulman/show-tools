@@ -26,8 +26,9 @@ test('operator packet stays pending without explicit tuning and pins a resolved 
       const path = join(release, name); await mkdir(resolve(path, '..'), { recursive: true });
       await writeFile(path, name === 'release.json' ? JSON.stringify({ sourceRevision: revision }) : `synthetic fixture ${name}`);
     }
+    const installerSource = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     const prepare = (...args: string[]) => JSON.parse(execFileSync(process.execPath,
-      ['--import', 'tsx', resolve('lib/peripherals/operator-service/prepare.ts'), '--release', release, '--source-revision', revision, ...args], { encoding: 'utf8', stdio: 'pipe' }));
+      ['--import', 'tsx', resolve('lib/peripherals/operator-service/prepare.ts'), '--release', release, '--source-revision', revision, '--installer-source-revision', installerSource, ...args], { encoding: 'utf8', stdio: 'pipe' }));
     const pending = join(directory, 'pending');
     assert.equal(prepare('--out', pending).ready, false);
     await assert.rejects(access(join(pending, 'manifest.json')));
@@ -40,6 +41,8 @@ test('operator packet stays pending without explicit tuning and pins a resolved 
     assert.equal(result.ready, true);
     const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'));
     assert.equal(manifest.webProfileSha256, sha(webBytes));
+    assert.equal(manifest.schemaVersion, 2);
+    assert.equal(manifest.installerSourceRevision, installerSource);
     assert.equal(manifest.sourceRevision, revision);
     assert.equal(manifest.webSourceRevision, webRevision);
     for (const [name, digest] of Object.entries(manifest.files)) assert.equal(sha(await readFile(join(output, name))), digest);

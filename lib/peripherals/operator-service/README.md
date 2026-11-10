@@ -56,8 +56,10 @@ foreign enablement links are held without replacement. Target files are created
 with atomic no-clobber publication and mode0600. Exact active reruns are read-only.
 
 Before first activation the installer makes one read-only audio-status request
-with the new release's session CLI. Playing/count-in or unknown state holds the
-operation. It never calls audio on/off, Start or Stop. It reloads the user manager,
+with the new release's session CLI. Only a fresh `Audio off` response admits initial installation, and a second
+fresh off check is required immediately before start. Ready audio is refused even
+when idle or ended; the installer never forces audio off. Exact active reruns stay
+read-only. It never calls audio on/off, Start or Stop. It reloads the user manager,
 enables only show-tools-peripheral.service, and starts only that service. It
 checks resulting named unit activity/enablement; that is not proof of USB
 qualification or practice-cue acceptance. All standalone bench readers/writers
@@ -73,7 +75,7 @@ while normal auth/configuration failures hold. No audio lifecycle is restarted.
 For final preparation, pass both independent reviewed source revisions, the
 actual local web profile and the explicit operator-selected disabled mode:
 
-    node --import tsx lib/peripherals/operator-service/prepare.ts --release REVIEWED_NEW_RELEASE --source-revision PERIPHERAL_FULL_SHA --web-profile REVIEWED_WEB_PROFILE --web-source-revision WEB_FULL_SHA --disable-jiggle --out NEW_PRIVATE_PACKET
+    node --import tsx lib/peripherals/operator-service/prepare.ts --release REVIEWED_NEW_RELEASE --source-revision PERIPHERAL_FULL_SHA --installer-source-revision INSTALLER_FULL_SHA --web-profile REVIEWED_WEB_PROFILE --web-source-revision WEB_FULL_SHA --disable-jiggle --out NEW_PRIVATE_PACKET
 
 For enabled tuning, both `--jiggle-travel` and `--jiggle-reversal` are required
 instead of `--disable-jiggle`; mixing them is rejected. Without a complete
@@ -90,10 +92,37 @@ reviewed fixed-target peripheral sidecar/bootstrap. This packet creates no remot
 authority and changes no existing checker, signers, grant or ledger.
 
 Local verification uses owned temporary files and a simulated service manager:
-18 checks cover all critical pins before service calls, complete/idempotent
+31 checks cover all critical pins before service calls, complete/idempotent
 create-only writes, active-service read-only reruns, active-performance hold,
 foreign file/symlink refusal, retained private-group0775 ancestry with zero chmod,
 exclusive-group rejection, web-profile/token metadata pins, explicit tuning
 validation, wrong UID/host rejection and no credential output. No host call,
 USB device or audio device is used by these tests. Real activation remains an
 operator action after independent review.
+
+
+Standalone installer revisions are separate from runtime release revisions.
+Manifest version2 requires `installerSourceRevision` in addition to peripheral
+`sourceRevision` and retained `webSourceRevision`. Supply the explicit installer
+commit with `--installer-source-revision`; the preparer verifies its Git blob
+against the copied installer bytes. An installer-only correction does not rebuild,
+relabel or select the runtime archive's older packaged installer. Packet staging
+names include both peripheral and standalone installer source prefixes.
+
+Every regular packet/release/profile/unit read requires a single link, including
+fresh exact-existing checks. Existing token metadata must also be single-link.
+Nonblocking no-follow opens reject FIFOs/special files before content reads.
+Publication fsyncs the temporary content and directory, removes only its own
+temporary link, fsyncs the directory again, then independently rereads destination
+bytes, identity and mode0600/UID/GID/single-link metadata. Partial failures retain
+published data/evidence and hold; linked evidence is never silently repaired.
+
+Trusted command clients capture at most65,536 bytes per stdout/stderr stream,
+with bounded reads and a ten-second capture deadline after spawn. Failure cleanup
+signals only the owned client session/group with TERM then KILL before reaping,
+ignoring repeated TERM/INT/HUP during that cleanup. It makes no service kill or
+rollback request. A daemon action may already have applied even if its client
+fails, times out, overflows or is canceled; inspect actual status before retry.
+The original error/cancellation and any cleanup uncertainty are retained. Process
+creation, hard kill, uninterruptible processes and escaped descendants prevent a
+general no-orphan guarantee; the bounded cleanup wait reports unconfirmed exit.
