@@ -77,7 +77,7 @@
     "requireFreshSessionEpochSequenceHeldFences": true,
     "audioLifecycleAllowed": false,
     "nativeEngineSpawnAllowed": false,
-    "syntheticMusicalControlsAllowed": false,
+    "syntheticMusicalStartStopAllowed": false,
     "firmwareAllowed": false,
     "enableMaskChangesAllowed": false,
     "devicePermissionChangesAllowed": false,
@@ -96,7 +96,16 @@
     "appDependencies": "verified-bundled-only-no-install-hooks",
     "configureInitialFiles": "create-only-if-signed-old-pin-null",
     "stopScope": "named-peripheral-service-only-with-owned-output-release",
-    "runtimeAuthority": "fresh-physical-inputs-only-after-reviewed-native-session-attachment",
+    "runtimeAuthority": "fresh-physical-inputs-and-explicit-non-triggering-housekeeping-only",
+    "attachmentHousekeeping": {
+      "releaseControl": {
+        "id": "cueButton",
+        "value": 0
+      },
+      "releaseWhen": "initial-attachment-or-cleanup-only",
+      "jiggleConfiguration": "validated-profile-while-prepared-stopped-or-authoritative-identical-running-noop",
+      "requiredFences": "reviewed-native-epoch-session-sequence-held"
+    },
     "ownerEvidence": "cooperating-controller-and-known-owner-checks-not-global-exclusion"
   },
   "requestLimits": {
@@ -110,6 +119,6 @@
     "maxBytes": 8388608,
     "onFailure": "deny"
   },
-  "checkerSha256": "1863b46fef07a92b6775a5b3447bb86dbf3ad323dae69c0fd24c89350991a85a",
+  "checkerSha256": "206d7526ce7bf3d31c09e4fc0c30ac44903e4281630689f1d70e979bc0f48d62",
   "signersSha256": "367f4cd6685d962f7fac2e4e406f691e6c3c4da92a40b36c1170d95c1df5adc7"
 }

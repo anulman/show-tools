@@ -23,6 +23,8 @@ The new policy explicitly admits **`Restart=on-abnormal` for this peripheral ser
 
 No remote unit enable/disable, linger, ALSA/native-engine spawn, audio on/off, synthetic musical Start/Stop, firmware, device permissions, udev, group, sudo, SSH, network, credential, package-install, other-service, or release-deletion authority is added. Disruptive actions require fresh audio-off/idle and known ownership evidence. The named service's stop releases its owned output; it must not call engine Stop or audio-off. Cooperating-controller and known-owner checks are not global owner exclusion or protection from a malicious same-UID process.
 
+The only synthetic attachment housekeeping admitted is non-triggering `cueButton=0` at initial attachment or cleanup, and validated profile jiggle setup while prepared/stopped or as an authoritative identical-values no-op while running. Both require the reviewed native epoch/session/sequence/held fences. This does not permit a synthetic press, arbitrary controls, or changing jiggle settings during playback.
+
 ## Signed candidate schema
 
 `check.py` is standalone and derives its strict JSON, SSH signature, bounded lifetime, flock, replay, and audit machinery from the existing web checker. It intentionally duplicates the small fixed verifier rather than importing mutable code or parameterizing the web verifier.
