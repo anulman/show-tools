@@ -80,7 +80,7 @@ selection for this connection; the switch connector label remains unconfirmed.
 | USB board | Sole connected `d209:0410`, reported serial `4`. This reported selector is not proof of a globally unique board identity. |
 | Connected switch | Escape: Linux `KEY_ESC` code `1`, HID keyboard page `7`, usage `41` (`0x29`). The raw capture contained three presses and three releases. |
 | LED output `1` / SDK channel `0` | Visible pulse confirmed. The updated held test recorded 25 press/release pairs, sequence `1` through `50`; the operator said it “worked great” and confirmed hold-to-light. |
-| Knob | Actual bidirectional signed relative Y input confirmed. Physical rotation calibration remains separate. |
+| Knob | Actual bidirectional signed relative Y input confirmed. Physical rotation calibration remains separate. The operator selected musical knob actions off for the first persistent profile. |
 
 The missing button events came from the Tab-only filter, which excluded the
 observed Escape input. Configure the selected physical key from the current

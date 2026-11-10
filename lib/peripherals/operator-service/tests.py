@@ -16,6 +16,8 @@ m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
 directory_impl = m.directory
 private_group_impl = m.private_group
+REVISION = 'd8fa3cf199496d0f4897357f8e9cfad9f1415e9c'
+WEB_REVISION = '1' * 40
 
 
 class InstallerTests(unittest.TestCase):
@@ -24,7 +26,7 @@ class InstallerTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.packet = self.root / 'packet'
         self.packet.mkdir()
-        self.release = self.root / 'release'
+        self.release = self.root / ('releases/session-' + REVISION[:7])
         self.home = self.root / 'home'
         self.profile = self.home / '.config/show-tools/peripheral.json'
         self.unit = self.home / '.config/systemd/user/show-tools-peripheral.service'
@@ -36,7 +38,7 @@ class InstallerTests(unittest.TestCase):
         self.state = 'missing'
         self.patches = [patch.object(m, name, value) for name, value in {
             'UID': os.getuid(), 'GID': os.getgid(), 'HOME': str(self.home),
-            'RELEASE': str(self.release), 'PROFILE': str(self.profile), 'UNIT': str(self.unit),
+            'RELEASE_ROOT': str(self.release.parent), 'PROFILE': str(self.profile), 'UNIT': str(self.unit),
             'WEB_PROFILE': str(self.web), 'TOKEN': str(self.token), 'WANTS': str(self.wants),
             'private_group': lambda: None,
             # Real leaf O_NOFOLLOW/create-only/permission behavior, with owned temp ancestry.
@@ -50,7 +52,7 @@ class InstallerTests(unittest.TestCase):
         self.old_umask = os.umask(0o077)
         self.addCleanup(lambda: os.umask(self.old_umask))
         self.write(self.token, b'owned-test-token-never-output')
-        self.web_data = json.dumps({'serviceName': 'show-tools-web.service', 'origin': 'https://proxmox.tail54fc55.ts.net:8443', 'connectAddress': '100.93.139.99', 'tokenFile': str(self.token)}).encode()
+        self.web_data = json.dumps({'serviceName': 'show-tools-web.service', 'origin': 'https://proxmox.tail54fc55.ts.net:8443', 'connectAddress': '100.93.139.99', 'tokenFile': str(self.token), 'server': {'nodeExecutable': str(self.release.parent / ('session-' + WEB_REVISION[:7])) + '/runtime/node', 'entrypoint': str(self.release.parent / ('session-' + WEB_REVISION[:7])) + '/gateway/server.mjs'}}).encode()
         self.write(self.web, self.web_data)
         self.profile_data = json.dumps({'version': 1, 'origin': 'https://proxmox.tail54fc55.ts.net:8443', 'connectAddress': '100.93.139.99', 'tokenFile': str(self.token), 'helperExecutable': str(self.release) + '/native/peripheral/peripheral-host', 'sdkChannel': 0, 'bindingRevision': 1, 'buttonKey': 'escape', 'jiggle': {'minimumTravel': 4, 'minimumReversal': 2}}).encode()
         self.unit_data = ('[Unit]\nDescription=Show Tools peripheral controller\nStartLimitIntervalSec=0\n\n[Service]\nType=exec\nExecStart="' + str(self.release) + '/bin/show-tools-peripheral" serve --config "' + str(self.profile) + '"\nRestart=on-abnormal\nRestartSec=3s\nKillMode=control-group\nTimeoutStopSec=15s\nSendSIGKILL=yes\nUMask=0077\n\n[Install]\nWantedBy=default.target\n').encode()
@@ -58,10 +60,10 @@ class InstallerTests(unittest.TestCase):
         for name, data in packet_files.items(): self.write(self.packet / name, data)
         release_pins = {}
         for name in m.RELEASE_FILES:
-            data = ('synthetic owned release fixture ' + name).encode()
+            data = json.dumps({'sourceRevision': REVISION}).encode() if name == 'release.json' else ('synthetic owned release fixture ' + name).encode()
             self.write(self.release / name, data, 0o700)
             release_pins[name] = m.digest(data)
-        self.manifest = {'schemaVersion': 1, 'sourceRevision': m.REVISION, 'webProfileSha256': m.digest(self.web_data), 'files': {name: m.digest(data) for name, data in packet_files.items()}, 'releaseFiles': release_pins}
+        self.manifest = {'schemaVersion': 1, 'sourceRevision': REVISION, 'webSourceRevision': WEB_REVISION, 'webProfileSha256': m.digest(self.web_data), 'files': {name: m.digest(data) for name, data in packet_files.items()}, 'releaseFiles': release_pins}
         self.manifest_pin = self.pin_manifest()
 
     def write(self, path, data, mode=0o600):
@@ -177,11 +179,12 @@ class InstallerTests(unittest.TestCase):
     def test_profile_requires_explicit_jiggle_and_refuses_extra_or_ca_fields(self):
         profile = json.loads(self.profile_data)
         del profile['jiggle']
-        with self.assertRaises(ValueError): m.validate_profile(profile)
-        for value in (None, {'minimumTravel': True, 'minimumReversal': 1}, {'minimumTravel': 1, 'minimumReversal': 2}):
+        with self.assertRaises(ValueError): m.validate_profile(profile, str(self.release))
+        m.validate_profile({**json.loads(self.profile_data), 'jiggle': None}, str(self.release))
+        for value in ({'minimumTravel': True, 'minimumReversal': 1}, {'minimumTravel': 1, 'minimumReversal': 2}):
             with self.subTest(value=value):
-                with self.assertRaises(ValueError): m.validate_profile({**json.loads(self.profile_data), 'jiggle': value})
-        with self.assertRaises(ValueError): m.validate_profile({**json.loads(self.profile_data), 'caFile': '/arbitrary'})
+                with self.assertRaises(ValueError): m.validate_profile({**json.loads(self.profile_data), 'jiggle': value}, str(self.release))
+        with self.assertRaises(ValueError): m.validate_profile({**json.loads(self.profile_data), 'caFile': '/arbitrary'}, str(self.release))
 
     def test_root_and_wrong_host_are_refused_before_any_action(self):
         with patch.object(m.os, 'getuid', lambda: -1):
@@ -238,6 +241,27 @@ class InstallerTests(unittest.TestCase):
                     m.validate_runtime_environment('PATH=/usr/bin:/bin\n' + name + '=SECRET-VALUE-NEVER-PRINT')
                 self.assertIn(name, str(raised.exception))
                 self.assertNotIn('SECRET-VALUE', str(raised.exception))
+
+    def test_disabled_jiggle_profile_installs_without_threshold_defaults(self):
+        profile = json.loads(self.profile_data)
+        profile['jiggle'] = None
+        self.profile_data = json.dumps(profile).encode()
+        self.write(self.packet / 'profile.json', self.profile_data)
+        self.manifest['files']['profile.json'] = m.digest(self.profile_data)
+        self.manifest_pin = self.pin_manifest()
+        self.assertTrue(self.run_apply()['active'])
+        self.assertIsNone(json.loads(self.profile.read_bytes())['jiggle'])
+
+    def test_independent_release_revisions_are_required_and_web_prefix_is_checked(self):
+        self.manifest['sourceRevision'] = '../outside'
+        self.manifest_pin = self.pin_manifest()
+        with self.assertRaisesRegex(ValueError, 'full release revisions'): self.run_apply()
+        self.assertEqual(self.calls, [])
+        self.manifest['sourceRevision'] = REVISION
+        self.manifest['webSourceRevision'] = '2' * 40
+        self.manifest_pin = self.pin_manifest()
+        with self.assertRaisesRegex(ValueError, 'separately reviewed release'): self.run_apply()
+        self.assertEqual(self.calls, [])
 
     def test_strict_json_rejects_duplicate_and_nonfinite_values(self):
         for value in (b'{"a":1,"a":2}', b'{"a":NaN}'):

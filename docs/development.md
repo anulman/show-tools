@@ -377,8 +377,17 @@ process checks, not a systemd/Tailscale reboot acceptance claim.
 `lib/peripherals/operator-service/` prepares the fixed EliteDesk operator packet.
 Run `node --import tsx --test lib/peripherals/tests/operator-service.test.ts` for
 owned temporary-file and simulated service-manager checks. The preparer emits
-no activation command until explicit approved jiggle tuning and the exact
-reviewed installed web profile are supplied. It pins release/helper/Node/CLI
+no activation command until an explicit jiggle object or `--disable-jiggle`
+selection and the exact
+reviewed installed web profile and independent source identities are supplied. It pins release/helper/Node/CLI
 bytes and requires protected manager PATH/dirname resolution. The installer is
 operator-only UID/GID1000; these tests neither activate a service nor open USB or
 audio. A packet is not a remote delegation or a physical practice acceptance.
+
+
+Verify disabled physical knob mode with the bridge unit/integration tests.
+`jiggle:null` consumes valid motion sequence numbers but sends no configureJiggle
+or knob commands; buttons, native light publication and cleanup still work.
+The synthetic native-host fixtures cover attachment during playback, publication
+gaps and reconnects without changing the audio lifecycle. Object configurations
+retain their acknowledged threshold setup and ordered signed motion.

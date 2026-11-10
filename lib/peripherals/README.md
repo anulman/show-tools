@@ -207,8 +207,12 @@ Configuration contains no token value:
 
 Omit `caFile` when using the system trust store. HTTP is accepted only on loopback.
 The token file must be caller-owned with mode 600. The bridge sends no transport
-Start or Stop. It resets held state and prepares native jiggle thresholds before
-admitting inputs. Reconnect after an engine attempt changes or USB is removed.
+Start or Stop. It resets held state before admitting inputs. An explicit jiggle
+object requires native threshold acknowledgement first. Set `"jiggle": null`
+to leave physical musical knob actions off: motion reports remain validated and
+consume sequence numbers, but send no knob controls or threshold configuration.
+Button actions, PE-authored light images and release cleanup remain enabled.
+The field is required; omitting it does not select a default. Reconnect after an engine attempt changes or USB is removed.
 
 The starting 4/2 thresholds are software tuning values in raw Y counts rather
 than a measured physical deadband. Native C++ owns confirmation and its
@@ -358,6 +362,8 @@ Pending controls are discarded; uncertain controls are never replayed. The
 native engine remains the only musical clock and LED-pattern author. A transport
 already playing may attach only when native jiggle configuration is acknowledged;
 identical thresholds are a native no-op, while changed thresholds require Stop.
+An explicit `jiggle:null` skips threshold configuration and drops physical musical
+knob input without changing the native engine’s existing threshold state.
 This requires the matching native engine implementation of that no-op.
 
 If USB appears before input/hidraw nodes or permissions, a failed qualification

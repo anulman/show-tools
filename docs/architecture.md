@@ -306,3 +306,11 @@ service. Its installer requires UID/GID1000, verifies the reviewed packet/releas
 and profile, and only creates/enables/starts that controller. It does not alter
 web/native audio, credentials, udev, lingering or any remote authority. Initial
 operator activation and later fixed-target remote delegation remain separate.
+
+
+Peripheral profiles require an explicit jiggle object or `null`. Null disables
+only physical musical knob forwarding; validated motion still advances the input
+sequence barrier, while buttons and native light delivery stay active. The
+bridge neither configures jiggle thresholds nor changes musical timing in this
+mode. Operator packets pin peripheral and web release identities independently,
+so a controller update does not require redeploying the running web desk.

@@ -8,12 +8,16 @@ import { runPeripheralBridge } from '../bridge.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
 import { PersistentDesk } from '../../remote-performance/controller.js';
 import { createGateway } from '../../remote-performance/gateway.js';
-import type { DeskController } from '../../remote-performance/session-schema.js';
+import type { DeskController, DeskPublication } from '../../remote-performance/session-schema.js';
 import { installedPackage, sessionProfile, until } from '../../remote-performance/tests/session-fixture.js';
 
 const level = (image: readonly number[]) => image[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL];
 
-for (const { playing, buttonKey } of [{ playing: false }, { playing: false, buttonKey: 'tab' }, { playing: true, buttonKey: 'escape' }] as const) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with ${buttonKey ?? 'default'} key and abort clears native held state and helper output`, { timeout: 20000 }, async () => {
+const attachments: readonly { playing: boolean; buttonKey?: 'tab' | 'escape'; disabled?: boolean; gap?: boolean }[] = [
+  { playing: false }, { playing: false, buttonKey: 'tab' }, { playing: true, buttonKey: 'escape' },
+  { playing: true, buttonKey: 'escape', disabled: true }, { playing: true, buttonKey: 'escape', disabled: true, gap: true },
+];
+for (const { playing, buttonKey, disabled = false, gap = false } of attachments) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with ${buttonKey ?? 'default'} key${disabled ? ' and musical knob disabled' : ''} and ${gap ? 'publication gap' : 'abort'} clears native held state and helper output`, { timeout: 20000 }, async () => {
   await stat(resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'));
   const directory = await mkdtemp(join(tmpdir(), 'pb-'));
   const tokenFile = join(directory, 'token');
@@ -29,7 +33,9 @@ const record = value => fs.appendFileSync(log, JSON.stringify(value) + String.fr
 const session = Number(process.argv[2]);
 record({ type: 'ready', args: process.argv.slice(3) });
 process.stdout.write(JSON.stringify({ type: 'ready', version: 1, session, released: true }) + String.fromCharCode(10));
-process.stdout.write(JSON.stringify({ type: 'button', session, sequence: 1, down: true }) + String.fromCharCode(10));
+process.stdout.write(JSON.stringify({ type: 'motion', session, sequence: 1, deltaY: 8 }) + String.fromCharCode(10));
+process.stdout.write(JSON.stringify({ type: 'motion', session, sequence: 2, deltaY: -5 }) + String.fromCharCode(10));
+process.stdout.write(JSON.stringify({ type: 'button', session, sequence: 3, down: true }) + String.fromCharCode(10));
 readline.createInterface({ input: process.stdin }).on('line', line => {
   record({ type: 'command', line });
   if (line === 'quit') process.exit(0);
@@ -41,9 +47,10 @@ process.on('exit', code => record({ type: 'exit', code }));
   const abort = new AbortController();
   const commands: unknown[] = [];
   let lifecycleChanges = 0;
+  let publish: ((publication: DeskPublication) => void) | undefined;
   const forwarded: DeskController = {
     snapshot: () => controller.snapshot(),
-    subscribe: listener => controller.subscribe(listener),
+    subscribe: listener => { publish = listener; return controller.subscribe(listener); },
     command: (target, input) => { commands.push(input); return controller.command(target, input); },
     setAudio: goal => { lifecycleChanges++; return controller.setAudio(goal); },
     close: () => controller.close(),
@@ -76,7 +83,7 @@ process.on('exit', code => record({ type: 'exit', code }));
     const base = `http://127.0.0.1:${address.port}`;
     gatewayConfig.origin = base;
     running = runPeripheralBridge({ version: 1, origin: base, tokenFile, helperExecutable: helper,
-      sdkChannel: 0, bindingRevision: 1, ...(buttonKey ? { buttonKey } : {}), jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal);
+      sdkChannel: 0, bindingRevision: 1, ...(buttonKey ? { buttonKey } : {}), jiggle: disabled ? null : { minimumTravel: 4, minimumReversal: 2 } }, abort.signal);
     let bridgeFailure: unknown;
     const settled = running.then(() => ({ ok: true }), error => { bridgeFailure = error; return { ok: false, error }; });
     await until(() => {
@@ -92,17 +99,24 @@ process.on('exit', code => record({ type: 'exit', code }));
       await new Promise(resolve => setTimeout(resolve, 10));
     }
     assert.equal(helperSawFull, true, 'the helper receives the engine-authored full brightness image');
-    assert.deepEqual(commands.slice(0, 3), [
-      { command: 'configureJiggle', args: { minimumTravel: 4, minimumReversal: 2 } },
+    const expected = [
+      ...(!disabled ? [{ command: 'configureJiggle', args: { minimumTravel: 4, minimumReversal: 2 } }] : []),
       { command: 'control', args: { control: { id: 'cueButton', value: 0 } } },
+      ...(!disabled ? [{ command: 'control', args: { control: { id: 'knob', value: 8 } } }, { command: 'control', args: { control: { id: 'knob', value: -5 } } }] : []),
       { command: 'control', args: { control: { id: 'cueButton', value: 1 } } },
-    ], 'queued helper input waits for attachment and native jiggle configuration');
+    ];
+    assert.deepEqual(commands, expected, 'disabled motion sends neither jiggle configuration nor knob commands; object configuration retains ordered motion');
     const firstRecord = (await records())[0];
     assert.equal(firstRecord.type, 'ready');
     assert.deepEqual(firstRecord.args, ['0', '--confirm-wiring', ...(buttonKey ? ['--button-key', buttonKey] : [])], 'omitted key preserves helper argv; explicit key uses the reviewed trailing flag');
-    abort.abort();
+    if (gap) {
+      for (let count = 0; count < 100 && (await records()).filter(entry => entry.line?.startsWith('light ')).length < 2; count++) await new Promise(resolve => setTimeout(resolve, 10));
+      assert.ok((await records()).filter(entry => entry.line?.startsWith('light ')).length >= 2, 'event stream attached before gap');
+      publish?.({ type: 'gap' });
+    } else abort.abort();
     const result = await settled;
-    assert.deepEqual(result, { ok: true });
+    if (gap) { assert.equal(result.ok, false); if ('error' in result) assert.match(String(result.error), /publication gap/); }
+    else assert.deepEqual(result, { ok: true });
     const final = controller.snapshot().audio;
     assert.equal(final.kind, 'ready');
     if (final.kind !== 'ready') throw new Error('Bridge interrupted native audio');
@@ -111,8 +125,8 @@ process.on('exit', code => record({ type: 'exit', code }));
     assert.equal(final.performance.state.phase, playing ? 'playing' : 'idle');
     assert.equal(level(final.performance.lights), 0, 'fresh cleanup request releases native held state after the main signal aborts');
     assert.equal(lifecycleChanges, 0, 'attaching and aborting never change the audio lifecycle');
-    assert.equal(commands.length, 4);
-    assert.deepEqual(commands[3], { command: 'control', args: { control: { id: 'cueButton', value: 0 } } });
+    assert.equal(commands.length, expected.length + 1);
+    assert.deepEqual(commands.at(-1), { command: 'control', args: { control: { id: 'cueButton', value: 0 } } });
     const history = await records();
     assert.ok(history.some(entry => entry.line === 'clear'));
     assert.ok(history.some(entry => entry.line === 'quit'));

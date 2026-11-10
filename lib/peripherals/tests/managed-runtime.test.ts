@@ -108,7 +108,7 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		server.listen(0, '127.0.0.1'); await once(server, 'listening');
 		const address = server.address(); assert.ok(address && typeof address !== 'string'); config.origin = `http://127.0.0.1:${address.port}`;
 		let present = false;
-		running = servePeripheral({ version: 1, origin: config.origin, tokenFile, helperExecutable: helper, sdkChannel: 0, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal, { present: async () => present, fingerprint: () => readFile(stageFile, 'utf8'), retryMs: 10, report: () => {} });
+		running = servePeripheral({ version: 1, origin: config.origin, tokenFile, helperExecutable: helper, sdkChannel: 0, bindingRevision: 1, jiggle: null }, abort.signal, { present: async () => present, fingerprint: () => readFile(stageFile, 'utf8'), retryMs: 10, report: () => {} });
 		await new Promise(resolve => setTimeout(resolve, 50)); assert.equal((await records()).length, 0, 'absent hardware never starts a child');
 		present = true;
 		for (let stage = 0; stage < 3; stage++) {

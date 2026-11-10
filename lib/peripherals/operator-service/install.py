@@ -16,8 +16,7 @@ import sys
 
 UID = GID = 1000
 HOME = '/home/anulman'
-REVISION = 'd8fa3cf199496d0f4897357f8e9cfad9f1415e9c'
-RELEASE = HOME + '/.local/share/show-tools/releases/session-d8fa3cf'
+RELEASE_ROOT = HOME + '/.local/share/show-tools/releases'
 PROFILE = HOME + '/.config/show-tools/peripheral.json'
 UNIT_NAME = 'show-tools-peripheral.service'
 UNIT = HOME + '/.config/systemd/user/' + UNIT_NAME
@@ -228,21 +227,23 @@ def enable_link():
         os.close(fd)
 
 
-def validate_profile(profile):
+def validate_profile(profile, release):
     expected = {'version': 1, 'origin': 'https://proxmox.tail54fc55.ts.net:8443',
                 'connectAddress': '100.93.139.99', 'tokenFile': TOKEN,
-                'helperExecutable': RELEASE + '/native/peripheral/peripheral-host',
+                'helperExecutable': release + '/native/peripheral/peripheral-host',
                 'sdkChannel': 0, 'bindingRevision': 1, 'buttonKey': 'escape'}
     require(type(profile) is dict and set(profile) == set(expected) | {'jiggle'}, 'Unexpected peripheral profile fields')
     require(all(type(profile[key]) is type(value) and profile[key] == value for key, value in expected.items()), 'Peripheral target/binding differs from review')
     jiggle = profile['jiggle']
+    if jiggle is None:
+        return
     require(type(jiggle) is dict and set(jiggle) == {'minimumTravel', 'minimumReversal'}, 'Explicit approved jiggle contract required')
     require(all(type(value) is int for value in jiggle.values()) and 1 <= jiggle['minimumReversal'] <= jiggle['minimumTravel'] <= 32767, 'Invalid jiggle thresholds')
 
 
-def validate_unit(data):
+def validate_unit(data, release):
     expected = ('[Unit]\nDescription=Show Tools peripheral controller\nStartLimitIntervalSec=0\n\n[Service]\nType=exec\n'
-                'ExecStart="' + RELEASE + '/bin/show-tools-peripheral" serve --config "' + PROFILE + '"\n'
+                'ExecStart="' + release + '/bin/show-tools-peripheral" serve --config "' + PROFILE + '"\n'
                 'Restart=on-abnormal\nRestartSec=3s\nKillMode=control-group\nTimeoutStopSec=15s\nSendSIGKILL=yes\nUMask=0077\n\n'
                 '[Install]\nWantedBy=default.target\n')
     require(data == expected.encode(), 'Unit differs from reviewed renderer')
@@ -257,8 +258,12 @@ def apply(packet, manifest_sha256):
     manifest_data, _ = file_bytes(str(packet / 'manifest.json'), private=True, maximum=16384)
     require(digest(manifest_data) == manifest_sha256, 'Manifest differs from operator-reviewed hash')
     manifest = strict_json(manifest_data)
-    require(type(manifest) is dict and set(manifest) == {'schemaVersion', 'sourceRevision', 'webProfileSha256', 'files', 'releaseFiles'}, 'Unexpected manifest fields')
-    require(type(manifest['schemaVersion']) is int and manifest['schemaVersion'] == 1 and manifest['sourceRevision'] == REVISION, 'Wrong manifest revision')
+    require(type(manifest) is dict and set(manifest) == {'schemaVersion', 'sourceRevision', 'webSourceRevision', 'webProfileSha256', 'files', 'releaseFiles'}, 'Unexpected manifest fields')
+    require(type(manifest['schemaVersion']) is int and manifest['schemaVersion'] == 1, 'Wrong manifest version')
+    for key in ('sourceRevision', 'webSourceRevision'):
+        require(type(manifest[key]) is str and re.fullmatch('[a-f0-9]{40}', manifest[key]), 'Explicit full release revisions required')
+    release = RELEASE_ROOT + '/session-' + manifest['sourceRevision'][:7]
+    web_release = RELEASE_ROOT + '/session-' + manifest['webSourceRevision'][:7]
     require(type(manifest['files']) is dict and set(manifest['files']) == {'install.py', 'profile.json', UNIT_NAME}, 'Unexpected packet files')
     require(type(manifest['releaseFiles']) is dict and set(manifest['releaseFiles']) == RELEASE_FILES, 'Unexpected executable pin set')
     for value in [manifest['webProfileSha256'], *manifest['files'].values(), *manifest['releaseFiles'].values()]:
@@ -268,11 +273,14 @@ def apply(packet, manifest_sha256):
         data, _ = file_bytes(str(packet / name), private=True, maximum=65536)
         require(digest(data) == expected, 'Packet checksum mismatch: ' + name)
         files[name] = data
-    validate_profile(strict_json(files['profile.json']))
-    validate_unit(files[UNIT_NAME])
+    validate_profile(strict_json(files['profile.json']), release)
+    validate_unit(files[UNIT_NAME], release)
     for name, expected in manifest['releaseFiles'].items():
-        data, info = file_bytes(RELEASE + '/' + name)
+        data, info = file_bytes(release + '/' + name)
         require(digest(data) == expected, 'Installed release checksum mismatch: ' + name)
+        if name == 'release.json':
+            description = strict_json(data)
+            require(type(description) is dict and description.get('sourceRevision') == manifest['sourceRevision'], 'Installed release metadata revision mismatch')
         if name in {'runtime/node', 'bin/show-tools-peripheral', 'native/peripheral/peripheral-host', 'bin/show-tools-session'}:
             require(info.st_mode & 0o100, 'Expected executable: ' + name)
     web_bytes, _ = file_bytes(WEB_PROFILE, private=True, maximum=16384)
@@ -282,6 +290,8 @@ def apply(packet, manifest_sha256):
     require(web.get('serviceName') == 'show-tools-web.service' and web.get('origin') == 'https://proxmox.tail54fc55.ts.net:8443'
             and web.get('connectAddress') == '100.93.139.99' and web.get('tokenFile') == TOKEN and 'caFile' not in web,
             'Web profile authority/TLS differs from review')
+    require(type(web.get('server')) is dict and web['server'].get('nodeExecutable') == web_release + '/runtime/node'
+            and web['server'].get('entrypoint') == web_release + '/gateway/server.mjs', 'Web profile differs from its separately reviewed release')
     token_fd = directory(str(Path(TOKEN).parent))
     try:
         token = os.stat(Path(TOKEN).name, dir_fd=token_fd, follow_symlinks=False)
@@ -307,7 +317,7 @@ def apply(packet, manifest_sha256):
         return
     require(state.get('ActiveState') in ('inactive', 'failed') and state.get('MainPID') == '0'
             and state.get('TasksCurrent', '') in ('0', '[not set]', ''), 'Existing service process/unknown state; left unchanged')
-    status = command([RELEASE + '/bin/show-tools-session', 'audio', 'status', '--profile', WEB_PROFILE])
+    status = command([release + '/bin/show-tools-session', 'audio', 'status', '--profile', WEB_PROFILE])
     require(status in ('Audio off', 'Audio ready; transport idle', 'Audio ready; transport ended'),
             'Performance active or state unknown; no installation/start requested')
     for destination, name in ((PROFILE, 'profile.json'), (UNIT, UNIT_NAME)):

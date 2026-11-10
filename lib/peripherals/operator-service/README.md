@@ -13,17 +13,22 @@ existing lingering setting and all parent permissions remain unchanged.
 
 The source renderer's exact unit runs:
 
-    /home/anulman/.local/share/show-tools/releases/session-d8fa3cf/bin/show-tools-peripheral serve --config /home/anulman/.config/show-tools/peripheral.json
+    /home/anulman/.local/share/show-tools/releases/session-<PERIPHERAL_SOURCE7>/bin/show-tools-peripheral serve --config /home/anulman/.config/show-tools/peripheral.json
 
 The separate show-tools-session launcher does not expose peripheral commands.
 The profile uses the confirmed HTTPS origin, explicit local tailnet route,
 existing credential FILE path, SDK output0 and Escape key. It omits caFile so
 Node's normal trusted roots, configured hostname/SNI and certificate validation
 apply. Binding revision1 initializes a new delivery binding, not a song binding.
-The explicit jiggle contract is pending operator selection: no final profile,
-manifest hash or runnable activation command exists until that is resolved.
+The operator selected musical knob actions off for the initial profile. Pass
+`--disable-jiggle` explicitly to encode `jiggle:null`; there is no inferred tuning
+value. An explicit object remains available for separately approved tuning.
 
-The reviewed release must already be installed at session-d8fa3cf. The preparer
+The separately reviewed peripheral release must already be installed at its
+fixed-root `session-<PERIPHERAL_SOURCE7>` path. Its full source revision is explicit,
+verified against release.json and pinned independently of the existing web source.
+The web profile may continue pointing at reviewed d8fa3cf; it is not redeployed
+for this controller update. The preparer
 pins its Node, both CLI bundles/launchers, native peripheral helper and release
 metadata. The final manifest also pins the exact reviewed installed web profile,
 installer and complete peripheral profile/unit. All pins are checked before any
@@ -65,12 +70,15 @@ replacing the child. Native C++ still owns musical timing and light images. The
 unit permits abnormal controller recovery (Restart=on-abnormal, three seconds),
 while normal auth/configuration failures hold. No audio lifecycle is restarted.
 
-For final preparation, pass the reviewed local web profile and the explicitly
-approved tuning; values are required, never inferred from a README or defaults:
+For final preparation, pass both independent reviewed source revisions, the
+actual local web profile and the explicit operator-selected disabled mode:
 
-    node --import tsx lib/peripherals/operator-service/prepare.ts --release /private/tmp/show-tools-session-release-d8fa3cf --web-profile REVIEWED_WEB_PROFILE --jiggle-travel APPROVED --jiggle-reversal APPROVED --out NEW_PRIVATE_PACKET
+    node --import tsx lib/peripherals/operator-service/prepare.ts --release REVIEWED_NEW_RELEASE --source-revision PERIPHERAL_FULL_SHA --web-profile REVIEWED_WEB_PROFILE --web-source-revision WEB_FULL_SHA --disable-jiggle --out NEW_PRIVATE_PACKET
 
-Without those options the preparer produces only a pending proposal and no
+For enabled tuning, both `--jiggle-travel` and `--jiggle-reversal` are required
+instead of `--disable-jiggle`; mixing them is rejected. Without a complete
+explicit selection and both reviewed source/profile inputs, the preparer produces
+only a pending proposal and no
 activation command. The final OPERATOR-COMMAND.txt pins both installer and
 manifest, runs Python isolated with a closed environment, and must be executed
 in the operator's anulman UID/GID1000 shell. If starting in a root console, the
@@ -82,7 +90,7 @@ reviewed fixed-target peripheral sidecar/bootstrap. This packet creates no remot
 authority and changes no existing checker, signers, grant or ledger.
 
 Local verification uses owned temporary files and a simulated service manager:
-16 checks cover all critical pins before service calls, complete/idempotent
+18 checks cover all critical pins before service calls, complete/idempotent
 create-only writes, active-service read-only reruns, active-performance hold,
 foreign file/symlink refusal, retained private-group0775 ancestry with zero chmod,
 exclusive-group rejection, web-profile/token metadata pins, explicit tuning
