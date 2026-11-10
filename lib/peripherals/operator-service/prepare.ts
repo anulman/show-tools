@@ -1,0 +1,50 @@
+import { createHash } from 'node:crypto';
+import { readFile, writeFile, mkdir, cp, chmod } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
+import { decodePeripheralBridgeConfig } from '../bridge.js';
+import { decodeSessionProfile } from '../../remote-performance/session-profile.js';
+import { renderPeripheralUnit } from '../service-unit.js';
+
+const options = parseArgs({ options: { release: { type: 'string' }, out: { type: 'string' }, 'web-profile': { type: 'string' }, 'jiggle-travel': { type: 'string' }, 'jiggle-reversal': { type: 'string' } } }).values;
+const revision = 'd8fa3cf199496d0f4897357f8e9cfad9f1415e9c';
+const release = resolve(options.release ?? '/private/tmp/show-tools-session-release-d8fa3cf');
+const destination = '/home/anulman/.local/share/show-tools/releases/session-d8fa3cf';
+const profilePath = '/home/anulman/.config/show-tools/peripheral.json';
+const unitName = 'show-tools-peripheral.service';
+const fields = { version: 1, origin: 'https://proxmox.tail54fc55.ts.net:8443', connectAddress: '100.93.139.99', tokenFile: '/home/anulman/.config/show-tools/credentials/token', helperExecutable: `${destination}/native/peripheral/peripheral-host`, sdkChannel: 0, bindingRevision: 1, buttonKey: 'escape' };
+const unit = renderPeripheralUnit(`${destination}/bin/show-tools-peripheral`, profilePath);
+const sha = (data: Uint8Array | string) => createHash('sha256').update(data).digest('hex');
+const base = dirname(fileURLToPath(import.meta.url));
+const releasePins: Record<string, string> = {};
+for (const name of ['release.json', 'runtime/node', 'bin/show-tools-peripheral', 'gateway/peripheral-cli.mjs', 'native/peripheral/peripheral-host', 'bin/show-tools-session', 'gateway/session-cli.mjs']) releasePins[name] = sha(await readFile(join(release, name)));
+const info = JSON.parse(await readFile(join(release, 'release.json'), 'utf8'));
+if (info.sourceRevision !== revision) throw new Error('Wrong release source');
+if (!options.out) throw new Error('--out NEW_DIRECTORY is required');
+const out = resolve(options.out);
+await mkdir(out, { mode: 0o700 });
+await cp(join(base, 'install.py'), join(out, 'install.py'));
+await chmod(join(out, 'install.py'), 0o600);
+await writeFile(join(out, unitName), unit, { mode: 0o600, flag: 'wx' });
+if (!options['web-profile'] || options['jiggle-travel'] === undefined || options['jiggle-reversal'] === undefined) {
+  await writeFile(join(out, 'profile-fields.proposal.json'), JSON.stringify(fields, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(join(out, 'pending.json'), JSON.stringify({ ready: false, missing: ['operator-approved explicit jiggle contract', 'exact reviewed installed-web-profile hash'], releaseSource: revision, releasePins }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  process.stdout.write(JSON.stringify({ ready: false, out, activationCommand: null }) + '\n');
+} else {
+  for (const key of ['jiggle-travel', 'jiggle-reversal'] as const) if (!/^[1-9][0-9]{0,4}$/.test(options[key]!)) throw new Error('Explicit integer jiggle thresholds required');
+  const profile = decodePeripheralBridgeConfig({ ...fields, jiggle: { minimumTravel: Number(options['jiggle-travel']), minimumReversal: Number(options['jiggle-reversal']) } });
+  const profileData = JSON.stringify(profile, null, 2) + '\n';
+  await writeFile(join(out, 'profile.json'), profileData, { mode: 0o600, flag: 'wx' });
+  const webData = await readFile(options['web-profile']);
+  const web = decodeSessionProfile(JSON.parse(webData.toString('utf8')));
+  if (web.serviceName !== 'show-tools-web.service' || web.origin !== fields.origin || web.connectAddress !== fields.connectAddress || web.tokenFile !== fields.tokenFile || web.caFile !== undefined || web.server.nodeExecutable !== `${destination}/runtime/node` || web.server.entrypoint !== `${destination}/gateway/server.mjs`) throw new Error('Reviewed web profile differs from exact new release/target/TLS contract');
+  const manifest = { schemaVersion: 1, sourceRevision: revision, webProfileSha256: sha(webData), files: { 'install.py': sha(await readFile(join(out, 'install.py'))), 'profile.json': sha(profileData), [unitName]: sha(unit) }, releaseFiles: releasePins };
+  const manifestData = JSON.stringify(manifest, null, 2) + '\n';
+  await writeFile(join(out, 'manifest.json'), manifestData, { mode: 0o600, flag: 'wx' });
+  const stage = '/home/anulman/.local/share/show-tools/staging/peripheral-service-d8fa3cf';
+  const sourcePin = manifest.files['install.py'];
+  const command = `/usr/bin/env -i HOME=/home/anulman USER=anulman LOGNAME=anulman PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus /usr/bin/python3 -I -c 'import hashlib; p="${stage}/install.py"; b=open(p,"rb").read(65537); assert len(b)<=65536 and hashlib.sha256(b).hexdigest()=="${sourcePin}"; __file__=p; exec(compile(b,p,"exec"))' --manifest-sha256 ${sha(manifestData)} --activate`;
+  await writeFile(join(out, 'OPERATOR-COMMAND.txt'), command + '\n', { mode: 0o600, flag: 'wx' });
+  process.stdout.write(JSON.stringify({ ready: true, out, manifestSha256: sha(manifestData), installerSha256: sourcePin }) + '\n');
+}

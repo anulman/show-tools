@@ -300,3 +300,9 @@ Native faults while the gateway remains available do not trigger that restart
 policy. Explicit service Stop stays stopped, and healthy performances are not
 restarted. Applying the rendered policy to an installed unit remains a reviewed
 deployment operation; no networking or audio lifecycle is changed by rendering.
+
+A fixed-target peripheral operator packet can prepare the first named controller
+service. Its installer requires UID/GID1000, verifies the reviewed packet/release
+and profile, and only creates/enables/starts that controller. It does not alter
+web/native audio, credentials, udev, lingering or any remote authority. Initial
+operator activation and later fixed-target remote delegation remain separate.

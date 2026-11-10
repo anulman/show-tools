@@ -371,3 +371,14 @@ listener, and proves a later startup remains audio-off. A second controlled case
 reads the local interface list, selects an unassigned documentation IPv4 address,
 and observes actual `EADDRNOTAVAIL` without changing any interface. These are source and
 process checks, not a systemd/Tailscale reboot acceptance claim.
+
+### Review the first peripheral service packet
+
+`lib/peripherals/operator-service/` prepares the fixed EliteDesk operator packet.
+Run `node --import tsx --test lib/peripherals/tests/operator-service.test.ts` for
+owned temporary-file and simulated service-manager checks. The preparer emits
+no activation command until explicit approved jiggle tuning and the exact
+reviewed installed web profile are supplied. It pins release/helper/Node/CLI
+bytes and requires protected manager PATH/dirname resolution. The installer is
+operator-only UID/GID1000; these tests neither activate a service nor open USB or
+audio. A packet is not a remote delegation or a physical practice acceptance.
