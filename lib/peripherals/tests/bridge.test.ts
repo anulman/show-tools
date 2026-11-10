@@ -60,10 +60,35 @@ test('stream limits apply before newline and preserve split UTF-8 and complete r
 test('binding validates explicit output and private absolute credential paths', () => {
 	const config = { version: 1, origin: 'http://127.0.0.1:9999', tokenFile: '/tmp/token', helperExecutable: '/tmp/helper', sdkChannel: 0, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } };
 	assert.equal(decodePeripheralBridgeConfig(config).sdkChannel, 0);
+	assert.equal(decodePeripheralBridgeConfig({ ...config, jiggle: null }).jiggle, null);
+	const { jiggle: _, ...omitted } = config;
+	assert.throws(() => decodePeripheralBridgeConfig(omitted));
 	assert.equal(decodePeripheralBridgeConfig(config).buttonKey, undefined);
 	for (const buttonKey of ['tab', 'escape']) assert.equal(decodePeripheralBridgeConfig({ ...config, buttonKey }).buttonKey, buttonKey);
 	for (const buttonKey of ['Escape', 'enter', 1, null, '', '--button-key escape']) assert.throws(() => decodePeripheralBridgeConfig({ ...config, buttonKey }));
 	assert.throws(() => decodePeripheralBridgeConfig({ ...config, sdkChannel: 96 }));
 	assert.throws(() => decodePeripheralBridgeConfig({ ...config, tokenFile: 'token' }));
 	assert.throws(() => decodePeripheralBridgeConfig({ ...config, extra: 'unsupported' }));
+});
+
+
+test('disabled motion is validated and consumes sequence before discard; button edges remain musical', async () => {
+	const sent: Control[] = [];
+	const relay = new PeripheralRelay(1, async control => { sent.push(control); }, error => { throw error; }, false);
+	assert.throws(() => relay.input({ type: 'motion', session: 1, sequence: 1, deltaY: 3 }), /stale/);
+	relay.input({ type: 'ready', version: 1, session: 1, released: true });
+	relay.start();
+	relay.input({ type: 'motion', session: 1, sequence: 1, deltaY: 32767 });
+	assert.throws(() => relay.input({ type: 'motion', session: 1, sequence: 1, deltaY: -1 }), /stale/);
+	assert.throws(() => relay.input({ type: 'motion', session: 2, sequence: 2, deltaY: 1 }), /session/);
+	assert.throws(() => relay.input({ type: 'motion', session: 1, sequence: 2, deltaY: 32768 }));
+	// Existing monotonic high-water semantics allow gaps; ignored motion still advances it.
+	relay.input({ type: 'motion', session: 1, sequence: 5, deltaY: -32768 });
+	assert.throws(() => relay.input({ type: 'button', session: 1, sequence: 4, down: true }), /stale/);
+	relay.input({ type: 'button', session: 1, sequence: 6, down: true });
+	relay.input({ type: 'motion', session: 1, sequence: 7, deltaY: 0 });
+	relay.input({ type: 'button', session: 1, sequence: 8, down: false });
+	await new Promise(resolve => setImmediate(resolve));
+	await relay.close();
+	assert.deepEqual(sent, [{ id: 'cueButton', value: 1 }, { id: 'cueButton', value: 0 }]);
 });

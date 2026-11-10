@@ -18,8 +18,8 @@ export const PeripheralBridgeConfigSchema = Schema.Struct({
 	tokenFile: path, caFile: Schema.optionalKey(path), helperExecutable: path,
 	sdkChannel: integer(0, 95), bindingRevision: integer(1),
 	buttonKey: Schema.optionalKey(Schema.Literals(['tab', 'escape'])),
-	jiggle: Schema.Struct({ minimumTravel: integer(1, 32767), minimumReversal: integer(1, 32767) })
-		.check(Schema.makeFilter(value => value.minimumReversal <= value.minimumTravel || 'Reversal threshold exceeds travel threshold')),
+	jiggle: Schema.Union([Schema.Null, Schema.Struct({ minimumTravel: integer(1, 32767), minimumReversal: integer(1, 32767) })
+		.check(Schema.makeFilter(value => value.minimumReversal <= value.minimumTravel || 'Reversal threshold exceeds travel threshold'))]),
 });
 export type PeripheralBridgeConfig = typeof PeripheralBridgeConfigSchema.Type;
 export const decodePeripheralBridgeConfig = Schema.decodeUnknownSync(PeripheralBridgeConfigSchema, { onExcessProperty: 'error' });
@@ -57,7 +57,7 @@ export class PeripheralRelay {
 	private closed = false;
 	private idle: Promise<void> = Promise.resolve();
 	private enabled = false;
-	constructor(private readonly session: number, private readonly send: (control: Control) => Promise<void>, private readonly failed: (error: unknown) => void) {}
+	constructor(private readonly session: number, private readonly send: (control: Control) => Promise<void>, private readonly failed: (error: unknown) => void, private readonly knobEnabled = true) {}
 	input(value: unknown) {
 		if (this.closed) return;
 		const input = decodeInput(value);
@@ -70,7 +70,7 @@ export class PeripheralRelay {
 		}
 		if (!this.ready || input.sequence <= this.lastSequence) throw new Error('Peripheral input sequence is stale');
 		this.lastSequence = input.sequence;
-		if (input.type === 'motion' && input.deltaY === 0) return;
+		if (input.type === 'motion' && (input.deltaY === 0 || !this.knobEnabled)) return;
 		const control: Control = input.type === 'button' ? { id: 'cueButton', value: input.down ? 1 : 0 } : { id: 'knob', value: input.deltaY };
 		const previous = this.pending.at(-1);
 		if (control.id === 'knob' && previous?.id === 'knob' && Math.sign(control.value) === Math.sign(previous.value)) {
@@ -169,7 +169,7 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	const fence = 1;
 	const tuple = `${incarnation} ${session} ${config.bindingRevision} ${fence}`;
 	const child = spawn(config.helperExecutable, [String(session), String(config.sdkChannel), '--confirm-wiring', ...(config.buttonKey ? ['--button-key', config.buttonKey] : [])], { stdio: ['pipe', 'pipe', 'inherit'] });
-	let commandSequence = 0, stopped = false, attached = false, configuredNative = false;
+	let commandSequence = 0, stopped = false, attached = false, releaseRequired = false;
 	let failure: unknown;
 	let finishing = false;
 	let finish: () => void = () => {};
@@ -193,7 +193,7 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 		}
 		if (result.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed');
 	};
-	const relay = new PeripheralRelay(session, send, fail);
+	const relay = new PeripheralRelay(session, send, fail, config.jiggle !== null);
 	const light = (performance: NativePerformance) => {
 		if (attached) write(`light ${tuple} ${performance.lights.join(' ')}`);
 	};
@@ -212,12 +212,14 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	if (combined.aborted) finish();
 	const stream = (async () => {
 		if (!await attachment || stopped) return;
-		const configured = decodeNativeOutcome(await link.json('/api/command', {
-			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'configureJiggle', args: config.jiggle,
-		}));
-		if (configured.outcome !== 'applied') throw new Error(`Jiggle setup ${configured.outcome}: ${configured.error ?? 'native acknowledgement unavailable'}`);
-		if (configured.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed during jiggle setup');
-		configuredNative = true;
+		if (config.jiggle !== null) {
+			const configured = decodeNativeOutcome(await link.json('/api/command', {
+				sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'configureJiggle', args: config.jiggle,
+			}));
+			if (configured.outcome !== 'applied') throw new Error(`Jiggle setup ${configured.outcome}: ${configured.error ?? 'native acknowledgement unavailable'}`);
+			if (configured.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed during jiggle setup');
+		}
+		releaseRequired = true;
 		await send({ id: 'cueButton', value: 0 });
 		relay.start();
 		const fresh = decodeView(await link.json('/api/status'));
@@ -252,7 +254,7 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 		else child.stdin.end();
 		await drained;
 		try {
-			if (configuredNative) {
+			if (releaseRequired) {
 				const cleanup = await connection(config, AbortSignal.timeout(3000));
 				const session = decodeDeskBootstrap(await cleanup.json('/api/session'));
 				const result = decodeNativeOutcome(await cleanup.json('/api/command', {

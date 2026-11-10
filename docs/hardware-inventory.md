@@ -32,7 +32,7 @@ The I-PAC is the controller board in this parts plan. Do not introduce an additi
 
 ## Installed bench state
 
-This record reflects the operator's MacBook bench session and confirmation on 2026-10-28. It supersedes earlier statements that all physical testing remains pending. Use [Resume the Mac bench test](guides/ipac-mac/resume-bench.md) to repeat the checks. The [bench verification record](guides/ipac-mac/bench-verification.md) distinguishes observed behavior from automated tests.
+This historical record reflects the operator's MacBook bench session and confirmation on 2026-10-28. The current EliteDesk observations are recorded below. It supersedes earlier statements that all physical testing remains pending. Use [Resume the Mac bench test](guides/ipac-mac/resume-bench.md) to repeat the checks. The [bench verification record](guides/ipac-mac/bench-verification.md) distinguishes observed behavior from automated tests.
 
 | Item | Confirmed observation | Remaining work |
 | --- | --- | --- |
@@ -45,7 +45,7 @@ This record reflects the operator's MacBook bench session and confirmation on 20
 | Foot pedal | Arrived; intended for BPM taps | Wire and capture press/release behavior in the next bench session |
 | Mushroom button | Arrived; normally open contact selected | Wire and capture press/release behavior in the next bench session. No fixed musical action is assigned |
 
-The observed `2a` label and `j` result are installation facts reported by the operator. Do not replace them with a factory key table. A connector label, a host key, and a song action are separate identities.
+The observed `2a` label and `j` result are historical Mac installation facts reported by the operator; they do not identify the currently connected EliteDesk switch. Do not replace them with a factory key table. A connector label, a host key, and a song action are separate identities.
 
 The spinner initially occupied the wrong header row. Correcting that physical connection restored relative Y reports without changing firmware or input configuration. No persistent configuration or stored LED script was written during this session.
 
@@ -68,6 +68,36 @@ inactivity. Tiny same-direction movement may be inactivity; small reversals
 count, but one isolated truly tiny reversal does not. Software thresholds require
 physical tuning and are not calibration measurements. USB placement remains
 configurable and is expected to move.
+
+## November 10 EliteDesk bench
+
+The directly connected EliteDesk board and one switch/LED were physically
+checked on November 10, 2026. These observations supersede the laptop's Tab
+selection for this connection; the switch connector label remains unconfirmed.
+
+| Item | Confirmed observation |
+| --- | --- |
+| USB board | Sole connected `d209:0410`, reported serial `4`. This reported selector is not proof of a globally unique board identity. |
+| Connected switch | Escape: Linux `KEY_ESC` code `1`, HID keyboard page `7`, usage `41` (`0x29`). The raw capture contained three presses and three releases. |
+| LED output `1` / SDK channel `0` | Visible pulse confirmed. The updated held test recorded 25 press/release pairs, sequence `1` through `50`; the operator said it “worked great” and confirmed hold-to-light. |
+| Knob | Actual bidirectional signed relative Y input confirmed. Physical rotation calibration remains separate. The operator selected musical knob actions off for the first persistent profile. |
+
+The missing button events came from the Tab-only filter, which excluded the
+observed Escape input. Configure the selected physical key from the current
+capture rather than assuming a factory key or historical connector mapping.
+USB ports, device-node names and process IDs are discovery results, not stable
+installation settings. Physical key selection and song bindings remain separate.
+
+The other three button/LED mappings are still unverified. Full practice-cue
+behavior has not been physically accepted, and the persistent controller service
+is not yet installed. The bench results establish input and held/pulse LED
+behavior, not a running practice integration.
+
+Evidence SHA256: held test
+`97aee8dd9832d486c2b25b770c059b9fadacd9d79029dfb26a2e2199d4a91e0e`;
+raw key capture
+`cf64ce545a8df43d9823871ddbd157ec6cdd0eed8ae98473612d68eaa96ec0d5`.
+The concise findings are retained here; raw process logs remain temporary evidence.
 
 ## Confirmed intended behavior
 
