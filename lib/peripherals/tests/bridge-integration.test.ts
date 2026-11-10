@@ -83,8 +83,8 @@ process.on('exit', code => record({ type: 'exit', code }));
     }
     assert.equal(helperSawFull, true, 'the helper receives the engine-authored full brightness image');
     assert.deepEqual(commands.slice(0, 3), [
-      { command: 'control', args: { control: { id: 'cueButton', value: 0 } } },
       { command: 'configureJiggle', args: { minimumTravel: 4, minimumReversal: 2 } },
+      { command: 'control', args: { control: { id: 'cueButton', value: 0 } } },
       { command: 'control', args: { control: { id: 'cueButton', value: 1 } } },
     ], 'queued helper input waits for attachment and native jiggle configuration');
     assert.equal((await records())[0].type, 'ready');

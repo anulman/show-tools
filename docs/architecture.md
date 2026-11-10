@@ -279,3 +279,13 @@ watchdog clears stalled output without advancing the musical clock. Physical
 USB timing and visible light output remain hardware acceptance checks.
 
 Session CLI and native peripheral bridge share an optional explicit-IP connection route. The configured origin remains the HTTP and TLS identity; routing does not modify host DNS or relax certificate verification. Server TLS certificates and keys configure the listener only. Client trust uses Node default roots or an explicit `caFile` bundle.
+
+The optional Linux peripheral `serve` supervisor waits for gateway audio and USB
+readiness, then owns one bridge/helper session at a time. Each reconnect discards
+old controls and waits for child cleanup before acquiring a fresh identity. USB
+ports, event/hidraw node names and PIDs are discovery results, never configuration
+pins. Gateway SSE heartbeat deadlines detect lost connections; they do not
+advance musical time or schedule lights. Only C++ supplies the musical light
+image and native audio continues independently of laptop/phone connectivity.
+The supervisor never enables audio or starts/stops transport. Its persistent
+user-unit renderer is source preparation, not an installed host capability.
