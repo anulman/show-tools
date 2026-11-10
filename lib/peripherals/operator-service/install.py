@@ -92,7 +92,7 @@ def directory(path):
 def file_bytes(path, private=False, maximum=256 * 1024 * 1024):
     parent = directory(str(Path(path).parent))
     try:
-        fd = os.open(Path(path).name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+        fd = os.open(Path(path).name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
         try:
             info = os.fstat(fd)
             require(stat.S_ISREG(info.st_mode) and info.st_uid == UID and info.st_gid == GID and info.st_nlink == 1,
@@ -159,23 +159,37 @@ def install_file(path, data):
 
 
 def cleanup_client(process, timeout):
-    # Keep the leader unreaped until both signals are sent, so its PID cannot be reused.
-    if process.returncode is None:
-        signal_error = False
-        for action in (signal.SIGTERM, signal.SIGKILL):
+    if process.returncode is not None:
+        return
+    watched = {signal.SIGTERM, signal.SIGINT, signal.SIGHUP}
+    previous_mask = signal.pthread_sigmask(signal.SIG_BLOCK, watched)
+    previous_handlers = {value: signal.getsignal(value) for value in watched}
+    try:
+        for value in watched:
+            signal.signal(value, signal.SIG_IGN)
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
+        # Keep the leader unreaped until both signals are sent, so its PID cannot be reused.
+        if process.returncode is None:
+            signal_error = False
+            for action in (signal.SIGTERM, signal.SIGKILL):
+                try:
+                    os.killpg(process.pid, action)
+                except ProcessLookupError:
+                    pass
+                except OSError:
+                    signal_error = True
+                if action == signal.SIGTERM:
+                    time.sleep(min(0.1, timeout / 2))
             try:
-                os.killpg(process.pid, action)
-            except ProcessLookupError:
-                pass
-            except OSError:
-                signal_error = True
-            if action == signal.SIGTERM:
-                time.sleep(min(0.1, timeout / 2))
-        try:
-            process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            raise ValueError('Owned command client cleanup unconfirmed; daemon effects uncertain; inspect status before retry') from None
-        require(not signal_error, 'Owned command client group cleanup unconfirmed; daemon effects uncertain; inspect status before retry')
+                process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                raise ValueError('Owned command client cleanup unconfirmed; daemon effects uncertain; inspect status before retry') from None
+            require(not signal_error, 'Owned command client group cleanup unconfirmed; daemon effects uncertain; inspect status before retry')
+    finally:
+        signal.pthread_sigmask(signal.SIG_BLOCK, watched)
+        for value, handler in previous_handlers.items():
+            signal.signal(value, handler)
+        signal.pthread_sigmask(signal.SIG_SETMASK, previous_mask)
 
 
 def command(args, allowed=(0,), output_limit=65536, timeout=10, cleanup_timeout=1):
@@ -215,8 +229,13 @@ def command(args, allowed=(0,), output_limit=65536, timeout=10, cleanup_timeout=
         except UnicodeError:
             raise ValueError('Command client output invalid; daemon effects uncertain; inspect status before retry') from None
     finally:
+        original_error = sys.exc_info()[1]
         try:
             cleanup_client(process, cleanup_timeout)
+        except BaseException as cleanup_error:
+            if original_error is None:
+                raise
+            original_error.add_note('Owned command client cleanup: ' + str(cleanup_error))
         finally:
             process.stdout.close()
             process.stderr.close()
@@ -335,9 +354,9 @@ def apply(packet, manifest_sha256):
     manifest_data, _ = file_bytes(str(packet / 'manifest.json'), private=True, maximum=16384)
     require(digest(manifest_data) == manifest_sha256, 'Manifest differs from operator-reviewed hash')
     manifest = strict_json(manifest_data)
-    require(type(manifest) is dict and set(manifest) == {'schemaVersion', 'sourceRevision', 'webSourceRevision', 'webProfileSha256', 'files', 'releaseFiles'}, 'Unexpected manifest fields')
-    require(type(manifest['schemaVersion']) is int and manifest['schemaVersion'] == 1, 'Wrong manifest version')
-    for key in ('sourceRevision', 'webSourceRevision'):
+    require(type(manifest) is dict and set(manifest) == {'schemaVersion', 'sourceRevision', 'webSourceRevision', 'installerSourceRevision', 'webProfileSha256', 'files', 'releaseFiles'}, 'Unexpected manifest fields')
+    require(type(manifest['schemaVersion']) is int and manifest['schemaVersion'] == 2, 'Wrong manifest version')
+    for key in ('sourceRevision', 'webSourceRevision', 'installerSourceRevision'):
         require(type(manifest[key]) is str and re.fullmatch('[a-f0-9]{40}', manifest[key]), 'Explicit full release revisions required')
     release = RELEASE_ROOT + '/session-' + manifest['sourceRevision'][:7]
     web_release = RELEASE_ROOT + '/session-' + manifest['webSourceRevision'][:7]
@@ -416,6 +435,7 @@ if __name__ == '__main__':
     def interrupted(_signal, _frame):
         raise InterruptedError('Installer interrupted; daemon effects uncertain; inspect status before retry')
     signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGHUP, interrupted)
     parser = argparse.ArgumentParser()
     parser.add_argument('--manifest-sha256', required=True)
     parser.add_argument('--activate', required=True, action='store_true')
@@ -425,4 +445,6 @@ if __name__ == '__main__':
         apply(Path(__file__).absolute().parent, arguments.manifest_sha256)
     except (ValueError, OSError, subprocess.SubprocessError) as error:
         print('PERIPHERAL INSTALL HELD: ' + str(error), file=sys.stderr)
+        for note in getattr(error, '__notes__', []):
+            print(note, file=sys.stderr)
         sys.exit(1)

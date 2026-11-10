@@ -68,7 +68,7 @@ class InstallerTests(unittest.TestCase):
             data = json.dumps({'sourceRevision': REVISION}).encode() if name == 'release.json' else ('synthetic owned release fixture ' + name).encode()
             self.write(self.release / name, data, 0o700)
             release_pins[name] = m.digest(data)
-        self.manifest = {'schemaVersion': 1, 'sourceRevision': REVISION, 'webSourceRevision': WEB_REVISION, 'webProfileSha256': m.digest(self.web_data), 'files': {name: m.digest(data) for name, data in packet_files.items()}, 'releaseFiles': release_pins}
+        self.manifest = {'schemaVersion': 2, 'sourceRevision': REVISION, 'webSourceRevision': WEB_REVISION, 'installerSourceRevision': '3' * 40, 'webProfileSha256': m.digest(self.web_data), 'files': {name: m.digest(data) for name, data in packet_files.items()}, 'releaseFiles': release_pins}
         self.manifest_pin = self.pin_manifest()
 
     def write(self, path, data, mode=0o600):
@@ -352,6 +352,22 @@ class InstallerTests(unittest.TestCase):
         self.assertFalse(any('start' in call for call in self.calls))
         self.assertFalse(any('off' in call or 'stop' in call for call in self.calls))
 
+    def test_fifo_is_opened_nonblocking_and_rejected_before_read(self):
+        fifo = self.root / 'fifo'
+        os.mkfifo(fifo, 0o600)
+        driver = """
+import importlib.util,os,sys
+spec=importlib.util.spec_from_file_location('fifo_installer',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+m.UID=os.getuid();m.GID=os.getgid();m.directory=lambda path:os.open(path,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+try:m.file_bytes(sys.argv[2],private=True)
+except ValueError:print('nonregular rejected');sys.exit(0)
+sys.exit(1)
+"""
+        result = subprocess.run([sys.executable, '-I', '-c', driver, str(Path(m.__file__).resolve()), str(fifo)], capture_output=True, text=True, timeout=2)
+        self.assertEqual((result.returncode,result.stdout.strip()), (0,'nonregular rejected'))
+        self.assertEqual(self.calls, [])
+
+
     def test_strict_json_rejects_duplicate_and_nonfinite_values(self):
         for value in (b'{"a":1,"a":2}', b'{"a":NaN}'):
             with self.assertRaises(ValueError): m.strict_json(value)
@@ -410,6 +426,54 @@ class CommandClientTests(unittest.TestCase):
                 self.assertIsNone(service.poll())
         finally:
             service.terminate(); service.wait(timeout=2)
+
+    def test_real_repeat_term_int_hup_cannot_interrupt_owned_client_cleanup(self):
+        with tempfile.TemporaryDirectory(prefix='repeat-client-cancel-') as root:
+            ready, entered, result = (Path(root) / name for name in ('ready', 'cleanup', 'result'))
+            child_code = "import signal,time; from pathlib import Path; [signal.signal(s,signal.SIG_IGN) for s in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP)]; Path(%r).write_text('ready'); time.sleep(30)" % str(ready)
+            driver = """
+import importlib.util,json,signal,subprocess,sys
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('owned_installer',sys.argv[1]); m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
+clients=[]; spawn=m.subprocess.Popen
+
+def record(*args,**kwargs):
+ p=spawn(*args,**kwargs); clients.append(p); return p
+m.subprocess.Popen=record
+cleanup=m.cleanup_client
+
+def marked(*args):
+ Path(sys.argv[3]).write_text('cleanup'); return cleanup(*args)
+m.cleanup_client=marked
+
+def interrupted(_signum,_frame): raise InterruptedError('first cancellation')
+for value in (signal.SIGTERM,signal.SIGINT,signal.SIGHUP): signal.signal(value,interrupted)
+try: m.command([sys.executable,'-I','-c',sys.argv[2]])
+except BaseException as error:
+ Path(sys.argv[4]).write_text(json.dumps({'error':type(error).__name__,'clientReturncode':clients[0].returncode})); sys.exit(7)
+sys.exit(0)
+"""
+            parent = subprocess.Popen([sys.executable, '-I', '-c', driver, str(Path(m.__file__).resolve()), child_code, str(entered), str(result)])
+            try:
+                for _ in range(300):
+                    if ready.exists(): break
+                    time.sleep(0.01)
+                self.assertTrue(ready.exists())
+                os.kill(parent.pid, signal.SIGTERM)
+                for _ in range(300):
+                    if entered.exists(): break
+                    time.sleep(0.001)
+                self.assertTrue(entered.exists())
+                for value in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+                    time.sleep(0.01)
+                    try: os.kill(parent.pid, value)
+                    except ProcessLookupError: pass
+                self.assertEqual(parent.wait(timeout=3), 7)
+                evidence = json.loads(result.read_text())
+                self.assertTrue(evidence['error'])
+                self.assertEqual(evidence['clientReturncode'], -signal.SIGKILL)
+            finally:
+                if parent.poll() is None: parent.kill(); parent.wait(timeout=2)
 
     def test_cancellation_cleans_only_owned_client_and_reports_no_success(self):
         clients = []
