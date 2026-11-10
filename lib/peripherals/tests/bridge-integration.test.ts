@@ -77,8 +77,10 @@ process.on('exit', code => record({ type: 'exit', code }));
     gatewayConfig.origin = base;
     running = runPeripheralBridge({ version: 1, origin: base, tokenFile, helperExecutable: helper,
       sdkChannel: 0, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal);
-    const settled = running.then(() => ({ ok: true }), error => ({ ok: false, error }));
+    let bridgeFailure: unknown;
+    const settled = running.then(() => ({ ok: true }), error => { bridgeFailure = error; return { ok: false, error }; });
     await until(() => {
+      if (bridgeFailure) throw bridgeFailure;
       const audio = controller.snapshot().audio;
       return audio.kind === 'ready' && level(audio.performance.lights) === 1 ? true : undefined;
     }, 'helper press did not reach the native held LED state');
