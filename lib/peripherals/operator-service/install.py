@@ -7,6 +7,9 @@ import os
 from pathlib import Path
 import pwd
 import re
+import selectors
+import signal
+import time
 import socket
 import shlex
 import shutil
@@ -92,14 +95,17 @@ def file_bytes(path, private=False, maximum=256 * 1024 * 1024):
         fd = os.open(Path(path).name, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
         try:
             info = os.fstat(fd)
-            require(stat.S_ISREG(info.st_mode) and info.st_uid == UID and info.st_gid == GID,
-                    'Not a reviewed caller-owned regular file: ' + str(path))
+            require(stat.S_ISREG(info.st_mode) and info.st_uid == UID and info.st_gid == GID and info.st_nlink == 1,
+                    'Not a reviewed caller-owned single-link regular file: ' + str(path))
             require(not info.st_mode & 0o022 and (not private or stat.S_IMODE(info.st_mode) == 0o600), 'Unsafe file mode: ' + str(path))
             require(info.st_size <= maximum, 'Oversized file: ' + str(path))
             with os.fdopen(fd, 'rb', closefd=False) as stream:
                 data = stream.read(maximum + 1)
             require(len(data) <= maximum, 'File grew beyond bound: ' + str(path))
-            return data, info
+            after = os.fstat(fd)
+            signature = lambda value: (value.st_dev, value.st_ino, value.st_mode, value.st_uid, value.st_gid, value.st_nlink, value.st_size, value.st_mtime_ns, value.st_ctime_ns)
+            require(signature(info) == signature(after) and after.st_nlink == 1 and len(data) == after.st_size, 'File metadata changed during read: ' + str(path))
+            return data, after
         finally:
             os.close(fd)
     finally:
@@ -109,40 +115,111 @@ def file_bytes(path, private=False, maximum=256 * 1024 * 1024):
 def install_file(path, data):
     parent = directory(str(Path(path).parent))
     temporary = None
+    identity = None
+    published = False
     try:
         try:
             actual, _ = file_bytes(path, private=True)
             require(actual == data, 'Refusing to overwrite different installed file: ' + path)
+            os.fsync(parent)
+            require(file_bytes(path, private=True)[0] == data, 'Existing file changed on durable readback: ' + path)
             return False
         except FileNotFoundError:
             pass
-        temporary = '.show-tools-peripheral-' + os.urandom(12).hex()
-        fd = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
-        with os.fdopen(fd, 'wb') as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
+        name = '.show-tools-peripheral-' + os.urandom(12).hex()
+        fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
+        temporary = name
+        info = os.fstat(fd)
+        identity = (info.st_dev, info.st_ino)
         try:
-            os.link(temporary, Path(path).name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
-        except FileExistsError:
-            actual, _ = file_bytes(path, private=True)
-            require(actual == data, 'Concurrent different file; nothing overwritten: ' + path)
-        os.fsync(parent)
-        return True
-    finally:
-        if temporary is not None:
+            with os.fdopen(fd, 'wb') as stream:
+                stream.write(data)
+                stream.flush()
+                os.fsync(stream.fileno())
             try:
-                os.unlink(temporary, dir_fd=parent)
-            except FileNotFoundError:
-                pass
+                os.link(temporary, Path(path).name, src_dir_fd=parent, dst_dir_fd=parent, follow_symlinks=False)
+                published = True
+            except FileExistsError:
+                require(file_bytes(path, private=True)[0] == data, 'Concurrent different file; nothing overwritten: ' + path)
+            os.fsync(parent)
+        finally:
+            # Remove only our temporary name; never roll back an already-published target.
+            current = os.stat(temporary, dir_fd=parent, follow_symlinks=False)
+            require((current.st_dev, current.st_ino) == identity, 'Temporary publication evidence changed')
+            os.unlink(temporary, dir_fd=parent)
+            temporary = None
+            os.fsync(parent)
+        actual, final = file_bytes(path, private=True)
+        require(actual == data and (not published or (final.st_dev, final.st_ino) == identity),
+                'Published destination differs on independent readback: ' + path)
+        return published
+    finally:
+        # If publication/cleanup failed, retain the destination and any remaining evidence.
         os.close(parent)
 
 
-def command(args, allowed=(0,)):
-    result = subprocess.run(args, env=ENV, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=10)
-    require(result.returncode in allowed, 'Command failed; inspect the named user service: ' + args[0])
-    require(len(result.stdout) <= 65536 and len(result.stderr) <= 65536, 'Command output exceeded bound')
-    return result.stdout.strip()
+def cleanup_client(process, timeout):
+    # Keep the leader unreaped until both signals are sent, so its PID cannot be reused.
+    if process.returncode is None:
+        signal_error = False
+        for action in (signal.SIGTERM, signal.SIGKILL):
+            try:
+                os.killpg(process.pid, action)
+            except ProcessLookupError:
+                pass
+            except OSError:
+                signal_error = True
+            if action == signal.SIGTERM:
+                time.sleep(min(0.1, timeout / 2))
+        try:
+            process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            raise ValueError('Owned command client cleanup unconfirmed; daemon effects uncertain; inspect status before retry') from None
+        require(not signal_error, 'Owned command client group cleanup unconfirmed; daemon effects uncertain; inspect status before retry')
+
+
+def command(args, allowed=(0,), output_limit=65536, timeout=10, cleanup_timeout=1):
+    process = subprocess.Popen(args, env=ENV, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+    buffers = {'stdout': bytearray(), 'stderr': bytearray()}
+    deadline = time.monotonic() + timeout
+    try:
+        with selectors.DefaultSelector() as observer:
+            observer.register(process.stdout, selectors.EVENT_READ, 'stdout')
+            observer.register(process.stderr, selectors.EVENT_READ, 'stderr')
+            while observer.get_map():
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise ValueError('Command client deadline expired; daemon effects uncertain; inspect status before retry')
+                events = observer.select(remaining)
+                if not events:
+                    raise ValueError('Command client deadline expired; daemon effects uncertain; inspect status before retry')
+                for key, _ in events:
+                    target = buffers[key.data]
+                    chunk = os.read(key.fd, min(4096, output_limit - len(target) + 1))
+                    if not chunk:
+                        observer.unregister(key.fileobj)
+                    else:
+                        require(len(target) + len(chunk) <= output_limit,
+                                'Command client output limit exceeded; daemon effects uncertain; inspect status before retry')
+                        target.extend(chunk)
+        remaining = deadline - time.monotonic()
+        require(remaining > 0, 'Command client deadline expired; daemon effects uncertain; inspect status before retry')
+        try:
+            code = process.wait(timeout=remaining)
+        except subprocess.TimeoutExpired:
+            raise ValueError('Command client deadline expired; daemon effects uncertain; inspect status before retry') from None
+        require(code in allowed, 'Command client failed; daemon effects uncertain; inspect the named user service before retry')
+        try:
+            return bytes(buffers['stdout']).decode('utf8').strip()
+        except UnicodeError:
+            raise ValueError('Command client output invalid; daemon effects uncertain; inspect status before retry') from None
+    finally:
+        try:
+            cleanup_client(process, cleanup_timeout)
+        finally:
+            process.stdout.close()
+            process.stderr.close()
 
 
 def protected_os_directory(path, checked=None):
@@ -295,7 +372,7 @@ def apply(packet, manifest_sha256):
     token_fd = directory(str(Path(TOKEN).parent))
     try:
         token = os.stat(Path(TOKEN).name, dir_fd=token_fd, follow_symlinks=False)
-        require(stat.S_ISREG(token.st_mode) and token.st_uid == UID and token.st_gid == GID and stat.S_IMODE(token.st_mode) == 0o600, 'Existing token metadata invalid')
+        require(stat.S_ISREG(token.st_mode) and token.st_uid == UID and token.st_gid == GID and stat.S_IMODE(token.st_mode) == 0o600 and token.st_nlink == 1, 'Existing token metadata invalid; require a single-link caller-owned regular mode0600 file')
     finally:
         os.close(token_fd)
     for destination, name in ((PROFILE, 'profile.json'), (UNIT, UNIT_NAME)):
@@ -318,8 +395,7 @@ def apply(packet, manifest_sha256):
     require(state.get('ActiveState') in ('inactive', 'failed') and state.get('MainPID') == '0'
             and state.get('TasksCurrent', '') in ('0', '[not set]', ''), 'Existing service process/unknown state; left unchanged')
     status = command([release + '/bin/show-tools-session', 'audio', 'status', '--profile', WEB_PROFILE])
-    require(status in ('Audio off', 'Audio ready; transport idle', 'Audio ready; transport ended'),
-            'Performance active or state unknown; no installation/start requested')
+    require(status == 'Audio off', 'Fresh audio-off status required; no installation/start requested')
     for destination, name in ((PROFILE, 'profile.json'), (UNIT, UNIT_NAME)):
         install_file(destination, files[name])
     command(['/usr/bin/systemctl', '--user', 'daemon-reload'])
@@ -327,6 +403,8 @@ def apply(packet, manifest_sha256):
     require(loaded.get('LoadState') == 'loaded' and loaded.get('FragmentPath') == UNIT and loaded.get('NeedDaemonReload') == 'no', 'Reviewed unit not loaded')
     command(['/usr/bin/systemctl', '--user', 'enable', UNIT_NAME])
     require(enable_link(), 'Expected enablement link missing')
+    require(command([release + '/bin/show-tools-session', 'audio', 'status', '--profile', WEB_PROFILE]) == 'Audio off',
+            'Fresh audio-off status required before start; installed data/enablement retained, no start requested')
     command(['/usr/bin/systemctl', '--user', 'start', UNIT_NAME])
     final = service_state()
     require(final.get('ActiveState') == 'active' and final.get('MainPID', '0').isdigit() and int(final['MainPID']) > 0, 'Controller not active; inspect its named user journal')
@@ -335,6 +413,9 @@ def apply(packet, manifest_sha256):
 
 
 if __name__ == '__main__':
+    def interrupted(_signal, _frame):
+        raise InterruptedError('Installer interrupted; daemon effects uncertain; inspect status before retry')
+    signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser()
     parser.add_argument('--manifest-sha256', required=True)
     parser.add_argument('--activate', required=True, action='store_true')
