@@ -20,10 +20,10 @@ export async function peripheralPresent(directory = '/sys/bus/usb/devices'): Pro
 	return count === 1;
 }
 
-export async function peripheralFingerprint() {
+export async function peripheralFingerprint({ usb = '/sys/bus/usb/devices', input = '/sys/class/input', hidraw = '/sys/class/hidraw', inputDevices = '/dev/input', hidrawDevices = '/dev' } = {}) {
 	const boards: string[] = [];
-	for (const entry of await readdir('/sys/bus/usb/devices')) {
-		const path = join('/sys/bus/usb/devices', entry);
+	for (const entry of await readdir(usb)) {
+		const path = join(usb, entry);
 		try {
 			if ((await readFile(join(path, 'idVendor'), 'utf8')).trim() === 'd209'
 				&& (await readFile(join(path, 'idProduct'), 'utf8')).trim() === '0410') boards.push(await realpath(path));
@@ -34,7 +34,7 @@ export async function peripheralFingerprint() {
 		const info = await stat(board).catch(error => { if (error.code === 'ENOENT') return undefined; throw error; });
 		if (!info) continue;
 		result.push(`${board}:${info.ino}:${info.ctimeMs}`);
-		for (const [directory, devices] of [['/sys/class/input', '/dev/input'], ['/sys/class/hidraw', '/dev']] as const) {
+		for (const [directory, devices] of [[input, inputDevices], [hidraw, hidrawDevices]] as const) {
 			for (const entry of await readdir(directory)) {
 				if (!entry.startsWith('event') && !entry.startsWith('hidraw')) continue;
 				try {

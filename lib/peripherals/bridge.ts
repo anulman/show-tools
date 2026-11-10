@@ -62,7 +62,7 @@ export class PeripheralRelay {
 		const input = decodeInput(value);
 		if (input.type === 'delivered') return;
 		if (input.session !== this.session) throw new Error('Peripheral session changed');
-		if (input.type === 'detached') throw new Error('I-PAC disconnected');
+		if (input.type === 'detached') throw new PeripheralRetry('I-PAC disconnected');
 		if (input.type === 'ready') {
 			if (this.ready) throw new Error('Duplicate peripheral attachment');
 			this.ready = true; return;
@@ -200,7 +200,6 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	const helper = (async () => {
 		for await (const line of boundedLines(child.stdout, 8192)) {
 			const input: HelperInput = decodeInput(JSON.parse(line));
-			if (input.type === 'detached') throw new PeripheralRetry('I-PAC disconnected');
 			relay.input(input);
 			if (input.type === 'ready') { clearTimeout(startupTimeout); attached = true; write(`bind ${tuple}`); ready(true); }
 		}

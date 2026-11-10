@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
 import { liveEventLines, PeripheralRetry } from '../bridge.js';
-import { peripheralPresent, servePeripheral } from '../managed-runtime.js';
+import { peripheralFingerprint, peripheralPresent, servePeripheral } from '../managed-runtime.js';
 import { renderPeripheralUnit } from '../service-unit.js';
 import { PersistentDesk } from '../../remote-performance/controller.js';
 import { installedPackage, sessionProfile, until } from '../../remote-performance/tests/session-fixture.js';
@@ -134,4 +134,25 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 	} finally {
 		abort.abort(); await running?.catch(() => {}); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await controller.close(); await rm(directory, { recursive: true, force: true });
 	}
+});
+
+
+test('read-only fingerprint notices late input/hidraw creation and permissions on the current USB parent', async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'peripheral-metadata-'));
+	const paths = { usb: join(directory, 'usb'), input: join(directory, 'input'), hidraw: join(directory, 'hidraw'), inputDevices: join(directory, 'input-devices'), hidrawDevices: join(directory, 'hidraw-devices') };
+	try {
+		for (const path of Object.values(paths)) await mkdir(path);
+		const board = join(paths.usb, 'changing-usb-port'); await mkdir(board);
+		await writeFile(join(board, 'idVendor'), 'd209'); await writeFile(join(board, 'idProduct'), '0410');
+		const parentOnly = await peripheralFingerprint(paths);
+		await mkdir(join(board, 'keyboard')); await symlink(join(board, 'keyboard'), join(paths.input, 'event87'));
+		await writeFile(join(paths.inputDevices, 'event87'), '', { mode: 0o600 });
+		const withInput = await peripheralFingerprint(paths); assert.notEqual(withInput, parentOnly);
+		await mkdir(join(board, 'led')); await symlink(join(board, 'led'), join(paths.hidraw, 'hidraw23'));
+		await writeFile(join(paths.hidrawDevices, 'hidraw23'), '', { mode: 0o600 });
+		const withLed = await peripheralFingerprint(paths); assert.notEqual(withLed, withInput);
+		await chmod(join(paths.hidrawDevices, 'hidraw23'), 0o660);
+		const permissionReady = await peripheralFingerprint(paths); assert.notEqual(permissionReady, withLed);
+		assert.equal(await peripheralFingerprint(paths), permissionReady, 'unchanged metadata is stable');
+	} finally { await rm(directory, { recursive: true, force: true }); }
 });

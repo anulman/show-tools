@@ -1,6 +1,6 @@
 function argument(value: string) {
 	if (!value.startsWith('/') || /[\x00-\x1f\x7f]/.test(value)) throw new Error('Peripheral service paths must be absolute without control characters');
-	return '"' + value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%').replaceAll('$', '$$$$') + '"';
+	return '"' + value.replaceAll('\\', '\\\\').replaceAll('"', '\\"').replaceAll('%', '%%').replaceAll('$', () => '$$') + '"';
 }
 
 export function renderPeripheralUnit(executable: string, config: string) {
