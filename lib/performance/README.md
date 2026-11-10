@@ -97,7 +97,9 @@ Native `cueButton` control 7 accepts held/released values 1/0. A rising edge
 selects all current eligible cues before mutations, commits before arms, and
 reports independent failures. Repeats do not retrigger; release performs no cue.
 `pf_set_jiggle_thresholds` prepares ordered integer travel/reversal thresholds
-while stopped. `pf_light_output` returns a complete clock-backed light image:
+while stopped. Reapplying identical valid thresholds also succeeds during playback
+without resetting accumulated movement or the inactivity deadline; changed values
+still require Stop. `pf_light_output` returns a complete clock-backed light image:
 held 100%, otherwise an unused compiled button cue or recording pulses to 70%,
 otherwise playing 70%, otherwise off. Timed cue warnings span the two chart counts
 leading up to the authored cue, including count-in when applicable. Full-bar cues

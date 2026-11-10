@@ -989,6 +989,32 @@ void jiggle_filters_small_motion_in_bounded_musical_buckets() {
   ok(engine, pf_control(engine, 5, 1, nullptr, 0)); double info[PF_VOICE_FIELDS]; pf_voice_info(engine, 5, info);
   require(info[PF_VOICE_ROTATION_REMAINING] == 0, "rejected mutation preserves four-count filter");
 }
+void jiggle_reconnect_preserves_partial_gesture_and_clock() {
+  Engine engine; prepare(engine, rotation_table()); ok(engine, pf_set_jiggle_thresholds(engine, 4, 2));
+  ok(engine, pf_set_microphone(engine, 1)); ok(engine, pf_start(engine, 120, 0, 1, 4, 0, 0)); until(engine, 1);
+  ok(engine, pf_control(engine, 5, 2, nullptr, 0));
+  const auto before = state(engine);
+  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == 0, "first half of travel is not yet a jiggle");
+  ok(engine, pf_set_jiggle_thresholds(engine, 4, 2));
+  require(state(engine) == before, "same-value reconnect leaves transport clock and control state unchanged");
+  for (auto pair : {std::pair<double, double>{0, 1}, {4, 5}, {3.5, 2}, {32768, 2}, {4, std::nan("")}, {std::numeric_limits<double>::infinity(), 2}}) {
+    require(pf_set_jiggle_thresholds(engine, pair.first, pair.second) < 0, "invalid reconnect configuration is rejected while playing");
+    require(std::strstr(pf_error(engine), "integer travel"), "invalid reconnect is validated before the stopped guard");
+  }
+  require(pf_set_jiggle_thresholds(engine, 4, 1) < 0 && std::strstr(pf_error(engine), "Stop transport"), "different valid reconnect thresholds still require Stop");
+  ok(engine, pf_set_jiggle_thresholds(engine, 4, 2));
+  require(state(engine) == before, "rejected configurations and idempotent retry preserve the partial gesture and clock");
+  ok(engine, pf_control(engine, 5, 2, nullptr, 0));
+  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == .25, "second half of travel completes the jiggle across reconnect");
+  render(engine, 200);
+  const auto active = profile(engine, 5); const auto clock = state(engine);
+  ok(engine, pf_set_jiggle_thresholds(engine, 4, 2));
+  require(profile(engine, 5) == active && state(engine) == clock, "active reconnect neither refreshes inactivity nor changes clock");
+  ok(engine, pf_control(engine, 5, -1, nullptr, 0));
+  ok(engine, pf_set_jiggle_thresholds(engine, 4, 2));
+  ok(engine, pf_control(engine, 5, -1, nullptr, 0));
+  require(profile(engine, 5)[PF_VOICE_ROTATION_REMAINING] == .25, "partial reversal also survives an idempotent reconnect");
+}
 Venue rotation_venue() {
   Venue venue; venue.counts[PF_BACKUP_PROFILE] = 2;
   venue.effects.push_back({PF_EFFECT_SLAPBACK, 1, {{40, 0, .5}}});
@@ -1291,4 +1317,4 @@ void prefix_capture_maps_and_selection() {
 }
 
 }
-int main() { cue_warning_reads_preserve_state_without_heap_work(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }
+int main() { jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); mismatch_keeps_prior_audio(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); failed_period_blocks_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }
