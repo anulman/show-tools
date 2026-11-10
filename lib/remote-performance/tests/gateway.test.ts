@@ -237,3 +237,20 @@ test('audio off bypasses ordinary and reserved command capacity', async () => {
     assert.equal((await response.json()).outcome, 'accepted');
   } finally { for (const resolve of release) resolve(); await Promise.all(pending); server.closeAllConnections(); await new Promise<void>(done => server.close(() => done())); }
 });
+
+test('idle observers receive the documented SSE heartbeat without a controller publication', { timeout: 4000 }, async () => {
+	let commands = 0;
+	const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, deskFixture({ command: async () => { commands++; return { outcome: 'unknown' }; } }));
+	const abort = new AbortController();
+	try {
+		server.listen(0, '127.0.0.1'); await once(server, 'listening');
+		const address = server.address(); assert.ok(address && typeof address !== 'string');
+		const base = `http://127.0.0.1:${address.port}`, headers = { authorization: `Bearer ${token}`, origin };
+		const session = await (await fetch(`${base}/api/session`, { headers })).json() as { sessionId: string };
+		const stream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': session.sessionId }, signal: abort.signal });
+		let text = '';
+		for await (const bytes of stream.body!) { text += new TextDecoder().decode(bytes); if (text.includes(': show-tools-heartbeat\n\n')) break; }
+		assert.match(text, /: show-tools-heartbeat\n\n/);
+		assert.equal(commands, 0);
+	} finally { abort.abort(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
