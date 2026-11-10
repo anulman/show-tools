@@ -1,3 +1,4 @@
+import { DESK_HEARTBEAT_MS } from './event-liveness.js';
 import type { TunerState } from '../tuner/model.js';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
@@ -86,6 +87,10 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 		const data = Buffer.from(`data: ${JSON.stringify(observation)}\n\n`);
 		for (const client of clients) send(client, data);
 	});
+	const heartbeat = setInterval(() => {
+		for (const client of clients) send(client, Buffer.from(': show-tools-heartbeat\n\n'));
+	}, DESK_HEARTBEAT_MS);
+	heartbeat.unref();
 	const authenticated = (request: IncomingMessage) => {
 		const header = request.headers.authorization;
 		if (!header?.startsWith('Bearer ')) return false;
@@ -174,6 +179,6 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 		});
 	};
 	const server = config.tls ? createHttpsServer(config.tls, safeHandler) : createServer(safeHandler);
-	server.on('close', () => { unsubscribe(); for (const client of clients) client.destroy(); });
+	server.on('close', () => { clearInterval(heartbeat); unsubscribe(); for (const client of clients) client.destroy(); });
 	return server;
 }

@@ -333,3 +333,47 @@ TERM and KILL deadlines. A disconnected or unresponsive device can prevent the
 final off report from reaching the LED.
 
 The bridge configuration accepts an optional literal-IP `connectAddress` when the host cannot resolve its configured origin. This changes only the connection destination: Host, Origin, TLS SNI and certificate identity still use `origin`, with normal CA verification. HTTP overrides must be loopback; omit the field for normal DNS resolution.
+
+### Keep the Linux controller available
+
+`show-tools peripheral serve --config /absolute/path/peripheral.json` keeps the
+controller available without enabling audio. It polls authenticated status while
+audio is off, then waits for the sole supported USB board. The config is the
+same explicit endpoint, credentials, helper, LED binding and jiggle thresholds
+used by `connect`; it contains no USB port, device-node name or process ID.
+Changing ports or reconnecting the board does not require another setup script.
+The Linux device-access rule must already be installed once by the operator.
+
+Each attachment uses new helper and command-session identities. Cleanup clears
+the owned LED and releases the native button before a replacement child starts.
+Pending controls are discarded; uncertain controls are never replayed. The
+native engine remains the only musical clock and LED-pattern author. A transport
+already playing may attach only when native jiggle configuration is acknowledged;
+identical thresholds are a native no-op, while changed thresholds require Stop.
+This requires the matching native engine implementation of that no-op.
+
+If USB appears before input/hidraw nodes or permissions, a failed qualification
+holds until that board's interface/access metadata changes. An unchanged fault
+does not repeatedly spawn the helper. Multiple boards, invalid credentials, TLS,
+protocol or configuration errors require correction. No permissions are changed
+by the service. Gateway SSE comments establish a one-second connection heartbeat;
+five seconds without a heartbeat or publication fails the connection, clears the
+local output and permits a fresh attachment. These are connection deadlines,
+not musical timers. The helper cannot guarantee darkness after hard power loss
+or an inaccessible/disconnected device.
+
+`renderPeripheralUnit()` in `service-unit.ts` renders a source-only systemd user
+unit for an installed `bin/show-tools-peripheral` and private config. Its
+`default.target` enablement is suitable for an already-lingering user manager;
+it restarts abnormal process exits with a three-second backoff, while normal
+configuration failures remain stopped for diagnosis. Ordinary gateway/USB loss
+is handled inside `serve`. This renderer neither installs nor enables a service.
+The existing web-only host grant does not admit this new named device service:
+its initial operator-controlled installation/activation is a separate missing
+capability. Reboots and reconnects after that bootstrap do not need setup again.
+
+A laptop or phone disconnect leaves the EliteDesk's native audio running. Local
+controller reconnection handles gateway unavailability; it does not change
+Tailscale, networking, the audio lifecycle, or transport. If Tailscale removes
+its local address, a web service bound to that address must itself become
+available again before the controller can reconnect.

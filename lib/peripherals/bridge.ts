@@ -7,6 +7,7 @@ import type { Readable } from 'node:stream';
 import { Schema } from 'effect';
 import { decodeDeskBootstrap, decodeDeskPublication, decodeNativeOutcome, DeskViewSchema, type NativePerformance, type NativeTarget } from '../remote-performance/session-schema.js';
 import type { Control } from '../performance/model.js';
+import { DESK_HEARTBEAT_MS, DESK_STREAM_IDLE_MS } from '../remote-performance/event-liveness.js';
 import { ConnectAddressSchema, connectionOptions } from '../remote-performance/connection-options.js';
 
 const integer = (minimum: number, maximum = Number.MAX_SAFE_INTEGER) => Schema.Int.check(Schema.isBetween({ minimum, maximum }));
@@ -61,7 +62,7 @@ export class PeripheralRelay {
 		const input = decodeInput(value);
 		if (input.type === 'delivered') return;
 		if (input.session !== this.session) throw new Error('Peripheral session changed');
-		if (input.type === 'detached') throw new Error('I-PAC disconnected');
+		if (input.type === 'detached') throw new PeripheralRetry('I-PAC disconnected');
 		if (input.type === 'ready') {
 			if (this.ready) throw new Error('Duplicate peripheral attachment');
 			this.ready = true; return;
@@ -105,7 +106,14 @@ async function privateToken(file: string) {
 	return token;
 }
 
-async function connection(config: PeripheralBridgeConfig, signal: AbortSignal) {
+export class PeripheralRetry extends Error {}
+export class PeripheralHelperUnavailable extends Error {}
+
+export class PeripheralHttpError extends Error {
+	constructor(readonly status: number | undefined) { super(`Peripheral gateway request failed (${status})`); }
+}
+
+export async function connection(config: PeripheralBridgeConfig, signal: AbortSignal) {
 	const origin = new URL(config.origin);
 	if (origin.origin !== config.origin || origin.username || origin.password || !['http:', 'https:'].includes(origin.protocol)) throw new Error('Gateway origin must be a plain HTTP(S) origin');
 	if (origin.protocol === 'http:' && !['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname)) throw new Error('Remote gateway requires HTTPS');
@@ -121,10 +129,10 @@ async function connection(config: PeripheralBridgeConfig, signal: AbortSignal) {
 					...(payload ? { 'content-type': 'application/json', 'content-length': Buffer.byteLength(payload) } : {}) },
 			}, response => {
 				clearTimeout(timeout);
-				if (response.statusCode !== 200) { response.resume(); reject(new Error(`Peripheral gateway request failed (${response.statusCode})`)); }
+				if (response.statusCode !== 200) { response.resume(); reject(new PeripheralHttpError(response.statusCode)); }
 				else resolve(response);
 			});
-			const timeout = setTimeout(() => request.destroy(new Error('Peripheral gateway timed out')), 3000);
+			const timeout = setTimeout(() => request.destroy(new PeripheralRetry('Peripheral gateway timed out')), 3000);
 			request.once('close', () => clearTimeout(timeout));
 			request.once('error', reject);
 			request.end(payload);
@@ -133,7 +141,7 @@ async function connection(config: PeripheralBridgeConfig, signal: AbortSignal) {
 	async function json(path: string, body?: object): Promise<unknown> {
 		const response = await open(path, body);
 		const chunks: Buffer[] = []; let length = 0;
-		const timeout = setTimeout(() => response.destroy(new Error('Peripheral gateway body timed out')), 3000);
+		const timeout = setTimeout(() => response.destroy(new PeripheralRetry('Peripheral gateway body timed out')), 3000);
 		try {
 			for await (const chunk of response) {
 				const bytes = Buffer.from(chunk); length += bytes.length;
@@ -153,22 +161,21 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	const link = await connection(config, combined);
 	const bootstrap = decodeDeskBootstrap(await link.json('/api/session'));
 	const audio = bootstrap.view.audio;
-	if (audio.kind !== 'ready') throw new Error('Enable hardware audio in the desk before connecting the I-PAC');
-	if (audio.performance.state.phase === 'playing' || audio.performance.state.phase === 'count-in')
-		throw new Error('Stop the transport before attaching the I-PAC; the running performance was left unchanged');
+	if (audio.kind !== 'ready') throw new PeripheralRetry('Enable hardware audio in the desk before connecting the I-PAC');
 	const target: NativeTarget = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
 	const session = randomBytes(6).readUIntBE(0, 6) + 1;
 	const incarnation = randomBytes(6).readUIntBE(0, 6) + 1;
 	const fence = 1;
 	const tuple = `${incarnation} ${session} ${config.bindingRevision} ${fence}`;
 	const child = spawn(config.helperExecutable, [String(session), String(config.sdkChannel), '--confirm-wiring'], { stdio: ['pipe', 'pipe', 'inherit'] });
-	let commandSequence = 0, stopped = false, attached = false;
+	let commandSequence = 0, stopped = false, attached = false, configuredNative = false;
 	let failure: unknown;
+	let finishing = false;
 	let finish: () => void = () => {};
 	const done = new Promise<void>(resolve => { finish = resolve; });
 	let ready: (attached: boolean) => void = () => {};
 	const attachment = new Promise<boolean>(resolve => { ready = resolve; });
-	const fail = (error: unknown) => { if (!stopped) { failure = error; finish(); } };
+	const fail = (error: unknown) => { if (!stopped && !finishing) { finishing = true; failure = error; finish(); } };
 	const write = (line: string) => {
 		if (!child.stdin.writable || child.stdin.writableLength > 32768) throw new Error('Peripheral output queue is blocked');
 		child.stdin.write(`${line}\n`);
@@ -178,75 +185,80 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'control', args: { control },
 		}));
 		if (result.outcome !== 'applied') {
-			if (result.outcome === 'unknown') throw new Error('Peripheral control outcome unknown');
+			if (result.outcome === 'unknown') throw new PeripheralRetry('Peripheral control outcome unknown; this input will not be replayed');
 			if (control.id === 'cueButton' && control.value === 0) throw new Error('Native button release rejected');
 			process.stderr.write(`${JSON.stringify({ type: 'control-rejected', control, error: result.error })}\n`);
 			return;
 		}
-		if (result.hostEpoch !== target.hostEpoch) throw new Error('Native engine changed');
+		if (result.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed');
 	};
 	const relay = new PeripheralRelay(session, send, fail);
 	const light = (performance: NativePerformance) => {
 		if (attached) write(`light ${tuple} ${performance.lights.join(' ')}`);
 	};
+	const startupTimeout = setTimeout(() => fail(new Error('Peripheral helper did not qualify within 3 seconds; inspect device access')), 3000);
 	const helper = (async () => {
 		for await (const line of boundedLines(child.stdout, 8192)) {
 			const input: HelperInput = decodeInput(JSON.parse(line));
 			relay.input(input);
-			if (input.type === 'ready') { attached = true; write(`bind ${tuple}`); ready(true); }
+			if (input.type === 'ready') { clearTimeout(startupTimeout); attached = true; write(`bind ${tuple}`); ready(true); }
 		}
 	})().catch(fail);
 	child.once('error', fail);
 	child.stdin.on('error', fail);
-	child.once('exit', (code, signal) => fail(new Error(`Peripheral host exited (${signal ?? code})`)));
+	child.once('exit', (code, signal) => fail(new (attached ? PeripheralRetry : PeripheralHelperUnavailable)(`Peripheral host exited (${signal ?? code}); inspect its diagnostic above and verify device access`)));
 	combined.addEventListener('abort', finish, { once: true });
 	if (combined.aborted) finish();
 	const stream = (async () => {
 		if (!await attachment || stopped) return;
-		await send({ id: 'cueButton', value: 0 });
 		const configured = decodeNativeOutcome(await link.json('/api/command', {
 			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'configureJiggle', args: config.jiggle,
 		}));
 		if (configured.outcome !== 'applied') throw new Error(`Jiggle setup ${configured.outcome}: ${configured.error ?? 'native acknowledgement unavailable'}`);
+		if (configured.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed during jiggle setup');
+		configuredNative = true;
+		await send({ id: 'cueButton', value: 0 });
 		relay.start();
 		const fresh = decodeView(await link.json('/api/status'));
-		if (fresh.serverEpoch !== bootstrap.view.serverEpoch) throw new Error('Gateway restarted during I-PAC attachment');
+		if (fresh.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted during I-PAC attachment');
 		if (fresh.audio.kind !== 'ready' || fresh.audio.attempt !== target.attempt || fresh.audio.performance.hostEpoch !== target.hostEpoch)
-			throw new Error('Hardware audio changed during I-PAC attachment');
+			throw new PeripheralRetry('Hardware audio changed during I-PAC attachment');
 		light(fresh.audio.performance);
 		const response = await link.open('/api/events', undefined, { 'x-session-id': bootstrap.sessionId });
-		for await (const line of boundedLines(response, 8 * 1024 * 1024)) {
+		for await (const line of liveEventLines(response)) {
 			if (!line.startsWith('data: ')) continue;
 			if (line.length > 8 * 1024 * 1024) throw new Error('Peripheral publication is oversized');
 			const event = decodeDeskPublication(JSON.parse(line.slice(6)));
-			if (event.type === 'gap') throw new Error('Native publication gap');
+			if (event.type === 'gap') throw new PeripheralRetry('Native publication gap');
 			if (event.type === 'event') continue;
 			if (event.type === 'desk') {
-				if (event.view.serverEpoch !== bootstrap.view.serverEpoch) throw new Error('Gateway restarted');
+				if (event.view.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted');
 				const state = event.view.audio;
-				if (state.kind !== 'ready' || state.attempt !== target.attempt || state.performance.hostEpoch !== target.hostEpoch) throw new Error('Hardware audio session changed; reconnect the I-PAC');
+				if (state.kind !== 'ready' || state.attempt !== target.attempt || state.performance.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Hardware audio session changed; reconnect the I-PAC');
 				light(state.performance);
 			} else {
-				if (event.serverEpoch !== bootstrap.view.serverEpoch) throw new Error('Gateway restarted');
-				if (event.attempt !== target.attempt || event.performance.hostEpoch !== target.hostEpoch) throw new Error('Hardware audio session changed');
+				if (event.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted');
+				if (event.attempt !== target.attempt || event.performance.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Hardware audio session changed');
 				light(event.performance);
 			}
 		}
-		throw new Error('Peripheral publication stream ended');
+		throw new PeripheralRetry('Peripheral publication stream ended');
 	})().catch(fail);
 	try { await done; }
 	finally {
-		stopped = true; ready(false); const drained = relay.close();
+		stopped = true; clearTimeout(startupTimeout); ready(false); const drained = relay.close();
 		if (attached && child.stdin.writable) child.stdin.end('clear\nquit\n');
 		else child.stdin.end();
 		await drained;
 		try {
-			const cleanup = await connection(config, AbortSignal.timeout(3000));
-			const session = decodeDeskBootstrap(await cleanup.json('/api/session'));
-			const result = decodeNativeOutcome(await cleanup.json('/api/command', {
-				sessionId: session.sessionId, sequence: 1, target, command: 'control', args: { control: { id: 'cueButton', value: 0 } },
+			if (configuredNative) {
+				const cleanup = await connection(config, AbortSignal.timeout(3000));
+				const session = decodeDeskBootstrap(await cleanup.json('/api/session'));
+				const result = decodeNativeOutcome(await cleanup.json('/api/command', {
+					sessionId: session.sessionId, sequence: 1, target, command: 'control', args: { control: { id: 'cueButton', value: 0 } },
 			}));
 			if (result.outcome !== 'applied') throw new Error('Native release was not acknowledged');
+			}
 		} catch (error) { process.stderr.write(`I-PAC disconnected; native release unconfirmed: ${error instanceof Error ? error.message : String(error)}\n`); }
 		abort.abort();
 		const terminate = setTimeout(() => child.kill('SIGTERM'), 1000);
@@ -255,4 +267,19 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 		clearTimeout(terminate); clearTimeout(kill); await stream; await helper;
 	}
 	if (failure) throw failure;
+}
+
+export async function* liveEventLines(response: Readable, idleMs = DESK_STREAM_IDLE_MS) {
+	let timeout: ReturnType<typeof setTimeout>;
+	const reset = () => {
+		clearTimeout(timeout);
+		timeout = setTimeout(() => response.destroy(new PeripheralRetry(`Gateway event stream silent; expected heartbeat every ${DESK_HEARTBEAT_MS} ms`)), idleMs);
+	};
+	reset();
+	try {
+		for await (const line of boundedLines(response, 8 * 1024 * 1024)) {
+			if (line === ': show-tools-heartbeat' || line.startsWith('data: ')) reset();
+			yield line;
+		}
+	} finally { clearTimeout(timeout!); }
 }

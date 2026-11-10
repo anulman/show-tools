@@ -342,3 +342,16 @@ for the one-owner handoff from the audio-free wiring test to browser practice.
 Verify explicit app connection routing with `node --import tsx --test lib/remote-performance/tests/connection-options.test.ts`. Owned loopback HTTP/TLS fixtures cover both clients, certificate authority and hostname rejection, original Host/Origin/SNI, literal-IP validation, and HTTP loopback confinement without opening audio or peripheral hardware.
 
 Run `node --import tsx --test lib/remote-performance/tests/client-ca.test.ts` to verify client trust independently of server certificate configuration. The test generates an owned root, intermediate and leaf, serves only the leaf/intermediate fullchain, and exercises default trust and explicit CA bundles in fresh Node processes.
+
+### Verify managed peripheral reconnection
+
+`show-tools peripheral serve --config FILE` is the Linux readiness/reconnection
+entry point. Run `node --import tsx --test lib/peripherals/tests/managed-runtime.test.ts
+lib/peripherals/tests/bridge-integration.test.ts` after building the native fake
+host. Owned sockets and synthetic child processes cover audio-off/device waits,
+late interface/access metadata, fresh-session reconnect, cleanup before child
+replacement, cancellation and SSE silence. These checks open no USB or audio
+devices. Live attach during playback additionally requires native same-config
+jiggle acknowledgement without resetting its gesture state. The source user-unit
+renderer has no installation side effects; installed persistence and actual LED,
+button and knob behavior remain target acceptance evidence.

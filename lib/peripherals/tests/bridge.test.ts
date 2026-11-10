@@ -30,6 +30,7 @@ test('stale, mismatched and unbounded input never becomes a musical control', as
 	relay.input({ type: 'motion', session: 1, sequence: 1, deltaY: 0 });
 	assert.throws(() => relay.input({ type: 'motion', session: 1, sequence: 1, deltaY: 1 }), /stale/);
 	assert.throws(() => relay.input({ type: 'motion', session: 1, sequence: 2, deltaY: 32768 }));
+	assert.throws(() => relay.input({ type: 'detached', session: 2 }), /session/);
 	await relay.close();
 });
 
