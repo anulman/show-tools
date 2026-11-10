@@ -241,6 +241,14 @@ the already confirmed SDK channel. Tab maps to the existing cue button and raw
 relative Y retains its signed counts. No other switch or LED mapping is inferred.
 The current engine publishes one logical LED, not an invented four-button map.
 
+The helper defaults to the confirmed Tab configuration. For a switch confirmed
+to emit Escape, append `--button-key escape` to `--inspect`, `--bench-held`, or
+the session/channel invocation. Explicit `--button-key tab` selects the default.
+The same selection controls interface qualification, initial held state, event
+filtering, and inspection output. Escape uses Linux key code 1 and HID page 7,
+usage 41. Tab uses Linux key code 15 and HID usage 43. This selects a physical
+input without changing the board's firmware or the engine's logical cue action.
+
 Both evdev interfaces must support monotonic event timestamps. The helper merges
 bounded available batches by those timestamps and preserves order within each
 interface. Ambiguous equal timestamps across interfaces, timestamp regressions,

@@ -8,6 +8,16 @@ bool identity(double value) {
   return std::isfinite(value) && value >= 1 && value <= 9007199254740991. && std::floor(value) == value;
 }
 }
+bool parse_button_key_option(int& argc, const char* const* argv, ButtonKey& key) {
+  if (argc < 3 || std::string(argv[argc - 2]) != "--button-key") return true;
+  const std::string name(argv[argc - 1]);
+  if (name == "tab") key = ButtonKey::Tab;
+  else if (name == "escape") key = ButtonKey::Escape;
+  else return false;
+  argc -= 2;
+  return true;
+}
+
 bool parse_command(const std::string& line, Command& out) {
   if (line.size() > 16384) return false;
   std::istringstream input(line);

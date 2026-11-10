@@ -136,12 +136,16 @@ void removed(void* context, IOReturn, void*) {
 }
 
 int main(int argc, char** argv) {
+  auto button_key = peripheral_host::ButtonKey::Tab;
+  if (!peripheral_host::parse_button_key_option(argc, argv, button_key)) {
+    std::cerr << "Use --button-key tab|escape. Nothing opened.\n"; return 2;
+  }
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "peripheral-host SESSION SDK_CHANNEL --confirm-wiring\n"
-      "peripheral-host --bench-held SDK_CHANNEL --confirm-wiring (hold-to-light wiring test, no audio)\n"
-      "peripheral-host --inspect (qualifies interfaces without opening them)\n"
+    std::cout << "peripheral-host SESSION SDK_CHANNEL --confirm-wiring [--button-key tab|escape]\n"
+      "peripheral-host --bench-held SDK_CHANNEL --confirm-wiring [--button-key tab|escape] (hold-to-light wiring test, no audio)\n"
+      "peripheral-host --inspect [--button-key tab|escape] (qualifies interfaces without opening them)\n"
       "peripheral-host --access-status (checks Input Monitoring without prompting)\n"
-      "Reads the sole d209:0410 I-PAC Tab usage 43 and relative Y interfaces without seizure.\n"
+      "Reads the sole d209:0410 I-PAC selected button (default Tab) and relative Y interfaces without seizure.\n"
       "Reads native light publications on stdin; brightness-only writes, no enable-mask changes.\n"
       "Bench mode tests held feedback only, never practice cue completion.\n";
     return 0;
@@ -178,7 +182,7 @@ int main(int argc, char** argv) {
   for (auto entry : entries) {
     auto device = static_cast<IOHIDDeviceRef>(const_cast<void*>(entry));
     locations.insert(property(device, CFSTR(kIOHIDLocationIDKey)));
-    if (auto element = find_element(device, 7, 43, false)) {
+    if (auto element = find_element(device, 7, peripheral_host::button_usage(button_key), false)) {
       ++keyboards;
       if (host.button) CFRelease(host.button);
       host.keyboard = device; host.button = element;
@@ -194,11 +198,11 @@ int main(int argc, char** argv) {
   std::vector<IOHIDDeviceRef> opened;
   if (locations.size() != 1 || keyboards != 1 || mice != 1 || outputs != 1 || host.keyboard == host.mouse
     || host.output == host.keyboard || host.output == host.mouse) {
-    std::cerr << "Require one I-PAC with unique Tab, relative-Y and validated LED interfaces. Observed "
-      << locations.size() << " physical locations, " << keyboards << " Tab, " << mice << " relative-Y and "
+    std::cerr << "Require one I-PAC with unique selected-button, relative-Y and validated LED interfaces. Observed "
+      << locations.size() << " physical locations, " << keyboards << " selected-button, " << mice << " relative-Y and "
       << outputs << " LED interfaces. No interfaces opened.\n";
   } else if (inspect) {
-    std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonUsage\":43,\"relativeYUsage\":49,\"inputAccess\":\""
+    std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonKey\":\"" << peripheral_host::button_name(button_key) << "\",\"buttonUsage\":" << peripheral_host::button_usage(button_key) << ",\"relativeYUsage\":49,\"inputAccess\":\""
       << input_access() << "\",\"opened\":false}" << std::endl;
     result = 0;
   } else {
@@ -225,7 +229,7 @@ int main(int argc, char** argv) {
       int output_flags = fcntl(STDOUT_FILENO, F_GETFL);
       if (!bench && (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0)) host.failed = true;
       if (output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) host.failed = true;
-      std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGPIPE, SIG_IGN);
+      std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGHUP, stop); std::signal(SIGPIPE, SIG_IGN);
       if (!host.failed && host.clear()) {
         std::cout << "{\"type\":\"ready\",\"version\":1,\"session\":" << host.session
           << ",\"released\":" << (known && !held ? "true" : "false") << "}" << std::endl;

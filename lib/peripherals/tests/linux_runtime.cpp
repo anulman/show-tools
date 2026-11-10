@@ -25,19 +25,20 @@ void send(int fd, const void* value, size_t bytes) { require(write(fd, value, by
 struct Child {
   int key[2], mouse[2], led[2], commands[2], output[2];
   pid_t pid;
-  Child(bool held = false, bool bench = false, bool queued = false, bool interrupt_poll = false, bool fresh_on_stop = false) {
+  Child(bool held = false, bool bench = false, bool queued = false, bool interrupt_poll = false, bool fresh_on_stop = false, peripheral_host::ButtonKey button_key = peripheral_host::ButtonKey::Tab) {
     for (auto pair : {key, mouse, led, commands, output}) require(pipe2(pair, O_NONBLOCK | O_CLOEXEC) == 0, "create owned fixture pipe");
+    const auto selected_code = peripheral_host::linux_button_code(button_key);
     if (queued) {
-      event(key[1], EV_KEY, KEY_TAB, 1, 10); event(key[1], EV_KEY, KEY_TAB, 0, 20);
+      event(key[1], EV_KEY, selected_code, 1, 10); event(key[1], EV_KEY, selected_code, 0, 20);
       event(mouse[1], EV_SYN, SYN_DROPPED, 0, 12); event(mouse[1], EV_REL, REL_Y, 11, 15);
     }
-    if (fresh_on_stop) event(key[1], EV_KEY, KEY_TAB, 1, 100);
+    if (fresh_on_stop) event(key[1], EV_KEY, selected_code, 1, 100);
     pid = fork(); require(pid >= 0, "fork owned runtime fixture");
     if (!pid) {
       close(key[1]); close(mouse[1]); close(led[0]); close(commands[1]); close(output[0]);
       require(dup2(output[1], STDOUT_FILENO) >= 0, "redirect fixture stdout"); close(output[1]);
       interrupt_next_poll = interrupt_poll;
-      int code = peripheral_host::run_linux_host({key[0], mouse[0], led[1], commands[0]}, 7, 0, held, bench, queued ? 1000020000 : 0);
+      int code = peripheral_host::run_linux_host({key[0], mouse[0], led[1], commands[0]}, 7, 0, held, bench, queued ? 1000020000 : 0, button_key);
       std::cout.flush(); _exit(code);
     }
     close(key[0]); close(mouse[0]); close(led[1]); close(commands[0]); close(output[1]);
@@ -95,6 +96,30 @@ void held_and_order() {
   require(ordered.line().find("\"down\":true") != std::string::npos, "button follows its actual later timestamp");
   ordered.finish(0); require(ordered.report()[2] == 0, "EOF clears owned output");
 }
+void escape_selection() {
+  using peripheral_host::ButtonKey;
+  Child held(true, true, false, false, false, ButtonKey::Escape);
+  held.event(held.key[1], EV_KEY, KEY_TAB, 1, 10);
+  held.event(held.key[1], EV_KEY, KEY_TAB, 0, 20);
+  held.event(held.key[1], EV_KEY, KEY_ESC, 1, 30);
+  held.event(held.key[1], EV_KEY, KEY_ESC, 0, 40);
+  require(!held.available(held.led[0], 30) && !held.available(held.output[0], 30), "Escape selection ignores Tab and retains initially-held release barrier");
+  held.event(held.key[1], EV_KEY, KEY_ESC, 1, 50);
+  require(held.report()[2] == 255 && held.line().find("\"down\":true") != std::string::npos, "selected Escape fresh press lights and emits");
+  held.event(held.key[1], EV_KEY, KEY_ESC, 2, 60);
+  held.event(held.key[1], EV_KEY, KEY_TAB, 1, 70);
+  require(!held.available(held.led[0], 30) && !held.available(held.output[0], 30), "Escape repeat and unselected Tab add no edge or LED write");
+  held.event(held.key[1], EV_KEY, KEY_ESC, 0, 80);
+  require(held.report()[2] == 0 && held.line().find("\"down\":false") != std::string::npos, "selected Escape release clears and emits");
+  require(kill(held.pid, SIGHUP) == 0, "signal only owned Escape fixture");
+  held.finish(0, false, true);
+  require(held.report()[2] == 0, "SIGHUP exits and clears owned Escape LED");
+  Child stale(false, true, true, false, false, ButtonKey::Escape);
+  require(!stale.available(stale.led[0], 30) && !stale.available(stale.output[0], 30), "selected Escape pre-ready observations stay discarded");
+  stale.event(stale.key[1], EV_KEY, KEY_ESC, 1, 30);
+  require(stale.report()[2] == 255 && stale.line().find("\"down\":true") != std::string::npos, "post-cutoff Escape press admits normally");
+  stale.finish(0, true); require(stale.report()[2] == 0, "Escape fixture finishes dark");
+}
 void protocol_and_failures() {
   Child protocol;
   protocol.command("bind 100 7 1 1\n"); require(protocol.report()[2] == 0, "binding clears before publication");
@@ -131,6 +156,6 @@ void startup_and_signal_barriers() {
 }
 }
 int main() {
-  held_and_order(); protocol_and_failures(); startup_and_signal_barriers();
+  held_and_order(); escape_selection(); protocol_and_failures(); startup_and_signal_barriers();
   std::puts("Linux runtime pipe fixtures passed. No hardware or audio opened.");
 }
