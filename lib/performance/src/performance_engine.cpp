@@ -929,11 +929,13 @@ int pf_process_stems(pf_engine* engine, const float* input, float* left, float* 
 }
 int pf_set_jiggle_thresholds(pf_engine* engine, double travel, double reversal) {
   if (!engine) return -1;
-  if (running(engine)) return fail(engine, PF_INVALID_PROGRAM, "Stop transport before configuring jiggle thresholds");
   if (!integer(travel) || !integer(reversal) || travel < 1 || travel > 32767 || reversal < 1 || reversal > travel)
     return fail(engine, PF_INVALID_PROGRAM, "Jiggle thresholds require integer travel 1..32767 and reversal 1..travel");
-  engine->jiggle_travel = int(travel); engine->jiggle_reversal = int(reversal);
-  if (engine->compiled) engine->compiled->jiggle_thresholds(int(travel), int(reversal));
+  if (travel != engine->jiggle_travel || reversal != engine->jiggle_reversal) {
+    if (running(engine)) return fail(engine, PF_INVALID_PROGRAM, "Stop transport before configuring jiggle thresholds");
+    engine->jiggle_travel = int(travel); engine->jiggle_reversal = int(reversal);
+    if (engine->compiled) engine->compiled->jiggle_thresholds(int(travel), int(reversal));
+  }
   engine->error_code = PF_OK; engine->error = "";
   return 0;
 }

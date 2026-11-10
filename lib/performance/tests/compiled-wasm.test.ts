@@ -565,3 +565,35 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
     } finally { native.dispose(); }
   });
 }
+
+for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
+  test(`WASM jiggle reconnect preserves accumulated movement and native time (${rate} Hz, ${beats} counts)`, () => {
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+      PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
+    const native = engine(program, rate);
+    const backup = () => native.voiceEffects()[PF.BACKUP_PROFILE];
+    try {
+      native.setJiggleThresholds(4, 2); native.setMicrophone(true);
+      native.start({ runId: 'jiggle-reconnect', bpm: 120, countInBars: 0, endBar: 4, loop: false });
+      until(native, 1, 1, 0, 64);
+      native.control({ id: 'knob', value: 2 }); assert.equal(backup().rotationRemainingBeats, 0);
+      const before = Array.from(native.query('pf_snapshot'));
+      native.setJiggleThresholds(4, 2);
+      assert.deepEqual(Array.from(native.query('pf_snapshot')), before, 'same-value reconnect preserves native clock');
+      for (const [travel, reversal] of [[0, 1], [4, 5], [3.5, 2], [32768, 2], [4, NaN], [Infinity, 2]])
+        assert.throws(() => native.setJiggleThresholds(travel, reversal), /integer travel/i);
+      assert.throws(() => native.setJiggleThresholds(4, 1), /stop transport/i);
+      native.setJiggleThresholds(4, 2);
+      assert.deepEqual(Array.from(native.query('pf_snapshot')), before, 'rejected changes do not alter transport');
+      native.control({ id: 'knob', value: 2 }); assert.equal(backup().rotationRemainingBeats, .25, 'partial travel survives reconnect');
+      render(native, Math.round(rate / 40), 0);
+      const remaining = backup().rotationRemainingBeats, clock = Array.from(native.query('pf_snapshot'));
+      native.setJiggleThresholds(4, 2);
+      assert.equal(backup().rotationRemainingBeats, remaining, 'reconnect does not refresh active inactivity deadline');
+      assert.deepEqual(Array.from(native.query('pf_snapshot')), clock);
+      native.control({ id: 'knob', value: -1 }); native.setJiggleThresholds(4, 2);
+      native.control({ id: 'knob', value: -1 });
+      assert.equal(backup().rotationRemainingBeats, .25, 'partial reversal survives reconnect');
+    } finally { native.dispose(); }
+  });
+}

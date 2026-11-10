@@ -113,7 +113,8 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
    Repeated queries without a changed image retain their publication sequence. */
 void pf_light_output(pf_engine* engine, double* out);
 /* Software gesture thresholds in source-relative units. Integers 1..32767,
-   reversal <= travel. Preparation is stopped-only; defaults are 4 and 2. */
+   reversal <= travel. Changes require Stop; identical valid values are a no-op
+   even while playing and preserve gesture history. Defaults are 4 and 2. */
 int pf_set_jiggle_thresholds(pf_engine* engine, double minimum_travel, double minimum_reversal);
 int pf_select(pf_engine* engine, int channel);
 int pf_set_channel(pf_engine* engine, int channel, double gain, int muted);
