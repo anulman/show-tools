@@ -17,6 +17,7 @@ export const PeripheralBridgeConfigSchema = Schema.Struct({
 	connectAddress: Schema.optionalKey(ConnectAddressSchema),
 	tokenFile: path, caFile: Schema.optionalKey(path), helperExecutable: path,
 	sdkChannel: integer(0, 95), bindingRevision: integer(1),
+	buttonKey: Schema.optionalKey(Schema.Literals(['tab', 'escape'])),
 	jiggle: Schema.Struct({ minimumTravel: integer(1, 32767), minimumReversal: integer(1, 32767) })
 		.check(Schema.makeFilter(value => value.minimumReversal <= value.minimumTravel || 'Reversal threshold exceeds travel threshold')),
 });
@@ -167,7 +168,7 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	const incarnation = randomBytes(6).readUIntBE(0, 6) + 1;
 	const fence = 1;
 	const tuple = `${incarnation} ${session} ${config.bindingRevision} ${fence}`;
-	const child = spawn(config.helperExecutable, [String(session), String(config.sdkChannel), '--confirm-wiring'], { stdio: ['pipe', 'pipe', 'inherit'] });
+	const child = spawn(config.helperExecutable, [String(session), String(config.sdkChannel), '--confirm-wiring', ...(config.buttonKey ? ['--button-key', config.buttonKey] : [])], { stdio: ['pipe', 'pipe', 'inherit'] });
 	let commandSequence = 0, stopped = false, attached = false, configuredNative = false;
 	let failure: unknown;
 	let finishing = false;

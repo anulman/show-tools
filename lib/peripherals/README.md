@@ -385,3 +385,25 @@ controller reconnection handles gateway unavailability; it does not change
 Tailscale, networking, the audio lifecycle, or transport. If Tailscale removes
 its local address, a web service bound to that address must itself become
 available again before the controller can reconnect.
+
+
+### Select the confirmed physical switch key
+
+The bridge config accepts optional `buttonKey: "tab" | "escape"`. Omit it to
+preserve existing Tab helper behavior. An explicit value appends the native
+helper's `--button-key tab|escape` flag; the helper uses that key for interface
+qualification and held/press/release input. The logical performance control is
+still `cueButton`; this changes neither firmware nor musical bindings.
+
+For the EliteDesk board whose operator capture identified Escape (Linux
+`KEY_ESC` 1, HID keyboard usage 41), the proposed private profile addition is:
+
+```json
+{"buttonKey":"escape"}
+```
+
+This is a profile proposal, not an installed host change. Use a matching native
+helper release with the optional flag; older helpers reject explicit selections
+rather than silently using another key. Existing profiles without `buttonKey`
+retain their original arguments. LED channel and jiggle configuration stay
+explicit and independent of the physical key selection.

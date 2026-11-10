@@ -13,7 +13,7 @@ import { installedPackage, sessionProfile, until } from '../../remote-performanc
 
 const level = (image: readonly number[]) => image[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL];
 
-for (const playing of [false, true]) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} and abort clears native held state and helper output`, { timeout: 20000 }, async () => {
+for (const { playing, buttonKey } of [{ playing: false }, { playing: false, buttonKey: 'tab' }, { playing: true, buttonKey: 'escape' }] as const) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with ${buttonKey ?? 'default'} key and abort clears native held state and helper output`, { timeout: 20000 }, async () => {
   await stat(resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'));
   const directory = await mkdtemp(join(tmpdir(), 'pb-'));
   const tokenFile = join(directory, 'token');
@@ -27,7 +27,7 @@ const readline = require('node:readline');
 const log = ${JSON.stringify(log)};
 const record = value => fs.appendFileSync(log, JSON.stringify(value) + String.fromCharCode(10));
 const session = Number(process.argv[2]);
-record({ type: 'ready' });
+record({ type: 'ready', args: process.argv.slice(3) });
 process.stdout.write(JSON.stringify({ type: 'ready', version: 1, session, released: true }) + String.fromCharCode(10));
 process.stdout.write(JSON.stringify({ type: 'button', session, sequence: 1, down: true }) + String.fromCharCode(10));
 readline.createInterface({ input: process.stdin }).on('line', line => {
@@ -50,7 +50,7 @@ process.on('exit', code => record({ type: 'exit', code }));
   };
   let server: ReturnType<typeof createGateway> | undefined;
   let running: Promise<void> | undefined;
-  const records = async (): Promise<{ type: string; line?: string; code?: number }[]> =>
+  const records = async (): Promise<{ type: string; line?: string; code?: number; args?: string[] }[]> =>
     (await readFile(log, 'utf8').catch(() => '')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line));
   try {
     controller.setAudio('on');
@@ -76,7 +76,7 @@ process.on('exit', code => record({ type: 'exit', code }));
     const base = `http://127.0.0.1:${address.port}`;
     gatewayConfig.origin = base;
     running = runPeripheralBridge({ version: 1, origin: base, tokenFile, helperExecutable: helper,
-      sdkChannel: 0, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal);
+      sdkChannel: 0, bindingRevision: 1, ...(buttonKey ? { buttonKey } : {}), jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal);
     let bridgeFailure: unknown;
     const settled = running.then(() => ({ ok: true }), error => { bridgeFailure = error; return { ok: false, error }; });
     await until(() => {
@@ -97,7 +97,9 @@ process.on('exit', code => record({ type: 'exit', code }));
       { command: 'control', args: { control: { id: 'cueButton', value: 0 } } },
       { command: 'control', args: { control: { id: 'cueButton', value: 1 } } },
     ], 'queued helper input waits for attachment and native jiggle configuration');
-    assert.equal((await records())[0].type, 'ready');
+    const firstRecord = (await records())[0];
+    assert.equal(firstRecord.type, 'ready');
+    assert.deepEqual(firstRecord.args, ['0', '--confirm-wiring', ...(buttonKey ? ['--button-key', buttonKey] : [])], 'omitted key preserves helper argv; explicit key uses the reviewed trailing flag');
     abort.abort();
     const result = await settled;
     assert.deepEqual(result, { ok: true });
