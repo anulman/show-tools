@@ -32,7 +32,22 @@ Without `--profile`, the CLI reads `$XDG_CONFIG_HOME/show-tools/session.json`. I
 
 The user unit executes the profile's absolute `server.nodeExecutable` and `server.entrypoint`, followed by `--profile` and the canonical profile path. The entrypoint is the standalone managed server bundle. Unit arguments escape systemd environment and specifier expansion. Paths with control characters are rejected.
 
-The unit uses `KillMode=control-group`, a 15-second stop deadline, and `Restart=no`. There is no maximum session runtime. The user manager owns the server after the invoking CLI exits. The server owns native audio. The CLI never supervises a second native process.
+The rendered unit uses `KillMode=control-group`, a 15-second stop deadline, and `Restart=on-failure` with `RestartSec=3s`. `StartLimitIntervalSec=0` permits startup retry to continue while the configured local Tailscale address is unavailable. There is no maximum session runtime. The user manager owns the server after the invoking CLI exits. The server owns native audio. The CLI never supervises a second native process.
+
+A failed web startup or failed web process is retried by the user manager. Each
+new server starts with audio off; the policy never restores audio or transport.
+A native-audio fault while HTTP remains running does not restart the web process
+or automatically re-enable audio. Explicit `session stop` remains stopped. The
+CLI readiness deadline still reports an unavailable server; manager retry can
+continue afterward. This policy changes neither listener addresses nor network
+configuration, and a healthy active performance is not restarted.
+
+This is a source unit change. An installed older unit is deliberately rejected
+by the existing exact-content check; `install` does not replace it automatically.
+A reviewed unit replacement on the explicitly assigned target is needed before
+this boot recovery policy exists there. No host unit, lingering setting or
+service is changed by the renderer or these tests. Actual reboot/address-readiness
+acceptance remains host deployment evidence.
 
 `scripts/session-cli.ts` is a standalone bundle entry for a deployment package. It accepts the session subcommands directly, such as `start --profile FILE`. `scripts/show-tools.ts` imports the session command implementation on demand. Existing chart and Sheets commands remain separate.
 

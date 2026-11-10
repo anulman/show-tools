@@ -119,7 +119,8 @@ test('install is idempotent, escapes unit paths, never enables without explicit 
   try {
     assert.equal((await f.cli('install', '--profile', f.profilePath)).code, 0);
     const unit = await readFile(f.unit, 'utf8');
-    assert.match(unit, /KillMode=control-group/); assert.match(unit, /Restart=no/);
+    assert.match(unit, /KillMode=control-group/); assert.match(unit, /Restart=on-failure/);
+    assert.match(unit, /RestartSec=3s/); assert.match(unit, /StartLimitIntervalSec=0/);
     assert.match(unit, /server \$\$x%%test\\"\.mjs/);
     assert(!unit.includes(token)); assert(!unit.includes('RuntimeMaxSec'));
     assert(!(await f.calls()).some(call => call.args.includes('enable')));
@@ -233,5 +234,20 @@ test('audio fault ends bounded readiness with an actionable failure and one boot
     assert.match(result.stderr, /Audio fault: Synthetic native failure/);
     assert.equal(f.bootstraps(), 1);
     assert.equal(f.requests.filter(req => req.path === '/api/audio').length, 1);
+  } finally { await f.close(); }
+});
+
+
+test('install refuses to silently replace an older web unit restart policy', async () => {
+  const f = await fixture();
+  try {
+    const legacy = renderSessionUnit(f.profile, f.profilePath).replace('StartLimitIntervalSec=0\n', '').replace('Restart=on-failure\nRestartSec=3s', 'Restart=no');
+    await mkdir(dirname(f.unit), { recursive: true });
+    await writeFile(f.unit, legacy);
+    const result = await f.cli('install', '--enable', '--profile', f.profilePath);
+    assert.notEqual(result.code, 0); assert.match(result.stderr, /Refusing to overwrite/);
+    assert.equal(await readFile(f.unit, 'utf8'), legacy);
+    assert.deepEqual(await f.calls(), [], 'reviewed upgrade remains separate from install/start');
+    assert.equal(f.bootstraps(), 0);
   } finally { await f.close(); }
 });

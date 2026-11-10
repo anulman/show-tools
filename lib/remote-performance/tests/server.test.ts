@@ -119,3 +119,25 @@ test('killing the foreground server also releases its real owned fake native hos
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+
+test('failed listener startup can retry later and still publishes audio off without native acquisition', async () => {
+  const { directory, profile, headers } = await fixture();
+  const blocked = createServer();
+  let app: Awaited<ReturnType<typeof serveProfile>> | undefined;
+  const offProfile = { ...profile, native: { ...profile.native, executable: '/missing/native-host' } };
+  try {
+    blocked.listen(profile.port, profile.host); await once(blocked, 'listening');
+    await assert.rejects(serveProfile(offProfile), { code: 'EADDRINUSE' });
+    await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
+    await new Promise<void>(resolve => blocked.close(() => resolve()));
+    app = await serveProfile(offProfile);
+    const bootstrap = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
+    assert.equal(bootstrap.view.audio.kind, 'off');
+    await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
+  } finally {
+    if (blocked.listening) await new Promise<void>(resolve => blocked.close(() => resolve()));
+    await app?.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});

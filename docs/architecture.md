@@ -289,3 +289,12 @@ advance musical time or schedule lights. Only C++ supplies the musical light
 image and native audio continues independently of laptop/phone connectivity.
 The supervisor never enables audio or starts/stops transport. Its persistent
 user-unit renderer is source preparation, not an installed host capability.
+
+
+The rendered web user unit retries failed server startup/process exits with a
+three-second systemd backoff, allowing a configured local Tailscale address to
+appear after the user manager starts. A new gateway always starts audio-off.
+Native faults while the gateway remains available do not trigger that restart
+policy. Explicit service Stop stays stopped, and healthy performances are not
+restarted. Applying the rendered policy to an installed unit remains a reviewed
+deployment operation; no networking or audio lifecycle is changed by rendering.
