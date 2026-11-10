@@ -13,7 +13,7 @@ import { installedPackage, sessionProfile, until } from '../../remote-performanc
 
 const level = (image: readonly number[]) => image[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL];
 
-test('a real gateway forwards an attached helper button and abort clears both native held state and helper output', { timeout: 20000 }, async () => {
+for (const playing of [false, true]) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} and abort clears native held state and helper output`, { timeout: 20000 }, async () => {
   await stat(resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'));
   const directory = await mkdtemp(join(tmpdir(), 'pb-'));
   const tokenFile = join(directory, 'token');
@@ -59,6 +59,14 @@ process.on('exit', code => record({ type: 'exit', code }));
       if (audio.kind === 'fault') throw new Error(audio.error);
       return audio.kind === 'ready' ? audio : undefined;
     });
+    if (playing) {
+      const outcome = await controller.command({ attempt: initial.attempt, hostEpoch: initial.performance.hostEpoch },
+        { command: 'start', args: { bpm: 120, countInBars: 0, startBar: 1, endBar: 4, loop: true } });
+      assert.equal(outcome.outcome, 'applied');
+    }
+    const beforeBridge = controller.snapshot().audio;
+    assert.equal(beforeBridge.kind, 'ready');
+    if (beforeBridge.kind !== 'ready') throw new Error('Missing native session');
     const gatewayConfig = { host: '127.0.0.1', port: 0, origin: 'http://127.0.0.1', token: Buffer.from(token), staticRoot: directory };
     server = createGateway(gatewayConfig, forwarded);
     server.listen(0, '127.0.0.1');
@@ -95,8 +103,8 @@ process.on('exit', code => record({ type: 'exit', code }));
     assert.equal(final.kind, 'ready');
     if (final.kind !== 'ready') throw new Error('Bridge interrupted native audio');
     assert.equal(final.attempt, initial.attempt);
-    assert.equal(final.performance.state.runId, initial.performance.state.runId);
-    assert.equal(final.performance.state.phase, 'idle');
+    assert.equal(final.performance.state.runId, beforeBridge.performance.state.runId);
+    assert.equal(final.performance.state.phase, playing ? 'playing' : 'idle');
     assert.equal(level(final.performance.lights), 0, 'fresh cleanup request releases native held state after the main signal aborts');
     assert.equal(lifecycleChanges, 0, 'attaching and aborting never change the audio lifecycle');
     assert.equal(commands.length, 4);
