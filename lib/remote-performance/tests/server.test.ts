@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { serveProfile } from '../server.js';
@@ -140,4 +140,21 @@ test('failed listener startup can retry later and still publishes audio off with
     await app?.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+
+test('an unassigned configured listener address fails with EADDRNOTAVAIL before native acquisition', async () => {
+  const { directory, profile } = await fixture();
+  try {
+    const assigned = new Set(Object.values(networkInterfaces()).flatMap(values => values?.map(value => value.address) ?? []));
+    const unassigned = ['192.0.2.1', '198.51.100.1', '203.0.113.1'].find(value => !assigned.has(value));
+    assert.ok(unassigned, 'fixture requires an unassigned documentation IPv4 address');
+    const cert = join(directory, 'bind-test.crt'), key = join(directory, 'bind-test.key');
+    execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-keyout', key, '-out', cert,
+      '-days', '1', '-subj', '/CN=unassigned.invalid'], { stdio: 'ignore' });
+    await chmod(key, 0o600);
+    await assert.rejects(serveProfile({ ...profile, host: unassigned, origin: `https://unassigned.invalid:${profile.port}`,
+      tls: { cert, key }, native: { ...profile.native, executable: '/missing/native-host' } }), { code: 'EADDRNOTAVAIL' });
+    await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
