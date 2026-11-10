@@ -98,6 +98,13 @@ int main() {
   require(!instrument.prepare(packet.data(), uint32_t(packet.size()), profiles));
   std::array<float, 509> test_input{};
   require(instrument.render(test_input.data(), 127) == 0 && instrument.pending() == 127);
+  std::array<double, PF_FIELDS> before_jiggle{}, after_jiggle{};
+  pf_snapshot(instrument.engine(), before_jiggle.data());
+  require(instrument.set_jiggle_thresholds(4, 2) == 0);
+  pf_snapshot(instrument.engine(), after_jiggle.data());
+  require(after_jiggle == before_jiggle && instrument.engine() == original && instrument.pending() == 127 && instrument.lifecycle() == native_host::Lifecycle::Running);
+  require(instrument.set_jiggle_thresholds(4, 1) < 0 && std::strstr(pf_error(instrument.engine()), "Stop transport"));
+  require(instrument.set_jiggle_thresholds(4, 2) == 0 && instrument.engine() == original && instrument.pending() == 127);
   instrument.stop();
   require(instrument.pending() == 0 && instrument.lifecycle() == native_host::Lifecycle::Prepared);
   require(instrument.start({120, 0, 1, 1, 0, 0}));
