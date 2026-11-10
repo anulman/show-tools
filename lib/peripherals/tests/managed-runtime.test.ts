@@ -119,10 +119,17 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		}
 		await writeFile(stageFile, '3');
 		await waitRecords(history => history.some(record => record.line?.startsWith('light ')));
+		const prepared = controller.snapshot().audio;
+		assert.equal(prepared.kind, 'ready');
+		if (prepared.kind !== 'ready') throw new Error('Missing native session');
+		const started = await controller.command({ attempt: prepared.attempt, hostEpoch: prepared.performance.hostEpoch },
+			{ command: 'start', args: { bpm: 120, countInBars: 0, startBar: 1, endBar: 4, loop: true } });
+		assert.equal(started.outcome, 'applied');
+		if (started.outcome !== 'applied') throw new Error('Missing native start acknowledgement');
 		await writeFile(disconnect, 'yes');
-		await waitRecords(history => history.filter(record => record.type === 'ready').length === 2);
+		await waitRecords(history => new Set(history.filter(record => record.line?.startsWith('light ')).map(record => record.session)).size === 2);
 		server.closeAllConnections();
-		await waitRecords(history => history.filter(record => record.type === 'ready').length === 3);
+		await waitRecords(history => new Set(history.filter(record => record.line?.startsWith('light ')).map(record => record.session)).size === 3);
 		abort.abort(); await running;
 		const history = await records(); const starts = history.filter(record => record.type === 'start');
 		assert.equal(new Set(starts.map(record => record.session)).size, starts.length, 'every attempt has a fresh helper identity');
@@ -130,7 +137,12 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		assert.equal(history.filter(record => record.line === 'clear').length, 3);
 		assert.equal(history.at(-1)?.type, 'exit');
 		assert.equal(audioCommands, 0);
-		assert.equal(controller.snapshot().audio.kind, 'ready');
+		const final = controller.snapshot().audio;
+		assert.equal(final.kind, 'ready');
+		if (final.kind !== 'ready') throw new Error('Supervisor interrupted native audio');
+		assert.equal(final.attempt, prepared.attempt);
+		assert.equal(final.performance.state.runId, started.state.runId);
+		assert.equal(final.performance.state.phase, 'playing');
 	} finally {
 		abort.abort(); await running?.catch(() => {}); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await controller.close(); await rm(directory, { recursive: true, force: true });
 	}

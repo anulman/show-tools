@@ -161,7 +161,7 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	const link = await connection(config, combined);
 	const bootstrap = decodeDeskBootstrap(await link.json('/api/session'));
 	const audio = bootstrap.view.audio;
-	if (audio.kind !== 'ready') throw new PeripheralRetry('Waiting for hardware audio to be enabled in the desk');
+	if (audio.kind !== 'ready') throw new PeripheralRetry('Enable hardware audio in the desk before connecting the I-PAC');
 	const target: NativeTarget = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
 	const session = randomBytes(6).readUIntBE(0, 6) + 1;
 	const incarnation = randomBytes(6).readUIntBE(0, 6) + 1;
