@@ -44,11 +44,15 @@ Keep performers, key props, and any required UI readable within each composition
 
 The working review canvases are 1280 × 720 and 960 × 720. These are provisional authoring defaults, not approved final delivery or CRT resolutions. Confirm delivery requirements before final export. Preserve existing approved releases and pins until replacement outputs pass review.
 
+## Save scene scripts
+
+Use the [shared scene authoring guide](scene-authoring.md) to preserve actual operator words and scene-to-bar interpretations in the operator-selected SQLite store. Unknown ranges, stages and chart revisions remain saveable drafts. Do not turn format examples into scene entries or treat a draft export as runtime admission.
+
 ## Compose with confirmed musical facts
 
 Read the canonical `songs/<song-id>.musicxml` when one exists. Saved song effects and character assignments travel in validated MusicXML voice metadata. SQLite/IndexedDB remains the editor's library and backup format. Inspect the document's actual assignments before using a cast. Ask about missing song-specific facts while continuing independent visual exploration. Do not invent voices, character assignments, tempo, sections, cue semantics, or hardware bindings.
 
-The MusicXML files and `docs/implementation/musicxml-cutover.md` are pending authoring-branch references verified at `fd8e53fe55acc9aa81dbbd4d429a57bf914b32f3`. They are absent from merged main `1620a50` at setup time. Read them in the authoring checkout or that revision; do not assume they exist in a fresh main checkout. The MusicXML cutover documentation is present in the current authoring checkout. Procedural Video reports that its merged renderer preparation still uses the older JSON/catalog adapter and needs migration. Do not claim that MusicXML-to-video intake is wired or restore archived JSON as a canonical fallback. Confirm the current adapter with Procedural Video at handoff. Read `docs/implementation/musicxml-cutover.md` for source ownership.
+Canonical MusicXML and the current Street preparation adapter are merged. The adapter reads MusicXML, using embedded voice assignments when present or an explicitly supplied catalog otherwise. Inspect the intended current document rather than binding historical registry hashes or substituting another checkout. This does not establish arbitrary scene graph support. Read `docs/implementation/musicxml-cutover.md` for source ownership.
 
 The initial Dance Yrself Clean XML contains eight parts but no saved voice metadata. Drunk Girls and I Can Change contain only a Form part and no voice metadata. Those two documents provide timing and form, not complete performer activity. Nine other songs have confirmed set-list entries but no registered canonical chart in this checkout. Keep all missing casting and cue bindings explicit.
 

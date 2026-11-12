@@ -12,6 +12,7 @@ import { chiefHandoff, commandFailureExitCode, formatCommandFailure, parseComman
 export const HELP = `Usage: show-tools sheets [SONG_SLUG_OR_SET_LIST_NUMBER] [--no-cdp] [--skip-open]
        show-tools ui <preview|live|status|stop|shutdown|gc>
        show-tools songs
+       show-tools scenes COMMAND --database ABSOLUTE_SQLITE_PATH
        show-tools session <install|start|stop|status|audio> [--profile FILE]
        show-tools peripheral connect --config FILE
 
@@ -21,6 +22,7 @@ Commands:
   ui             Manage stable live and worktree preview origins
   session        Manage the persistent web desk and optional native audio
   peripheral     Connect the local I-PAC to the enabled hardware instrument
+  scenes         Save and inspect shared scene timelines without starting services
   songs          List song slugs and 1-indexed set-list numbers
 
 Options:
@@ -153,6 +155,10 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
 
 export async function main(args = process.argv.slice(2)) {
   try {
+    if (args[0] === 'scenes') {
+      process.exitCode = await (await import('./scene-authoring.js')).runSceneAuthoringCli(args.slice(1));
+      return;
+    }
     if (args[0] === 'ui') {
       await (await import('../lib/ui-host/cli.js')).runUiCli(args.slice(1));
       return;

@@ -165,6 +165,8 @@ The rationale above uses this session's explicit requirements, repository code, 
 
 ## Video studies consume explicit time
 
+The [scene authoring store](video-directors/scene-authoring.md) keeps operator script chunks and per-song scene occurrences in a separate local SQLite database at an explicit shared path. It preserves original words, stable scene IDs, unresolved or inclusive bar ranges, current MusicXML revision pins and exact reusable stage versions. Song-scoped revisions and immutable inputs prevent unrelated directors from overwriting one another. Draft exports are derived data; script review and runtime admission remain separate. This store does not migrate the voice catalog, change MusicXML, start a service or execute scenes.
+
 Song directors compose on separately owned Figma song pages under Video (Art). Art owns shared visual assets and their promotion. Video (Procedural) owns scene ingestion and rendering; Performance Engine retains musical ownership. The [director guide](video-directors/README.md) and [registry](video-directors/registry.json) record page ownership, asset requests and renderer handoffs. This organization does not add an automatic Figma-page compiler or complete missing song bindings.
 
 The independent [video studio](../ui/video/README.md) lives under `ui/video/`. Its Street preview composes Figma-derived backgrounds and rigid pixel-art sprites. TypeScript prepares explicit visual state windows into immutable HOLD keys; a generic C++ sampler under `lib/video/` evaluates those keys at a supplied position, natively or through WASM. Pixi and the offline video exporter consume the same sampled actor frames. Neither renderer deforms or crossfades character drawings.

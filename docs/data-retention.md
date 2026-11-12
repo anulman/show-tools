@@ -44,3 +44,9 @@ The voice library already uses relational SQLite through `sql.js`. Its current d
 CAD generators and current comparison pages still use ignored frozen receipts and source-revision checks. These validate active proposals, but they are not the final-design restore path described above. Promotion must remove that dependency before those inputs can expire.
 
 Figma is the canonical source for promoted animation. Existing local experiment libraries and raw review records are not a new requirement for permanent backup. Each owner must first extract lessons and verify the canonical handoff.
+
+## Shared scene authoring
+
+The operator selected one local Mac authority for all twelve directors: `/Users/anulman/Library/Application Support/show-tools/video/scene-authoring.sqlite`. The [scene authoring commands](video-directors/scene-authoring.md) explicitly initialize or validate that separate database. It holds original operator text, normalized scene occurrences and reusable stage versions outside Git and worktrees. MusicXML remains the chart authority and Figma remains the artwork authority. This selection does not migrate the voice library or configure a general authoring service.
+
+Consistent local SQLite snapshots can be created and reopened for recovery checks. Independent off-machine backup, destination, cadence and retention remain unconfigured. Preserve active source inputs until the canonical handoff verifies.
