@@ -101,3 +101,14 @@ test('invalid UTF-8 transport is rejected instead of changing original words', a
   const result=await run(['ingest','--database',database,'--input',input,'--json']);
   assert.equal(result.code,2);assert.match(result.stdout,/INVALID_UTF8_INPUT/);assert.deepEqual(snapshot(database),before);
 }));
+
+test('unsupported chart profiles block binding with a preservation path, leaving saved words intact', async()=>fixture(async(directory,database)=>{
+  SceneAuthoringStore.initialize(database).close();
+  const before=snapshot(database);const input=join(directory,'base.json');
+  await writeFile(input,JSON.stringify({base:before.stamp}));
+  const older=join(directory,'older-profile.musicxml');
+  await writeFile(older,(await readFile(chartPath,'utf8')).replaceAll('show-tools-song-v3','show-tools-song-v2'));
+  const result=await run(['bind-chart','--database',database,'--song',song,'--input',input,'--musicxml',older,'--json']);
+  assert.equal(result.code,2);assert.match(result.stdout,/SCENE_AUTHORING_CHART_INVALID/);assert.match(result.stdout,/Do not substitute another checkout/);
+  assert.deepEqual(snapshot(database),before);
+}));

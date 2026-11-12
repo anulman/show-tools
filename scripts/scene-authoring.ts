@@ -139,7 +139,9 @@ export async function runSceneAuthoringCli(args: readonly string[], write: (text
     } finally { store.close(); }
   } catch (error) {
     const failure=error instanceof SceneAuthoringError
-      ? productFailure({code:error.code,message:error.message,locations:error.locations,nextSteps:['Read the current song or stage revision and correct the supplied authoring input. Preserve unknown facts as draft data.']})
+      ? productFailure({code:error.code,message:error.message,locations:error.locations,nextSteps:error.code==='SCENE_AUTHORING_CHART_INVALID'
+          ? ['Preserve the intended MusicXML file. Confirm its profile matches the current reader and coordinate an explicit reviewed migration if required. Do not substitute another checkout or relabel the profile.']
+          : ['Read the current song or stage revision and correct the supplied authoring input. Preserve unknown facts as draft data.']})
       : chiefHandoff({code:'SCENE_COMMAND_FAILED',message:'The scene authoring command could not complete because of a tooling or filesystem failure.',locations:[],nextSteps:['Give Chief the command and database path to diagnose the harness. Do not overwrite the database or bypass product validation.']});
     (json?write:writeError)(formatCommandFailure(failure,json?'json':'human')); return commandFailureExitCode(failure);
   }

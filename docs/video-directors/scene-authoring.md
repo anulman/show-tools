@@ -78,7 +78,7 @@ Read the current stamp, then put it in a transport containing only `{ "base": ST
 
 The existing MusicXML parser supplies song identity, measure count, meter and semantic digest. The store also records the XML byte hash. Historical registry hashes do not bind a chart. A document for a different song blocks. Changing the file later does not silently rebase saved scene ranges; inspect it and bind an intended new revision explicitly.
 
-Use the operator's actual current chart path, not whichever checkout happens to contain a similarly named file. Songs without a current chart can retain unbound drafts.
+Use the operator's actual current chart path, not whichever checkout happens to contain a similarly named file. Songs without a current chart can retain unbound drafts. A complete song in an older MusicXML application profile can also be unsupported by the running reader. Keep that exact source and leave binding unresolved until an explicit compatible intake or reviewed migration is available. Do not relabel its profile, reimport it, or choose another checkout just to make validation pass.
 
 ## Share stages without retargeting occurrences
 
