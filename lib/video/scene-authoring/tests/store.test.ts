@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { access, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { access, link, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
 import { SceneAuthoringError } from '../model.js';
@@ -189,16 +189,26 @@ test('scene updates preserve earlier source links, old words and unmentioned sce
   });
 });
 
-test('malformed normalized data and failed writes preserve the prior coherent snapshot', async () => {
-  await fixture(({ filename,store }) => {
+test('malformed normalized data and failed writes preserve the prior coherent snapshot', async context => {
+  await fixture(({ store }) => {
     store.ingest(request(store)); const before = store.read(songId);
     const reversed = request(store,'reversed');
     assert.throws(() => store.ingest({ ...reversed,scenes:[{ ...scene,range:{ kind:'known',startBar:9,endBar:2 } }] }));
     assert.deepEqual(store.read(songId),before);
-    const database = new DatabaseSync(filename);
-    database.exec("CREATE TRIGGER reject_new_input BEFORE INSERT ON scene_inputs BEGIN SELECT RAISE(ABORT,'fixture storage failure'); END");
-    assert.throws(() => store.ingest(request(store,'failed-write')),/fixture storage failure/);
-    database.exec('DROP TRIGGER reject_new_input'); database.close();
+    const failed = request(store,'failed-write');
+    const originalPrepare = DatabaseSync.prototype.prepare;
+    let scheduled = false;
+    context.mock.method(DatabaseSync.prototype,'prepare',function(this:DatabaseSync,sql:string) {
+      if (sql === 'INSERT INTO scene_inputs VALUES (?,?,?)' && !scheduled) {
+        scheduled = true;
+        // Schedule a real SQLite abort after the schema gate and first data write, inside this owned transaction.
+        this.exec("CREATE TRIGGER reject_new_input BEFORE INSERT ON scene_inputs BEGIN SELECT RAISE(ABORT,'fixture storage failure'); END");
+      }
+      return originalPrepare.call(this,sql);
+    });
+    try { assert.throws(() => store.ingest(failed),/fixture storage failure/); }
+    finally { context.mock.restoreAll(); }
+    assert.equal(scheduled,true);
     assert.deepEqual(store.read(songId),before);
     assert.equal(store.ingest(request(store,'failed-write')).kind,'saved');
   });
@@ -249,5 +259,83 @@ test('consistent snapshots reopen in a fresh process and never clobber existing 
     assert.deepEqual(await readFile(copied.filename),contents);
     const check = SceneAuthoringStore.open(copied.filename);
     try { assert.deepEqual(check.read(songId),before); } finally { check.close(); }
+  });
+});
+
+
+test('a failed initializer preserves another writer’s committed input after publication', async context => {
+  const directory=await mkdtemp(join(tmpdir(),'scene-init-publication-'));
+  const filename=join(directory,'published.sqlite');
+  const originalExec=DatabaseSync.prototype.exec;
+  const operatorText='SYNTHETIC COMMITTED OPERATOR INPUT';
+  let scheduled=false;
+  let blocker:DatabaseSync|undefined;
+  let committedText:string|undefined;
+  context.mock.method(DatabaseSync.prototype,'exec',function(this:DatabaseSync,sql:string) {
+    originalExec.call(this,sql);
+    if (sql==='COMMIT' && !scheduled) {
+      scheduled=true;
+      const writer=SceneAuthoringStore.open(filename);
+      try {
+        const saved=writer.ingest({ operationId:'concurrent-save',songId,base:writer.read(songId).stamp,
+          input:{kind:'new',value:{id:'concurrent-input',operatorText,origin:'owned SQLite interleaving'}},scenes:[] });
+        committedText=saved.snapshot.inputs[0]?.operatorText;
+      } finally { writer.close(); }
+      blocker=new DatabaseSync(filename);
+      blocker.exec('BEGIN EXCLUSIVE');
+    }
+  });
+  try {
+    let initializeError:unknown;
+    try { SceneAuthoringStore.initialize(filename); } catch(error) { initializeError=error; }
+    assert.ok(initializeError instanceof Error);
+    assert.match(initializeError.message,/database is locked/);
+    assert.equal(committedText,operatorText);
+    await access(filename);
+    blocker?.exec('ROLLBACK');blocker?.close();blocker=undefined;
+    const reopened=SceneAuthoringStore.open(filename);
+    try { assert.equal(reopened.read(songId).inputs[0]?.operatorText,operatorText); }
+    finally { reopened.close(); }
+    assert.ok('code' in initializeError && initializeError.code==='SCENE_INITIALIZATION_UNCERTAIN');
+    assert.ok('filename' in initializeError && initializeError.filename===await realpath(filename));
+  } finally {
+    context.mock.restoreAll();
+    try { blocker?.exec('ROLLBACK'); } finally { blocker?.close(); }
+    await rm(directory,{recursive:true,force:true});
+  }
+});
+
+test('snapshots reject the live database and all sidecar aliases before reserving a destination', async()=>{
+  await fixture(async({directory,filename,store})=>{
+    store.ingest(request(store));
+    const before=store.read(songId);
+    const parentAlias=join(directory,'parent-alias');await symlink(directory,parentAlias,'dir');
+    const hardAlias=join(directory,'hard-alias.sqlite');await link(filename,hardAlias);
+    for (const suffix of ['-shm','-wal','-journal']) for (const base of [filename,join(parentAlias,basename(filename)),hardAlias]) {
+      const target=base+suffix;
+      assert.throws(()=>store.snapshot(target),hasCode('SNAPSHOT_DATABASE_NAMESPACE'));
+      await assert.rejects(access(target),{code:'ENOENT'});
+    }
+    assert.throws(()=>store.snapshot(filename),hasCode('SNAPSHOT_DATABASE_NAMESPACE'));
+    assert.deepEqual(store.read(songId),before);
+  });
+});
+
+test('open handles reject external schema drift under the write lock before any mutation', async()=>{
+  for (const action of ['ingest','bind-chart','stage-put'] as const) await fixture(({filename,store})=>{
+    store.ingest(request(store));const before=store.read(songId);
+    const later=request(store,'later-operation');
+    const outside=new DatabaseSync(filename);
+    const event=action==='stage-put'?'AFTER INSERT ON scene_stages':'AFTER UPDATE ON scene_songs';
+    outside.exec(`CREATE TRIGGER external_rewrite ${event} BEGIN UPDATE scene_inputs SET input_json=json_set(input_json,'$.operatorText','MODIFIED BY TRIGGER'); END`);
+    try {
+      assert.throws(()=>{
+        if(action==='ingest')store.ingest(later);
+        else if(action==='bind-chart')store.bindChart({songId,base:before.stamp,chart:{songId,semanticSha256:'a'.repeat(64),xmlSha256:'b'.repeat(64),measureCount:218,meter:{numerator:4,denominator:4}}});
+        else store.saveStage({operationId:'stage-under-drift',base:{...before.stamp,revision:0},definition:{id:'drift-stage',label:'Stage',description:'Synthetic',art:{kind:'unbound'}}});
+      },hasCode('UNSUPPORTED_SCENE_STORE_SCHEMA'));
+    } finally { outside.exec('DROP TRIGGER external_rewrite');outside.close(); }
+    assert.deepEqual(store.read(songId),before);
+    assert.equal(store.readStage('drift-stage'),null);
   });
 });

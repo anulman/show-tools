@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, rmdirSync } from 'node:fs';
+import { closeSync, existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, rmdirSync, statSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { basename, dirname, isAbsolute, join, sep } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -57,6 +57,14 @@ function syncPath(path: string): void {
   try { fsyncSync(descriptor); } finally { closeSync(descriptor); }
 }
 
+export class SceneInitializationError extends Error {
+  readonly code = 'SCENE_INITIALIZATION_UNCERTAIN';
+  constructor(readonly filename: string, cause: unknown) {
+    super(`Scene initialization did not complete; database retained at ${filename}: ${cause instanceof Error ? cause.message : String(cause)}`,{ cause });
+    this.name = 'SceneInitializationError';
+  }
+}
+
 export class SceneAuthoringStore {
   private closed = false;
   private constructor(private readonly database: DatabaseSync) {}
@@ -83,12 +91,13 @@ export class SceneAuthoringStore {
       database.prepare('INSERT INTO scene_metadata VALUES (1,1,?,?)').run(randomUUID(),randomUUID());
       database.exec('COMMIT');
       const result = new SceneAuthoringStore(database);
-      result.validate();
+      result.transaction('BEGIN',() => result.validateContents());
       return result;
     } catch (error) {
-      database?.close();
-      rmSync(physical,{ force:true });
-      throw error;
+      try { database?.close(); }
+      catch (closeError) { throw new SceneInitializationError(physical,new AggregateError([error,closeError],'Initialization and connection cleanup failed')); }
+      if (error instanceof SceneAuthoringError) throw error;
+      throw new SceneInitializationError(physical,error);
     }
   }
 
@@ -98,7 +107,7 @@ export class SceneAuthoringStore {
     try {
       readOnly = new DatabaseSync(uri,{ readOnly:true });
       const reader = new SceneAuthoringStore(readOnly);
-      reader.transaction('BEGIN',() => reader.validate());
+      reader.transaction('BEGIN',() => reader.validateContents());
     } catch (error) {
       if (error instanceof SceneAuthoringError) throw error;
       if (error instanceof SyntaxError || error instanceof Error && 'errcode' in error && (error.errcode === 11 || error.errcode === 26))
@@ -109,7 +118,7 @@ export class SceneAuthoringStore {
     try {
       database.exec('PRAGMA synchronous = FULL');
       const store = new SceneAuthoringStore(database);
-      store.transaction('BEGIN',() => store.validate());
+      store.transaction('BEGIN',() => store.validateContents());
       return store;
     } catch (error) { database.close(); throw error; }
   }
@@ -117,6 +126,7 @@ export class SceneAuthoringStore {
   private transaction<T>(begin: 'BEGIN'|'BEGIN IMMEDIATE', operation: () => T): T {
     this.database.exec(begin);
     try {
+      this.validateSchema();
       const result = operation(); this.database.exec('COMMIT'); return result;
     } catch (error) {
       if (this.database.isTransaction) {
@@ -143,7 +153,7 @@ export class SceneAuthoringStore {
     if (current === Number.MAX_SAFE_INTEGER) failure('REVISION_EXHAUSTED','Scene revision cannot advance safely');
     return current+1;
   }
-  private validate(): void {
+  private validateSchema(): void {
     const objects = this.database.prepare("SELECT type,name,sql FROM sqlite_schema WHERE name NOT LIKE 'sqlite_%'").all();
     const expected = schema.split(';').map(sql => sql.trim()).filter(Boolean);
     if (objects.length !== expected.length || objects.some(row => row.type !== 'table')
@@ -152,6 +162,9 @@ export class SceneAuthoringStore {
     if (this.database.prepare('PRAGMA application_id').get()?.application_id !== applicationId
       || this.database.prepare('PRAGMA user_version').get()?.user_version !== 1)
       failure('UNSUPPORTED_SCENE_STORE_SCHEMA','Unsupported scene-authoring database version');
+  }
+
+  private validateContents(): void {
     if (this.database.prepare('PRAGMA integrity_check').get()?.integrity_check !== 'ok'
       || this.database.prepare('PRAGMA foreign_key_check').all().length)
       failure('INVALID_SCENE_STORE','Scene database integrity checks failed');
@@ -323,8 +336,26 @@ export class SceneAuthoringStore {
     });
   }
 
+  private snapshotDirectory(destination: string): string {
+    const directory = newPath(destination);
+    const main = this.database.prepare('PRAGMA database_list').all().find(row => row.name === 'main');
+    const source = realpathSync.native(stringColumn(main,'file'));
+    const sourceIdentity = statSync(source);
+    const compare = (path: string) => process.platform === 'darwin' ? path.toLowerCase() : path;
+    for (const suffix of ['','-journal','-wal','-shm']) {
+      if (suffix && !compare(directory).endsWith(suffix)) continue;
+      const candidate = suffix ? directory.slice(0,-suffix.length) : directory;
+      const candidateIdentity = existsSync(candidate) ? statSync(candidate) : null;
+      if (compare(candidate) === compare(source) || candidateIdentity
+        && candidateIdentity.dev === sourceIdentity.dev && candidateIdentity.ino === sourceIdentity.ino) {
+        failure('SNAPSHOT_DATABASE_NAMESPACE','Snapshot destination cannot occupy the live database or its SQLite sidecar namespace',[directory,source]);
+      }
+    }
+    return directory;
+  }
+
   snapshot(destinationDirectory: string): { filename:string } {
-    const directory = newPath(destinationDirectory), parent = dirname(directory);
+    const directory = this.snapshotDirectory(destinationDirectory), parent = dirname(directory);
     mkdirSync(directory,{ mode:0o700 });
     const filename = join(directory,'scene-authoring.sqlite');
     let staging: string | undefined;

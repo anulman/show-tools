@@ -18,7 +18,7 @@ scene_db='/Users/anulman/Library/Application Support/show-tools/video/scene-auth
 ./show-tools scenes read --database "$scene_db" --song dance-yrself-clean
 ```
 
-`init` validates an existing scene store without overwriting it. An unsupported or unrelated database blocks. Initialization creates no scene entries, including none of the `Scene 1 / XX–YY` format examples.
+`init` validates an existing scene store without overwriting it. An unsupported or unrelated database blocks. Initialization creates no scene entries, including none of the `Scene 1 / XX–YY` format examples. If initialization later fails, its visible database path is retained: another writer may already have committed input. Have Chief inspect it before retrying an existing-store open; do not delete or recreate it because an initializer returned an error.
 
 Read the song before editing. Copy its complete `stamp` into the input's `base` field. The stamp contains database identity, restore generation and that song's revision. Another song's edit does not invalidate this revision.
 
@@ -109,7 +109,7 @@ The existing Street preparer reads MusicXML and verified assets. This authoring 
 ./show-tools scenes snapshot --database "$scene_db" --output /absolute/path/to/new-snapshot-directory
 ```
 
-The destination must be new. The command uses SQLite's consistent snapshot mechanism, verifies the copy and refuses to overwrite an existing namespace. Reopen the returned database to verify its records. Do not copy a live SQLite file with an ordinary file-sync tool, replace the active authority with an old snapshot, or discard current inputs before a verified handoff.
+The destination must be new and outside the live database and its `-journal`, `-wal` and `-shm` namespaces, including filesystem aliases. The command uses SQLite's consistent snapshot mechanism, verifies the copy and refuses to overwrite an existing namespace. Reopen the returned database to verify its records. Do not copy a live SQLite file with an ordinary file-sync tool, replace the active authority with an old snapshot, or discard current inputs before a verified handoff.
 
 Independent off-machine backup, its destination, cadence and retention are not configured. A local snapshot is not protection against losing this computer. Follow [the retention policy](../data-retention.md).
 

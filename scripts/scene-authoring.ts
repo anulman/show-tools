@@ -2,7 +2,7 @@ import { readFile, mkdir, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { Schema } from 'effect';
-import { SceneAuthoringStore } from '../lib/video/scene-authoring/store.js';
+import { SceneAuthoringStore, SceneInitializationError } from '../lib/video/scene-authoring/store.js';
 import { SceneAuthoringError, parseStamp } from '../lib/video/scene-authoring/model.js';
 import { diagnoseSceneTimeline, inspectSceneChart, prepareSceneIntake } from '../lib/video/scene-authoring/intake.js';
 import { publishPreparedArtifact } from '../lib/video/prepared-artifact.js';
@@ -138,7 +138,10 @@ export async function runSceneAuthoringCli(args: readonly string[], write: (text
       write(JSON.stringify(result,null,2)+'\n'); return 0;
     } finally { store.close(); }
   } catch (error) {
-    const failure=error instanceof SceneAuthoringError
+    const failure=error instanceof SceneInitializationError
+      ? chiefHandoff({code:error.code,message:'Initialization did not complete. The database path was retained because it may contain committed input.',locations:[error.filename],
+        nextSteps:['Have Chief inspect the retained database read-only and verify committed records before retrying an existing-store open. Do not delete or recreate it based on this failed acknowledgment.']})
+      : error instanceof SceneAuthoringError
       ? productFailure({code:error.code,message:error.message,locations:error.locations,nextSteps:error.code==='SCENE_AUTHORING_CHART_INVALID'
           ? ['Preserve the intended MusicXML file. Confirm its profile matches the current reader and coordinate an explicit reviewed migration if required. Do not substitute another checkout or relabel the profile.']
           : ['Read the current song or stage revision and correct the supplied authoring input. Preserve unknown facts as draft data.']})
