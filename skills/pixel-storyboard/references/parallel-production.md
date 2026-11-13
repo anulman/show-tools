@@ -28,7 +28,7 @@ Separate layers by what must move independently. In a bedroom, sky, moon, room i
 
 Reuse observed pixels for a bounded split. State any inferred material needed behind an opaque object and constrain it to that footprint. Compare the actual recomposed baseline and protected pixels. Do not describe inferred hidden fill as recovered original art.
 
-Keep fit, actor scale and placement explicit per aspect. A 4:3 view may need a different reframe or actor size. For a fractional display scale, use verified nearest-neighbour presentation from the unchanged master when appropriate; inspect the actual result for blur, support and occlusion. Do not redesign the character to correct scene scale.
+Keep fit, placement and any authorized scale exception explicit per aspect. Follow the project's shared-scale contract; refit through framing or placement first. A differently shaped canvas alone does not authorize smaller actors. Apply an operator's explicit per-aspect size correction when supplied. For an authorized fractional display scale, use verified nearest-neighbour presentation from the unchanged master when appropriate; inspect the actual result for blur, support and occlusion. Do not redesign the character to correct scene scale.
 
 ## Use the right proof and stop repeating it
 
