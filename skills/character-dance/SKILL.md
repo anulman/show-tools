@@ -7,9 +7,11 @@ description: Explore, combine, repaint, and verify character-appropriate pixel-a
 
 Make a dance that suits the character. Establish the motion with a few coherent drawings and a held-pose animatic before adding in-betweens or expanding the cast.
 
+Use the companion `pixel-storyboard` skill for scene storyboards, action breakdown and staged tweening. Almost never request a complete motion in one generation pass. Establish the starting pose, establish the ending pose or loop closure, then draw the middle and split the gaps revealed by a held-pose animatic. Even when the operator requests a complete motion, own this breakdown and guide review or proceed within their authorization. Preserve each accepted drawing while resolving the next decision.
+
 ## Ground the character and scope
 
-Inspect the approved art and the current design file. Identify the character's proportions, palette, props, attitude, view, and active fidelity. Read any supplied recording with the Scrawl skill before making changes.
+Resolve the actual approved character and edition in the current design file. Record its file/node IDs, fidelity, raw source hash, native grid, and registration transform. A similarly named local avatar is a candidate until it matches that reference. Use the latest approved model when it supersedes an older avatar. Read any supplied recording with the Scrawl skill before making changes.
 
 Describe the intended dance in one sentence. For a quiet default loop, consider a small knee dip, hip shift, foot tap, or head bop. Feet may move. Judge plausible weight and contact rather than imposing a foot lock. Preserve stronger movement when the user requests it.
 
@@ -21,6 +23,26 @@ Use Figma as the primary authoring and review workspace unless the user chooses 
 
 For a new motion direction, start with one character. Expand only within the user's requested scope. A request to write this skill does not authorize generating the rest of the cast.
 
+## Lock identity before expanding motion
+
+For an existing character, establish one faithful neutral before generating its move families. Prefer extracting the approved pixel master and reusing its actual face, costume and prop clusters. Discover the grid and offsets; prove any claimed lossless extraction by reconstructing every source RGBA pixel, including transparent margins. A rounded sample or a plausible redraw is not that proof.
+
+Interpret feedback against the supplied images. A simpler face may need fewer marks while retaining natural anatomy; it does not automatically need a rectangular head or muzzle. If repeated shape tweaks still miss the reference, revisit its proportions and visual language before making more variants. Use reference-led raster exploration for a raster-art target, then deliberately repaint the selected model; do not substitute coarse geometric stand-ins for the requested pixel drawing.
+
+Compare the neutral beside the approved reference at native size and an integer enlargement. Ask **"Does this preserve the approved character's face, silhouette, costume, materials, and prop shapes and proportions?"** Require an independent **pass** before expanding a rig. Keep a failed neutral out of the family builder. Then verify identity through every pose: a faithful neutral can still grow a baton, trunk or limb during an accent. Reuse rigid pieces exactly when they only translate; check complete occupied coverage and transparency, and measure the actual reference proportions.
+
+Identity, style, motion intent, temporal coherence, anatomy and export parity are separate gates. Consistency inside an invented model, or exact Figma/source equality, cannot approve its identity or the requested action. Bind verdicts to the approved reference hash/edition and all current drawing/layer hashes. Changed or missing references, changed drawings, and failed or missing verdicts block finished release. Reused families must meet the current gates too.
+
+For an action that changes viewpoint, name the intended perspective in the anticipation, accent and contact drawings. A forward trip or tumble should show the relevant foreshortening and changing overlap of head, torso and limbs. An in-plane rotation of the front-facing model does not establish that turn. Reuse exact pixels when a part's view remains unchanged; draw view-specific clusters when its perspective changes, preserving the approved identity. Review those new views at native size and integer enlargement. Require a separate motion-intent pass against the requested action before polishing the family; style, texture stability and pixel parity cannot substitute for it. A prior pose approval does not carry over to new perspective drawings.
+
+Read [identity references and release gates](references/identity-reference.md) when preparing an existing character or certifying a release.
+
+## Animate promoted assets without redrawing
+
+Distinguish art authoring from deterministic animation. Exploration, articulation, correction and any repaint happen before promotion. Once a pose family is approved and frozen, song animation selects its recorded poses by beat keys and composes them using declared placement, scale, phase and separate effects. It must not generate, redraw, repaint, diffuse, infer new in-betweens or otherwise change the character pixels. Nearest-neighbour scaling and configured grayscale are presentation operations; neither replaces or modifies the frozen source artwork.
+
+For a render-only request, verify the frozen reference, drawing and layer hashes, then render the certified assets directly. Do not repeat the repaint workflow for each song. Missing or stale certificates block that asset's finished release; return it to the separate authoring/correction workflow rather than silently repairing it inside the renderer. An approved art correction creates a new hash-bound version, followed by fresh applicable reviews and promotion.
+
 ## Add a stronger dance variant
 
 When the user requests more vigorous moves, retain the approved quiet default and create a separately named variant. Describe the additional action before changing amplitude. A deeper knee opening, hip counter-shift, baton cut, wider wing pulse or heel-toe rock can express effort. Faster playback or a larger global bob does not create a new move.
@@ -28,6 +50,12 @@ When the user requests more vigorous moves, retain the approved quiet default an
 Increase one or two readable actions while preserving the character's physical temperament and stable identity pieces. Name the support transfers and free limbs. Review the assembled joints at the larger extremes; exact rigid-piece reuse alone cannot prevent a shoulder or leg root from separating. Extend proximal geometry behind moving pieces as needed.
 
 Use additional drawings only when the stronger gesture needs them. Keep poses and phase offsets in beats, independent of movie frame rate. The new variant requires its own drawing hashes, both visual verdicts and an actual authoring-workspace export review. A failed energetic variant must not replace or inherit approval from the quiet default.
+
+## Distinguish high-note and low-note moves
+
+Treat pitch register as an acting brief, separate from loudness, playback speed and dance intensity. Explore readable articulated contrasts: a muzzle or chest lift, a forehoof tap, a supported chest dip, or a hip rock with head counter-motion. Choose gestures from the creature's anatomy. Keep a shared neutral and registration so the moves can enter, exit or alternate without a model change. Do not impose a pitch-to-gesture mapping beyond the current request.
+
+Compare the main contrasting poses before adding interims. A high/low pair should read at scene scale without labels, while preserving the same character and the requested restraint. Use provisional seconds for a review study when song timing or cues are deferred. Freeze the approved native neutral before production drawings; concept planning can proceed while its finishing is underway, but a generated concept is not a certified sprite master.
 
 ## Illustrate special-move animatics
 
@@ -39,11 +67,13 @@ Keep one-shot action duration separate from the review cycle. Explicit beat keys
 
 Use the user's requested number of explorations. Three contrasting, bounded candidates are a useful default for an open dance brief. When delegation is available, give each subagent its own output directory and a complete shared brief. One agent owns Figma writes.
 
+For cast, scene and effects work proceeding together, use the companion [parallel production guide](../pixel-storyboard/references/parallel-production.md). Divide by independent artifacts and dependencies rather than asking every worker to author the whole scene.
+
 Share identity references, fidelity, camera and scale constraints, motion intent, current corrections, and deliverables. Give each candidate a different gesture or rhythm focus. Avoid generating three intensity levels of the same idea when the user wants broader exploration.
 
-Start with roughly four key drawings when that can express the gesture. The number is a starting budget, not a requirement for every character. Ask for successive moments in one loop, not unrelated stance concepts. Use the imagegen skill for generated raster drawings. Existing editable rigs may be animated directly.
+Develop the starting pose and ending pose or loop closure before the middle drawings. Request a bounded pose or alternatives for the current drawing problem, rather than an entire motion sequence in one generation. Split unresolved transitions through held-pose review. The drawing count follows the action and the operator request. Use the imagegen skill for generated raster drawings. Existing editable rigs may be animated directly.
 
-Each candidate returns the drawings, a contact sheet, a playable held-pose animatic, pose meanings, timing in beats, exact generation inputs, preparation settings, and known flaws. Propagate user steering to every active worker. For an approved motion process applied to more characters, reuse the validated approach rather than automatically repeating an expensive three-way search for each one.
+Each candidate returns the drawings, a contact sheet, a playable held-pose animatic, pose meanings, provisional seconds or confirmed beat keys as requested, exact generation inputs, preparation settings, and known flaws. Propagate user steering to every active worker. For an approved motion process applied to more characters, reuse the validated approach rather than automatically repeating an expensive three-way search for each one.
 
 ## Prepare without erasing motion
 
@@ -75,7 +105,9 @@ Trace each moving limb through its named joints and terminal part in every pose 
 
 ### Repaint before production use
 
-Concept art may use painting, diffusion, or style transfer. Every selected drawing entering a finished sprite-sheet or video pipeline requires a deliberate repaint and a fresh style review. An animatic that establishes the dance is still a concept until this step passes.
+Concept art may use painting, diffusion, or style transfer. Every newly drawn or transformed concept entering a finished sprite-sheet or video pipeline requires a deliberate repaint and a fresh style review. An approved finished pixel master may be reused losslessly; record that reuse rather than claiming a new repaint. New articulations still require the current identity, style and temporal reviews. An animatic that establishes the dance remains a concept until these gates pass.
+
+Keep operator-approved pose geometry fixed during a smaller consistency correction. For face-only polish, name the permitted regions and compare all outside-region RGBA pixels and any declared immutable alpha regions before and after. Freeze the complete alpha channel when the correction changes only RGB. Preserve source component and named-layer IDs when their semantic identity is unchanged. Review the actual placed result and refresh the affected artwork reviews and export receipt. Pose approval does not imply facial, timing or runtime approval.
 
 Repaint the approved motion in the project's intended pixel-art style. Preserve the pose, camera, character identity, common scale, registration and timing. Use deliberate pixel clusters, clear silhouettes, consistent outlines and stepped colour ramps. Keep faces, costume marks and props consistent across drawings. Remove painted blur, accidental anti-aliasing, noisy near-colours, smeared details and redraw shimmer. Use the approved fidelity and palette intent; do not impose a universal palette cap or lower the resolution to hide defects.
 
@@ -91,9 +123,9 @@ Verify the rendered result too. Use integer pixel scales and aligned anchors, an
 
 For an uploaded raster replacement, use the companion pixel-storyboard skill's [image-readiness gate](../pixel-storyboard/references/image-readiness.md) before changing the visible actor. Prove the source image fill and complete registered pixels first; then verify actual placed scale/visibility separately. A successful upload request or source-only pass cannot establish delivery.
 
-Promote a family to finished only when both its repaint/style review and its export review pass. Record this status with the exact artwork version so scripts can refuse unreviewed assets. Report an unfinished family as a concept instead of calling it a finished sprite sheet or video.
+Promote a family to finished only when its identity, motion-intent, repaint/style, temporal, anatomy and actual export reviews pass. Record this status with the exact artwork version so scripts can refuse unreviewed assets. Report an unfinished family as a concept instead of calling it a finished sprite sheet or video.
 
-Put the candidates and synthesized final in the chosen review workspace. In Figma, use the current review area and give the final concrete pose components or an editable rig. Record an explicit sequence, beat phases, cycle length, and the intended starting tempo. Keep the cast-specific dance separate from the underlying artwork and musical clock.
+Put the candidates and synthesized final in the chosen review workspace. In Figma, use the current review area and give the final concrete pose components or an editable rig. Record an explicit sequence and cycle length. For music-driven actions, record beat phases and the intended starting tempo. For a narrative storyboard animatic, record provisional seconds without inventing a song tempo or cue binding. Keep the cast-specific dance separate from the underlying artwork and musical clock.
 
 For a drawn-pose animatic, held opacity swaps are a simple implementation. Verify exactly one drawing is visible at every change and at closure. For a rig, inspect the articulated motion rather than substituting an unrelated global bounce. Keep beat phase separate from rendered frame count so tempo and offbeat offsets can be changed without rewriting the art.
 
@@ -101,7 +133,7 @@ Export and decode the timeline from the actual authoring workspace. For Figma, v
 
 Keep diagnostics out of performance exports. Timing dots, phase tickers, comparison labels and mock meters belong in an explicitly requested diagnostic view. Leave configurable HUD and text slots available, but default unused slots to hidden or empty. Do not invent scene slogans, lyric text or gameplay semantics to fill them. Inspect the clean rendered scene as its own deliverable.
 
-On explicit promotion, Figma is canonical for artwork and animation. Verify that its pose geometry, required named body/effect layers and timeline can supply the required exports. Verify the visible instances, their ancestor placement/visibility/clipping, overrides and other animation as well as source geometry and pose timing. Require complete canvas coverage for every occupied native cell. Verify every pixel in enlarged native cells and transparent registration margins; centre-only downsampling can hide stray geometry or blur. Check transparency and native registration: a canvas-background preview is not a transparent sprite export. Retain stable semantic identities, Figma file/node references, native dimensions, offsets/pivots, beat keys, exact runtime export hashes and compact style/temporal/anatomy verdicts bound to those pixels. A later re-export must match that certificate or return to review. Runtime packages must work offline without raw review reports.
+On explicit promotion, Figma is canonical for artwork and animation. Verify that its pose geometry, required named body/effect layers and timeline can supply the required exports. Verify the visible instances, their ancestor placement/visibility/clipping, overrides and other animation as well as source geometry and pose timing. Require complete canvas coverage for every occupied native cell. Verify every pixel in enlarged native cells and transparent registration margins; centre-only downsampling can hide stray geometry or blur. Check transparency and native registration: a canvas-background preview is not a transparent sprite export. Retain stable semantic identities, Figma file/node references, native dimensions, offsets/pivots, beat keys, exact runtime export hashes and separate compact identity/style/temporal/anatomy verdicts bound to those pixels and the approved reference. A later re-export must match that certificate or return to review. Runtime packages must work offline without raw review reports.
 
 Keep candidates, contact sheets, recordings and detailed process evidence temporary. At milestone handoff or housekeeping, extract useful lessons into existing docs, parameters or meaningful tests; retain only minimal regression fixtures a maintained check needs. Inactive process evidence may expire after verified canonical handoff and dependency migration. Intentionally abandoned prototypes may expire after their lessons are recorded. Protect active work, awaiting-promotion inputs, shared reports still needed by other families, code and required runtime exports. Do not impose a permanent provenance archive or a blanket purge. A compact promotion receipt supersedes raw approval reports only after the consuming validator has migrated to it.
 
