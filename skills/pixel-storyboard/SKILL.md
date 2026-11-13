@@ -67,6 +67,8 @@ For a finished-animation request, continue through targeted drawings and timing 
 
 ## Coordinate one bounded handoff
 
+For several characters, scenes or effects developing together, read [parallel production](references/parallel-production.md). Keep model finishing, pose exploration, scene blocking and effects independently reviewable, with explicit dependencies and one shared-source writer.
+
 When collaborating in this project, the Art Director owns shared model and pose artwork. A song Director owns the assigned page's shots, placement and review timing. Use one source writer for a correction. Give collaborators the consolidated current brief, permitted edits, immutable items, source IDs, acceptance evidence and return artifact. Use the handoff record instead of scattered status messages.
 
 The receiver acknowledges once, works, then returns the actual artifact or a concrete blocker. The Director inspects it and sends one consolidated correction. Do not create a second approval gate for an already authorized bounded update. Avoid repeated "still waiting" messages, duplicate authorization requests and expensive generation while an existing request is pending.
