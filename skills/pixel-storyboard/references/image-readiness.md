@@ -28,6 +28,19 @@ Each expected PNG is the exact intended source canvas, including transparency an
 
 The collector first pins source metadata, the complete PNG byte length and SHA-256, then requests sequential chunks. Every chunk call rechecks the source and reexports the complete PNG before returning at most 24 KiB of PNG bytes encoded as base64. Chunk identity, order, offsets, canonical base64, reconstructed length and full PNG SHA-256 must match. No intermediate Figma state is persisted. If a source changes between calls, restart collection under a valid lease; never join chunks from different attempts.
 
+For large sources, the programmatic helper also accepts an optional `readSourcePng(manifest)` callback. It receives a frozen copy of the live manifest and returns downloaded `Uint8Array` bytes from the exact source component's native PNG export. Obtain that export through `download_assets` or another approved transport, using the manifest's `fileKey` and `sourceNodeId`. Return bytes, not a URL, receipt or raw image fill. The helper checks the 16 MiB bound, exact PNG byte length and SHA-256 commitment, then complete decoded RGBA equality. A visually identical PNG with different encoding fails. Keep the previous actor and return the transport mismatch to Chief; do not substitute decoded equality for the live PNG commitment.
+
+```ts
+const ready = await prepareImageReplacement({
+  sources, replacementPageId, replacementCode, readSource,
+  readSourcePng: async manifest => downloadSourceComponentPng({
+    fileKey: manifest.fileKey, nodeId: manifest.sourceNodeId,
+  }),
+});
+```
+
+`downloadSourceComponentPng` is the calling harness's approved download function, not an export from this helper. The callback cannot approve bytes or modify the manifest. The same immediate live guard runs before replacement, and the eight-source batch limit remains. In the receipt, `chunkCount: 0` identifies byte transport; the verified source hashes, dimensions and pixel evidence have the same meaning as chunk collection. The mailbox driver continues to use bounded chunks by default.
+
 Require exclusive lease ownership while collecting and replacing sources. Asynchronous Figma exports are not a transaction against concurrent human or foreign writes. Execute `ready.code` unchanged under the exact lease. It already contains the authorized replacement code. Do not append additional mutations afterward. Its one shared guard checks file identity first, switches once to `replacementPageId`, and freshly checks every source before any replacement code runs. Sources may live on other pages. Live dimensions, image fill identity, full PNG length and SHA-256 must match their locally verified snapshots. Freshness relies on SHA-256 collision resistance; local decoded RGBA parity remains exact byte equality. A pixel-identical but byte-different reexport is deliberately stale.
 
 Generated read scripts and captured tool responses have 40,000-byte budgets, leaving margin below the connector limits. A source is bounded to 16 MiB of PNG data and 16 megapixels. Figma must materialize an export before its byte size can be checked. The complete guarded replacement is bounded below 50,000 bytes with 1,024 bytes reserved for the owned wrapper. Supply the actual replacement code to preparation so its size is counted. A failed or oversized transport goes to Chief; do not omit checks, crop artwork, waive source parity or lower resolution to recover it.

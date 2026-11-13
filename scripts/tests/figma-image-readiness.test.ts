@@ -10,7 +10,7 @@ function prepareSingle(input: Omit<Parameters<typeof prepareImageReplacement>[0]
   target: unknown; expectedPng: Uint8Array;
 }) {
   return prepareImageReplacement({ sources: [{ target: input.target, expectedPng: input.expectedPng }],
-    replacementPageId: input.replacementPageId, replacementCode: "return 'replacement reached';", readSource: input.readSource });
+    replacementPageId: input.replacementPageId, replacementCode: "return 'replacement reached';", readSource: input.readSource, readSourcePng: input.readSourcePng });
 }
 
 const target = { fileKey: 'test-file', pageId: '1:1', sourceNodeId: '1:2', imageNodeId: '1:3' };
@@ -276,4 +276,96 @@ test('the complete guarded script budget includes the caller replacement before 
   await assert.rejects(prepareImageReplacement({ sources: [{ target, expectedPng: image }], replacementPageId: target.pageId,
     replacementCode: 'x'.repeat(50_000), readSource: async () => { reads++; throw Error('unexpected read'); } }), /replacement code exceeds/);
   assert.equal(reads, 0);
+});
+
+
+test('local PNG transport verifies the same source receipt with no chunk calls', async () => {
+  const image = await png(randomBytes(256 * 64 * 4), 256, 64);
+  const chunked = await prepared(image, 256, 64);
+  const fixture = figmaFixture(image, 256, 64);
+  let reads = 0, downloads = 0;
+  const ready = await prepareSingle({ target, expectedPng: image, replacementPageId: target.pageId,
+    readSource: async code => { reads++; return envelope(await execute(code, fixture.figma)); },
+    readSourcePng: async manifest => {
+      downloads++;
+      assert(Object.isFrozen(manifest));
+      assert.equal(manifest.sourceNodeId, target.sourceNodeId);
+      assert.equal(manifest.pngSha256, createHash('sha256').update(image).digest('hex'));
+      assert.throws(() => Object.assign(manifest, { pngSha256: '0'.repeat(64) }), TypeError);
+      return image;
+    } });
+  const { chunkCount: originalChunkCount, ...chunkedSource } = chunked.ready.receipt.sources[0];
+  const { chunkCount, ...bulkSource } = ready.receipt.sources[0];
+  assert.deepEqual(bulkSource, chunkedSource);
+  assert(originalChunkCount > 1);
+  assert.equal(chunkCount, 0);
+  assert.equal(reads, 1);
+  assert.equal(downloads, 1);
+  assert.equal(await execute(ready.code, fixture.figma), 'replacement reached');
+});
+
+test('local transport rejects stale, wrong-source, truncated, oversized and byte-different PNGs before replacement', async () => {
+  const image = await png(pixels);
+  const other = await png(Buffer.from([0, 0, 0, 255, 0, 0, 0, 0]));
+  const samePixels = await sharp(image).png({ compressionLevel: 0 }).toBuffer();
+  assert(!samePixels.equals(image));
+  assert((await sharp(samePixels).ensureAlpha().raw().toBuffer()).equals(pixels));
+  const invalid = [other, image.subarray(0, image.length - 1), Buffer.alloc(16 * 1024 * 1024 + 1), samePixels];
+  for (const downloaded of invalid) {
+    const fixture = { ...figmaFixture(image), replacementRuns: 0 };
+    await assert.rejects(prepareImageReplacement({ sources: [{ target, expectedPng: image }],
+      replacementPageId: target.pageId, replacementCode: 'figma.replacementRuns++;',
+      readSource: async code => envelope(await execute(code, fixture.figma)),
+      readSourcePng: async () => downloaded }), /commitment differs|downloaded PNG byte bound/);
+    assert.equal(fixture.replacementRuns, 0);
+  }
+});
+
+test('manifest-matching local bytes still require nonempty expected art and complete RGBA/registration parity', async () => {
+  const expected = await png(pixels), blank = await png(Buffer.alloc(8));
+  const wrongDimensions = await png(pixels, 1, 2);
+  for (const downloaded of [blank, wrongDimensions]) {
+    const f = figmaFixture(downloaded);
+    let replacementReached = false;
+    await assert.rejects(prepareImageReplacement({ sources: [{ target, expectedPng: expected }],
+      replacementPageId: target.pageId, replacementCode: 'return true;',
+      readSource: async code => envelope(await execute(code, f.figma)),
+      readSourcePng: async () => downloaded }).then(() => { replacementReached = true; }), /RGBA differs/);
+    assert.equal(replacementReached, false);
+  }
+  let reads = 0, downloads = 0;
+  await assert.rejects(prepareSingle({ target, expectedPng: blank, replacementPageId: target.pageId,
+    readSource: async () => { reads++; throw Error('unexpected read'); },
+    readSourcePng: async () => { downloads++; return blank; } }), /empty expected artwork/);
+  assert.equal(reads, 0); assert.equal(downloads, 0);
+});
+
+test('bulk preparation preserves live drift checks before any multi-source replacement mutation', async () => {
+  const image = await png(pixels), first = figmaFixture(image), second = figmaFixture(image);
+  second.source.id = '1:4'; second.imageNode.id = '1:5';
+  const secondTarget = { ...target, sourceNodeId: second.source.id, imageNodeId: second.imageNode.id };
+  const figma = { ...first.figma, replacementRuns: 0,
+    getNodeByIdAsync: async (id: string) => (await first.figma.getNodeByIdAsync(id)) ?? (await second.figma.getNodeByIdAsync(id)) };
+  const ready = await prepareImageReplacement({ sources: [{ target, expectedPng: image }, { target: secondTarget, expectedPng: image }],
+    replacementPageId: target.pageId, replacementCode: 'figma.replacementRuns++; return true;',
+    readSource: async code => envelope(await execute(code, figma)), readSourcePng: async () => image });
+  assert.equal(await execute(ready.code, figma), true);
+  assert.equal(figma.replacementRuns, 1);
+  figma.replacementRuns = 0;
+  second.source.exportAsync = async () => await sharp(image).png({ compressionLevel: 0 }).toBuffer();
+  await assert.rejects(execute(ready.code, figma), /live source changed/);
+  assert.equal(figma.replacementRuns, 0);
+});
+
+test('bulk callback failures and invalid return types cannot produce replacement code', async () => {
+  const image = await png(pixels), fixture = figmaFixture(image);
+  for (const readSourcePng of [async () => { throw Error('download failed'); },
+    // Exercise an untyped connector at the public boundary.
+    async () => JSON.parse('"not PNG bytes"')]) {
+    let replacementReached = false;
+    await assert.rejects(prepareSingle({ target, expectedPng: image, replacementPageId: target.pageId,
+      readSource: async code => envelope(await execute(code, fixture.figma)), readSourcePng })
+      .then(() => { replacementReached = true; }));
+    assert.equal(replacementReached, false);
+  }
 });

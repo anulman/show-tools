@@ -23,6 +23,8 @@ const Manifest = Schema.Struct({
   width: positiveInt, height: positiveInt, imageHash: Schema.NonEmptyString,
   pngBytes: positiveInt.check(Schema.isLessThanOrEqualTo(MAX_PNG_BYTES)), pngSha256: digest,
 });
+export type ImageSourceManifest = Readonly<typeof Manifest.Type>;
+type ReadSourcePng = (manifest: ImageSourceManifest) => Promise<Uint8Array>;
 const Chunk = Schema.Struct({
   ...Manifest.fields, index: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)),
   offset: Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)), data: Schema.NonEmptyString,
@@ -89,6 +91,7 @@ function assertManifest(actual: typeof Manifest.Type, expected: typeof Manifest.
 async function collectSource(input: {
   target: typeof Target.Type; expectedPng: Uint8Array; requestId: string;
   readSource: (code: string) => Promise<unknown>;
+  readSourcePng?: ReadSourcePng;
 }) {
   const { target, requestId } = input;
   if (input.expectedPng.length > MAX_PNG_BYTES) throw Error('Image readiness harness: expected PNG byte bound exceeded');
@@ -105,24 +108,34 @@ async function collectSource(input: {
   if (manifest.requestId !== requestId || manifest.width !== expected.info.width || manifest.height !== expected.info.height) {
     throw Error('Image source not ready: snapshot identity or expected dimensions differ');
   }
-  const parts: Buffer[] = [];
-  const chunkCount = Math.ceil(manifest.pngBytes / CHUNK_BYTES);
-  for (let index = 0; index < chunkCount; index++) {
-    const offset = index * CHUNK_BYTES;
-    const length = Math.min(CHUNK_BYTES, manifest.pngBytes - offset);
-    const code = boundedCode(`${runtime}
+  let png: Buffer;
+  let chunkCount = 0;
+  if (input.readSourcePng) {
+    const downloaded = Schema.decodeUnknownSync(Schema.Uint8Array)(await input.readSourcePng(Object.freeze({ ...manifest })));
+    if (downloaded.length > MAX_PNG_BYTES) throw Error('Image readiness harness: downloaded PNG byte bound exceeded');
+    png = Buffer.from(downloaded);
+  } else {
+    const parts: Buffer[] = [];
+    chunkCount = Math.ceil(manifest.pngBytes / CHUNK_BYTES);
+    for (let index = 0; index < chunkCount; index++) {
+      const offset = index * CHUNK_BYTES;
+      const length = Math.min(CHUNK_BYTES, manifest.pngBytes - offset);
+      const code = boundedCode(`${runtime}
 const {snapshot,png}=await imageReadyInspect(${JSON.stringify(target)});
 imageReadyAssert(snapshot,${JSON.stringify(manifest)});
 return {...snapshot,index:${index},offset:${offset},data:figma.base64Encode(png.slice(${offset},${offset + length}))};`);
-    const chunk = Schema.decodeUnknownSync(Chunk)(responseValue(await input.readSource(code)));
-    assertManifest(chunk, manifest);
-    if (chunk.index !== index || chunk.offset !== offset) throw Error('Image source not ready: missing, duplicate or reordered chunk');
-    const bytes = Buffer.from(chunk.data, 'base64');
-    if (bytes.length !== length || bytes.toString('base64') !== chunk.data) throw Error('Image source not ready: malformed or truncated chunk');
-    parts.push(bytes);
+      const chunk = Schema.decodeUnknownSync(Chunk)(responseValue(await input.readSource(code)));
+      assertManifest(chunk, manifest);
+      if (chunk.index !== index || chunk.offset !== offset) throw Error('Image source not ready: missing, duplicate or reordered chunk');
+      const bytes = Buffer.from(chunk.data, 'base64');
+      if (bytes.length !== length || bytes.toString('base64') !== chunk.data) throw Error('Image source not ready: malformed or truncated chunk');
+      parts.push(bytes);
+    }
+    png = Buffer.concat(parts, manifest.pngBytes);
   }
-  const png = Buffer.concat(parts, manifest.pngBytes);
-  if (hash(png) !== manifest.pngSha256) throw Error('Image source not ready: complete PNG commitment differs');
+  if (png.length !== manifest.pngBytes || hash(png) !== manifest.pngSha256) {
+    throw Error('Image source not ready: complete PNG commitment differs');
+  }
   const actual = await sharp(png, { limitInputPixels: MAX_PIXELS }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   if (actual.info.width !== manifest.width || actual.info.height !== manifest.height || !actual.data.equals(expected.data)) {
     throw Error('Image source not ready: complete registered source RGBA differs; retain current actor');
@@ -137,6 +150,8 @@ export async function prepareImageReplacement(input: {
   sources: ReadonlyArray<{ target: unknown; expectedPng: Uint8Array }>;
   replacementPageId: unknown; replacementCode: string;
   readSource: (code: string) => Promise<unknown>;
+  /** Optional transport for the exact committed source-component export; bytes are still fully verified here. */
+  readSourcePng?: ReadSourcePng;
 }) {
   const sources = Schema.decodeUnknownSync(Sources)(input.sources);
   const replacementPageId = Schema.decodeUnknownSync(nodeId)(input.replacementPageId);
@@ -149,7 +164,7 @@ export async function prepareImageReplacement(input: {
   if (Buffer.byteLength(replacementCode) > completeBudget) throw Error('Image readiness harness: replacement code exceeds the reserved call budget');
   const requestId = randomUUID();
   const verified = [];
-  for (const source of sources) verified.push(await collectSource({ ...source, requestId, readSource: input.readSource }));
+  for (const source of sources) verified.push(await collectSource({ ...source, requestId, readSource: input.readSource, readSourcePng: input.readSourcePng }));
   const guard = boundedCode(`${inspectionCode(fileKey, requestId, replacementPageId)}
 for(const expected of ${JSON.stringify(verified.map(source => source.manifest))}){
  const {snapshot}=await imageReadyInspect(expected);imageReadyAssert(snapshot,expected);
