@@ -167,6 +167,28 @@ test('concurrent stale-lock recovery cannot remove a newly acquired startup lock
   }
 });
 
+test('concurrent startup preserves one complete configuration and rejects conflicting origins', async () => {
+  const f = await fixture();
+  const conflicting = { ...f.config, livePort: f.config.livePort === 65535 ? 65534 : f.config.livePort + 1 };
+  try {
+    const candidates = Array.from({ length: 16 }, (_, index) => index % 2 ? conflicting : f.config);
+    const results = await Promise.allSettled(candidates.map(config => ensureManager(config)));
+    const saved = JSON.parse(await readFile(join(f.config.stateRoot, 'manager-config.json'), 'utf8'));
+    const owners = new Set<number>();
+    for (const [index, result] of results.entries()) {
+      if (JSON.stringify(candidates[index]) === JSON.stringify(saved)) {
+        assert.equal(result.status, 'fulfilled');
+        if (result.status === 'fulfilled') owners.add(result.value.owner.pid);
+      } else {
+        assert.equal(result.status, 'rejected');
+        if (result.status === 'rejected') assert.match(String(result.reason), /configuration (?:changed|conflicts)/);
+      }
+    }
+    assert.equal(owners.size, 1);
+    assert.deepEqual(saved, saved.livePort === f.config.livePort ? f.config : conflicting);
+  } finally { await f.cleanup(); }
+});
+
 test('an incomplete startup owner remains fail-closed and is left intact', async () => {
   const f = await fixture();
   try {
