@@ -97,7 +97,7 @@ Historical capture fixtures retain the overlapping reservation case in which F21
 
 A playback prefix is a selection view over an immutable take, not another recording. Native capture observes its exclusive source-frame cutoff against the actual clock and retains that observation per bank. Playback feeds zero source after the cutoff while continuing the selected rack, preserving earlier effects tails. It invalidates the printed-cache shortcut once source history diverges. Selecting a full view restores source admission without changing playback phase or recorded PCM. A view change never authorizes a stopped voice to play.
 
-Drunk Girls and I Can Change have timing and section snapshots, but their pad-action rows are blank. They preserve timing-only practice with an empty program derived from the canonical chart. Any authored performance instructions must validate before loading audio. All current songs start with empty samples.
+Drunk Girls is executable from canonical MusicXML, with nine full pickup measures followed by numbered bars 1–128. Its seven captures support finite word hits, named lead and room recordings, the eight-bar guitar loop and prepared held playback. Display labels remain distinct from native chronological measure ordinals. Tribulations is also executable. I Can Change remains a timing-only placeholder and is marked not ready in the song list. All songs begin with empty recorded samples; declared external assets are prepared separately while stopped.
 
 ## The UI observes the instrument
 

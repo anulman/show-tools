@@ -66,7 +66,8 @@ test('historical Cowbell chart keeps six distinct whole-bar takes linked to its 
     assert.equal(commit.commitTakeId, take.id);
   }
   const other = await loadSong('drunk-girls');
-  assert.equal(other.compiled, undefined);
+  assert.equal(other.compiled.executable, true);
+  assert.equal(other.compiled.takes.length, 7);
   assert.equal(other.program.controls, undefined);
   assert.deepEqual(other.program.events, []);
 });
@@ -97,5 +98,5 @@ test('pad names are loaded from the selected chart notes, with no other song nam
   const dyc = await loadSong('dance-yrself-clean');
   assert.deepEqual(dyc.chart.controlNames, { L1: 'Whistle', R1: 'Drums & Claps', L2: 'Bing Bong', R2: 'Cowbell' });
   const drunk = await loadSong('drunk-girls');
-  assert.deepEqual(drunk.chart.controlNames, { L1: 'L1', R1: 'R1', L2: 'L2', R2: 'R2' });
+  assert.deepEqual(drunk.chart.controlNames, { L1: 'Drunk Boys', R1: 'When Day Becomes', L2: 'Guitar', R2: 'Drunk Girls' });
 });

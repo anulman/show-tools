@@ -1,11 +1,13 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { link, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
 import { parseSongSource } from '../lib/performance/song-source.js';
 import { importSheetMusicXml } from '../lib/performance/sheet-musicxml.js';
 import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
 import { inspectCompiledSong, type SongMapping } from '../lib/performance/compiled-song.js';
 
-const [sourcePath, output] = process.argv.slice(2);
-if (!sourcePath || !output) throw new Error('Usage: prepare-drunk-girls.ts source.json output.musicxml');
+const args = process.argv.slice(2);
+const [sourcePath, output] = args;
+if (args.length !== 2 || !sourcePath || !output) throw new Error('Usage: prepare-drunk-girls.ts source.json output.musicxml');
 const source = parseSongSource(JSON.parse(await readFile(sourcePath, 'utf8')));
 const tailColumn = source.values[6].findIndex(value => value === 'Tail') + 1;
 const { columnName } = await import('../lib/performance/columns.js');
@@ -38,7 +40,16 @@ const mapping: SongMapping = {
   ],
 };
 const result = await importSheetMusicXml({ source, mapping });
-await writeFile(output, result.xml);
 const canonical = await readMusicXmlSong(result.xml);
-process.stdout.write(inspectCompiledSong(canonical.song) + '\n');
-if (!canonical.song.executable) process.exitCode = 1;
+if (!canonical.song.executable) {
+  process.stderr.write(inspectCompiledSong(canonical.song) + '\n');
+  process.exitCode = 2;
+} else {
+  const temporary = await mkdtemp(join(dirname(resolve(output)), '.drunk-girls-import-'));
+  try {
+    const complete = join(temporary, 'score.musicxml');
+    await writeFile(complete, result.xml);
+    await link(complete, resolve(output));
+  } finally { await rm(temporary, { recursive: true, force: true }); }
+  process.stdout.write(inspectCompiledSong(canonical.song) + '\n');
+}

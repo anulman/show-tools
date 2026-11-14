@@ -614,7 +614,7 @@ function render(next: Partial<PracticeState>) {
   startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start practice';
   elements.stop.disabled = !starting && !running && !recording;
   for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting;
-  elements['sheet-link'].setAttribute('aria-label', `Open ${inCountIn ? 'lead-in' : `bar ${displayBar}`} in Google Sheets`);
+  elements['sheet-link'].setAttribute('aria-label', `Open ${inCountIn ? 'lead-in' : `bar ${chartBarLabel(chart, displayBar)}`} in Google Sheets`);
   for (const control of CONTROLS) {
     const pad = pads.get(control.id);
     if (!pad) continue;
