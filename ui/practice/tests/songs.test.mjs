@@ -18,7 +18,7 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   assert.equal(loaded[1].chart.bars[9].label, '1', 'numbered bar 1 follows nine full pickup measures');
   assert.equal(loaded[1].chart.bars[16].partial, false, 'starred section changes are not partial bars');
   assert.equal(loaded[1].compiled.executable, true);
-  assert.equal(loaded[2].compiled.executable, false, 'ICC remains unavailable until its arrangement is ready');
+  assert.equal(loaded[2].compiled, undefined, 'ICC remains a timing-only placeholder until its arrangement is ready');
   assert.equal(loaded[3].compiled.executable, true);
   assert.equal(loaded[0].compiled.chart, loaded[0].chart, 'DYC exposes the compiled source chart');
   assert(loaded[0].compiled.cues.length > 0, 'DYC provides compiled chart instructions');
