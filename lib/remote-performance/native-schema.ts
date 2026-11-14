@@ -12,7 +12,7 @@ const id = Schema.NonEmptyString.check(Schema.isMaxLength(256));
 const revision = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/));
 const channel = Schema.Literals(['L1', 'L2', 'R1', 'R2']);
 const list = <S extends Schema.Constraint>(item: S, maximum: number) => Schema.mutable(Schema.Array(item).check(Schema.isMaxLength(maximum)));
-const control = Schema.Union([Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2', 'mushroom', 'tempo']) }), Schema.Struct({ id: Schema.Literal('knob'), value: finite }), Schema.Struct({ id: Schema.Literal('cueButton'), value: Schema.Literals([0, 1]) })]);
+const control = Schema.Union([Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2']), edge: Schema.optionalKey(Schema.Literal('release')) }), Schema.Struct({ id: Schema.Literals(['mushroom', 'tempo']) }), Schema.Struct({ id: Schema.Literal('knob'), value: finite }), Schema.Struct({ id: Schema.Literal('cueButton'), value: Schema.Literals([0, 1]) })]);
 const effect = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('slapback'), delayMs: finite, feedback: finite, wet: finite }),
   Schema.Struct({ kind: Schema.Literal('chorus'), rateHz: finite, depthMs: finite, baseDelayMs: finite, wet: finite }),

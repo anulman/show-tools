@@ -396,4 +396,8 @@ retain their acknowledged threshold setup and ordered signed motion.
 
 ### Verify terse Sheets cues
 
-Run `npm run verify:formal:cues` for the bounded actual-parser domain and four source mutation controls. Run `node --import tsx --test lib/performance/tests/sheet-cues.test.ts` for ingestion and archive-free canonical roundtrip. See [the language contract](implementation/sheet-cues.md) for current native capability boundaries; canonical import success does not mean native execution is supported.
+Run `npm run verify:formal:cues` for the bounded actual-parser domain and six source mutation controls. Run `node --import tsx --test lib/performance/tests/sheet-cues.test.ts` for ingestion and archive-free canonical roundtrip. See [the language contract](implementation/sheet-cues.md) for current native capability boundaries; canonical import success does not mean native execution is supported.
+
+### Verify native terse playback
+
+Build WASM with `npm run build:wasm`, then run `node --import tsx --test lib/performance/tests/terse-wasm.test.ts lib/performance/tests/compiled-wasm.test.ts`. The fixtures use synthetic microphone PCM, explicit sustain regions, and supplied note order. They do not open devices or establish physical latency. Build `lib/performance` with CMake and run CTest for the native engine and patch checks. After covered native changes, run `npm run verify:formal:capture` with the pinned toolchain and inspect source mapping and mutation failures before updating its source record.

@@ -270,6 +270,23 @@ export class NativePerformance {
     return decodeNativeLiveEffects(this.query('pf_live_info'));
   }
 
+  prepareExternalSample(slot: number, left: Float32Array, right?: Float32Array) {
+    if (!Number.isInteger(slot) || slot < 0 || slot >= 64 || !left.length || right && right.length !== left.length
+      || !left.every(Number.isFinite) || right && !right.every(Number.isFinite)) throw new Error('Invalid external sample');
+    const pointer = this.call('malloc', left.byteLength * (right ? 2 : 1));
+    if (!pointer) throw new Error('Performance WASM memory limit reached');
+    try {
+      new Float32Array(this.memory.buffer, pointer, left.length).set(left);
+      if (right) new Float32Array(this.memory.buffer, pointer + left.byteLength, right.length).set(right);
+      this.call('pf_prepare_external_sample', this.handle, slot, pointer, right ? pointer + left.byteLength : 0, left.length);
+    } finally { this.invoke('free', pointer); }
+  }
+  triggerExternal(slot: number) {
+    if (!Number.isInteger(slot) || slot < 0 || slot >= 64) throw new Error('Invalid external sample slot');
+    this.call('pf_trigger_external', this.handle, slot);
+  }
+  releaseChannel(id: ChannelId) { this.call('pf_control', this.handle, this.channel(id) + 8, 0, 0, 0); }
+
   selectChannel(id: ChannelId) { this.call('pf_select', this.handle, this.channel(id)); }
   setAutomatic(value: boolean) { this.call('pf_set_automatic', this.handle, this.boolean(value, 'Automatic')); }
   setClick(value: boolean) { this.call('pf_set_click', this.handle, this.boolean(value, 'Click')); }
@@ -290,7 +307,7 @@ export class NativePerformance {
     else if (control.id === 'tempo') id = 6;
     else if (control.id === 'cueButton') { if (control.value !== 0 && control.value !== 1) throw new Error('Invalid cue button state'); id = 7; }
     else if (control.id === 'knob') { if (!Number.isFinite(control.value)) throw new Error('Invalid knob value'); id = 5; }
-    else id = this.channel(control.id);
+    else id = this.channel(control.id) + ('edge' in control && control.edge === 'release' ? 8 : 0);
     const result = this.invoke('pf_control', this.handle, id, control.id === 'knob' || control.id === 'cueButton' ? control.value : 0, commandId ? this.commandPointer : 0, units.length);
     if (commandId) this.commandIds.set(this.query('pf_snapshot')[PF.SEQUENCE], commandId);
     if (result !== 0) throw new Error(this.error());

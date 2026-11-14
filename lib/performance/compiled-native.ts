@@ -16,6 +16,7 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
     return index;
   };
   const optionalIndex = (map: ReadonlyMap<string, number>, id: string | null) => id === null ? -1 : indexOf(map, id);
+  const groups = new Map([...new Set(song.cues.flatMap(cue => cue.groupId === null ? [] : [cue.groupId]))].map((id, index) => [id, index]));
   const members = song.selections.flatMap((selection, index) => selection.takeIds.flatMap((id, member) => [index, indexOf(takes, id), selection.gains[member]]));
   const binding = CONTROL_IDS.map(button => {
     const voice = song.voices.find(voice => voice.buttonId === button);
@@ -23,7 +24,11 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
     return indexOf(voices, voice.id);
   });
   const kinds: Record<CompiledSong['cues'][number]['kind'], number> = { arm: PF.ARM, commit: PF.COMMIT, 'commit-arm': PF.COMMIT_ARM, stop: PF.STOP, play: PF.PLAY };
-  const header = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, song.meter.numerator, song.chart.bars.length,
+  const legacy = song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && song.cues.every(cue =>
+    !cue.captureReplacement && cue.launchPolicy === 'autoplay' && cue.playbackMode === 'loop' && cue.groupId === null && cue.sourceName === null
+    && (cue.execution.kind !== 'beat' || !cue.execution.barOffset));
+  const cueFields = legacy ? PF.COMPILED_LEGACY_CUE_FIELDS : PF.COMPILED_CUE_FIELDS;
+  const header = [PF.COMPILED_MAGIC, legacy ? PF.COMPILED_LEGACY_VERSION : PF.COMPILED_VERSION, song.meter.numerator, song.chart.bars.length,
     song.chart.bpm, song.chart.annotatedThroughBar, song.cueWindow.earlyMs, song.cueWindow.lateMs,
     song.takes.length, song.cues.length, members.length / PF.COMPILED_MEMBER_FIELDS, song.playback.length, ...binding];
   const takeRows = song.takes.flatMap(take => {
@@ -34,7 +39,9 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
   const cueRows = song.cues.flatMap(cue => [CONTROL_IDS.indexOf(cue.buttonId), indexOf(voices, cue.voiceId), cue.bar,
     cue.cueBeat ?? -1, kinds[cue.kind], cue.execution.kind === 'now' ? 0 : cue.execution.kind === 'next-bar' ? 1 : 2,
     cue.execution.kind === 'beat' ? cue.execution.beat : 0, optionalIndex(takes, cue.takeId),
-    optionalIndex(takes, cue.commitTakeId), optionalIndex(selections, cue.selectionId), cue.tempoBeatHint]);
+    optionalIndex(takes, cue.commitTakeId), optionalIndex(selections, cue.selectionId), cue.tempoBeatHint,
+    ...(legacy ? [] : [cue.launchPolicy === 'store' ? 1 : 0, { loop: 0, 'one-shot': 1, held: 2, gated: 3 }[cue.playbackMode],
+      cue.execution.kind === 'beat' ? cue.execution.barOffset ?? 0 : 0, optionalIndex(groups, cue.groupId), cue.captureReplacement ? 1 : 0])]);
   const playback = song.playback.flatMap(cue => [cue.bar, indexOf(voices, cue.voiceId), indexOf(selections, cue.selectionId)]);
   const rotation = song.rotation ? [PF.COMPILED_ROTATION_MAGIC, song.rotation.windows.length, song.rotation.inactivityBeats,
     ...song.rotation.windows.flatMap(window => [window.begin.bar, window.begin.beat, window.end.bar, window.end.beat])] : [];
@@ -47,9 +54,13 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
     return [index, 0, selection.window.endCount, counts];
   });
   const windows = windowRows.length ? [PF.COMPILED_WINDOW_MAGIC, windowRows.length / PF.COMPILED_WINDOW_FIELDS, ...windowRows] : [];
-  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows];
+  const external = song.externalSamples?.length ? [PF.COMPILED_EXTERNAL_MAGIC, song.externalSamples.length,
+    ...song.externalSamples.flatMap(sample => [sample.slot, sample.begin.bar, sample.begin.beat, sample.end.bar, sample.end.beat])] : [];
+  const notes = song.noteBanks?.length ? [PF.COMPILED_NOTES_MAGIC, song.noteBanks.reduce((count, bank) => count + bank.notes.length, 0),
+    ...song.noteBanks.flatMap(bank => bank.notes.flatMap(note => [CONTROL_IDS.indexOf(bank.buttonId), note.slot, note.at.bar, note.at.beat, bank.toleranceMs]))] : [];
+  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
-    || cueRows.length !== song.cues.length * PF.COMPILED_CUE_FIELDS || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
+    || cueRows.length !== song.cues.length * cueFields || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
   if (song.meter.denominator !== (song.meter.numerator === 6 ? 8 : 4)) throw new Error('This native build supports 4/4 and 6/8 compiled programs.');
   return Float64Array.from(fields);
 }

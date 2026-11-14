@@ -258,13 +258,24 @@ function flash(id: ChannelId | 'mushroom', held = false) {
 }
 
 function releasePresses() {
+  for (const control of CONTROLS) if (heldKeys.has(control.key)) void act(() => releasePad(control.id));
   heldKeys.clear();
   keyboardInput?.disconnect();
   if (keyboardConnected) keyboardConnected = false;
   document.querySelectorAll('.pressed').forEach(element => element.classList.remove('pressed'));
 }
 
-async function triggerPad(id: ChannelId, commandId?: string) {
+const pendingPadPresses = new Map<ChannelId, Promise<void>>();
+function triggerPad(id: ChannelId, commandId?: string) {
+  const action = pressPad(id, commandId);
+  pendingPadPresses.set(id, action);
+  return action;
+}
+async function releasePad(id: ChannelId, commandId?: string) {
+  try { await pendingPadPresses.get(id); }
+  finally { if (audio) await audio.control({ id, edge: 'release' }, { commandId }); }
+}
+async function pressPad(id: ChannelId, commandId?: string) {
   if (voiceCatalog.busy) return;
   const generation = transportGeneration;
   const instance = await ensureAudio();
@@ -426,12 +437,12 @@ function makePads() {
       act(() => triggerPad(control.id));
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      button.addEventListener(type, () => button.classList.remove('pressed'));
+      button.addEventListener(type, () => { button.classList.remove('pressed'); act(() => releasePad(control.id)); });
     }
     button.addEventListener('click', event => {
       if (event.detail !== 0) return;
       flash(control.id);
-      act(() => triggerPad(control.id));
+      act(async () => { await triggerPad(control.id); await releasePad(control.id); });
     });
   }
 }
@@ -750,10 +761,10 @@ window.addEventListener('keydown', event => {
   } else { heldKeys.add(event.code); act(() => isRunning() ? stopPractice() : startPractice()); }
 });
 window.addEventListener('keyup', event => {
-  if (event.code === 'Escape' || CONTROLS.some(control => control.key === event.code)) keyboardEdge(event, 'release');
+  const input = event.code === 'Escape' || CONTROLS.some(control => control.key === event.code) ? keyboardEdge(event, 'release') : null;
   heldKeys.delete(event.code);
   const control = CONTROLS.find(control => control.key === event.code);
-  if (control) pads.get(control.id)?.button.classList.remove('pressed');
+  if (control) { pads.get(control.id)?.button.classList.remove('pressed'); if (input) act(() => releasePad(control.id, peripheralCommandId(input))); }
   if (event.code === 'Escape') elements.mushroom.classList.remove('pressed');
 });
 function postPerformanceEvent(event: PracticeEvent): void {

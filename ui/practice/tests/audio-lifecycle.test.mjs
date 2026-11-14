@@ -375,7 +375,7 @@ test('disposing failed audio disconnects every output without waiting for a work
   const released = [];
   const audio = Object.assign(Object.create(PracticeAudio.prototype), {
     startGeneration: 0, disposed: false,
-    detachState() {}, detachTracker() {},
+    detachState() {}, detachTracker() {}, detachPeripheral() {},
     endpoint: { port: { removeEventListener() {} }, dispose() { released.push('endpoint'); }, request() { throw new Error('Must not wait for an acknowledgment'); } },
     recordDestination: { stream: { getTracks: () => [{ stop() { released.push('recording-track'); } }] }, disconnect() { released.push('recording-node'); } },
     tracker: { node: { disconnect(...targets) { assert.equal(targets.length, 0); released.push('all-output'); } }, async dispose() { released.push('microphone'); } },
@@ -414,6 +414,7 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
   const source = await sourceForVM(new URL('../app.ts', import.meta.url));
   const listeners = new Map();
   const commands = [];
+  const releases = [];
   let panicCalls = 0;
   class Element {
     constructor(editing = false) { this.editing = editing; }
@@ -423,11 +424,11 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
   const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: controls,
     document: { querySelector: () => null, querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
-    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }),
+    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }), releasePad: (id, commandId) => releases.push({ id, commandId }),
   };
   prepareUIContext(context);
   const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const liveVoiceStates'));
-  const releaseSource = source.slice(source.indexOf('function releasePresses'), source.indexOf('async function triggerPad'));
+  const releaseSource = source.slice(source.indexOf('function releasePresses'), source.indexOf('const pendingPadPresses'));
   const handlers = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('function postPerformanceEvent'));
   vm.runInContext(adapterSource + releaseSource + handlers, context);
   const event = { target: new Element(), code: 'KeyQ', repeat: false, timeStamp: 123, preventDefault() {} };
@@ -458,6 +459,8 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
   listeners.get('keydown')(escape);
   assert.equal(panicCalls, 2, 'Escape also works when it is the first input after focus loss');
   assert.equal(commands.length, 8);
+  assert.equal(releases.length, 8, "every accepted key-up forwards a pad release");
+  assert.deepEqual(releases.map(control => control.id), commands.map(control => control.id));
   assert.equal(new Set(commands.map(command => command.commandId)).size, 8);
 });
 

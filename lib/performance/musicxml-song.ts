@@ -2,7 +2,7 @@ import { MusicXmlValidationError } from './musicxml-errors.js';
 export { MusicXmlValidationError } from './musicxml-errors.js';
 import { Schema } from 'effect';
 import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser';
-import { CompiledSongSchema, SongMappingSchema, RotationSchema, decodeCompiledSong, type CompiledSong } from './compiled-song.js';
+import { CompiledSongSchema, SongMappingSchema, RotationSchema, LegacyCueSchema, migrateCompiledCueV6, decodeCompiledSong, type CompiledSong } from './compiled-song.js';
 import { SongSourceSchema, type SongSource } from './song-source.js';
 import type { MusicXmlReport, MusicXmlCell, MusicalAnnotations } from './musicxml-model.js';
 import { scoreXmlText as xml, stableMusicXmlJson } from './score-xml.js';
@@ -40,11 +40,13 @@ const MusicalAnnotationsSchema = Schema.Struct({
   instrumentDisplays: list(Schema.Struct({ cell: Schema.String, text: Schema.String })),
 });
 const Performance = Schema.Struct({
-  version: Schema.Literal(1), scope: Schema.Literal('complete'),
+  version: Schema.Literal(2), scope: Schema.Literal('complete'),
   id: CompiledSongSchema.fields.id, notationVersion: CompiledSongSchema.fields.notationVersion,
   source: CompiledSongSchema.fields.source, mappingDigest: CompiledSongSchema.fields.mappingDigest,
   voices: CompiledSongSchema.fields.voices, parts: list(RuntimePart),
   rotation: CompiledSongSchema.fields.rotation, cueWindow: CompiledSongSchema.fields.cueWindow,
+  noteBanks: CompiledSongSchema.fields.noteBanks,
+  externalSamples: CompiledSongSchema.fields.externalSamples,
   authoredCues: CompiledSongSchema.fields.authoredCues,
   cues: CompiledSongSchema.fields.cues, takes: CompiledSongSchema.fields.takes,
   selections: CompiledSongSchema.fields.selections, playback: CompiledSongSchema.fields.playback,
@@ -59,6 +61,13 @@ const Performance = Schema.Struct({
   scoreParts: list(ProvenancePart), selectedLabelCells: list(Schema.String), conventions: list(Schema.String),
 });
 type PerformanceData = typeof Performance.Type;
+const LegacyPerformance = Schema.Struct({ ...Performance.fields, version: Schema.Literal(1), cues: list(LegacyCueSchema) });
+function decodePerformance(input: unknown): PerformanceData {
+  const version = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.Int }))(input).version;
+  if (version !== 1) return Schema.decodeUnknownSync(Performance, { onExcessProperty: 'error' })(input);
+  const legacy = Schema.decodeUnknownSync(LegacyPerformance, { onExcessProperty: 'error' })(input);
+  return { ...legacy, version: 2, cues: legacy.cues.map(migrateCompiledCueV6) };
+}
 
 const Text = Schema.Struct({ id: Schema.optionalKey(Schema.String), '#text': Schema.optionalKey(Schema.String) });
 const Direction = Schema.Struct({
@@ -182,7 +191,9 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
     return { ...fields, scorePartId: scorePart.id };
   });
   const performance: PerformanceData = {
-    version: 1, scope: 'complete', id: song.id, notationVersion: song.notationVersion,
+    version: 2, scope: 'complete', id: song.id, notationVersion: song.notationVersion,
+    ...(song.noteBanks === undefined ? {} : { noteBanks: song.noteBanks }),
+    ...(song.externalSamples === undefined ? {} : { externalSamples: song.externalSamples }),
     source: song.source, mappingDigest: song.mappingDigest, voices: song.voices, parts: partBindings,
     ...(song.authoredCues === undefined ? {} : { authoredCues: song.authoredCues }),
     rotation: song.rotation, cueWindow: song.cueWindow, cues: song.cues, takes: song.takes,
@@ -293,7 +304,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   const encoded = metadata.get('show-tools:performance');
   if (!encoded) throw new MusicXmlValidationError('Canonical MusicXML is missing required performance metadata.');
   const extension: unknown = JSON.parse(encoded);
-  const performance = Schema.decodeUnknownSync(Performance, { onExcessProperty: 'error' })(extension);
+  const performance = decodePerformance(extension);
   const standardIds = score.part.flatMap(part => part.measure.flatMap(measure => (measure.direction ?? []).flatMap(direction => [
     ...(direction['direction-type'].words ?? []), ...(direction['direction-type'].rehearsal ?? []), ...(direction['direction-type']['other-direction'] ?? []),
   ].flatMap(marker => marker.id ? [marker.id] : []))));
@@ -442,8 +453,10 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   }
   const digest = await semanticDigest({ title: chart.title, meter, bpmPerChartCount: bpm, sections, vocalCues, parts, annotations }, performance, voices);
   const song = decodeCanonicalProgram({
-    schemaVersion: 6, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
+    schemaVersion: 7, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
     ticksPerQuarter: 960, meter, source: { ...performance.source, digest }, mappingDigest: digest, chart,
+    ...(performance.noteBanks === undefined ? {} : { noteBanks: performance.noteBanks }),
+    ...(performance.externalSamples === undefined ? {} : { externalSamples: performance.externalSamples }),
     voices: performance.voices, parts: resolvedParts, rotation: performance.rotation, cueWindow: performance.cueWindow,
     ...(performance.authoredCues === undefined ? {} : { authoredCues: performance.authoredCues }),
     cues: performance.cues, takes: performance.takes, selections: performance.selections, playback: performance.playback,
@@ -485,13 +498,13 @@ export async function migrateMusicXmlSongV2(input: string): Promise<string> {
   const oldWindow = Schema.Union([Schema.Struct({ kind: Schema.Literal('full') }),
     Schema.Struct({ kind: Schema.Literal('prefix'), endCount: Schema.Number.check(Schema.isFinite()) })]);
   const oldSelection = Schema.Struct({ ...CompiledSongSchema.fields.selections.schema.value.fields, window: oldWindow });
-  const oldPerformance = Schema.Struct({ ...Performance.fields, rotation: Schema.NullOr(oldRotation), selections: list(oldSelection) });
+  const oldPerformance = Schema.Struct({ ...LegacyPerformance.fields, rotation: Schema.NullOr(oldRotation), selections: list(oldSelection) });
   const performance = Schema.decodeUnknownSync(oldPerformance, { onExcessProperty: 'error' })(JSON.parse(metadata.get('show-tools:performance') ?? 'null'));
   const rotation = performance.rotation ? { voiceId: performance.rotation.voiceId, inactivityBeats: performance.rotation.releaseGridBeats,
     windows: performance.rotation.windows } : null;
   const replacements = new Map<string, string>([
     ['show-tools:profile', MUSICXML_SONG_PROFILE],
-    ['show-tools:performance', stableMusicXmlJson({ ...performance, rotation })],
+    ['show-tools:performance', stableMusicXmlJson({ ...performance, version: 2, cues: performance.cues.map(migrateCompiledCueV6), rotation })],
   ]);
   const mapping = metadata.get('show-tools:mapping');
   if (mapping) {

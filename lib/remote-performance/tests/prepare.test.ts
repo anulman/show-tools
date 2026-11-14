@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import song from '../../../songs/dance-yrself-clean.js';
 import { compiledProgramBytes } from '../../performance/compiled-native.js';
 import { encodeInitialProfiles } from '../commands.js';
-import { prepareHost } from '../prepare.js';
+import { prepareHost, validateInstalledPackage } from '../prepare.js';
 
 test('rejects mismatched song and profiles before contacting the host', async () => {
   assert.ok(song.compiled);
@@ -19,4 +19,19 @@ test('rejects mismatched song and profiles before contacting the host', async ()
   const differentProfiles = configurations.map(profile => profile.profile === 0 ? { ...profile, effects: [{ kind: 'slapback', delayMs: 100, feedback: .2, wet: .3 }] } : profile);
   await assert.rejects(prepareHost('/nonexistent', manifest(fields), packet, differentProfiles), /digest mismatch/);
   await assert.rejects(prepareHost('/nonexistent', manifest({ ...fields, takeCount: fields.takeCount + 1 }), packet, configurations), /manifest identity/);
+});
+
+
+test('validated packages preserve explicit legacy and current packet versions', async () => {
+  const { terseCaptureFixture } = await import('../../performance/tests/fixtures/terse-capture.js');
+  for (const compiled of [song.compiled, await terseCaptureFixture()]) {
+    assert(compiled);
+    const packet = Buffer.from(compiledProgramBytes(compiled));
+    const configurations = Array.from({ length: 6 }, (_, profile) => ({ profile, effects: [] }));
+    const hash = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
+    const manifest = Buffer.from(JSON.stringify({ id: compiled.id, description: 'packet migration fixture', compiled,
+      practice: { startBar: 1, endBar: compiled.chart.bars.length }, takeCount: compiled.takes.length,
+      packetSha256: hash(packet), profilesSha256: hash(encodeInitialProfiles(configurations)) }));
+    assert.equal(validateInstalledPackage(manifest, packet, configurations).song.id, compiled.id);
+  }
 });

@@ -117,14 +117,17 @@ int main(int argc, char** argv) {
   if (pf_prepare_voice_effects(engine.get(), effects.data(), counts.data(), revisions.data()) < 0
     || pf_load_compiled_bytes(engine.get(), bytes.data(), uint32_t(bytes.size())) < 0) return fail(pf_error(engine.get()));
   double inactivity = 0;
+  const size_t cue_fields = field(bytes, 1) == PF_COMPILED_LEGACY_VERSION ? PF_COMPILED_LEGACY_CUE_FIELDS : PF_COMPILED_CUE_FIELDS;
   size_t cursor = PF_COMPILED_HEADER_FIELDS + size_t(field(bytes, 8)) * PF_COMPILED_TAKE_FIELDS
-    + size_t(field(bytes, 9)) * PF_COMPILED_CUE_FIELDS + size_t(field(bytes, 10)) * PF_COMPILED_MEMBER_FIELDS
+    + size_t(field(bytes, 9)) * cue_fields + size_t(field(bytes, 10)) * PF_COMPILED_MEMBER_FIELDS
     + size_t(field(bytes, 11)) * PF_COMPILED_PLAYBACK_FIELDS;
   while (cursor < bytes.size() / 8) {
     if (field(bytes, cursor) == PF_COMPILED_ROTATION_MAGIC) {
       inactivity = field(bytes, cursor + 2);
       cursor += PF_COMPILED_ROTATION_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_ROTATION_FIELDS;
-    } else cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_WINDOW_FIELDS;
+    } else if (field(bytes, cursor) == PF_COMPILED_WINDOW_MAGIC) cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_WINDOW_FIELDS;
+    else if (field(bytes, cursor) == PF_COMPILED_EXTERNAL_MAGIC || field(bytes, cursor) == PF_COMPILED_NOTES_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1)) * 5;
+    else return fail("Unsupported compiled extension");
   }
   std::array<double, PF_FIELDS> snapshot{}; pf_snapshot(engine.get(), snapshot.data());
   if (pf_set_jiggle_thresholds(engine.get(), 1, 1) < 0 || pf_set_microphone(engine.get(), 1) < 0 || pf_set_click(engine.get(), 0) < 0 || pf_set_click_gain(engine.get(), 0) < 0

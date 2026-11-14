@@ -22,7 +22,7 @@ int64_t write_short(void* context, const float* data, uint32_t frames) {
   return frames;
 }
 std::vector<uint8_t> compiled_packet() {
-  const std::vector<double> table{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 3, 7, 4, 0, 0, 1, 2, 3,
+  const std::vector<double> table{PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 4, 120, 4, 25, 25, 3, 7, 4, 0, 0, 1, 2, 3,
       0,1,0,2,0,1,2,0,0, 0,2,0,3,0,1,3,0,0, 1,3,0,4,0,1,4,0,2,
       0,0,0,-1,PF_ARM,1,0,0,-1,-1,0, 0,0,1,-1,PF_COMMIT_ARM,1,0,1,0,0,0,
       0,0,2,-1,PF_COMMIT,1,0,-1,1,1,0, 1,1,2,-1,PF_ARM,1,0,2,-1,-1,0,
