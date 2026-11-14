@@ -96,8 +96,10 @@ void store_only_endpoint() {
     0, 0, 1, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0, PF_STORE_ONLY, PF_LOOP_MODE, 0, -1, 0,
     0, 0, 3, 0, PF_PLAY, 0, 0, -1, -1, 0, 0, PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, 0,
     0, 0, 1};
-  for (double rate : {8000., 44100., 48000.}) for (bool press_finish : {false, true}) {
-    Engine engine(rate); prepare(engine, song);
+  for (int profile : {0, 4, 5}) for (double rate : {8000., 44100., 48000.}) for (bool press_finish : {false, true}) {
+    auto program = song;
+    if (profile) program.insert(program.end(), {PF_COMPILED_PROFILES_MAGIC, 1, 0, double(profile)});
+    Engine engine(rate); prepare(engine, program);
     ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0));
     ok(engine, press(engine, 0)); until(engine, 1);
     if (press_finish) ok(engine, press(engine, 0));

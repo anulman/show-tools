@@ -101,3 +101,11 @@ The stop-only Cartesian grammar remains unchanged. Its 7,488 cases still check d
 The legacy cutover verifier asserts that every schema-seven policy still has its historical default before removing those additive fields from its historical comparison. It then checks the unchanged native digest `237b834c47ede65e4488e25c268a7202c4da1845388ff5cfa63fa9e94e51c7a8` and all nine musician-sheet pages. Compatible `dyc-v1` songs retain packet six and its eleven-field cue rows. New instructions use packet seven and sixteen-field cue rows.
 
 Capture sources with an independently named, unprepared effect profile remain blocked. Held and gated sources require a prepared source and an explicit sustain window. A cue in an unmodeled pickup or tail column produces a source-cell diagnostic instead of disappearing from the executable instructions.
+
+## Explicit source profile ownership
+
+Optional source profiles and per-take profile IDs now preserve prepared effect ownership separately from the four input banks. A named source can reuse a canonical live part with the same identity/profile, or declare an independent source label and unused prepared profile. Conflicting ownership and forged take/profile assignments fail validation. Source-profile metadata survives archive-free canonical roundtrip, and catalog discovery resolves the same source label to that profile. Independent source profiles start dry when no saved patch is supplied; they do not inherit the backup live graph.
+
+The existing 7,488-case domain and two actual-source mutation witnesses retain their original bounds and claims. Additional source-profile tests verify canonical/native representation and ownership rejection. They do not prove profile-specific capture DSP or live monitoring; the shared native/WASM witnesses establish that separately.
+
+Portable external WAV declarations retain their data URI, SHA-256 and license metadata in canonical Performance data. The writer and reader verify declared bytes before returning a canonical result. The external-asset dependency is source-fenced. The finite 7,488-case grammar remains unchanged; focused `external-assets.test.ts` tests cover asset identity, archive-free roundtrip and slot ownership. This finite grammar does not exhaust WAV decoding or cryptographic behavior.

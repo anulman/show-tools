@@ -39,7 +39,7 @@ This is a safety proof of the model under these abstractions. It does not establ
 
 ## Source mapping and sensitivity
 
-The last source sync is `7e3b3c19c71b14b1370c2b36bf6c8a804bbd7935`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
+The last source sync is `894915fd154c07529d08c79182cafe46cc9191ef`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
 
 | Model action or rule | Current source boundary |
 | --- | --- |
@@ -77,8 +77,10 @@ Use `/maintain-formal-verification-skill` after source changes that did not reru
 
 ## Store-only capture coverage
 
-`store-only-endpoint` checks actual `pf_process_stems` execution at 8, 44.1, and 48 kHz. Each rate checks a pressed store and a missed store. Both retain the complete source and period at the written endpoint while sample output stays silent. A separate declared nonreplacement capture in the same voice retains another playing source without silencing it or adding a second loop. A replacing combined commit-and-arm also keeps its just-published outgoing source playing, preserving the ordinary `cr` autoplay promise. Missing the later manual play also stays silent. Pressing that later play launches the same retained source without changing its length or revision.
+`store-only-endpoint` checks actual `pf_process_stems` execution at 8, 44.1, and 48 kHz. Each rate checks a pressed store and a missed store under source effect profiles 0, 4, and 5 on physical bank 0. Both retain the complete source and period at the written endpoint while sample output stays silent. A separate declared nonreplacement capture in the same voice retains another playing source without silencing it or adding a second loop. A replacing combined commit-and-arm also keeps its just-published outgoing source playing, preserving the ordinary `cr` autoplay promise. Missing the later manual play also stays silent. Pressing that later play launches the same retained source without changing its length or revision.
 
 The paired `storeAutoplays` model and native mutants replace store-only publication with autoplay and must fail the dedicated store-only rule or native assertion. The existing `noAutoplay` pair remains separate. Its actual-source mutation changes the outgoing launch policy rather than deleting individual start calls, so both full-take and slice launch paths remain covered when their implementation moves.
 
 This extends capture publication verification. Finite playback duration, source phase, grouped action resolution, held release, bend mapping, per-note selection, and external sample preparation need their own execution witnesses. These behaviors are not established by the capture state machine.
+
+The finite capture state describes song takes and their two protected banks. It does not count the stopped Tuning ring buffer or external note slots as song takes. Tuning readiness, pitch stability, profile-specific DSP, WAV parsing and rate conversion, and external control delivery have separate regression tests. The existing native `tuner-isolation` scenario and its running-gate source mutant remain part of this package.
