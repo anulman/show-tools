@@ -142,6 +142,8 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
       }
     }
     for (const bar of [{ bar: 0, cues: song.chart.leadInCues }, ...song.chart.bars]) for (const button of ['L1', 'L2', 'R1', 'R2'] satisfies (keyof typeof bar.cues)[]) {
+      const parsed = parseSheetCues(bar.cues[button], song.meter.numerator);
+      if (song.executable && parsed.kind === 'invalid') throw new Error('Invalid authored cue cannot execute.');
       if (bar.cues[button] && !keys.has(`${bar.bar}/${button}`) && parseSheetCues(bar.cues[button], song.meter.numerator).kind === 'parsed') throw new Error('Authored cue cell is missing.');
     }
   }

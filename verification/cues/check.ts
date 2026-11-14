@@ -21,7 +21,7 @@ for (const meter of [4, 6]) for (let press = 0; press < meter * 4; press++) {
   }
   for (let next = 0; next < meter; next++) {
     const parsed = parseSheetCues(`(${next + 1})&cr1 &cx2`, meter);
-    assert.equal(parsed.kind, 'parsed');
+    assert.equal(parsed.kind, 'parsed', 'SILENT_ANCHOR');
     if (parsed.kind !== 'parsed') throw new Error('PARSE');
     assert.equal(parsed.actions[0].pressBeat, next + .5, 'SILENT_ANCHOR');
     assert.equal(parsed.actions[1].pressBeat, next + .5, 'CELL_LOCAL_INHERITANCE');
@@ -35,4 +35,5 @@ for (const meter of [4, 6]) for (let press = 0; press < meter * 4; press++) {
 for (const token of ['0p', '7p', '(7)&r', 'r()', 'r(3)', 'rr', 'cxx', '1p&p', '1p*', 'clb', '(3)4r', 'r(lead day)', '1.5p', '1pb2']) {
   assert.equal(parseSheetCues(token).kind, 'invalid', 'MALFORMED_REJECTION'); cases++;
 }
+assert.equal(cases, 22110, 'FINITE_DOMAIN_CARDINALITY');
 process.stdout.write(JSON.stringify({ status: 'PASS-finite-real-parser', cases, domain: '4/4 and 6/8; every sixteenth press, 8 operations, 3 source names, immediate/next-bar/every sixteenth execution; inherited silent anchors and fresh cells; 14 malformed controls' }) + '\n');

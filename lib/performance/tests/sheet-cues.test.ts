@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSheetCues } from '../sheet-cues.js';
-import { compileSheetsSong, decodeCompiledSong } from '../compiled-song.js';
+import { compileSheetsSong, decodeCompiledSong, inspectCompiledSong } from '../compiled-song.js';
 import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { readMusicXmlSong, writeMusicXmlSong } from '../musicxml-song.js';
 import { readFile } from 'node:fs/promises';
@@ -47,6 +47,16 @@ test('complete terse language survives canonical MusicXML with capability blocks
   assert.equal(second.source, null); assert.equal(second.mapping, null);
   assert.deepEqual(second.song.authoredCues, expected.authoredCues);
   assert.equal(second.song.executable, false);
+  assert.match(inspectCompiledSong(second.song), /AUTHORED[^\n]*cx\(lead\)/);
+  assert.match(inspectCompiledSong(second.song), /AUTHORED[^\n]*h\(default\)/);
+  assert.throws(() => decodeCompiledSong({ ...expected, authoredCues: [] }), /cell is missing/);
+  const blank = { L1: '', L2: '', R1: '', R2: '' };
+  const corrupted = { ...expected, authoredCues: [], diagnostics: [], executable: true,
+    chart: { ...expected.chart, leadInCues: blank, bars: expected.chart.bars.map((bar, index) => ({ ...bar, cues: { ...blank, R1: index === 0 ? 'gibberish' : '' } })) } };
+  assert.throws(() => decodeCompiledSong(corrupted), /Invalid authored cue/);
+  const changed = standalone.replace(/(<words id="command-R1-1">)[^<]+(<\/words>)/, '$1x$2');
+  assert.notEqual(changed, standalone);
+  await assert.rejects(readMusicXmlSong(changed), /display or semantics disagree/);
   assert.throws(() => decodeCompiledSong({ ...expected, executable: true, diagnostics: [] }), /capabilities/);
   const forged = { ...expected, authoredCues: expected.authoredCues?.map((cell, index) => index ? cell : { ...cell, actions: cell.actions.map((action, i) => i ? action : { ...action, pressBeat: 0 }) }) };
   assert.throws(() => decodeCompiledSong(forged), /semantics disagree/);
