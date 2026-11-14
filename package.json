@@ -26,7 +26,8 @@
     "verify:formal:native": "node --import tsx verification/native-audio/verify.ts",
     "verify:formal:capture": "node --import tsx verification/capture/verify.ts",
     "verify:formal:musicxml": "node --import tsx verification/musicxml/verify.ts",
-    "verify:formal": "npm run verify:formal:native && npm run verify:formal:capture && npm run verify:formal:musicxml"
+    "verify:formal": "npm run verify:formal:native && npm run verify:formal:capture && npm run verify:formal:musicxml && npm run verify:formal:cues",
+    "verify:formal:cues": "node --import tsx verification/cues/verify.ts"
   },
   "dependencies": {
     "@effect/platform-node": "4.0.6",

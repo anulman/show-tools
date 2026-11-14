@@ -45,6 +45,7 @@ const Performance = Schema.Struct({
   source: CompiledSongSchema.fields.source, mappingDigest: CompiledSongSchema.fields.mappingDigest,
   voices: CompiledSongSchema.fields.voices, parts: list(RuntimePart),
   rotation: CompiledSongSchema.fields.rotation, cueWindow: CompiledSongSchema.fields.cueWindow,
+  authoredCues: CompiledSongSchema.fields.authoredCues,
   cues: CompiledSongSchema.fields.cues, takes: CompiledSongSchema.fields.takes,
   selections: CompiledSongSchema.fields.selections, playback: CompiledSongSchema.fields.playback,
   diagnostics: CompiledSongSchema.fields.diagnostics, executable: Schema.Boolean,
@@ -183,6 +184,7 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
   const performance: PerformanceData = {
     version: 1, scope: 'complete', id: song.id, notationVersion: song.notationVersion,
     source: song.source, mappingDigest: song.mappingDigest, voices: song.voices, parts: partBindings,
+    ...(song.authoredCues === undefined ? {} : { authoredCues: song.authoredCues }),
     rotation: song.rotation, cueWindow: song.cueWindow, cues: song.cues, takes: song.takes,
     selections: song.selections, playback: song.playback, diagnostics: song.diagnostics, executable: song.executable,
     chartBinding: { columns: song.chart.bars.map(bar => bar.column), partialBars: song.chart.bars.filter(bar => bar.partial).map(bar => bar.bar),
@@ -443,6 +445,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     schemaVersion: 6, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
     ticksPerQuarter: 960, meter, source: { ...performance.source, digest }, mappingDigest: digest, chart,
     voices: performance.voices, parts: resolvedParts, rotation: performance.rotation, cueWindow: performance.cueWindow,
+    ...(performance.authoredCues === undefined ? {} : { authoredCues: performance.authoredCues }),
     cues: performance.cues, takes: performance.takes, selections: performance.selections, playback: performance.playback,
     diagnostics: performance.diagnostics, executable: performance.executable,
   });

@@ -393,3 +393,7 @@ or knob commands; buttons, native light publication and cleanup still work.
 The synthetic native-host fixtures cover attachment during playback, publication
 gaps and reconnects without changing the audio lifecycle. Object configurations
 retain their acknowledged threshold setup and ordered signed motion.
+
+### Verify terse Sheets cues
+
+Run `npm run verify:formal:cues` for the bounded actual-parser domain and four source mutation controls. Run `node --import tsx --test lib/performance/tests/sheet-cues.test.ts` for ingestion and archive-free canonical roundtrip. See [the language contract](implementation/sheet-cues.md) for current native capability boundaries; canonical import success does not mean native execution is supported.

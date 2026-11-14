@@ -1,5 +1,6 @@
 import { Schema } from 'effect';
 import type { Chart, ChartBar, ChartSection } from './model.js';
+import { parseSheetCues, type SheetCue } from './sheet-cues.js';
 import { columnName } from './columns.js';
 import { SongSourceSchema } from './song-source.js';
 
@@ -27,12 +28,18 @@ const ActionFields = {
   kind: CueKindSchema, cueBeat: Schema.NullOr(Finite), execution: ExecutionSchema,
   captureTail: Schema.Literals(['none', 'silence-to-bar-end']), tempoBeatHint: Schema.Literals([0, 1]),
 };
+const AuthoredCueSchema = Schema.Struct({
+  bar: Schema.Int, buttonId: ButtonSchema, voiceId: Schema.String, source: SourceRefSchema,
+  actions: list(Schema.Struct({ operation: Schema.Literals(['cr', 'cx', 'r', 'c', 'x', 'p', 'g', 'h']), pressBeat: Schema.NullOr(Finite), sourceName: Schema.NullOr(Schema.String),
+    execution: Schema.Union([Schema.Struct({ kind: Schema.Literal('now') }), Schema.Struct({ kind: Schema.Literal('next-bar') }),
+      Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite, barOffset: Schema.Literals([0, 1]) })]) })),
+});
 const CueWindowSchema = Schema.Struct({ earlyMs: Finite, lateMs: Finite, ties: Schema.Literal('reject') });
 const OverrideSchema = Schema.Struct({
   a1: Schema.String, notation: Schema.String, ...ActionFields,
 });
 export const SongMappingSchema = Schema.Struct({
-  mappingVersion: Schema.Literal(6), notationVersion: Schema.Literal('dyc-v1'), songId: Schema.String,
+  mappingVersion: Schema.Literal(6), notationVersion: Schema.Literals(['dyc-v1', 'terse-v2']), songId: Schema.String,
   spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String,
   titleCell: Schema.String, bpmCell: Schema.String, sectionRow: Schema.Int, barRow: Schema.Int, leadInColumn: Schema.Int,
   startBar: Schema.Int, endBar: Schema.Int,
@@ -76,13 +83,14 @@ const SelectionWindowSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('slice'), beginCount: Finite, endCount: Finite, loopCounts: Finite }),
 ]);
 export const CompiledSongSchema = Schema.Struct({
-  schemaVersion: Schema.Literal(6), notationVersion: Schema.Literal('dyc-v1'), id: Schema.String, title: Schema.String,
+  schemaVersion: Schema.Literal(6), notationVersion: Schema.Literals(['dyc-v1', 'terse-v2']), id: Schema.String, title: Schema.String,
   ticksPerQuarter: Schema.Literal(960), meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   source: Schema.Struct({ spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String, range: Schema.String, digest: Schema.String }),
   mappingDigest: Schema.String, chart: ChartSchema,
   voices: list(Schema.Struct({ id: Schema.String, buttonId: ButtonSchema, arrangementRow: Schema.Int })),
   parts: list(PartSchema), rotation: Schema.NullOr(RotationSchema),
   cueWindow: Schema.NullOr(CueWindowSchema),
+  authoredCues: Schema.optionalKey(list(AuthoredCueSchema)),
   cues: list(CueSchema), takes: list(TakeSchema),
   selections: list(Schema.Struct({ id: Schema.String, voiceId: Schema.String, groupId: Schema.String, takeIds: list(Schema.String), gains: list(Finite), window: SelectionWindowSchema })),
   playback: list(Schema.Struct({ bar: Schema.Int, voiceId: Schema.String, selectionId: Schema.String })),
@@ -114,6 +122,29 @@ function overlappingCaptures(takes: readonly CompiledTake[], beats: number) {
 }
 export function decodeCompiledSong(input: unknown): CompiledSong {
   const song = Schema.decodeUnknownSync(CompiledSongSchema)(input);
+  if (song.notationVersion === 'terse-v2') {
+    if (song.authoredCues === undefined) throw new Error('Terse notation requires typed authored cues.');
+    const keys = new Set<string>();
+    for (const cell of song.authoredCues) {
+      const key = `${cell.bar}/${cell.buttonId}`;
+      if (keys.has(key)) throw new Error('Duplicate authored cue cell.');
+      keys.add(key);
+      const shown = cell.bar === 0 ? song.chart.leadInCues[cell.buttonId] : song.chart.bars.find(bar => bar.bar === cell.bar)?.cues[cell.buttonId];
+      const parsed = parseSheetCues(cell.source.text, song.meter.numerator);
+      if (shown !== cell.source.text.trim() || parsed.kind !== 'parsed' || canonicalSongJson(parsed.actions) !== canonicalSongJson(cell.actions)) throw new Error('Authored cue display or semantics disagree.');
+      if (song.executable && cell.actions.some(cue => cue.sourceName !== null || cue.operation === 'p' || lowerSheetCue(cue) === null)) throw new Error('Authored cue requires unavailable native capabilities.');
+      if (song.executable) {
+        const native = song.cues.filter(cue => cue.bar === cell.bar && cue.buttonId === cell.buttonId);
+        if (native.length !== cell.actions.length || cell.actions.some(action => {
+          const expected = lowerSheetCue(action);
+          return expected === null || !native.some(cue => cue.voiceId === cell.voiceId && cue.source.a1 === cell.source.a1 && cue.kind === expected.kind && cue.cueBeat === expected.cueBeat && canonicalSongJson(cue.execution) === canonicalSongJson(expected.execution));
+        })) throw new Error('Authored cues disagree with native lowering.');
+      }
+    }
+    for (const bar of [{ bar: 0, cues: song.chart.leadInCues }, ...song.chart.bars]) for (const button of ['L1', 'L2', 'R1', 'R2'] satisfies (keyof typeof bar.cues)[]) {
+      if (bar.cues[button] && !keys.has(`${bar.bar}/${button}`) && parseSheetCues(bar.cues[button], song.meter.numerator).kind === 'parsed') throw new Error('Authored cue cell is missing.');
+    }
+  }
   if (!song.executable) return song;
   if (song.diagnostics.some(d => d.severity === 'error') || !song.cueWindow) throw new Error('An executable song cannot contain unresolved errors or cue policy.');
   const beats = song.meter.numerator;
@@ -252,26 +283,25 @@ function coordinate(a1: string): { row: number; column: number } {
   return { row: Number(match[2]), column };
 }
 function at(values: readonly (readonly string[])[], row: number, column: number): string { return values[row - 1]?.[column - 1] ?? ''; }
-function parsedCue(text: string, beatsPerBar: number): Pick<CompiledCue, keyof typeof ActionFields> | null {
-  if (text.trim() === 'clb') return { kind: 'commit', cueBeat: null, execution: { kind: 'now' }, captureTail: 'none', tempoBeatHint: 0 };
-  const cutoff = /^([1-9])c([1-9])$/.exec(text.trim());
-  if (cutoff && Number(cutoff[1]) <= beatsPerBar && Number(cutoff[2]) <= beatsPerBar) return {
-    kind: 'commit', cueBeat: Number(cutoff[1]) - 1, execution: { kind: 'beat', beat: Number(cutoff[2]) - 1 }, captureTail: 'silence-to-bar-end', tempoBeatHint: 0,
-  };
-  if (text.trim() === '1p*') return { kind: 'play', cueBeat: 0, execution: { kind: 'now' }, captureTail: 'none', tempoBeatHint: 1 };
-  const match = /^(?:([1-9]\d*))?(cr|r|c|x|p)(b|e|&|a)?$/.exec(text.trim());
-  if (!match) return null;
-  const kinds: Record<string, CompiledCue['kind']> = { r: 'arm', c: 'commit', cr: 'commit-arm', x: 'stop', p: 'play' };
-  const kind = kinds[match[2]];
-  const cueBeat = match[1] ? Number(match[1]) - 1 : null;
-  if (cueBeat !== null && (cueBeat < 0 || cueBeat >= beatsPerBar)) return null;
-  if (match[3] === 'b') return { kind, cueBeat, execution: { kind: 'next-bar' }, captureTail: 'none', tempoBeatHint: 0 };
-  if (match[3]) {
-    if (cueBeat === null) return null;
-    const fractions: Record<string, number> = { e: .25, '&': .5, a: .75 };
-    return { kind, cueBeat, execution: { kind: 'beat', beat: cueBeat + fractions[match[3]] }, captureTail: 'none', tempoBeatHint: 0 };
+type Action = Pick<CompiledCue, keyof typeof ActionFields>;
+/** Explicit boundary migration; archived notation is never interpreted downstream. */
+function migrateDycCue(text: string): { text: string; captureTail: Action['captureTail']; tempoBeatHint: 0 | 1 } {
+  if (text === 'clb') return { text: 'c', captureTail: 'none', tempoBeatHint: 0 };
+  if (text === '1p*') return { text: '1p', captureTail: 'none', tempoBeatHint: 1 };
+  return { text, captureTail: /^[1-9]c[1-9]$/.test(text) ? 'silence-to-bar-end' : 'none', tempoBeatHint: 0 };
+}
+function lowerSheetCue(cue: SheetCue): Action | null {
+  if (cue.execution.kind === 'beat' && cue.execution.barOffset === 1 && cue.execution.beat !== 0) return null;
+  const execution: Execution = cue.execution.kind !== 'beat' ? cue.execution : cue.execution.barOffset === 1 ? { kind: 'next-bar' } : { kind: 'beat', beat: cue.execution.beat };
+  const fields = { cueBeat: cue.pressBeat, execution, captureTail: 'none', tempoBeatHint: 0 } satisfies Omit<Action, 'kind'>;
+  switch (cue.operation) {
+    case 'r': return { ...fields, kind: 'arm' };
+    case 'c': return { ...fields, kind: 'commit' };
+    case 'cr': return { ...fields, kind: 'commit-arm' };
+    case 'x': return { ...fields, kind: 'stop' };
+    case 'p': return { ...fields, kind: 'play' };
+    case 'cx': case 'g': case 'h': return null;
   }
-  return { kind, cueBeat, execution: { kind: 'now' }, captureTail: 'none', tempoBeatHint: 0 };
 }
 export function parseArrangementHits(text: string, beatsPerBar = 4): number[] | null {
   const value = text.trim().replace(/'$/, '');
@@ -407,23 +437,40 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, leadInColumn: mapping.leadInColumn,
     leadInCues: padRow(mapping.leadInColumn), controlNames: { L1: nameFor('L1'), L2: nameFor('L2'), R1: nameFor('R1'), R2: nameFor('R2') }, annotatedThroughBar: mapping.endBar };
   const cues: CompiledCue[] = [];
+  const authoredCues: (typeof AuthoredCueSchema.Type)[] = [];
   const usedOverrides = new Set<string>();
   for (const { buttonId, voiceId, cueRow } of mapping.controls) {
     for (const [bar, column] of [[0, mapping.leadInColumn], ...[...columns].sort(([a], [b]) => a - b)]) {
       const location = ref(cueRow, column), text = location.text.trim();
       if (!text) continue;
       const override = mapping.overrides.find(o => o.a1 === location.a1);
-      const action = override ?? parsedCue(text, mapping.meter.numerator);
+      const migrated = mapping.notationVersion === 'dyc-v1' ? migrateDycCue(text) : { text, captureTail: 'none', tempoBeatHint: 0 } satisfies ReturnType<typeof migrateDycCue>;
+      const parsed = parseSheetCues(migrated.text, mapping.meter.numerator);
       if (override) {
         usedOverrides.add(override.a1);
         if (override.notation !== text) { issue('stale-override', `Override expects ${JSON.stringify(override.notation)}, but the current cell differs.`, location); continue; }
+        if (mapping.notationVersion === 'terse-v2') { issue('cue-override', 'Terse cues must describe their complete action in the cell; remove the override.', location); continue; }
       }
-      if (!action) {
+      if (!override && parsed.kind === 'invalid') {
         const hits = parseArrangementHits(text, mapping.meter.numerator);
         if (hits?.length) issue('manual-tap-capability', `Manual tap positions ${hits.map(beat => beat + 1).join(', ')} are recognized, but this compiled runtime needs one-shot/sparse playback capability before loading that cue.`, location);
         else issue('unknown-cue', `Define the exact cue and execution meaning of ${JSON.stringify(text)}.`, location);
         continue;
       }
+      if (mapping.notationVersion === 'terse-v2' && parsed.kind === 'parsed') authoredCues.push({ bar, buttonId, voiceId, source: location, actions: parsed.actions });
+      const actions: Action[] = [];
+      if (override) actions.push(override);
+      else if (parsed.kind === 'parsed') for (const cue of parsed.actions) {
+        if (mapping.notationVersion === 'terse-v2' && cue.operation === 'p') { issue('playback-mode-capability', 'Declare finite word retrigger or looping instrument playback before native lowering.', location); continue; }
+        if (cue.sourceName !== null) { issue('named-source-capability', `Source ${cue.sourceName} requires explicit named capture/voice bindings; this runtime has one voice per button.`, location); continue; }
+        const migratedCue: SheetCue = mapping.notationVersion === 'dyc-v1' && cue.execution.kind === 'beat' ? { ...cue, execution: { ...cue.execution, barOffset: 0 } } : cue;
+        const lowered = lowerSheetCue(migratedCue);
+        if (!lowered && cue.execution.kind === 'beat' && cue.execution.barOffset === 1 && cue.execution.beat !== 0) { issue('cue-timing-capability', 'Next-measure execution beyond count one needs native timing support.', location); continue; }
+        if (!lowered) { issue('cue-capability', `${cue.operation} is recognized but its ${cue.operation === 'cx' ? 'store without launch' : 'hold/release'} execution is not supported by the current native ABI.`, location); continue; }
+        // Word p requires explicit finite source playback metadata, absent from this ABI.
+        actions.push({ ...lowered, captureTail: migrated.captureTail, tempoBeatHint: migrated.tempoBeatHint });
+      }
+      for (const [actionIndex, action] of actions.entries()) {
       if (action.cueBeat !== null && (!Number.isFinite(action.cueBeat) || action.cueBeat < 0 || action.cueBeat >= mapping.meter.numerator)
         || action.execution.kind === 'beat' && (!Number.isFinite(action.execution.beat) || action.execution.beat < 0 || action.execution.beat >= mapping.meter.numerator)) {
         issue('cue-timing', 'Cue and execution beats must lie inside the current measure.', location); continue;
@@ -431,9 +478,10 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       if (bar === 0 && (action.kind === 'arm' || action.kind === 'commit-arm') && action.execution.kind !== 'next-bar') {
         issue('lead-in-capture-capability', 'Immediate lead-in capture is unsupported because its duration depends on the count-in. Declare capture at the next song bar.', location);
       }
-      cues.push({ id: `${mapping.songId}/bar-${bar}/${buttonId}/${action.kind}`, bar, buttonId, voiceId, kind: action.kind,
+      cues.push({ id: `${mapping.songId}/bar-${bar}/${buttonId}/${action.kind}${actions.length > 1 ? `/${actionIndex + 1}` : ''}`, bar, buttonId, voiceId, kind: action.kind,
         cueBeat: action.cueBeat, execution: action.execution, captureTail: action.captureTail, tempoBeatHint: action.tempoBeatHint,
         takeId: null, commitTakeId: null, selectionId: null, source: location });
+      }
     }
   }
   for (const override of mapping.overrides) if (!usedOverrides.has(override.a1)) issue('unused-override', 'The override does not identify a nonempty control cell inside the compiled range.', { sheetId: source.sheetId, a1: override.a1, text: '', note: '' });
@@ -624,10 +672,10 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     if (selectionId === null) issue('play-selection', 'The play cue has no resolved committed take selection.', cue.source);
   }
   const artifact: CompiledSong = {
-    schemaVersion: 6, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
+    schemaVersion: 6, notationVersion: mapping.notationVersion, id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
     source: { spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, range: source.range, digest: await digest(source) },
     mappingDigest: await digest(mapping), chart, voices: mapping.controls.map(c => ({ id: c.voiceId, buttonId: c.buttonId, arrangementRow: c.arrangementRow })),
-    parts, rotation, cueWindow: mapping.cueWindow, cues, takes, selections, playback, diagnostics,
+    parts, rotation, cueWindow: mapping.cueWindow, ...(mapping.notationVersion === 'terse-v2' ? { authoredCues } : {}), cues, takes, selections, playback, diagnostics,
     executable: !diagnostics.some(d => d.severity === 'error'),
   };
   return decodeCompiledSong(artifact);
@@ -641,6 +689,10 @@ export function inspectCompiledSong(input: unknown): string {
   if (song.rotation) {
     lines.push(`ROTATION\t${song.rotation.voiceId}\trelease after ${song.rotation.inactivityBeats} counted beats of inactivity after accepted jiggle; gate at written end; natural tails`);
     for (const window of song.rotation.windows) lines.push(`ROTATION WINDOW\t${window.source.a1} -> ${window.endSource.a1}\t${window.begin.bar}:${window.begin.beat + 1}..${window.end.bar}:${window.end.beat + 1}\thalf-open\t${window.sources.map(source => source.a1).join(',')}`);
+  }
+  for (const cell of song.authoredCues ?? []) for (const action of cell.actions) {
+    const execution = action.execution.kind === 'beat' ? `bar ${cell.bar + action.execution.barOffset} count ${action.execution.beat + 1}` : action.execution.kind;
+    lines.push(`AUTHORED\t${cell.source.a1}\t${cell.buttonId} -> ${cell.voiceId}\tpress ${action.pressBeat === null ? 'column' : action.pressBeat + 1}\t${action.operation}(${action.sourceName ?? 'default'})\t${execution}`);
   }
   for (const cue of song.cues) {
     const timing = cue.execution.kind === 'beat' ? `beat ${cue.execution.beat + 1}` : cue.execution.kind;
