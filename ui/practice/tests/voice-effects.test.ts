@@ -38,3 +38,13 @@ test('legacy dry preparation includes no hidden default or backup effect stages'
   assert.equal(configurations.length, VOICE_PROFILE_COUNT);
   assert(configurations.every(configuration => configuration.effects.length === 0));
 });
+
+test('knob stepping preserves effect bounds and decimal precision', async () => {
+  const { steppedKnobValue } = await import('../effect-knob.js');
+  assert.equal(steppedKnobValue(1000, 40, 250, 1), 250);
+  assert.equal(steppedKnobValue(-10, 0, .7, .01), 0);
+  assert.equal(steppedKnobValue(.804, .05, 5, .05), .8);
+  assert.equal(steppedKnobValue(4.76, 0, 9, .1), 4.8);
+  assert.equal(steppedKnobValue(.29 + .01, 0, 1, .01), .3);
+  assert.equal(steppedKnobValue(40, 10, 40, .1), 40);
+});
