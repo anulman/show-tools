@@ -78,7 +78,7 @@ for (const action of ['stopPractice', 'panic']) {
       PracticeAudio: { create: () => preparing.promise },
     };
     prepareUIContext(context);
-    vm.runInContext(`${uiSource}\nfunction render() {}\nchart = { bars: Array(218) }; song = { chart, program: { lengthBeats: 4, events: [] } };\nglobalThis.ui = { startPractice, stopPractice, panic };`, context);
+    vm.runInContext(`${uiSource}\nfunction render() {}\nchart = { bars: Array.from({ length: 218 }, (_, index) => ({ bar: index + 1 })) }; song = { chart, program: { lengthBeats: 4, events: [] } };\nglobalThis.ui = { startPractice, stopPractice, panic };`, context);
     const starting = context.ui.startPractice();
     await context.ui[action]();
     preparing.resolve({ subscribe() {}, onEvent() {}, async setClick() { commands.push('click'); }, async start() { commands.push('start'); } });
@@ -113,7 +113,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
   };
   prepareUIContext(context);
   const source = (await sourceForVM(new URL('../app.ts', import.meta.url))).replace(/^import .*;\n/gm, '').replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })').split('elements.start.addEventListener(')[0];
-  vm.runInContext(`${source}\nfunction render() {}\nchart = { bars: Array(218) }; song = { chart, program: { lengthBeats: 4, events: [] } }; globalThis.recordDemo = toggleOutputRecording;`, context);
+  vm.runInContext(`${source}\nfunction render() {}\nchart = { bars: Array.from({ length: 218 }, (_, index) => ({ bar: index + 1 })) }; song = { chart, program: { lengthBeats: 4, events: [] } }; globalThis.recordDemo = toggleOutputRecording;`, context);
   const first = context.recordDemo();
   const second = context.recordDemo();
   preparing.resolve({ subscribe() {}, onEvent() {}, outputStream: {} });
@@ -168,7 +168,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     playableBars: () => 76, PracticeAudio: { create: async options => { creations++; creationOptions.push(options); return audio; } },
   };
   prepareUIContext(context);
-  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = loadedSong?.chart || { bars: Array(76) }; song = loadedSong || { chart, program: {}, compiled: ${compiled ? '{ executable: true }' : 'undefined'} }; globalThis.controls = { ensureAudio, applyVoiceEffects, startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
+  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = loadedSong?.chart || { bars: Array.from({ length: 76 }, (_, index) => ({ bar: index + 1 })) }; song = loadedSong || { chart, program: {}, compiled: ${compiled ? '{ executable: true }' : 'undefined'} }; globalThis.controls = { ensureAudio, applyVoiceEffects, startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
   return { commands, controls: context.controls, audio, elements, revoked, creationOptions, get creations() { return creations; } };
 }
 
@@ -524,7 +524,7 @@ test('Space on an effect disclosure, action button or link never toggles transpo
   assert.equal(panics, 1);
 });
 
-for (const id of ['drunk-girls', 'i-can-change']) {
+for (const id of ['i-can-change']) {
   test(`${id} starts with dry identity processing in every profile, including hidden live routes`, async () => {
     const song = await loadSong(id);
     assert.equal(song.compiled, undefined, 'this source has no compiled per-voice capture support');
@@ -563,4 +563,13 @@ test('passive preparation passes saved graphs while Start passes its explicitly 
   const start = startupHarness(undefined, { savedConfigurations: saved, voiceConfigurations: draft });
   await start.controls.startPractice();
   assert.equal(start.creationOptions[0].initialVoiceEffects, draft);
+});
+
+test('Drunk Girls loads the complete executable pickup and numbered timeline', async () => {
+  const song = await loadSong('drunk-girls');
+  assert.equal(song.compiled?.executable, true);
+  assert.equal(song.chart.bars.length, 137);
+  assert.equal(song.chart.bars[0].label, 'Pickup 0');
+  assert.equal(song.chart.bars[9].label, '1');
+  assert.equal(song.practice.endBar, 137);
 });

@@ -53,8 +53,8 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   uint64_t needed = PF_COMPILED_HEADER_FIELDS + uint64_t(data[8]) * PF_COMPILED_TAKE_FIELDS + uint64_t(data[9]) * cue_fields
     + uint64_t(data[10]) * PF_COMPILED_MEMBER_FIELDS + uint64_t(data[11]) * PF_COMPILED_PLAYBACK_FIELDS;
   if (needed > fields) return nullptr;
-  int rotation_count = 0, window_count = 0, external_count = 0, note_count = 0, profile_count = 0; double rotation_inactivity = .25;
-  uint64_t rotation_offset = 0, window_offset = 0, external_offset = 0, note_offset = 0, profile_offset = 0, cursor = needed;
+  int rotation_count = 0, window_count = 0, external_count = 0, note_count = 0, profile_count = 0, sustain_count = 0; double rotation_inactivity = .25;
+  uint64_t rotation_offset = 0, window_offset = 0, external_offset = 0, note_offset = 0, profile_offset = 0, sustain_offset = 0, cursor = needed;
   while (cursor < fields) {
     if (data[cursor] == PF_COMPILED_ROTATION_MAGIC) {
       if (rotation_offset || window_offset || fields - cursor < PF_COMPILED_ROTATION_HEADER_FIELDS
@@ -65,6 +65,9 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       if (window_offset || fields - cursor < PF_COMPILED_WINDOW_HEADER_FIELDS || !whole(data[cursor + 1], PF_MAX_EVENTS)) return nullptr;
       window_offset = cursor; window_count = int(data[cursor + 1]);
       cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + uint64_t(window_count) * PF_COMPILED_WINDOW_FIELDS;
+    } else if (data[cursor] == PF_COMPILED_SUSTAIN_MAGIC) {
+      if (sustain_offset || fields - cursor < 2 || !whole(data[cursor + 1], PF_COMPILED_MAX_TAKES)) return nullptr;
+      sustain_offset = cursor; sustain_count = int(data[cursor + 1]); cursor += 2 + sustain_count;
     } else if (data[cursor] == PF_COMPILED_PROFILES_MAGIC) {
       if (profile_offset || fields - cursor < 2 || !whole(data[cursor + 1], data[8])) return nullptr;
       profile_offset = cursor; profile_count = int(data[cursor + 1]);
@@ -220,8 +223,8 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       if (program->members_[previous].take == member.take || program->takes_[program->members_[previous].take].voice != program->takes_[member.take].voice || program->takes_[program->members_[previous].take].anchor != program->takes_[member.take].anchor) return nullptr;
     }
   }
-  program->window_count_ = window_count;
-  program->selection_windows_.reset(new (std::nothrow) SelectionWindow[window_count]);
+  program->window_count_ = window_count + sustain_count;
+  program->selection_windows_.reset(new (std::nothrow) SelectionWindow[window_count + sustain_count]);
   if (!program->selection_windows_) return nullptr;
   for (int id = 0; id < window_count; ++id) {
     const double* row = data + window_offset + PF_COMPILED_WINDOW_HEADER_FIELDS + id * PF_COMPILED_WINDOW_FIELDS;
@@ -241,9 +244,27 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       && (window.end != program->takes_[window.take].end - program->takes_[window.take].begin
         || window.begin != window.end - program->beats_ || window.period != program->beats_)) return nullptr;
   }
+  for (int id = 0; id < sustain_count; ++id) {
+    double selected = data[sustain_offset + 2 + id];
+    if (!whole(selected, PF_MAX_EVENTS - 1)) return nullptr;
+    auto& window = program->selection_windows_[window_count + id];
+    window.selection = int(selected); window.automatic = true; window.begin = window.end = window.period = -1;
+    for (int previous = 0; previous < window_count + id; ++previous) if (program->selection_windows_[previous].selection == window.selection) return nullptr;
+    for (int member = 0; member < program->member_count_; ++member) if (program->members_[member].selection == window.selection) {
+      if (window.take >= 0) return nullptr;
+      window.take = program->members_[member].take;
+    }
+    if (window.take < 0) return nullptr;
+    for (int previous = window_count; previous < window_count + id; ++previous)
+      if (program->selection_windows_[previous].take == window.take) return nullptr;
+    for (int cue = 0; cue < program->cue_count_; ++cue) if (program->cues_[cue].selection == window.selection
+      && (program->cues_[cue].kind != PF_PLAY || (program->cues_[cue].mode != PF_HELD_MODE && program->cues_[cue].mode != PF_GATED_MODE))) return nullptr;
+  }
   for (int id = 0; id < program->playback_count_; ++id, offset += PF_COMPILED_PLAYBACK_FIELDS) {
     const double* row = data + offset;
     if (!whole(row[0], program->bars_) || row[0] < 1 || !index(row[1], PF_CHANNELS) || !whole(row[2], PF_MAX_EVENTS - 1)) return nullptr;
+    for (int window = window_count; window < window_count + sustain_count; ++window)
+      if (program->selection_windows_[window].selection == int(row[2])) return nullptr;
     PlaybackCue& cue = program->playback_[id]; cue.bar = int(row[0]); cue.voice = int(row[1]); cue.selection = int(row[2]);
   }
   for (int id = 0; id < program->cue_count_; ++id) {
@@ -296,8 +317,9 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
   std::unique_ptr<patches::Rack> voices[PF_VOICE_PROFILES], tails[PF_VOICE_PROFILES];
   std::unique_ptr<patches::ProcessedTake> caches[PF_COMPILED_MAX_TAKES][2];
   std::unique_ptr<patches::Playback> players[PF_COMPILED_MAX_TAKES][2];
+  auto scans = std::unique_ptr<std::unique_ptr<patches::Rack>[]>(new (std::nothrow) std::unique_ptr<patches::Rack>[window_count_ * 2]);
   auto checkpoints = std::unique_ptr<std::unique_ptr<patches::Rack>[]>(new (std::nothrow) std::unique_ptr<patches::Rack>[window_count_ * 2]);
-  if (!checkpoints) return false;
+  if (!checkpoints || !scans) return false;
   uint64_t estimated = 0;
   for (int id = 0; id < take_count_; ++id) for (int bank = 0; bank < 2; ++bank)
     if (takes_[id].cache[bank]) estimated += takes_[id].cache[bank]->memory_bytes() + takes_[id].playback[bank]->memory_bytes();
@@ -322,10 +344,13 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
   for (int id = 0; id < window_count_; ++id) for (int bank = 0; bank < 2; ++bank) {
     auto& window = selection_windows_[id];
     if (window.initial[bank]) estimated += window.initial[bank]->memory_bytes();
+    if (window.scan_initial[bank]) estimated += window.scan_initial[bank]->memory_bytes();
     if (window.initial[bank] && !caches[window.take][bank]) continue;
+    if (window.automatic) { scans[id * 2 + bank] = definitions[takes_[window.take].profile]->snapshot(); if (!scans[id * 2 + bank]) return false; }
     checkpoints[id * 2 + bank] = definitions[takes_[window.take].profile]->snapshot();
     if (!checkpoints[id * 2 + bank]) return false;
     estimated += checkpoints[id * 2 + bank]->memory_bytes();
+    if (scans[id * 2 + bank]) estimated += scans[id * 2 + bank]->memory_bytes();
     if (estimated > 200ULL * 1024 * 1024) return false;
   }
   for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
@@ -337,8 +362,10 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
     takes_[id].cache[bank] = std::move(caches[id][bank]);
     takes_[id].playback[bank] = std::move(players[id][bank]);
   }
-  for (int id = 0; id < window_count_; ++id) for (int bank = 0; bank < 2; ++bank)
+  for (int id = 0; id < window_count_; ++id) for (int bank = 0; bank < 2; ++bank) {
+    if (scans[id * 2 + bank]) selection_windows_[id].scan_initial[bank] = std::move(scans[id * 2 + bank]);
     if (checkpoints[id * 2 + bank]) selection_windows_[id].initial[bank] = std::move(checkpoints[id * 2 + bank]);
+  }
   return true;
 }
 void Program::start(int start_bar, int count_in_beats, double frame, double bpm) noexcept {
@@ -851,6 +878,7 @@ int Program::execute(int id, double frame) noexcept {
     }
     active_capture_ = {cue.take, bank, generation};
     for (int window = 0; window < window_count_; ++window) if (selection_windows_[window].take == cue.take) {
+      selection_windows_[window].quality[bank] = 0; selection_windows_[window].scan_begin[bank] = 0;
       selection_windows_[window].start[bank] = selection_windows_[window].cut[bank] = selection_windows_[window].finish[bank] = -1;
     }
     observe_windows(frame);
@@ -893,10 +921,43 @@ int Program::execute(int id, double frame) noexcept {
   }
   return error_ = PF_OK;
 }
+void Program::observe_sustain(SelectionWindow& window) noexcept {
+  if (window.take != active_capture_.take) return;
+  int bank = active_capture_.bank; const auto& cache = takes_[window.take].cache[bank];
+  const uint32_t stride = std::max(1u, uint32_t(rate_ / 8000)), span = uint32_t(std::ceil(rate_ * .08));
+  uint32_t end = cache->length(), begin = window.scan_begin[bank];
+  if (!end) { window.scan_initial[bank]->copy_state(*voices_[takes_[window.take].profile]); return; }
+  if (end - begin < span) return;
+  const uint32_t samples = (end - begin) / stride, count = std::min(256u, samples / 2);
+  double mean = 0; for (uint32_t i = 0; i < count; ++i) mean += cache->source_sample(begin + i * stride).left;
+  mean /= std::max(1u, count);
+  double energy = 0; for (uint32_t i = 0; i < count; ++i) { double x = cache->source_sample(begin + i * stride).left - mean; energy += x * x; }
+  double best = 1; uint32_t period = 0;
+  const uint32_t minimum = std::max(2u, uint32_t(std::ceil(rate_ / stride / 1200)));
+  const uint32_t maximum = std::min(samples - count, uint32_t(rate_ / stride / 50));
+  if (energy > count * .00001) for (uint32_t lag = minimum; lag <= maximum; ++lag) {
+    double difference = 0; for (uint32_t i = 0; i < count; ++i) {
+      double a = cache->source_sample(begin + i * stride).left, b = cache->source_sample(begin + (i + lag) * stride).left;
+      difference += (a - b) * (a - b);
+    }
+    double error = difference / (2 * energy);
+    if (error < best) { best = error; period = lag * stride; }
+  }
+  double quality = energy / std::max(1u, count) * (1 - best);
+  if (period && best < .15 && quality > window.quality[bank]) {
+    uint32_t cycles = (end - begin) / period;
+    if (cycles >= 2 && window.initial[bank]->copy_state(*window.scan_initial[bank])) {
+      window.start[bank] = begin; window.cut[bank] = window.finish[bank] = begin + cycles * period; window.quality[bank] = quality;
+    }
+  }
+  window.scan_begin[bank] = end;
+  window.scan_initial[bank]->copy_state(*voices_[takes_[window.take].profile]);
+}
 void Program::observe_windows(double frame) noexcept {
   if (active_capture_.take < 0) return;
   for (int id = 0; id < window_count_; ++id) {
     auto& window = selection_windows_[id];
+    if (window.automatic) { observe_sustain(window); continue; }
     if (window.take == active_capture_.take && window.start[active_capture_.bank] < 0
       && frame >= std::ceil(frame_at(takes_[window.take].begin + window.begin))) {
       window.start[active_capture_.bank] = takes_[window.take].cache[active_capture_.bank]->length();

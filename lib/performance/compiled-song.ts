@@ -44,10 +44,11 @@ export const SongMappingSchema = Schema.Struct({
   spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String,
   titleCell: Schema.String, bpmCell: Schema.String, sectionRow: Schema.Int, barRow: Schema.Int, leadInColumn: Schema.Int,
   startBar: Schema.Int, endBar: Schema.Int,
+  terminalStops: Schema.optionalKey(list(Schema.String)),
   prelude: Schema.optionalKey(list(Schema.Struct({ label: Schema.NonEmptyString, counts: Schema.Int }))),
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String, playbackMode: Schema.optionalKey(Schema.Literals(['loop', 'one-shot'])) })),
-  sourceBindings: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, sourceName: Schema.String, voiceId: Schema.optionalKey(Schema.String), profile: Schema.optionalKey(Schema.Int), sourceCell: Schema.optionalKey(Schema.String), captureReplacement: Schema.optionalKey(Schema.Boolean), loopCounts: Schema.optionalKey(Finite), playbackMode: Schema.Literals(['loop', 'one-shot']), default: Schema.optionalKey(Schema.Boolean), sustain: Schema.optionalKey(Schema.Struct({ beginCount: Finite, endCount: Finite, loopCounts: Finite })) }))),
+  sourceBindings: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, sourceName: Schema.String, voiceId: Schema.optionalKey(Schema.String), profile: Schema.optionalKey(Schema.Int), sourceCell: Schema.optionalKey(Schema.String), captureReplacement: Schema.optionalKey(Schema.Boolean), loopCounts: Schema.optionalKey(Finite), playbackMode: Schema.Literals(['loop', 'one-shot']), default: Schema.optionalKey(Schema.Boolean), sustain: Schema.optionalKey(Schema.Union([Schema.Struct({ beginCount: Finite, endCount: Finite, loopCounts: Finite }), Schema.Struct({ kind: Schema.Literal('periodic') })])) }))),
   liveParts: list(Schema.Struct({ id: Schema.String, labelCell: Schema.String, role: Schema.Literals(['default-live', 'rotation-live']) })),
   rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, inactivityBeats: Finite })),
   cueWindow: Schema.NullOr(CueWindowSchema),
@@ -87,6 +88,7 @@ export const ChartSchema = Schema.Struct({
 });
 const SelectionWindowSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('full') }),
+  Schema.Struct({ kind: Schema.Literal('sustain') }),
   Schema.Struct({ kind: Schema.Literal('prefix'), endCount: Finite }),
   Schema.Struct({ kind: Schema.Literal('slice'), beginCount: Finite, endCount: Finite, loopCounts: Finite }),
 ]);
@@ -101,6 +103,7 @@ export const CompiledSongSchema = Schema.Struct({
   cueWindow: Schema.NullOr(CueWindowSchema),
   noteBanks: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, toleranceMs: Finite, notes: list(Schema.Struct({ slot: Schema.Int, at: PointSchema })), capture: Schema.optionalKey(Schema.Struct({ profile: Schema.Int, slots: list(Schema.Int) })) }))),
   externalSamples: Schema.optionalKey(list(Schema.Struct({ slot: Schema.Int, voiceId: Schema.String, begin: PointSchema, end: PointSchema, asset: Schema.optionalKey(ExternalSampleAssetSchema) }))),
+  terminalStops: Schema.optionalKey(list(SourceRefSchema)),
   authoredCues: Schema.optionalKey(list(AuthoredCueSchema)),
   cues: list(CueSchema), takes: list(TakeSchema),
   selections: list(Schema.Struct({ id: Schema.String, voiceId: Schema.String, groupId: Schema.String, takeIds: list(Schema.String), gains: list(Finite), window: SelectionWindowSchema })),
@@ -174,6 +177,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   if (bars < 1 || bars > 4096 || song.chart.bars.some((bar, index) => bar.bar !== index + 1 || bar.partial
     || !Number.isSafeInteger(bar.column) || bar.column < 1)
     || song.chart.annotatedThroughBar < 1 || song.chart.annotatedThroughBar > bars) throw new Error('Invalid executable measure map.');
+  if (song.terminalStops?.some(stop => stop.text.trim() !== 'x') || new Set(song.terminalStops?.map(stop => stop.a1)).size !== (song.terminalStops?.length ?? 0)) throw new Error('Invalid terminal stops.');
   const labels = song.chart.bars.filter(bar => bar.label !== undefined);
   if (labels.length && (labels.length !== bars || new Set(labels.map(bar => bar.label)).size !== bars)) throw new Error('Invalid executable measure labels.');
   if ([song.cueWindow.earlyMs, song.cueWindow.lateMs].some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error('Invalid executable cue window; use 0 through 100 milliseconds.');
@@ -239,6 +243,8 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   for (const selection of song.selections) {
     if (!selection.takeIds.length || selection.takeIds.length !== selection.gains.length || new Set(selection.takeIds).size !== selection.takeIds.length
       || selection.gains.some(gain => !validGain(gain)) || selection.takeIds.some(id => !song.takes.some(t => t.id === id && t.voiceId === selection.voiceId && t.groupId === selection.groupId))) throw new Error('Invalid executable take selection.');
+    if (selection.window.kind === 'sustain' && (selection.takeIds.length !== 1 || song.playback.some(cue => cue.selectionId === selection.id)
+      || song.cues.some(cue => cue.selectionId === selection.id && (cue.kind !== 'play' || !['held', 'gated'].includes(cue.playbackMode))))) throw new Error('Invalid automatic sustain selection.');
     if (selection.window.kind === 'prefix') {
       const take = song.takes.find(take => take.id === selection.takeIds[0]);
       const end = selection.window.endCount;
@@ -452,10 +458,17 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   const chronological = [...columns].sort(([a], [b]) => a - b);
   if (chronological.some(([, column], index) => index > 0 && column <= chronological[index - 1][1]))
     issue('prelude-order', 'Source columns must follow the declared prelude and numbered measures chronologically.', ref(mapping.barRow, 1));
+  const terminalStops = (mapping.terminalStops ?? []).map(cell => {
+    const address = coordinate(cell), text = at(source.values, address.row, address.column).trim();
+    if (text !== 'x' || !mapping.controls.some(control => control.cueRow === address.row)
+      || barRow[address.column - 1]?.trim() !== 'Tail' || address.column <= Math.max(...columns.values()))
+      issue('terminal-stop', 'A terminal stop must be an authored x in the Tail column after the complete chart.', ref(address.row, address.column));
+    return ref(address.row, address.column);
+  });
   const mappedColumns = new Set([mapping.leadInColumn, ...columns.values()]);
   for (const control of mapping.controls) for (const [index, text] of (source.values[control.cueRow - 1] ?? []).entries()) {
     const column = index + 1;
-    if (column > mapping.leadInColumn && !mappedColumns.has(column) && text.trim()
+    if (column > mapping.leadInColumn && !mappedColumns.has(column) && text.trim() && !terminalStops.some(stop => stop.a1 === `${columnName(column)}${control.cueRow}`)
       && !/^\d+(?:\*| \(part\))?$/.test(barRow[index]?.trim() ?? ''))
       issue('cue-timeline', `Cue belongs to ${barRow[index] || 'an uncounted column'} without an executable chart boundary. Add its explicit timeline before loading audio.`, ref(control.cueRow, column));
   }
@@ -815,7 +828,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
         const selection = selections.find(selection => selection.id === selectionId);
         if (selection) {
           const id = `${selection.id}/held`;
-          if (!selections.some(selection => selection.id === id)) selections.push({ ...selection, id, window: { kind: 'slice', ...binding.sustain } });
+          if (!selections.some(selection => selection.id === id)) selections.push({ ...selection, id, window: 'kind' in binding.sustain ? { kind: 'sustain' } : { kind: 'slice', ...binding.sustain } });
           selectionId = id;
         }
       }
@@ -828,6 +841,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     schemaVersion: 7, notationVersion: mapping.notationVersion, id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
     source: { spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, range: source.range, digest: await digest(source) },
     mappingDigest: await digest(mapping), chart, voices: mapping.controls.map(c => ({ id: c.voiceId, buttonId: c.buttonId, arrangementRow: c.arrangementRow })),
+    ...(terminalStops.length ? { terminalStops } : {}),
     ...(sourceProfiles.length ? { sourceProfiles } : {}), parts, rotation, cueWindow: mapping.cueWindow, ...(mapping.notationVersion === 'terse-v2' ? { authoredCues } : {}), cues, takes, selections, playback, diagnostics,
     executable: !diagnostics.some(d => d.severity === 'error'),
   };
@@ -838,6 +852,7 @@ export function inspectCompiledSong(input: unknown): string {
   const song = decodeCompiledSong(input);
   const lines = [`${song.title} (${song.id})`, `Schema ${song.schemaVersion} · ${song.notationVersion} · ${song.executable ? 'executable' : 'BLOCKED'}`,
     `Source ${song.source.sheetName} / gid ${song.source.sheetId} / ${song.source.digest}`, `Range ${song.chart.bars[0]?.bar ?? '?'}..${song.chart.bars.at(-1)?.bar ?? '?'} · ${song.meter.numerator}/${song.meter.denominator}`];
+  for (const stop of song.terminalStops ?? []) lines.push(`TERMINAL STOP\t${stop.a1}\t${stop.text}\ttransport end; no extra measure`);
   for (const part of song.parts) lines.push(`PART\t${part.source.a1}\t${part.name}\t${part.id}\tprofile ${part.profile}\t${part.role.kind}${part.role.kind === 'pad' ? ` ${part.role.buttonId}` : ''}`);
   if (song.rotation) {
     lines.push(`ROTATION\t${song.rotation.voiceId}\trelease after ${song.rotation.inactivityBeats} counted beats of inactivity after accepted jiggle; gate at written end; natural tails`);
@@ -860,6 +875,7 @@ export function inspectCompiledSong(input: unknown): string {
     const rest = take.captureEnd && take.loopEnd ? pointCount(take.loopEnd, song.meter.numerator) - pointCount(take.captureEnd, song.meter.numerator) : null;
     lines.push(`TAKE\t${take.id}\t${arm} -> ${commit}\tcapture ${point(take.begin)}..${point(take.captureEnd)} (${captured ?? '?'} counts)\trest ${point(take.captureEnd)}..${point(take.loopEnd)} (${rest ?? '?'} counts, zero source)\tloop ${point(take.begin)}..${point(take.loopEnd)} (${loopCounts(take, song.meter.numerator) ?? '?'} counts)\tgroup ${take.groupId ?? '?'} anchor ${take.phraseAnchorTakeId}\t${take.retention}\t${JSON.stringify(take.phrase)}`);
   }
+  for (const selection of song.selections) if (selection.window.kind === 'sustain') lines.push(`SUSTAIN PREPARATION\t${selection.id}\tperiodic source analysis: 80 ms windows; 50..1200 Hz; reject nonperiodic source`);
   for (const selection of song.selections) if (selection.window.kind === 'prefix') lines.push(`SOURCE WINDOW\t${selection.id}\t${selection.takeIds[0]}\t0..${selection.window.endCount} counts, exclusive\toriginal source and loop period retained`);
   for (const selection of song.selections) if (selection.window.kind === 'slice') lines.push(`SOURCE SLICE\t${selection.id}\t${selection.takeIds[0]}\t${selection.window.beginCount}..${selection.window.endCount} counts, exclusive\tloop ${selection.window.loopCounts} counts; captured DSP history retained`);
   for (const diagnostic of song.diagnostics) lines.push(`${diagnostic.severity.toUpperCase()} ${diagnostic.code}\t${diagnostic.source.a1}\t${JSON.stringify(diagnostic.source.text)}\t${diagnostic.message}\towner ${diagnostic.owner}`);

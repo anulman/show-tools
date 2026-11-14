@@ -49,6 +49,7 @@ const Performance = Schema.Struct({
   sourceProfiles: CompiledSongSchema.fields.sourceProfiles,
   noteBanks: CompiledSongSchema.fields.noteBanks,
   externalSamples: CompiledSongSchema.fields.externalSamples,
+  terminalStops: CompiledSongSchema.fields.terminalStops,
   authoredCues: CompiledSongSchema.fields.authoredCues,
   cues: CompiledSongSchema.fields.cues, takes: CompiledSongSchema.fields.takes,
   selections: CompiledSongSchema.fields.selections, playback: CompiledSongSchema.fields.playback,
@@ -199,6 +200,7 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
     ...(song.noteBanks === undefined ? {} : { noteBanks: song.noteBanks }),
     ...(song.externalSamples === undefined ? {} : { externalSamples: song.externalSamples }),
     source: song.source, mappingDigest: song.mappingDigest, voices: song.voices, parts: partBindings,
+    ...(song.terminalStops === undefined ? {} : { terminalStops: song.terminalStops }),
     ...(song.authoredCues === undefined ? {} : { authoredCues: song.authoredCues }),
     rotation: song.rotation, cueWindow: song.cueWindow, cues: song.cues, takes: song.takes,
     selections: song.selections, playback: song.playback, diagnostics: song.diagnostics, executable: song.executable,
@@ -462,6 +464,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   const song = decodeCanonicalProgram({
     schemaVersion: 7, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
     ticksPerQuarter: 960, meter, source: { ...performance.source, digest }, mappingDigest: digest, chart,
+    ...(performance.terminalStops === undefined ? {} : { terminalStops: performance.terminalStops }),
     ...(performance.sourceProfiles === undefined ? {} : { sourceProfiles: performance.sourceProfiles }),
     ...(performance.noteBanks === undefined ? {} : { noteBanks: performance.noteBanks }),
     ...(performance.externalSamples === undefined ? {} : { externalSamples: performance.externalSamples }),

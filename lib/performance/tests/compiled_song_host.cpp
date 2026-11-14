@@ -100,7 +100,8 @@ int main(int argc, char** argv) {
     uint64_t frame = 0, button = 0; double value = 0, window_end_count = -1;
     if (!valid_columns || !number(columns[0], frame) || !number(columns[1], button)
       || !finite_number(columns[2], value) || !finite_number(columns[3], window_end_count)
-      || (button >= PF_CHANNELS && button != 5) || (button != 5 && (value != 0 || window_end_count != -1))
+      || (button >= PF_CHANNELS && button != 5 && button != 7) || (button < PF_CHANNELS && (value != 0 || window_end_count != -1))
+      || (button == 7 && ((value != 0 && value != 1) || window_end_count != -1))
       || (button == 5 && window_end_count <= 0) || frame >= max_frames || (!presses.empty() && frame < presses.back().frame)) {
       return fail("Invalid or unsorted press script at line " + std::to_string(line_number));
     }
@@ -127,6 +128,7 @@ int main(int argc, char** argv) {
       cursor += PF_COMPILED_ROTATION_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_ROTATION_FIELDS;
     } else if (field(bytes, cursor) == PF_COMPILED_WINDOW_MAGIC) cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_WINDOW_FIELDS;
     else if (field(bytes, cursor) == PF_COMPILED_PROFILES_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1)) * PF_COMPILED_PROFILES_FIELDS;
+    else if (field(bytes, cursor) == PF_COMPILED_SUSTAIN_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1));
     else if (field(bytes, cursor) == PF_COMPILED_EXTERNAL_MAGIC || field(bytes, cursor) == PF_COMPILED_NOTES_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1)) * 5;
     else return fail("Unsupported compiled extension");
   }

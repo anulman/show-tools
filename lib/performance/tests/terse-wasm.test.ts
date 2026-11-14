@@ -355,3 +355,73 @@ test('native WAV preparation converts source rate and rejects malformed replacem
     assert.deepEqual(Array.from(left), [0, .375, .75, 0]); assert.deepEqual(Array.from(right), [0, -.375, -.75, 0]);
   } finally { native.dispose(); }
 });
+
+test('live periodic preparation trims silence and sustains native h/g; silence, DC and noise stay unavailable', async () => {
+  const { terseCaptureInput } = await import('./fixtures/terse-capture.js');
+  const { compileSheetsSong } = await import('../compiled-song.js');
+  const input = terseCaptureInput();
+  const values = input.source.values.map(row => [...row]);
+  for (const control of input.mapping.controls) values[control.cueRow - 1].fill('', 2);
+  values[17][2] = '1r'; values[17][3] = '1cx'; values[17][4] = '1h'; values[17][5] = '1g'; values[17][6] = '1p';
+  const mapping = { ...input.mapping, sourceBindings: input.mapping.sourceBindings?.map(binding => binding.sourceName === 'words' ? { ...binding, sustain: { kind: 'periodic' as const } } : binding) };
+  const song = await compileSheetsSong({ ...input.source, values }, mapping);
+  assert(song.executable, JSON.stringify(song.diagnostics));
+  const program = Array.from(encodeCompiledProgram(song));
+  assert(program.includes(PF.COMPILED_SUSTAIN_MAGIC));
+  for (const signal of ['periodic', 'silence', 'dc', 'noise'] as const) {
+    const native = engine(program);
+    try {
+      native.prepareLiveEffects([]); native.setMicrophone(true);
+      native.start({ runId: signal, bpm: 120, countInBars: 1, startBar: 1, endBar: 6 });
+      until(native, 1); press(native); release(native);
+      const sample = new Float32Array(16000); let seed = 1;
+      for (let frame = 0; frame < sample.length; frame++) {
+        seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+        sample[frame] = signal === 'periodic' ? frame < 1600 ? 0 : .3 * Math.sin(2 * Math.PI * 200 * frame / 8000)
+          : signal === 'noise' ? .3 * (seed / 2147483648 - 1) : signal === 'dc' ? .3 : 0;
+      }
+      native.process(sample, [new Float32Array(sample.length), new Float32Array(sample.length)], sample.length);
+      until(native, 3);
+      if (signal !== 'periodic') {
+        assert.throws(() => press(native), /Capture or load a sample/);
+        render(native, 1, 0);
+        assert.equal(native.state().compiledTakes?.[0].playback, 'idle', `${signal} cannot prepare a pitched sustain`);
+      } else {
+        press(native); render(native, 1, 0);
+        assert.equal(native.state().compiledTakes?.[0].playback, 'playing');
+        const held = render(native, 24000, 0);
+        assert(held.every(Number.isFinite));
+        assert(held.some(value => Math.abs(value) > .1), 'held source sounds beyond original two-second capture');
+        assert(!held.slice(0, 800).every(value => value === 0), 'trimmed region omits captured silence');
+        assert.equal(native.compiledTake(0).frames, 16000, 'parent recording remains complete');
+        release(native); assert(render(native, 64, 0).every(value => value === 0));
+        until(native, 4); press(native); render(native, 8000, 0); release(native);
+        assert.equal(native.state().compiledTakes?.[0].playback, 'idle');
+        press(native); assert(render(native, 400, 0).some(value => Math.abs(value) > .1)); release(native);
+        until(native, 5); press(native); release(native);
+        render(native, 16001, 0); assert.equal(native.state().compiledTakes?.[0].playback, 'idle', 'ordinary word p exits gated mode and remains finite');
+      }
+    } finally { native.dispose(); }
+  }
+});
+
+test('canonical Drunk Girls pickup loop restarts at Pickup8 phase and crosses numbered one without resetting', async () => {
+  const { readMusicXmlSong } = await import('../musicxml-song.js');
+  const { song } = await readMusicXmlSong(await readFile(new URL('../../../songs/drunk-girls.musicxml', import.meta.url), 'utf8'));
+  assert(song.executable); assert.equal(song.chart.bars.length, 137);
+  assert.equal(song.chart.bars[8].label, 'Pickup 8'); assert.equal(song.chart.bars[9].label, '1');
+  assert.equal(song.terminalStops?.[0].text, 'x');
+  const native = engine(Array.from(encodeCompiledProgram(song)));
+  try {
+    native.prepareLiveEffects([]); native.setMicrophone(true);
+    native.start({ runId: 'dg-pickup', bpm: 144, countInBars: 1, startBar: 1, endBar: 10 });
+    until(native, 1, 3); render(native, 1667); press(native); release(native);
+    until(native, 9); render(native, 1); native.setMicrophone(false);
+    const guitar = native.compiledTake(6);
+    assert(guitar.ready); assert.equal(guitar.frames, 98333); assert.equal(guitar.period, 106667);
+    assert(render(native, 100, 0).every(value => value === 0), 'virtual source rest preserves the 3& pickup offset');
+    until(native, 9, 3); render(native, 1668, 0);
+    assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'captured source begins again at Pickup8 3&');
+    until(native, 10); assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'numbered one keeps the ongoing eight-bar loop');
+  } finally { native.dispose(); }
+});

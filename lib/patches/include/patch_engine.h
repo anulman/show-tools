@@ -81,6 +81,7 @@ class ProcessedTake {
   TakeState state() const noexcept { return state_; }
   size_t memory_bytes() const noexcept;
   Stereo sample(uint32_t frame) const noexcept;
+  Stereo source_sample(uint32_t frame) const noexcept { return frame < length_ ? read_source(frame) : Stereo{}; }
  private:
   friend class Playback;
   ProcessedTake(std::unique_ptr<Rack> initial, std::unique_ptr<Rack> end, float* source, Stereo* printed, uint32_t capacity, uint64_t revision, uint32_t source_channels) noexcept;
