@@ -35,5 +35,21 @@ for (const meter of [4, 6]) for (let press = 0; press < meter * 4; press++) {
 for (const token of ['0p', '7p', '(7)&r', 'r()', 'r(3)', 'rr', 'cxx', '1p&p', '1p*', 'clb', '(3)4r', 'r(lead day)', '1.5p', '1pb2']) {
   assert.equal(parseSheetCues(token).kind, 'invalid', 'MALFORMED_REJECTION'); cases++;
 }
-assert.equal(cases, 22110, 'FINITE_DOMAIN_CARDINALITY');
-process.stdout.write(JSON.stringify({ status: 'PASS-finite-real-parser', cases, domain: '4/4 and 6/8; every sixteenth press, 8 operations, 3 source names, immediate/next-bar/every sixteenth execution; inherited silent anchors and fresh cells; 14 malformed controls' }) + '\n');
+for (const meter of [4, 6]) for (let press = 0; press < meter * 4; press++) {
+  const prefix = `${Math.floor(press / 4) + 1}${subdivisions[press % 4]}`;
+  for (const first of operations) for (const second of operations) for (const suffix of ['', 'b', '1', String(meter)]) {
+    const parsed = parseSheetCues(`${prefix}${first}(lead)${suffix}+${second}(day)b`, meter);
+    assert.equal(parsed.kind, 'parsed', 'GROUP_PARSE');
+    if (parsed.kind !== 'parsed') throw new Error('PARSE');
+    assert.deepEqual(parsed.actions.map(action => action.pressBeat), [press / 4, press / 4], 'GROUP_SHARED_PRESS');
+    assert.deepEqual(parsed.actions.map(action => action.group), [1, 1], 'GROUP_IDENTITY');
+    assert.deepEqual(parsed.actions.map(action => action.operation), [first, second], 'GROUP_ACTION_ORDER');
+    assert.deepEqual(parsed.actions.map(action => action.sourceName), ['lead', 'day'], 'GROUP_SOURCE_IDENTITY');
+    assert.deepEqual(parsed.actions[1].execution, { kind: 'next-bar' }, 'GROUP_EXPLICIT_EXECUTION');
+    cases++;
+  }
+  assert.deepEqual(parseSheetCues(`${prefix}x(lead+day)b`, meter), parseSheetCues(`${prefix}x(lead)b+x(day)b`, meter), 'GROUP_STOP_EQUIVALENCE');
+  cases++;
+}
+assert.equal(cases, 32390, 'FINITE_DOMAIN_CARDINALITY');
+process.stdout.write(JSON.stringify({ status: 'PASS-finite-real-parser', cases, domain: '4/4 and 6/8; every sixteenth press, 8 operations, 3 source names, immediate/next-bar/every sixteenth execution; inherited silent anchors and fresh cells; 14 malformed controls; 10,280 grouped action and stop-list cases' }) + '\n');

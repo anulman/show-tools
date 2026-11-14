@@ -28,10 +28,14 @@ const baseline = run(root);
 assert.equal(baseline.status, 0, baseline.stderr);
 const mutants = [
   { name: 'cx-launches-like-commit', marker: 'FINITE_GRAMMAR_MEANING', before: 'operation: op,', after: "operation: op === 'cx' ? 'c' : op," },
-  { name: 'source-name-discarded', marker: 'FINITE_GRAMMAR_MEANING', before: 'sourceName: match[4] ?? null', after: 'sourceName: null' },
+  { name: 'source-name-discarded', marker: 'FINITE_GRAMMAR_MEANING', before: 'sourceName, execution,', after: 'sourceName: null, execution,' },
   { name: 'silent-anchor-shifted', marker: 'SILENT_ANCHOR', before: 'anchor = Number(match[1]) - 1', after: 'anchor = Number(match[1])' },
   { name: 'next-bar-wrap-lost', marker: 'FINITE_GRAMMAR_MEANING', before: 'pressBeat !== null && beat < pressBeat ? 1 : 0', after: '0' },
 ];
+mutants.push(
+  { name: 'group-identity-dropped', marker: 'GROUP_IDENTITY', before: '...(grouped ? { group } : {})', after: '...{}' },
+  { name: 'group-inherited-press-lost', marker: 'GROUP_PARSE', before: ': sharedPress;', after: ': null;' },
+);
 const temporary = await mkdtemp(join(tmpdir(), 'terse-cue-proof-'));
 try {
   await mkdir(join(temporary, 'lib/performance'), { recursive: true });

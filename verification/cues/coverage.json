@@ -1,12 +1,12 @@
 {
-  "syncCommit": "4117254",
+  "syncCommit": "471a74e + native terse schema7 reviewed delta",
   "files": {
-    "lib/performance/sheet-cues.ts": "264dc2551a175c7dbfda0f209368a926ff49ce3e289f506354e6652c849e27fe",
-    "lib/performance/compiled-song.ts": "4eed75d0b967418cd836deb8421424efb73de34e2279a338a6a1932395510e48",
-    "lib/performance/musicxml-song.ts": "52e05878a18e4dc2a236b183d1c3ec069f596511bd625afd88ec6b1956d103eb",
-    "verification/cues/check.ts": "831be4aaf4f70a2c0eb0525f6212c8333ab93b5e4d3ec1e4c88f9880ebd88339",
-    "lib/performance/tests/sheet-cues.test.ts": "512660b274b7f46b906bfcf38db9d6390be07418fcbd7b6c1d386638f5a90a1e",
+    "lib/performance/sheet-cues.ts": "cfa9be2836e483a24aa42becfbe6a92cedd445475b91a9c2373a05425d0c8574",
+    "lib/performance/compiled-song.ts": "bda9ec357b72f063fb37953470cba52c616d336f9387a91ff31c36e66f4dbf42",
+    "lib/performance/musicxml-song.ts": "0dd080a85a3d3a273f4d91611d8b4e2669397a2524429799c9aef6fcef03f2d8",
+    "verification/cues/check.ts": "1c2b13bb38df1aedde62762dbc8023d043cf691c6fa161886c4587e1aab4ac02",
+    "lib/performance/tests/sheet-cues.test.ts": "e2347d6519d364c84d8782dddac0fbaa86c2b0f8b3a4906439dce014443e326a",
     "package-lock.json": "a094cbe140ca5384c42eff39345bc4d4346fe11ade3296bec534bb44943f1be6"
   },
-  "scope": "Bounded actual parser intent with explicit canonical and capability integration witnesses. Native execution excluded."
+  "scope": "32,390 bounded actual parser cases including groups; canonical schema7 native lowering integration tests. Native execution verified separately."
 }

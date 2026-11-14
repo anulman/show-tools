@@ -91,3 +91,13 @@ A failure in current code is a finding. Preserve the case identifier and counter
 ## Terse cue source-sync review
 
 At `4117254`, compiler schemas admit `terse-v2` and optional typed `authoredCues`; the reader/writer preserve those cells and reject display/intent disagreements even in capability-blocked documents. Existing `dyc-v1` special spellings explicitly migrate at ingestion through the shared parser, preserving numeric cutoff tails. The original 624 score inputs and 7,488 canonical cases are unchanged; neither their expectations nor the two mutation witnesses are weakened. `verification/cues` separately checks new syntax. No C++ source or capture-model transition changed, and the original MusicXML domain does not establish cx/g/h runtime behavior.
+
+## Native terse schema seven source review
+
+The compiled format now uses schema seven. Canonical performance metadata uses version two within the existing MusicXML profile. The reader explicitly migrates version-one metadata and compiled schema-six inputs by supplying the old autoplay, looping, ungrouped, nonreplacement policy. Current metadata keeps source identities, playback modes, grouped press identities, source windows, external sample windows, and manual note order without requiring archived Sheets inputs.
+
+The stop-only Cartesian grammar remains unchanged. Its 7,488 cases still check display agreement, archive independence, semantic voice identity, and equivalent tempo spelling. The new case fingerprint reflects the versioned metadata. Both actual-source mutations remain assertion-specific. These results do not prove capture policy, grouped scheduling, held or gated playback, note-bank hit selection, or external-sample DSP. The executable terse fixture and its canonical roundtrip tests cover the new metadata separately. Native and WASM execution have separate witnesses.
+
+The legacy cutover verifier asserts that every schema-seven policy still has its historical default before removing those additive fields from its historical comparison. It then checks the unchanged native digest `237b834c47ede65e4488e25c268a7202c4da1845388ff5cfa63fa9e94e51c7a8` and all nine musician-sheet pages. Compatible `dyc-v1` songs retain packet six and its eleven-field cue rows. New instructions use packet seven and sixteen-field cue rows.
+
+Capture sources with an independently named, unprepared effect profile remain blocked. Held and gated sources require a prepared source and an explicit sustain window. A cue in an unmodeled pickup or tail column produces a source-cell diagnostic instead of disappearing from the executable instructions.
