@@ -87,3 +87,7 @@ The unchanged checker passes all 7,488 canonical cases, 624 voice groups, 312 ac
 This proves these executable assertions for the finite Cartesian domain under the current Node, locked dependency, filesystem, and SHA-256 assumptions. It does not establish arbitrary XML correctness, every supported notation or voice graph, XML-library internals, hash collision impossibility, native packet encoding, capture/playback/DSP correctness, atomic publication, browser authoring IO, or full set-list equivalence. It does not replace the existing MusicXML and DYC regression suites.
 
 A failure in current code is a finding. Preserve the case identifier and counterexample. Do not weaken a property or discard generated cases merely to pass. If intent changes, review the property and grammar explicitly and rerun both positive and deliberate-negative checks.
+
+## Terse cue source-sync review
+
+At `4117254`, compiler schemas admit `terse-v2` and optional typed `authoredCues`; the reader/writer preserve those cells and reject display/intent disagreements even in capability-blocked documents. Existing `dyc-v1` special spellings explicitly migrate at ingestion through the shared parser, preserving numeric cutoff tails. The original 624 score inputs and 7,488 canonical cases are unchanged; neither their expectations nor the two mutation witnesses are weakened. `verification/cues` separately checks new syntax. No C++ source or capture-model transition changed, and the original MusicXML domain does not establish cx/g/h runtime behavior.

@@ -11,11 +11,12 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 
 ## Covered source and sync record
 
-`verification/musicxml/coverage.json` records exact file hashes and source sync commit `9b51479061fa48fbfffb8271541c1cf475a7e101`. All covered files were byte-identical to the preceding sync; the complete finite domain and both source mutants passed again. Runtime tuner selection and pitch observations do not add MusicXML authoring semantics and are outside this verifier. It covers:
+`verification/musicxml/coverage.json` records exact file hashes and source sync commit `4117254`. The terse-v2 migration changes compiler schemas, ingestion and canonical typed-intent preservation. The original finite domain and both source mutants must pass unchanged at this sync; the separate cue verifier covers the new grammar and explicit capability boundaries. Runtime tuner selection and pitch observations do not add MusicXML authoring semantics and are outside this verifier. It covers:
 
 - `lib/performance/musicxml-song.ts`: `semanticDigest`, `writeMusicXmlSong`, `readMusicXmlSong`, and `compileMusicXmlSong`.
 - `lib/performance/sheet-musicxml.ts`: `importSheetMusicXml`.
 - `lib/performance/compiled-song.ts`: source compilation, arrangement parsing, executable program validation, and schemas used by the reader.
+- `lib/performance/sheet-cues.ts`: the versioned cue parser; its separate finite domain is covered by `verify-sheet-cues`.
 - `lib/performance/song-source.ts`, `columns.ts`, `score-xml.ts`, `sheet-musical-annotations.ts`, and `sheet-stage-notation.ts`: source and normalized score construction.
 - `lib/voice-catalog/sheet-voices.ts` and `model.ts`: score-part discovery and saved voice metadata validation.
 - `package-lock.json`: exact external dependencies.

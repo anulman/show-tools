@@ -1,0 +1,12 @@
+{
+  "syncCommit": "4117254",
+  "files": {
+    "lib/performance/sheet-cues.ts": "264dc2551a175c7dbfda0f209368a926ff49ce3e289f506354e6652c849e27fe",
+    "lib/performance/compiled-song.ts": "4eed75d0b967418cd836deb8421424efb73de34e2279a338a6a1932395510e48",
+    "lib/performance/musicxml-song.ts": "52e05878a18e4dc2a236b183d1c3ec069f596511bd625afd88ec6b1956d103eb",
+    "verification/cues/check.ts": "831be4aaf4f70a2c0eb0525f6212c8333ab93b5e4d3ec1e4c88f9880ebd88339",
+    "lib/performance/tests/sheet-cues.test.ts": "512660b274b7f46b906bfcf38db9d6390be07418fcbd7b6c1d386638f5a90a1e",
+    "package-lock.json": "a094cbe140ca5384c42eff39345bc4d4346fe11ade3296bec534bb44943f1be6"
+  },
+  "scope": "Bounded actual parser intent with explicit canonical and capability integration witnesses. Native execution excluded."
+}
