@@ -4,6 +4,13 @@ import { PracticeAudio } from '../audio.ts';
 import { BeatTracker } from '../runtime/beat-tracker.js';
 import { compiledCaptureFixture } from '../../../lib/performance/tests/fixtures/compiled-capture.ts';
 
+const previousLocation = globalThis.location;
+test.before(() => { globalThis.location = new URL('http://practice.test/ui/practice/'); });
+test.after(() => {
+  if (previousLocation === undefined) delete globalThis.location;
+  else globalThis.location = previousLocation;
+});
+
 function audioNode(value = [0, 0]) {
   return {
     inputs: new Set(), outputs: new Set(), value,

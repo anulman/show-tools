@@ -4,13 +4,30 @@ import { readFile } from 'node:fs/promises';
 import { migrateMusicXmlSongV2, readMusicXmlSong, writeMusicXmlSong } from '../musicxml-song.js';
 import type { CatalogDocument } from '../../voice-catalog/model.js';
 import { frozenCutoverMusicXml } from '../../../scripts/verify-musicxml-cutover.js';
+import { Schema } from 'effect';
+import { XMLParser, XMLBuilder } from 'fast-xml-parser';
+import { LegacyCueSchema } from '../compiled-song.js';
 
 async function fixture() {
   return readMusicXmlSong(await frozenCutoverMusicXml());
 }
 
 function oldProfile(xml: string): string {
-  return xml.replaceAll('show-tools-song-v3', 'show-tools-song-v2')
+  const nodes = new XMLParser({ preserveOrder: true, ignoreAttributes: false }).parse(xml);
+  const records = Schema.decodeUnknownSync(Schema.Array(Schema.Record(Schema.String, Schema.Unknown)));
+  const text = Schema.decodeUnknownSync(Schema.Array(Schema.Struct({ '#text': Schema.String })));
+  const attributes = Schema.decodeUnknownSync(Schema.Struct({ '@_name': Schema.String }));
+  const metadata = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown));
+  const rewrite = (input: unknown): ReturnType<typeof records> => records(input).map(node => {
+    if ('miscellaneous-field' in node && attributes(node[':@'])['@_name'] === 'show-tools:performance') {
+      const performance = metadata(JSON.parse(text(node['miscellaneous-field'])[0]['#text']));
+      const cues = Schema.decodeUnknownSync(Schema.Array(LegacyCueSchema))(performance.cues);
+      return { ...node, 'miscellaneous-field': [{ '#text': JSON.stringify({ ...performance, version: 1, cues }) }] };
+    }
+    return Object.fromEntries(Object.entries(node).map(([key, value]) => [key, Array.isArray(value) ? rewrite(value) : value]));
+  });
+  return new XMLBuilder({ preserveOrder: true, ignoreAttributes: false }).build(rewrite(nodes))
+    .replaceAll('show-tools-song-v3', 'show-tools-song-v2')
     .replaceAll('&quot;inactivityBeats&quot;', '&quot;releaseGridBeats&quot;')
     .replaceAll('&quot;mappingVersion&quot;:6', '&quot;mappingVersion&quot;:5');
 }
@@ -30,7 +47,7 @@ test('explicit v2 migration preserves chart, archives, annotations and portable 
   assert.deepEqual(result.report, (await readMusicXmlSong(current)).report);
   assert.deepEqual(result.source, original.source);
   assert.deepEqual(result.mapping, original.mapping);
-  assert.equal(result.song.schemaVersion, 6);
+  assert.equal(result.song.schemaVersion, 7);
   assert.equal(result.song.rotation?.inactivityBeats, .25);
   assert.equal(await migrateMusicXmlSongV2(migrated), migrated);
 });

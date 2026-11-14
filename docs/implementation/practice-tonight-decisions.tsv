@@ -1,0 +1,6 @@
+ts	phase	decision	why	evidence	result
+2026-11-14T17:47:32Z	start	Prepare one main practice release for DYC DG and ICC	Operator authorized consolidation and verified shipping while away	/root; feat/native-terse-cues@5e47b5a; origin/main@6a115e0	in progress
+2026-11-14T17:47:32Z	integration	Preserve newer DYC captures while recording PR108 ancestry	The newer five-parent capture implementation already includes the single Whistle take	PR108; songs/dance-yrself-clean.mapping.json	fresh import executable with55cues and5takes
+2026-11-14T17:47:32Z	integration	Merge PR110 FX controls into the combined branch	Retain saved source-profile defaults and expose requested per-effect knobs	3a3418a	pending integration tests
+2026-11-14T17:54:53Z	scope	Target DYC Drunk Girls and Tribulations; leave ICC blocked	Operator corrected tonight song list and confirmed ICC arrangement is not ready	/root operator replies 2026-11-14	scope confirmed
+2026-11-14T17:54:53Z	verification	Repair stale migration and browser fixtures without changing musical behavior	Full-suite run exposed schema6 expectations and missing browser location	/private/tmp/practice-tonight-repaired-tests.log; /private/tmp/practice-tonight-chart-cli.log	21 focused tests pass; chart CLI rerun
