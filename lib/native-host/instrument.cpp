@@ -41,6 +41,10 @@ void Instrument::stop() {
   pf_stop(engine_.get()); pump_->discard();
   if (lifecycle_ != Lifecycle::Faulted) lifecycle_ = Lifecycle::Prepared;
 }
+int Instrument::prepare_external_wave(uint32_t slot, const uint8_t* bytes, uint32_t length) {
+  if (!engine_ || lifecycle_ != Lifecycle::Prepared || pending()) return -1;
+  return pf_prepare_external_wav(engine_.get(), slot, bytes, length);
+}
 int Instrument::control(int id, double value) {
   if (!engine_ || lifecycle_ == Lifecycle::Faulted) return -1;
   int result = pf_control(engine_.get(), id, value, nullptr, 0);

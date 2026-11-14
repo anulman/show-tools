@@ -73,3 +73,11 @@ test('individual pad releases preserve their edge through the native transport',
     assert.equal(bytes.readDoubleLE(2), index + 8);
   }
 });
+
+
+test('external manual hits use the existing native control route with bounded slot identity', () => {
+  const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'test', String);
+  const bytes = encodeCommand({ command: 'control', args: { control: { id: 'external', slot: 3 } } }, state);
+  assert.equal(bytes.readUInt16LE(), 3); assert.equal(bytes.readDoubleLE(2), 19);
+  assert.throws(() => encodeCommand({ command: 'control', args: { control: { id: 'external', slot: 64 } } }, state));
+});

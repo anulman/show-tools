@@ -2,6 +2,7 @@ import { Schema } from 'effect';
 import type { Chart, ChartBar, ChartSection } from './model.js';
 import { parseSheetCues, type SheetCue } from './sheet-cues.js';
 import { columnName } from './columns.js';
+import { ExternalSampleAssetSchema, decodeExternalSampleWav } from './external-assets.js';
 import { SongSourceSchema } from './song-source.js';
 
 const list = <S extends Schema.Constraint>(schema: S) => Schema.mutable(Schema.Array(schema));
@@ -97,8 +98,8 @@ export const CompiledSongSchema = Schema.Struct({
   sourceProfiles: Schema.optionalKey(list(Schema.Struct({ id: Schema.String, profile: Schema.Int, source: SourceRefSchema, name: Schema.String }))),
   parts: list(PartSchema), rotation: Schema.NullOr(RotationSchema),
   cueWindow: Schema.NullOr(CueWindowSchema),
-  noteBanks: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, toleranceMs: Finite, notes: list(Schema.Struct({ slot: Schema.Int, at: PointSchema })) }))),
-  externalSamples: Schema.optionalKey(list(Schema.Struct({ slot: Schema.Int, voiceId: Schema.String, begin: PointSchema, end: PointSchema }))),
+  noteBanks: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, toleranceMs: Finite, notes: list(Schema.Struct({ slot: Schema.Int, at: PointSchema })), capture: Schema.optionalKey(Schema.Struct({ profile: Schema.Int, slots: list(Schema.Int) })) }))),
+  externalSamples: Schema.optionalKey(list(Schema.Struct({ slot: Schema.Int, voiceId: Schema.String, begin: PointSchema, end: PointSchema, asset: Schema.optionalKey(ExternalSampleAssetSchema) }))),
   authoredCues: Schema.optionalKey(list(AuthoredCueSchema)),
   cues: list(CueSchema), takes: list(TakeSchema),
   selections: list(Schema.Struct({ id: Schema.String, voiceId: Schema.String, groupId: Schema.String, takeIds: list(Schema.String), gains: list(Finite), window: SelectionWindowSchema })),
@@ -290,10 +291,18 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   }
   if (song.playback.some(p => p.bar < 1 || p.bar > bars || !song.selections.some(s => s.id === p.selectionId && s.voiceId === p.voiceId))) throw new Error('Invalid executable playback reference.');
   if (song.noteBanks) {
-    const buttons = new Set<string>();
+    const buttons = new Set<string>(), captureSlots = new Set<number>();
     for (const bank of song.noteBanks) {
       if (buttons.has(bank.buttonId) || bank.toleranceMs < 0 || bank.toleranceMs > 100 || !bank.notes.length) throw new Error('Invalid manual note bank.');
       buttons.add(bank.buttonId);
+      if (bank.capture) {
+        const capture = bank.capture;
+        if (capture.profile < 0 || capture.profile >= 6 || !capture.slots.length || capture.slots.length > 13
+          || new Set(capture.slots).size !== capture.slots.length || capture.slots.some(slot => slot < 0 || slot > 63 || captureSlots.has(slot))
+          || bank.notes.some(note => !capture.slots.includes(note.slot))
+          || capture.slots.some(slot => song.externalSamples?.some(sample => sample.slot === slot))) throw new Error('Invalid note bank capture order or slot ownership.');
+        for (const slot of capture.slots) captureSlots.add(slot);
+      }
       let previous = -1;
       for (const note of bank.notes) {
         const at = pointCount(note.at, beats);
@@ -308,6 +317,8 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
       if (!Number.isInteger(sample.slot) || sample.slot < 0 || sample.slot > 63 || slots.has(sample.slot)
         || !sample.voiceId.trim() || !validPoint(sample.begin, false) || !validPoint(sample.end, true)
         || pointCount(sample.end, beats) <= pointCount(sample.begin, beats)) throw new Error('Invalid external sample chart binding.');
+      if (song.noteBanks?.some(bank => bank.notes.some(note => note.slot === sample.slot))) throw new Error('External sample and note bank cannot own the same slot.');
+      if (sample.asset) decodeExternalSampleWav(sample.asset);
       slots.add(sample.slot);
     }
   }

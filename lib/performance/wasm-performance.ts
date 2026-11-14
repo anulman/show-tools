@@ -7,7 +7,7 @@ import { PF as LIGHT } from './light-abi.js';
 import { decodeNativeState, decodeNativeTempo, decodeNativeVoices, decodeNativeLiveEffects, decodeNativeEvent, decodeNativeTake } from './native-observation.js';
 import { ST } from '../sampler/wasm-abi.js';
 import { decodeTunerState, tunerCommandValues } from '../tuner/observation.js';
-import type { TunerCommand } from '../tuner/model.js';
+import type { TunerCommand, TuningBankOptions, TuningBankState } from '../tuner/model.js';
 
 const BLOCK = 8192;
 type Options = { api: WebAssembly.Exports; sampleRate: number; mode?: number; maxVoices?: number; maxSeconds?: number; clickGain?: number;
@@ -270,6 +270,15 @@ export class NativePerformance {
     return decodeNativeLiveEffects(this.query('pf_live_info'));
   }
 
+  prepareExternalWav(slot: number, bytes: Uint8Array) {
+    if (!Number.isInteger(slot) || slot < 0 || slot >= 64 || !(bytes instanceof Uint8Array) || !bytes.length) throw new Error('Invalid external WAV');
+    const pointer = this.call('malloc', bytes.length);
+    if (!pointer) throw new Error('Performance WASM memory limit reached');
+    try {
+      new Uint8Array(this.memory.buffer, pointer, bytes.length).set(bytes);
+      this.call('pf_prepare_external_wav', this.handle, slot, pointer, bytes.length);
+    } finally { this.invoke('free', pointer); }
+  }
   prepareExternalSample(slot: number, left: Float32Array, right?: Float32Array) {
     if (!Number.isInteger(slot) || slot < 0 || slot >= 64 || !left.length || right && right.length !== left.length
       || !left.every(Number.isFinite) || right && !right.every(Number.isFinite)) throw new Error('Invalid external sample');
@@ -306,6 +315,7 @@ export class NativePerformance {
     if (control.id === 'mushroom') id = 4;
     else if (control.id === 'tempo') id = 6;
     else if (control.id === 'cueButton') { if (control.value !== 0 && control.value !== 1) throw new Error('Invalid cue button state'); id = 7; }
+    else if (control.id === 'external') { if (!Number.isInteger(control.slot) || control.slot < 0 || control.slot >= 64) throw new Error('Invalid external sample slot'); id = 16 + control.slot; }
     else if (control.id === 'knob') { if (!Number.isFinite(control.value)) throw new Error('Invalid knob value'); id = 5; }
     else id = this.channel(control.id) + ('edge' in control && control.edge === 'release' ? 8 : 0);
     const result = this.invoke('pf_control', this.handle, id, control.id === 'knob' || control.id === 'cueButton' ? control.value : 0, commandId ? this.commandPointer : 0, units.length);
@@ -326,6 +336,25 @@ export class NativePerformance {
     return { ...state, compiledTakes };
   }
   snapshot() { return this.state(); }
+  prepareTuningBank({ profile, slots, clipMs = 250, stableMs = 150, confidence = .9, toleranceCents = 35 }: TuningBankOptions): TuningBankState {
+    if (!Number.isInteger(profile) || profile < 0 || profile >= PF.VOICE_PROFILES || !slots.length || slots.length > 13
+      || new Set(slots).size !== slots.length || slots.some(slot => !Number.isInteger(slot) || slot < 0 || slot >= 64)
+      || !Number.isFinite(clipMs) || clipMs <= 0 || clipMs > 2000 || !Number.isFinite(stableMs) || stableMs <= 0 || stableMs > 2000
+      || !Number.isFinite(confidence) || confidence < 0 || confidence > 1 || !Number.isFinite(toleranceCents) || toleranceCents <= 0 || toleranceCents > 100) throw new Error('Invalid tuning bank');
+    const pointer = this.call('malloc', slots.length * 8);
+    if (!pointer) throw new Error('Performance WASM memory limit reached');
+    try {
+      new Float64Array(this.memory.buffer, pointer, slots.length).set(slots);
+      this.call('pf_prepare_tuning_bank', this.handle, profile, pointer, slots.length, Math.ceil(clipMs * this.sampleRate / 1000), Math.ceil(stableMs * this.sampleRate / 1000), confidence, toleranceCents);
+    } finally { this.invoke('free', pointer); }
+    return this.tuningBankState();
+  }
+  tuningBankState(): TuningBankState {
+    const info = this.query('pf_tuning_bank_info');
+    const count = info[0];
+    return { count, step: info[1], clipFrames: info[2], filledFrames: info[3], stableFrames: info[4], ready: info[5] === 1,
+      capturedFrames: Array.from(info.slice(6, 6 + count)), midi: Array.from(info.slice(19, 19 + count)) };
+  }
   tunerState() { return decodeTunerState(this.query('pf_tuner_info')); }
   tunerCommand(command: TunerCommand) { this.call('pf_tuner_command_apply', this.handle, ...tunerCommandValues(command)); return this.tunerState(); }
   setJiggleThresholds(minimumTravel: number, minimumReversal: number) {

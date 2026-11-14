@@ -31,7 +31,21 @@ export type TunerCommand = { readonly expectedRevision: number } & (
   | { readonly kind: 'listen'; readonly enabled: boolean }
 );
 export interface TunerPort {
+  prepareBank?(options: TuningBankOptions): Promise<TuningBankState>;
   snapshot(): TunerState;
   subscribe(listener: (state: TunerState) => void): () => void;
   command(command: TunerCommand): Promise<TunerState>;
+}
+
+export interface TuningBankOptions {
+  readonly profile: number;
+  readonly slots: readonly number[];
+  readonly clipMs?: number;
+  readonly stableMs?: number;
+  readonly confidence?: number;
+  readonly toleranceCents?: number;
+}
+export interface TuningBankState {
+  readonly count: number; readonly step: number; readonly clipFrames: number; readonly filledFrames: number;
+  readonly stableFrames: number; readonly ready: boolean; readonly capturedFrames: readonly number[]; readonly midi: readonly number[];
 }

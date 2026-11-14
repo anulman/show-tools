@@ -79,8 +79,11 @@ test('external sample triggers overlap inside the canonical window and stop on t
     native.prepareExternalSample(0, new Float32Array(8000).fill(.2));
     native.prepareLiveEffects([]); native.start({ runId: 'terse-wasm', bpm: 120, countInBars: 1, startBar: 1, endBar: 4 });
     assert.throws(() => native.triggerExternal(0));
-    until(native, 2); native.triggerExternal(0); render(native, 1000); native.triggerExternal(0);
+    native.control({ id: 'external', slot: 0 }, 'outside-window'); assert(render(native, 10).every(value => value === 0));
+    until(native, 2); native.control({ id: 'external', slot: 0 }, 'manual-shake/1'); render(native, 1000); native.control({ id: 'external', slot: 0 }, 'manual-shake/2');
+    native.control({ id: 'external', slot: 0 }, 'manual-shake/2');
     assert(render(native, 64).every(value => Math.abs(value - .4) < 1e-6), 'finite tails overlap');
+    native.setMicrophone(false); assert(render(native, 64).every(value => Math.abs(value - .4) < 1e-6), 'microphone loss preserves independent external tails');
     native.stop(); assert(render(native, 100).every(value => value === 0));
     assert.throws(() => native.prepareExternalSample(0, new Float32Array([NaN])));
   } finally { native.dispose(); }
@@ -269,5 +272,86 @@ test('two named source profiles on one bank preserve independent capture, effect
     until(native, 6); native.control({ id: 'L1' }); render(native, 1);
     assert.equal(native.state().compiledTakes?.[0].playback, 'idle');
     assert.equal(native.state().compiledTakes?.[1].playback, 'playing', 'named stop does not stop another profile on its bank');
+  } finally { native.dispose(); }
+});
+
+test('stopped Tuning records the selected scale into note slots, locks on meaningful rightward motion and retains it across Start', () => {
+  const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 3, 120, 3, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    PF.COMPILED_NOTES_MAGIC, 2, 0, 0, 1, 0, 25, 0, 1, 1, 1, 25];
+  const native = engine(program);
+  const sing = (midi: number, frames = 10000) => {
+    const frequency = 440 * 2 ** ((midi - 69) / 12);
+    for (let remaining = frames; remaining > 0;) {
+      const count = Math.min(256, remaining), begin = native.processedFrames;
+      const input = Float32Array.from({ length: count }, (_, index) => .2 * Math.sin(2 * Math.PI * frequency * (begin + index) / 8000));
+      const output = [new Float32Array(count), new Float32Array(count)];
+      native.process(input, output, count);
+      assert(output.every(channel => channel.every(value => value === 0)), 'tuning capture does not audition or launch a note');
+      remaining -= count;
+    }
+  };
+  try {
+    native.prepareLiveEffects([]); native.setMicrophone(true);
+    native.tunerCommand({ kind: 'configure', root: 57, scale: 'major', expectedRevision: native.tunerState().revision });
+    native.prepareTuningBank({ profile: 0, slots: [0, 1, 2, 3, 4, 5, 6, 7] });
+    assert.throws(() => native.prepareExternalSample(0, new Float32Array(1)), 'partial bank owns its prepared memory');
+    native.tunerCommand({ kind: 'listen', enabled: true, expectedRevision: native.tunerState().revision });
+    assert.throws(() => native.tunerCommand({ kind: 'confirm', expectedRevision: native.tunerState().revision }), /steadily/);
+    sing(58); assert.equal(native.tuningBankState().ready, false, 'wrong target pitch never prepares a lock');
+    const targets = native.tunerState().targets;
+    for (const [index, target] of targets.entries()) {
+      sing(target.midi);
+      assert.equal(native.tuningBankState().ready, true, `target ${target.midi} is stable`);
+      if (index === 1) {
+        native.setMicrophone(false);
+        assert.equal(native.tuningBankState().filledFrames, 0, 'microphone loss discards only the unfinished window');
+        assert.equal(native.tuningBankState().capturedFrames[0], 2000, 'microphone loss preserves the first locked note');
+        native.setMicrophone(true);
+        assert.equal(native.tunerState().listening, false, 'microphone restoration does not silently resume capture');
+        native.tunerCommand({ kind: 'listen', enabled: true, expectedRevision: native.tunerState().revision });
+        sing(target.midi); assert.equal(native.tuningBankState().ready, true);
+      }
+      if (index === 0) {
+        for (let motion = 0; motion < 3; motion++) native.control({ id: 'knob', value: 1 });
+        assert.equal(native.tuningBankState().step, 0, 'tiny raw deltas do not each lock another note');
+        native.control({ id: 'knob', value: 1 });
+      } else native.tunerCommand({ kind: 'confirm', expectedRevision: native.tunerState().revision });
+      assert.equal(native.tuningBankState().step, index + 1);
+    }
+    assert.equal(native.tunerState().complete, true);
+    assert.deepEqual(native.tuningBankState().midi, targets.map(note => note.midi));
+    assert(native.tuningBankState().capturedFrames.every(frames => frames === 2000));
+    native.start({ runId: 'captured-note-bank', bpm: 120, countInBars: 1, startBar: 1, endBar: 3 });
+    assert.equal(native.tunerState().listening, false); assert.equal(native.tunerState().preview.kind, 'silent');
+    assert.throws(() => native.tunerCommand({ kind: 'confirm', expectedRevision: native.tunerState().revision }), /Stop the performance/);
+    assert.throws(() => native.prepareTuningBank({ profile: 0, slots: [0, 1, 2, 3, 4, 5, 6, 7] }));
+    until(native, 1); native.control({ id: 'L1' });
+    assert(render(native, 1000).some(value => Math.abs(value) > .1), 'chart-aware manual note hit plays captured singing');
+    native.stop(); assert(native.tuningBankState().capturedFrames.every(frames => frames === 2000));
+    native.setMicrophone(false); assert(native.tuningBankState().capturedFrames.every(frames => frames === 2000));
+    native.configureCompiled(program); assert.equal(native.tuningBankState().count, 0, 'song replacement releases the old note bank');
+  } finally { native.dispose(); }
+});
+
+test('native WAV preparation converts source rate and rejects malformed replacements atomically', () => {
+  const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 3, 120, 3, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    PF.COMPILED_EXTERNAL_MAGIC, 1, 0, 1, 0, 3, 0];
+  const wav = new Uint8Array(60), view = new DataView(wav.buffer);
+  const text = (at: number, value: string) => { for (const [index, char] of [...value].entries()) wav[at + index] = char.charCodeAt(0); };
+  text(0, 'RIFF'); view.setUint32(4, wav.length - 8, true); text(8, 'WAVE'); text(12, 'fmt '); view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true); view.setUint16(22, 2, true); view.setUint32(24, 12000, true); view.setUint32(28, 48000, true);
+  view.setUint16(32, 4, true); view.setUint16(34, 16, true); text(36, 'data'); view.setUint32(40, 16, true);
+  for (let frame = 0; frame < 4; frame++) { view.setInt16(44 + frame * 4, frame * 8192, true); view.setInt16(46 + frame * 4, -frame * 8192, true); }
+  const native = engine(program);
+  try {
+    native.prepareExternalWav(0, wav);
+    const invalid = wav.slice(); invalid[40] = 255;
+    assert.throws(() => native.prepareExternalWav(0, invalid));
+    native.prepareLiveEffects([]);
+    assert.throws(() => native.prepareTuningBank({ profile: 0, slots: [0, 1, 2, 3, 4, 5, 6, 7] }), 'song external source owns its sample slot');
+    assert.throws(() => native.prepareTuningBank({ profile: 0, slots: [1, 1, 2, 3, 4, 5, 6, 7] }), 'scale notes need distinct sample slots');
+    native.start({ runId: 'native-wav', bpm: 120, countInBars: 1, startBar: 1, endBar: 3 }); until(native, 1); native.triggerExternal(0);
+    const left = new Float32Array(4), right = new Float32Array(4); native.process(null, [left, right], 4);
+    assert.deepEqual(Array.from(left), [0, .375, .75, 0]); assert.deepEqual(Array.from(right), [0, -.375, -.75, 0]);
   } finally { native.dispose(); }
 });

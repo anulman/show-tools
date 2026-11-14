@@ -352,6 +352,7 @@ void Program::start(int start_bar, int count_in_beats, double frame, double bpm)
 
 }
 void Program::stop() noexcept {
+  pause_tuning_bank();
   if (active_capture_.take >= 0) {
     Take& take = takes_[active_capture_.take];
     uint32_t period = 0;
@@ -369,8 +370,8 @@ void Program::stop() noexcept {
   for (int id = 0; id < take_count_; ++id) for (auto& playback : takes_[id].playback) if (playback) playback->reset();
 }
 void Program::microphone_lost() noexcept {
+  pause_tuning_bank();
   if (active_capture_.take >= 0) takes_[active_capture_.take].cache[active_capture_.bank]->reset_for_capture();
-  for (auto& voice : external_playback_) voice = {};
   active_capture_ = {}; live_route_ = -1; monitor_route_ = default_route; rotation_deadline_frame_ = -1; clear_gesture();
   for (int id = 0; id < cue_count_; ++id) pending_[id] = {};
   for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) { voices_[voice]->reset(); tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
@@ -1063,6 +1064,87 @@ void Program::render(const float* input, float* left, float* right, float* live_
   }
   query_position_ = position(frame + frames, bpm); query_frame_ = frame + frames;
 }
+bool Program::prepare_tuning_bank(uint32_t profile, const double* slots, uint32_t count, uint32_t clip_frames,
+  uint32_t stable_frames, double confidence, double tolerance_cents) noexcept {
+  if (phase_ != PF_IDLE || has_capture() || profile >= PF_VOICE_PROFILES || !slots || !count || count > 13
+    || !clip_frames || clip_frames > rate_ * 2 || !stable_frames || stable_frames > rate_ * 2
+    || !std::isfinite(confidence) || confidence < 0 || confidence > 1
+    || !std::isfinite(tolerance_cents) || tolerance_cents <= 0 || tolerance_cents > 100) return false;
+  bool selected[64]{};
+  for (uint32_t id = 0; id < count; ++id) {
+    if (!whole(slots[id], 63) || selected[uint32_t(slots[id])]) return false;
+    for (int window = 0; window < external_count_; ++window) if (external_windows_[window].slot == uint32_t(slots[id])) return false;
+    selected[uint32_t(slots[id])] = true;
+  }
+  uint64_t total = uint64_t(clip_frames) * count;
+  for (uint32_t id = 0; id < 64; ++id) if (!selected[id]) total += external_samples_[id].capacity;
+  if (total * sizeof(patches::Stereo) > 64ULL * 1024 * 1024) return false;
+  std::unique_ptr<patches::Stereo[]> prepared[13];
+  auto scratch = std::unique_ptr<patches::Stereo[]>(new (std::nothrow) patches::Stereo[clip_frames]);
+  if (!scratch) return false;
+  for (uint32_t id = 0; id < count; ++id) {
+    prepared[id].reset(new (std::nothrow) patches::Stereo[clip_frames]);
+    if (!prepared[id]) return false;
+  }
+  for (uint32_t id = 0; id < count; ++id) {
+    note_capture_slots_[id] = uint32_t(slots[id]);
+    auto& sample = external_samples_[note_capture_slots_[id]];
+    sample.pcm = std::move(prepared[id]); sample.frames = 0; sample.capacity = clip_frames; sample.midi = -1;
+  }
+  note_capture_scratch_ = std::move(scratch); note_capture_count_ = count; note_capture_step_ = 0;
+  note_capture_profile_ = profile; note_capture_frames_ = clip_frames; note_capture_minimum_ = stable_frames;
+  note_capture_confidence_ = confidence; note_capture_tolerance_ = tolerance_cents;
+  pause_tuning_bank(); voices_[profile]->reset();
+  return true;
+}
+void Program::pause_tuning_bank() noexcept {
+  note_capture_listening_ = false; note_capture_filled_ = note_capture_write_ = note_capture_stable_ = 0;
+  clear_gesture();
+}
+void Program::process_tuning_bank(const float* input, uint32_t frames, bool eligible, double confidence,
+  double pitch_midi, double target_midi, uint32_t step) noexcept {
+  if (!note_capture_count_ || note_capture_step_ >= note_capture_count_) return;
+  bool stable = phase_ == PF_IDLE && input && eligible && step == note_capture_step_
+    && confidence >= note_capture_confidence_ && std::abs(pitch_midi - target_midi) * 100 <= note_capture_tolerance_;
+  if (!stable) { pause_tuning_bank(); return; }
+  note_capture_listening_ = true;
+  auto& sample = external_samples_[note_capture_slots_[note_capture_step_]];
+  for (uint32_t frame = 0; frame < frames; ++frame) {
+    float source = std::isfinite(input[frame]) ? input[frame] : 0;
+    sample.pcm[note_capture_write_] = voices_[note_capture_profile_]->process({source, source});
+    note_capture_write_ = (note_capture_write_ + 1) % note_capture_frames_;
+    if (note_capture_filled_ < note_capture_frames_) ++note_capture_filled_;
+    if (note_capture_stable_ < note_capture_minimum_) ++note_capture_stable_;
+  }
+}
+bool Program::tuning_bank_ready(uint32_t step) const noexcept {
+  return phase_ == PF_IDLE && step == note_capture_step_ && step < note_capture_count_ && note_capture_listening_
+    && note_capture_filled_ == note_capture_frames_ && note_capture_stable_ >= note_capture_minimum_;
+}
+bool Program::lock_tuning_note(uint32_t step, double midi) noexcept {
+  if (!tuning_bank_ready(step)) return false;
+  auto& sample = external_samples_[note_capture_slots_[step]];
+  for (uint32_t frame = 0; frame < note_capture_frames_; ++frame)
+    note_capture_scratch_[frame] = sample.pcm[(note_capture_write_ + frame) % note_capture_frames_];
+  std::copy(note_capture_scratch_.get(), note_capture_scratch_.get() + note_capture_frames_, sample.pcm.get());
+  sample.frames = note_capture_frames_; sample.midi = midi; ++note_capture_step_;
+  pause_tuning_bank(); voices_[note_capture_profile_]->reset();
+  return true;
+}
+bool Program::tuning_motion(double value, double frame) noexcept {
+  if (!tuning_bank_ready(note_capture_step_)) return false;
+  query_frame_ = frame; query_position_ = position(frame, bpm_);
+  return meaningful_motion(value, frame) && value > 0;
+}
+void Program::tuning_bank_info(double* out) const noexcept {
+  if (!out) return;
+  out[0] = note_capture_count_; out[1] = note_capture_step_; out[2] = note_capture_frames_;
+  out[3] = note_capture_filled_; out[4] = note_capture_stable_; out[5] = tuning_bank_ready(note_capture_step_);
+  for (uint32_t id = 0; id < 13; ++id) {
+    out[6 + id] = id < note_capture_count_ ? external_samples_[note_capture_slots_[id]].frames : 0;
+    out[19 + id] = id < note_capture_count_ ? external_samples_[note_capture_slots_[id]].midi : -1;
+  }
+}
 bool Program::set_bend_parameters(double velocity_per_semitone, double stale_ms) noexcept {
   if (phase_ != PF_IDLE || !std::isfinite(velocity_per_semitone) || velocity_per_semitone <= 0
     || !std::isfinite(stale_ms) || stale_ms <= 0 || stale_ms > 1000) return false;
@@ -1084,14 +1166,15 @@ int Program::play_note(int button) noexcept {
 }
 bool Program::prepare_external_sample(uint32_t slot, const float* left, const float* right, uint32_t frames) noexcept {
   if (phase_ != PF_IDLE || slot >= 64 || !left || !frames || frames > rate_ * 30) return false;
+  if (note_capture_step_ < note_capture_count_) for (uint32_t id = 0; id < note_capture_count_; ++id) if (note_capture_slots_[id] == slot) return false;
   uint64_t total = frames;
-  for (uint32_t id = 0; id < 64; ++id) if (id != slot) total += external_samples_[id].frames;
+  for (uint32_t id = 0; id < 64; ++id) if (id != slot) total += external_samples_[id].capacity;
   if (total * sizeof(patches::Stereo) > 64ULL * 1024 * 1024) return false;
   for (uint32_t frame = 0; frame < frames; ++frame) if (!std::isfinite(left[frame]) || (right && !std::isfinite(right[frame]))) return false;
   auto prepared = std::unique_ptr<patches::Stereo[]>(new (std::nothrow) patches::Stereo[frames]);
   if (!prepared) return false;
   for (uint32_t frame = 0; frame < frames; ++frame) prepared[frame] = {left[frame], right ? right[frame] : left[frame]};
-  external_samples_[slot].pcm = std::move(prepared); external_samples_[slot].frames = frames;
+  external_samples_[slot].pcm = std::move(prepared); external_samples_[slot].frames = frames; external_samples_[slot].capacity = frames;
   return true;
 }
 int Program::trigger_external(uint32_t slot) noexcept {
@@ -1105,7 +1188,7 @@ int Program::trigger_external(uint32_t slot) noexcept {
   return launch_external(slot);
 }
 int Program::launch_external(uint32_t slot) noexcept {
-  if (!external_samples_[slot].pcm) return PF_NO_SAMPLE;
+  if (!external_samples_[slot].pcm || !external_samples_[slot].frames) return PF_NO_SAMPLE;
   for (auto& voice : external_playback_) if (voice.slot < 0) { voice = {int(slot), 0}; return PF_OK; }
   return PF_TAKE_UNAVAILABLE;
 }

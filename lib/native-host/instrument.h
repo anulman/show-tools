@@ -29,6 +29,7 @@ public:
   int set_click(int enabled);
   int set_click_gain(double gain);
   int set_jiggle_thresholds(double travel, double reversal);
+  int prepare_external_wave(uint32_t slot, const uint8_t* bytes, uint32_t length);
   int tuner(int operation, uint32_t expected_revision, int value, int scale);
   bool audio_needed() const;
   int render(const float* input, uint32_t frames);

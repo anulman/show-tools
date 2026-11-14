@@ -1,3 +1,4 @@
+import { enablePhoneMotion } from './phone-motion.js';
 import { audioMode, canChangeAudioMode, changeAudioMode } from './audio-mode.js';
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
 import { exportMusicXmlWithVoices } from '../../lib/performance/musicxml-authoring.js';
@@ -108,6 +109,8 @@ let tunerPort: TunerPort | undefined;
 const tunerDialog = requiredElement('#tuner-dialog', HTMLDialogElement);
 let remoteDesk: RemoteDesk | undefined;
 let preparing: Promise<PerformanceSession> | null = null;
+let preparationAbort: AbortController | undefined;
+let phoneMotionAbort: AbortController | undefined;
 let starting = false;
 let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorker } | { kind: 'pending' } | { kind: 'reloading' } = { kind: 'current' };
 let transportGeneration = 0;
@@ -182,7 +185,8 @@ async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[])
   startLabel.textContent = 'Preparing audio…';
   const generation = songGeneration;
   const currentSong = song;
-  preparing = import('./audio.js').then(({ PracticeAudio }) => PracticeAudio.create({ chart: currentSong.chart, program: currentSong.program, compiled: currentSong.compiled, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() })).then(async instance => {
+  const cancellation = new AbortController(); preparationAbort = cancellation;
+  preparing = import('./audio.js').then(({ PracticeAudio }) => PracticeAudio.create({ chart: currentSong.chart, program: currentSong.program, compiled: currentSong.compiled, signal: cancellation.signal, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() })).then(async instance => {
     if (generation !== songGeneration) {
       await instance.dispose();
       throw new Error('The song changed while audio was preparing.');
@@ -196,12 +200,17 @@ async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[])
       }
     });
     return instance;
-  }).finally(() => { preparing = null; render(state); });
+  }).finally(() => { if (preparationAbort === cancellation) preparationAbort = undefined; preparing = null; render(state); });
   return preparing;
 }
 
 function sharedTuner(instance: PerformanceSession): TunerPort {
+  const prepareBank = instance.tuner.prepareBank;
   return {
+    ...(prepareBank ? { prepareBank: (options: import('../../lib/tuner/model.js').TuningBankOptions) => {
+      if (instance !== audio || isRunning() || starting) return Promise.reject(new Error('Stop practice before preparing a note bank'));
+      return prepareBank(options);
+    } } : {}),
     snapshot: () => instance.tuner.snapshot(),
     subscribe: listener => instance.tuner.subscribe(listener),
     command: command => {
@@ -223,6 +232,7 @@ function syncTunerSession() {
 requiredElement('#open-tuner', HTMLButtonElement).addEventListener('click', () => {
   if (tunerDialog.open) return;
   tunerPanel = mountTuner(requiredElement('#tuner-root', HTMLElement), {
+    banks: song?.compiled?.noteBanks?.flatMap((bank, index) => bank.capture ? [{ id: `${bank.buttonId}/${index}`, label: song?.chart.controlNames[bank.buttonId] ?? bank.buttonId, capture: bank.capture }] : []) ?? [],
     connect: async () => {
       if (isRunning() || starting || outputCapture !== 'idle') throw new Error('Stop practice and finish the demo recording before using the tuner.');
       const instance = await ensureAudio();
@@ -359,6 +369,8 @@ async function startPractice() {
 }
 
 async function stopPerformance(command: 'stop' | 'panic', commandId?: string) {
+  preparationAbort?.abort(new Error('Audio preparation canceled'));
+  phoneMotionAbort?.abort();
   transportGeneration++;
   chartFollower?.stop();
   finishOutputRecording();
@@ -489,6 +501,46 @@ function mountVoiceRows() {
     main.append(identity, tools); shell.append(main); voiceEffects.mount(part, shell, remote ? undefined : () => voiceCatalog.openProfile(part.profile)); elements['live-voices'].append(shell);
   }
   elements['live-voices'].hidden = !liveVoiceStates.size;
+  mountPhoneMotion();
+}
+
+function mountPhoneMotion() {
+  phoneMotionAbort?.abort();
+  document.getElementById('phone-motion-controls')?.remove();
+  const sources = song?.compiled?.externalSamples?.filter(sample => sample.asset) ?? [];
+  if (!sources.length) return;
+  const group = document.createElement('section'); group.id = 'phone-motion-controls'; group.className = 'voice-row';
+  const seen = new Set<number>();
+  for (const source of sources) {
+    if (seen.has(source.slot)) continue;
+    seen.add(source.slot);
+    const button = document.createElement('button'); button.type = 'button';
+    const label = `Enable shake · ${source.voiceId}`; button.textContent = label;
+    let enabled = false;
+    button.addEventListener('click', () => { void act(async () => {
+      if (enabled) { phoneMotionAbort?.abort(); return; }
+      phoneMotionAbort?.abort();
+      const cancel = new AbortController(); phoneMotionAbort = cancel;
+      const generation = songGeneration, session = crypto.randomUUID(); let sequence = 0;
+      button.disabled = true;
+      try {
+        await enablePhoneMotion({ signal: cancel.signal, current: () => generation === songGeneration && !switching,
+          hit: () => {
+            const instance = audio;
+            if (!instance || !isRunning() || generation !== songGeneration || cancel.signal.aborted) return;
+            const commandId = `phone-motion/${session}/${++sequence}`;
+            void instance.control({ id: 'external', slot: source.slot }, { commandId }).catch(error => {
+              if (generation === songGeneration && audio === instance && !cancel.signal.aborted) showError(error);
+            });
+          },
+          stopped: () => { enabled = false; button.textContent = label; button.disabled = false; },
+        });
+        enabled = true; button.textContent = `Disable shake · ${source.voiceId}`;
+      } finally { button.disabled = false; }
+    }); });
+    group.append(button);
+  }
+  elements['live-voices'].insertAdjacentElement('afterend', group);
 }
 
 function browserModeBusy(): boolean {
@@ -785,7 +837,7 @@ window.addEventListener('message', event => {
 
 window.addEventListener('blur', releasePresses);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releasePresses(); });
-window.addEventListener('pagehide', () => { if (recorder?.state === 'recording') recorder.stop(); });
+window.addEventListener('pagehide', () => { phoneMotionAbort?.abort(); preparationAbort?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
 
 makePads();
 for (const entry of SONGS) {
@@ -801,7 +853,11 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
   if (voiceCatalog.busy) throw new Error('Wait for the voice library save before switching songs.');
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
+  phoneMotionAbort?.abort();
+  tunerPanel?.dispose(); tunerPanel = undefined; tunerSession = undefined; tunerPort = undefined;
+  if (tunerDialog.open) tunerDialog.close();
   const generation = ++songGeneration;
+  preparationAbort?.abort(new Error('The song changed while audio was preparing.'));
   transportGeneration++;
   switching = true;
   render(state);

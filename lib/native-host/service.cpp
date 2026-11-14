@@ -88,6 +88,10 @@ bool parse(Request& request,const Bytes& data) {
     if(request.op==5 && !integer(request.args[2]))return false;
     return true;
   }
+  if(request.op==15) {
+    if(left<8 || u32(p)>=64 || u32(p+4)!=left-8 || left-8>32*1024*1024)return false;
+    request.args[0]=u32(p); request.packet.assign(p+8,p+left); return true;
+  }
   if(request.op==13) {
     if(left!=32)return false;
     for(int i=0;i<4;++i) {
@@ -196,6 +200,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           if(rc>=0 && int(a[0])!=PF_TUNER_CLOSE && int(a[0])!=PF_TUNER_SILENCE && alsa_run.utility(instrument,*device)<0) { shared.device_failed=true; rc=-1; }
 #endif
           break;
+        case 15: rc=instrument.prepare_external_wave(uint32_t(a[0]),r->packet.data(),uint32_t(r->packet.size())); break;
         case 12: rc=instrument.set_jiggle_thresholds(a[0],a[1]); break;
         case 4: rc=instrument.select(int(a[0])); break;
         case 5: rc=instrument.set_channel(int(a[0]),a[1],int(a[2])); break;

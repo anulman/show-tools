@@ -1,3 +1,4 @@
+import { prepareDeclaredExternalAssets } from './external-assets.js';
 import { MusicXmlValidationError } from './musicxml-errors.js';
 export { MusicXmlValidationError } from './musicxml-errors.js';
 import { Schema } from 'effect';
@@ -183,6 +184,7 @@ function validateAnnotations(report: Pick<MusicXmlReport, 'annotations' | 'parts
 
 export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<string> {
   const { song, report } = options;
+  await prepareDeclaredExternalAssets(song.externalSamples);
   validateAnnotations(report);
   if (report.parts.length < 1 || report.parts.some(part => part.cells.length !== song.chart.bars.length)) throw new MusicXmlValidationError('Canonical MusicXML needs complete chronological measures for every score part.');
   const partBindings = song.parts.map(part => {
@@ -473,6 +475,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     sections, vocalCues, parts,
   };
   validateAnnotations(report);
+  await prepareDeclaredExternalAssets(song.externalSamples);
   return { song, report, source, mapping, voices };
 }
 

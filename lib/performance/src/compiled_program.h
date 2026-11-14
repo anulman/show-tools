@@ -34,6 +34,16 @@ class Program {
     uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack, patches::Rack& backup_rack) noexcept;
   void set_channel(int button, double gain, bool muted) noexcept;
   VoiceInfo channel_info(int button, double bpm) const noexcept;
+  bool prepare_tuning_bank(uint32_t profile, const double* slots, uint32_t count, uint32_t clip_frames,
+    uint32_t stable_frames, double confidence, double tolerance_cents) noexcept;
+  void process_tuning_bank(const float* input, uint32_t frames, bool eligible, double confidence, double pitch_midi, double target_midi, uint32_t step) noexcept;
+  bool tuning_bank_configured() const noexcept { return note_capture_count_ > 0; }
+  bool tuning_bank_ready(uint32_t step) const noexcept;
+  bool lock_tuning_note(uint32_t step, double midi) noexcept;
+  bool tuning_motion(double value, double frame) noexcept;
+  void pause_tuning_bank() noexcept;
+  void cancel_tuning_bank() noexcept { pause_tuning_bank(); note_capture_count_ = 0; }
+  void tuning_bank_info(double* out) const noexcept;
   bool set_bend_parameters(double velocity_per_semitone, double stale_ms) noexcept;
   bool prepare_external_sample(uint32_t slot, const float* left, const float* right, uint32_t frames) noexcept;
   int trigger_external(uint32_t slot) noexcept;
@@ -62,12 +72,19 @@ class Program {
   int play_note(int button) noexcept;
   int launch_external(uint32_t slot) noexcept;
   struct ExternalWindow { uint32_t slot = 0; double begin = 0, end = 0; };
-  struct ExternalSample { std::unique_ptr<patches::Stereo[]> pcm; uint32_t frames = 0; };
+  struct ExternalSample { std::unique_ptr<patches::Stereo[]> pcm; uint32_t frames = 0, capacity = 0; double midi = -1; };
   struct ExternalPlayback { int slot = -1; uint32_t frame = 0; };
   ExternalSample external_samples_[64];
   ExternalPlayback external_playback_[32];
   std::unique_ptr<ExternalWindow[]> external_windows_;
   int external_count_ = 0;
+  uint32_t note_capture_slots_[13]{}, note_capture_count_ = 0, note_capture_step_ = 0;
+  uint32_t note_capture_profile_ = 0, note_capture_frames_ = 0, note_capture_filled_ = 0, note_capture_write_ = 0;
+  uint32_t note_capture_stable_ = 0, note_capture_minimum_ = 0;
+  double note_capture_confidence_ = .9, note_capture_tolerance_ = 35;
+  bool note_capture_listening_ = false;
+  std::unique_ptr<patches::Stereo[]> note_capture_scratch_;
+
   struct RotationWindow { double begin = 0, end = 0; };
   struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2]; };
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };

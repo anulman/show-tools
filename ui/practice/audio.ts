@@ -1,3 +1,4 @@
+import { prepareDeclaredExternalAssets } from '../../lib/performance/external-assets.js';
 import { connectBrowserPeripheral } from './browser-peripheral.js';
 import { BeatTracker } from './runtime/beat-tracker.js';
 import { AudioEndpoint } from '../../lib/sampler/audio-endpoint.js';
@@ -5,14 +6,14 @@ import { Sampler } from '../../lib/sampler/sampler.js';
 import { CONTROL_IDS } from '../../lib/performance/model.js';
 import { encodeCompiledProgram } from '../../lib/performance/compiled-native.js';
 import type { CompiledSong } from '../../lib/performance/compiled-song.js';
-import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
+import type { TunerPort, TunerState, TuningBankOptions, TuningBankState } from '../../lib/tuner/model.js';
 import type { ChannelId, ChannelSettings, Chart, ChartMetadata, Control, PracticeEvent, PracticeState, Program, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 
 export type MonitoringRelationship = 'unknown' | 'different-devices' | 'same-usb-interface' | 'same-non-usb';
 type MonitoringConfirmation = { kind: 'unconfirmed' } | { kind: 'confirmed'; stream: MediaStream; relationship: Exclude<MonitoringRelationship, 'unknown'> };
 
-type AudioOptions = { chart: Chart; program?: Program; compiled?: CompiledSong; initialVoiceEffects?: readonly VoiceEffectConfiguration[] };
-type AdapterOptions = AudioOptions & { tracker: BeatTracker; endpoint: AudioEndpoint; sessionId: string };
+type AudioOptions = { signal?: AbortSignal; chart: Chart; program?: Program; compiled?: CompiledSong; initialVoiceEffects?: readonly VoiceEffectConfiguration[] };
+type AdapterOptions = AudioOptions & { deferPeripheral?: boolean; tracker: BeatTracker; endpoint: AudioEndpoint; sessionId: string };
 
 export class PracticeAudio {
   readonly tracker: BeatTracker;
@@ -28,7 +29,9 @@ export class PracticeAudio {
   readonly eventListeners = new Set<(event: PracticeEvent) => void>();
   readonly tunerListeners = new Set<(state: TunerState) => void>();
   private latestTuner: TunerState | null = null;
+  private latestTuningBank: TuningBankState | null = null;
   readonly tuner: TunerPort = {
+    prepareBank: options => this.prepareTuningBank(options),
     snapshot: () => {
       if (this.disposed || !this.latestTuner) throw new Error('Shared audio tuner is unavailable');
       return this.latestTuner;
@@ -48,8 +51,8 @@ export class PracticeAudio {
   };
   readonly onMessage: (event: MessageEvent<{ event?: PracticeEvent }>) => void;
   readonly detachState: () => void;
-  readonly detachPeripheral: () => void;
-  readonly peripheralReady: Promise<void>;
+  detachPeripheral: () => void = () => {};
+  peripheralReady: Promise<void> = Promise.resolve();
   readonly detachTracker: () => void;
   readonly onDeviceChange: () => void;
   latest: PracticeState;
@@ -61,8 +64,11 @@ export class PracticeAudio {
   startGeneration = 0;
   microphoneGeneration = 0;
 
-  static async create({ chart, program, compiled, initialVoiceEffects }: AudioOptions) {
+  static async create({ chart, program, compiled, initialVoiceEffects, signal }: AudioOptions) {
     if (!chart?.bars?.length) throw new Error('A parsed chart is required');
+    signal?.throwIfAborted();
+    const assets = await prepareDeclaredExternalAssets(compiled?.externalSamples);
+    signal?.throwIfAborted();
     let audio: PracticeAudio | undefined;
     let tracker: BeatTracker | undefined;
     const sessionId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -73,12 +79,25 @@ export class PracticeAudio {
         processorOptions: { practice: { bpm: chart.bpm, beatsPerBar: chart.beatsPerBar, runId: `${sessionId}-ready`,
           barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program, initialVoiceEffects,
           compiledProgram: compiled ? Array.from(encodeCompiledProgram(compiled)) : undefined } } });
+      signal?.throwIfAborted();
       const channel = new MessageChannel();
       tracker.node.port.postMessage({ type: 'performance-connect', port: channel.port2 }, [channel.port2]);
       const endpoint = new AudioEndpoint(channel.port1);
-      audio = new PracticeAudio({ tracker, endpoint, chart, compiled, sessionId });
+      audio = new PracticeAudio({ tracker, endpoint, chart, compiled, sessionId, deferPeripheral: true });
       await endpoint.request('state');
+      signal?.throwIfAborted();
+      if (audio.disposed) throw new Error('Practice audio preparation was disposed');
+      for (const asset of assets) {
+        signal?.throwIfAborted();
+        if (audio.disposed) throw new Error('Practice audio preparation was disposed');
+        await endpoint.request('practice.external-wav', asset);
+      }
+      signal?.throwIfAborted();
+      if (audio.disposed) throw new Error('Practice audio preparation was disposed');
+      audio.attachPeripheral();
       await audio.peripheralReady;
+      signal?.throwIfAborted();
+      if (audio.disposed) throw new Error('Practice audio preparation was disposed');
       return audio;
     } catch (error) {
       if (audio) await audio.dispose();
@@ -87,7 +106,7 @@ export class PracticeAudio {
     }
   }
 
-  constructor({ tracker, endpoint, chart, compiled, sessionId }: AdapterOptions) {
+  constructor({ tracker, endpoint, chart, compiled, sessionId, deferPeripheral = false }: AdapterOptions) {
     this.tracker = tracker;
     this.endpoint = endpoint;
     this.chart = chart;
@@ -124,6 +143,7 @@ export class PracticeAudio {
     };
     endpoint.port.addEventListener('message', this.onMessage);
     this.detachState = endpoint.subscribe(state => {
+      if (state.tuningBank) this.latestTuningBank = state.tuningBank;
       if (state.tuner) {
         this.latestTuner = state.tuner;
         for (const listener of this.tunerListeners) {
@@ -135,9 +155,7 @@ export class PracticeAudio {
       this.syncMonitoring();
       this.publish();
     });
-    const peripheral = connectBrowserPeripheral(this);
-    this.detachPeripheral = peripheral.stop;
-    this.peripheralReady = peripheral.ready;
+    if (!deferPeripheral) this.attachPeripheral();
     this.detachTracker = tracker.subscribe(state => {
       const wasMicrophone = this.microphone;
       this.microphone = state.source?.kind === 'microphone';
@@ -208,6 +226,11 @@ export class PracticeAudio {
     this.publish();
   }
 
+  private attachPeripheral() {
+    const peripheral = connectBrowserPeripheral(this);
+    this.detachPeripheral = () => peripheral.stop();
+    this.peripheralReady = peripheral.ready;
+  }
   async request(command: string, payload: object = {}) {
     if (this.disposed) throw new Error('Practice audio is disposed');
     try {
@@ -239,6 +262,11 @@ export class PracticeAudio {
   configureLiveEffects(effects: readonly LiveEffectDefinition[]) { return this.request('practice.effects', { effects }); }
   configureVoiceEffects(configurations: readonly VoiceEffectConfiguration[]) { return this.request('practice.voice-effects', { configurations }); }
   setChannel(channelId: ChannelId, settings: ChannelSettings) { return this.request('practice.channel', { channelId, settings }); }
+  async prepareTuningBank(options: TuningBankOptions): Promise<TuningBankState> {
+    await this.request('practice.tuning-bank', { options });
+    if (!this.latestTuningBank) throw new Error('Tuning bank acknowledgment is unavailable');
+    return this.latestTuningBank;
+  }
   selectChannel(channelId: ChannelId) { return this.request('practice.select', { channelId }); }
   setAutomatic(enabled: boolean) { return this.request('practice.automatic', { enabled }); }
   setClick(enabled: boolean) { return this.request('practice.click', { enabled }); }

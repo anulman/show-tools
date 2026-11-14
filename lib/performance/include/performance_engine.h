@@ -94,7 +94,11 @@ int pf_configure(pf_engine* engine, double bpm, int beats_per_bar, int bar_count
 int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields);
 /* Portable artifact encoding is the same table as little-endian IEEE754 doubles. */
 int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t bytes);
+int pf_prepare_tuning_bank(pf_engine* engine, uint32_t profile, const double* slots, uint32_t count,
+  uint32_t clip_frames, uint32_t stable_frames, double confidence, double tolerance_cents);
+void pf_tuning_bank_info(const pf_engine* engine, double* out);
 int pf_set_bend_parameters(pf_engine* engine, double velocity_per_semitone, double stale_ms);
+int pf_prepare_external_wav(pf_engine* engine, uint32_t slot, const uint8_t* bytes, uint32_t length);
 int pf_prepare_external_sample(pf_engine* engine, uint32_t slot, const float* left, const float* right, uint32_t frames);
 int pf_trigger_external(pf_engine* engine, uint32_t slot);
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out);
