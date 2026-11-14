@@ -39,7 +39,7 @@ This is a safety proof of the model under these abstractions. It does not establ
 
 ## Source mapping and sensitivity
 
-The last source sync is `8d9dd8b12ce696e75565aaf4ff7d4970a8e30c52`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
+The last source sync is `7e3b3c19c71b14b1370c2b36bf6c8a804bbd7935`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
 
 | Model action or rule | Current source boundary |
 | --- | --- |

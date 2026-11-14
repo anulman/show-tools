@@ -1,8 +1,8 @@
 # Capture verification result
 
-Current outcome: **updated** against native source commit `8d9dd8b12ce696e75565aaf4ff7d4970a8e30c52`. Exact production hashes are retained in [source-record.json](source-record.json). The finite model explicitly carries the outgoing `autoplay` or `store-only` launch policy. Ordinary commit and commit-and-arm keep their conditional autoplay promise. Store-only publication never launches its newly retained bank.
+Current outcome: **updated** against native source commit `7e3b3c19c71b14b1370c2b36bf6c8a804bbd7935`. Exact production hashes are retained in [source-record.json](source-record.json). The finite model explicitly carries the outgoing `autoplay` or `store-only` launch policy. Ordinary commit and commit-and-arm keep their conditional autoplay promise. Store-only publication never launches its newly retained bank.
 
-The pinned command `node verification/capture/verify.ts` passes with explicit `JAVA` and `TLA2TOOLS` paths. The retained execution receipt is `/private/tmp/native-cues-capture-final-8d9dd8b/receipt.json`. Temporary execution files are evidence, not canonical application data.
+The pinned command `node verification/capture/verify.ts` passes with explicit `JAVA` and `TLA2TOOLS` paths. The retained execution receipt is `/private/tmp/native-cues-capture-final-7e3b3c1/receipt.json`. Temporary execution files are evidence, not canonical application data.
 
 - Main bound remains 3 takes, 2 banks each, and at most 3 capture beginnings. TLC generates 201,097 states, finds 11,894 distinct states, and exhausts its queue. All eleven configured invariants pass.
 - The original smaller bound remains 2 takes and at most 2 beginnings. It exhausts 6,327 generated and 782 distinct states. Launch policy makes it larger than the statechart tool's 500-state complete-chart budget.
@@ -16,6 +16,8 @@ All pristine and mutated model outcomes were interpreted through the current `/s
 The newly added replacing combined witness exposed a product bug during implementation. Capture-start replacement stopped its own just-published outgoing take. The native fix excludes that outgoing take, and the unchanged autoplay expectation now passes. The initial sandbox socket failure was a harness restriction. Packet and source-fence updates were verification drift. These categories are recorded in [SOURCE-SYNC.md](SOURCE-SYNC.md).
 
 This remains a bounded model safety result with selected real C++ witnesses and mutation sensitivity. It does not prove arbitrary audio arithmetic, source phase, finite playback duration, pitch bend, held release, per-note selection, external sample loading, physical timing, or exhaustive refinement of C++. The main bound and the original two-capture display bound were not reduced.
+
+The source refresh from `8d9dd8b` to `7e3b3c1` changes playback gate ownership, practice-loop note availability, immutable source phase conversion, authored next-bar quantization, and packet group validation. The capture model, eleven invariant definitions, finite bounds, and all mutation controls are unchanged. The complete twelve-scenario native and seven-source-mutant rerun passes against the refreshed source hashes. These playback regressions require separate WASM execution checks and are not new claims of the finite capture proof.
 
 ## Historical verification results
 
