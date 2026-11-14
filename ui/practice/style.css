@@ -49,3 +49,5 @@
 .hardware-audio-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .hardware-audio p { flex-basis: 100%; margin: 0; font-size: .85rem; line-height: 1.5; }
 .hardware-audio[data-audio="fault"] { border-color: #a64232; }
+
+#bar-number.pickup { font-size: clamp(1.4rem, 4vw, 3rem); }

@@ -318,3 +318,5 @@ sequence barrier, while buttons and native light delivery stay active. The
 bridge neither configures jiggle thresholds nor changes musical timing in this
 mode. Operator packets pin peripheral and web release identities independently,
 so a controller update does not require redeploying the running web desk.
+
+Chronological measure ordinals are distinct from displayed chart labels. Explicit full-measure prelude metadata lowers pickup columns into native ordinals; MusicXML standard measure numbers and chart labels preserve their authored names. Native capture can prepare an automatic periodic sustain view with bounded source analysis and preallocated rack snapshots while retaining the complete parent take. Tail stop markers use transport completion and do not imply another measure.

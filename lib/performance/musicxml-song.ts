@@ -49,12 +49,13 @@ const Performance = Schema.Struct({
   sourceProfiles: CompiledSongSchema.fields.sourceProfiles,
   noteBanks: CompiledSongSchema.fields.noteBanks,
   externalSamples: CompiledSongSchema.fields.externalSamples,
+  terminalStops: CompiledSongSchema.fields.terminalStops,
   authoredCues: CompiledSongSchema.fields.authoredCues,
   cues: CompiledSongSchema.fields.cues, takes: CompiledSongSchema.fields.takes,
   selections: CompiledSongSchema.fields.selections, playback: CompiledSongSchema.fields.playback,
   diagnostics: CompiledSongSchema.fields.diagnostics, executable: Schema.Boolean,
   chartBinding: Schema.Struct({
-    columns: list(Schema.Int), partialBars: list(Schema.Int),
+    columns: list(Schema.Int), labels: Schema.optionalKey(list(Schema.NonEmptyString)), partialBars: list(Schema.Int),
     leadInColumn: Schema.Int, leadInCues: CompiledSongSchema.fields.chart.fields.leadInCues,
     controlNames: CompiledSongSchema.fields.chart.fields.controlNames,
     annotatedThroughBar: Schema.Int,
@@ -199,10 +200,12 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
     ...(song.noteBanks === undefined ? {} : { noteBanks: song.noteBanks }),
     ...(song.externalSamples === undefined ? {} : { externalSamples: song.externalSamples }),
     source: song.source, mappingDigest: song.mappingDigest, voices: song.voices, parts: partBindings,
+    ...(song.terminalStops === undefined ? {} : { terminalStops: song.terminalStops }),
     ...(song.authoredCues === undefined ? {} : { authoredCues: song.authoredCues }),
     rotation: song.rotation, cueWindow: song.cueWindow, cues: song.cues, takes: song.takes,
     selections: song.selections, playback: song.playback, diagnostics: song.diagnostics, executable: song.executable,
-    chartBinding: { columns: song.chart.bars.map(bar => bar.column), partialBars: song.chart.bars.filter(bar => bar.partial).map(bar => bar.bar),
+    chartBinding: { columns: song.chart.bars.map(bar => bar.column),
+      ...(song.chart.bars.some(bar => bar.label !== undefined) ? { labels: song.chart.bars.map(bar => bar.label ?? String(bar.bar)) } : {}), partialBars: song.chart.bars.filter(bar => bar.partial).map(bar => bar.bar),
       leadInColumn: song.chart.leadInColumn, leadInCues: song.chart.leadInCues,
       controlNames: song.chart.controlNames, annotatedThroughBar: song.chart.annotatedThroughBar },
     stageCells: report.annotations.stageCells,
@@ -254,7 +257,7 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
       for (const [hit, offset] of cell.reading.offsets.entries()) body += direction(cell.reading.sampled ? 'show-tools:onset:sampled' : 'show-tools:onset', `onset-${cell.cell}-${hit}`, offset * countTicks, true);
     }
     body += `<note print-object="no"><rest measure="yes"/><duration>${report.meter.numerator * countTicks}</duration></note>`;
-    return `<measure number="${cell.bar}">${body}</measure>`;
+    return `<measure number="${xml(song.chart.bars[cell.bar - 1]?.label ?? String(cell.bar))}">${body}</measure>`;
   }).join('\n')}</part>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="4.0"><work><work-title>${xml(report.title)}</work-title></work><identification><encoding><software>${MUSICXML_SONG_PROFILE}</software><encoding-description>Complete canonical song. Hidden measure rests are layout spacers. Onset-only directions do not specify played duration or pitch.</encoding-description></encoding><miscellaneous>${metadata.map(([name, text]) => `<miscellaneous-field name="${name}">${xml(text)}</miscellaneous-field>`).join('')}</miscellaneous></identification><part-list>${report.parts.map(part => `<score-part id="${xml(part.id)}"><part-name>${xml(part.name)}</part-name></score-part>`).join('')}</part-list>\n${parts}\n</score-partwise>\n`;
 }
@@ -320,6 +323,8 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   if (partNames.size !== score.part.length || performance.scoreParts.length !== score.part.length) throw new MusicXmlValidationError('Canonical MusicXML score parts and bindings must match exactly.');
   const first = score.part[0];
   if (!first || first.measure.length < 1 || first.measure.length > 4096) throw new MusicXmlValidationError('Canonical MusicXML needs 1 through 4096 measures.');
+  const labels = performance.chartBinding.labels;
+  if (labels && (labels.length !== first.measure.length || new Set(labels).size !== labels.length)) throw new MusicXmlValidationError('Canonical measure labels must identify the complete chronological timeline uniquely.');
   const initial = first.measure[0].attributes;
   if (!initial?.time) throw new MusicXmlValidationError('Canonical MusicXML needs an explicit initial meter.');
   const meter = { numerator: numeric(initial.time.beats, 'meter'), denominator: numeric(initial.time['beat-type'], 'meter') };
@@ -351,7 +356,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     const binding = performance.scoreParts.find(binding => binding.id === part.id), name = partNames.get(part.id);
     if (!binding || !name?.trim() || part.measure.length !== first.measure.length) throw new MusicXmlValidationError(`Canonical MusicXML part ${part.id} has an incomplete identity or timeline.`);
     const cells = part.measure.map((measure, index): MusicXmlCell => {
-      if (numeric(measure.number, 'measure number') !== index + 1) throw new MusicXmlValidationError('Canonical MusicXML measures must be chronological and contiguous from 1.');
+      if (measure.number !== (performance.chartBinding.labels?.[index] ?? String(index + 1))) throw new MusicXmlValidationError('Canonical MusicXML measures must be chronological and contiguous from 1.');
       const attributes = measure.attributes;
       if (index === 0 && (!attributes?.time || numeric(attributes.divisions ?? '', 'divisions') !== 960)
         || attributes?.time && (numeric(attributes.time.beats, 'meter') !== meter.numerator || numeric(attributes.time['beat-type'], 'meter') !== meter.denominator)
@@ -441,7 +446,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
       if (!section) throw new MusicXmlValidationError('Canonical MusicXML section coverage is incomplete.');
       const words = (measure.direction ?? []).flatMap(direction => direction['direction-type'].words ?? []);
       const cueText = (button: string) => words.find(word => word.id === `command-${button}-${index + 1}`)?.['#text'] ?? '';
-      return { bar: index + 1, column: performance.chartBinding.columns[index], sectionId: section.id, section: section.label,
+      return { bar: index + 1, ...(performance.chartBinding.labels ? { label: performance.chartBinding.labels[index] } : {}), column: performance.chartBinding.columns[index], sectionId: section.id, section: section.label,
         partial: performance.chartBinding.partialBars.includes(index + 1), cues: { L1: cueText('L1'), L2: cueText('L2'), R1: cueText('R1'), R2: cueText('R2') } };
     }), sections, spreadsheetId: performance.source.spreadsheetId, sheetId: performance.source.sheetId,
     sheetName: performance.source.sheetName, leadInColumn: performance.chartBinding.leadInColumn,
@@ -459,6 +464,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   const song = decodeCanonicalProgram({
     schemaVersion: 7, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
     ticksPerQuarter: 960, meter, source: { ...performance.source, digest }, mappingDigest: digest, chart,
+    ...(performance.terminalStops === undefined ? {} : { terminalStops: performance.terminalStops }),
     ...(performance.sourceProfiles === undefined ? {} : { sourceProfiles: performance.sourceProfiles }),
     ...(performance.noteBanks === undefined ? {} : { noteBanks: performance.noteBanks }),
     ...(performance.externalSamples === undefined ? {} : { externalSamples: performance.externalSamples }),

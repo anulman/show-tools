@@ -18,9 +18,10 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
   const optionalIndex = (map: ReadonlyMap<string, number>, id: string | null) => id === null ? -1 : indexOf(map, id);
   const groups = new Map([...new Set(song.cues.flatMap(cue => cue.groupId === null ? [] : [cue.groupId]))].map((id, index) => [id, index]));
   const members = song.selections.flatMap((selection, index) => selection.takeIds.flatMap((id, member) => [index, indexOf(takes, id), selection.gains[member]]));
+  let inactive = song.voices.length;
   const binding = CONTROL_IDS.map(button => {
     const voice = song.voices.find(voice => voice.buttonId === button);
-    if (!voice) throw new Error(`Missing compiled input binding ${button}.`);
+    if (!voice) return inactive++;
     return indexOf(voices, voice.id);
   });
   const kinds: Record<CompiledSong['cues'][number]['kind'], number> = { arm: PF.ARM, commit: PF.COMMIT, 'commit-arm': PF.COMMIT_ARM, stop: PF.STOP, play: PF.PLAY };
@@ -48,7 +49,7 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
   const rotation = song.rotation ? [PF.COMPILED_ROTATION_MAGIC, song.rotation.windows.length, song.rotation.inactivityBeats,
     ...song.rotation.windows.flatMap(window => [window.begin.bar, window.begin.beat, window.end.bar, window.end.beat])] : [];
   const windowRows = song.selections.flatMap((selection, index) => {
-    if (selection.window.kind === 'full') return [];
+    if (selection.window.kind === 'full' || selection.window.kind === 'sustain') return [];
     if (selection.window.kind === 'slice') return [index, selection.window.beginCount, selection.window.endCount, selection.window.loopCounts];
     const take = song.takes.find(take => take.id === selection.takeIds[0]);
     if (!take?.loopEnd) throw new Error('Missing prefix capture period.');
@@ -60,7 +61,9 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
     ...song.externalSamples.flatMap(sample => [sample.slot, sample.begin.bar, sample.begin.beat, sample.end.bar, sample.end.beat])] : [];
   const notes = song.noteBanks?.length ? [PF.COMPILED_NOTES_MAGIC, song.noteBanks.reduce((count, bank) => count + bank.notes.length, 0),
     ...song.noteBanks.flatMap(bank => bank.notes.flatMap(note => [CONTROL_IDS.indexOf(bank.buttonId), note.slot, note.at.bar, note.at.beat, bank.toleranceMs]))] : [];
-  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes, ...profiles];
+  const sustains = song.selections.flatMap((selection, index) => selection.window.kind === 'sustain' ? [index] : []);
+  const autoSustains = sustains.length ? [PF.COMPILED_SUSTAIN_MAGIC, sustains.length, ...sustains] : [];
+  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes, ...profiles, ...autoSustains];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
     || cueRows.length !== song.cues.length * cueFields || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
   if (song.meter.denominator !== (song.meter.numerator === 6 ? 8 : 4)) throw new Error('This native build supports 4/4 and 6/8 compiled programs.');
