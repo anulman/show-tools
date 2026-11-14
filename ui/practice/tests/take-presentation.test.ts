@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import song from '../../../songs/dance-yrself-clean.js';
+import drunkGirls from '../../../songs/drunk-girls.js';
 import { CONTROL_IDS } from '../../../lib/performance/model.js';
 import type { ChannelId, ChannelState, CompiledTakeState } from '../../../lib/performance/model.js';
 import { takePresentation } from '../take-presentation.js';
@@ -10,6 +11,19 @@ import { compiledCaptureFixture } from '../../../lib/performance/tests/fixtures/
 
 const compiled = (await readMusicXmlSong(await frozenCutoverMusicXml())).song;
 const channels: ChannelState[] = CONTROL_IDS.map(id => ({ id, ready: false, muted: false, gain: 1, looping: false, status: 'empty', light: { kind: 'off' } }));
+
+test('DG capture plans and playback name the authored pickup and numbered bars', () => {
+  const current = drunkGirls.compiled;
+  assert(current);
+  assert.match(takePresentation(current, 'L2', { channels }).plan, /bar Pickup 0–Pickup 7/);
+  const girls = takePresentation(current, 'R2', { channels }).plan;
+  assert.match(girls, /bar 4 /);
+  assert.match(girls, /bar 5 /);
+  assert.match(takePresentation(current, 'R1', { channels }).plan, /bar 89–92 /);
+  const readings: CompiledTakeState[] = current.takes.map((take, index) => ({ index, ready: true, frames: 32000, period: 32000,
+    playback: take.voiceId === 'guitar' ? 'playing' : 'idle', sourceEndFrames: null, selectionIndex: null }));
+  assert.match(takePresentation(current, 'L2', { channels, compiledTakes: readings }).summary ?? '', /bar Pickup 0–Pickup 7/);
+});
 function readback(channelId: ChannelId, playback: CompiledTakeState['playback'], readyCount: number) {
   const voice = compiled.voices.find(voice => voice.buttonId === channelId);
   let ready = 0;

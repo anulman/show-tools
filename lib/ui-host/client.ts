@@ -2,7 +2,7 @@ import { build } from 'esbuild';
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { request } from 'node:http';
-import { mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { link, mkdir, open, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -63,17 +63,20 @@ export async function ensureManager(config: Config) {
     if (JSON.stringify(old) !== JSON.stringify(config)) throw new Error('UI manager configuration changed; preserve its saved origin assignments and use the existing configuration');
   } catch (error) {
     if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
-    await writeFile(configPath, JSON.stringify(config), { flag: 'wx', mode: 0o600 }).catch(async error => {
-      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
+    const temporary = configPath + '.' + randomUUID();
+    try {
+      await writeFile(temporary, JSON.stringify(config), { flag: 'wx', mode: 0o600 });
+      try { await link(temporary, configPath); }
+      catch (cause) { if (!(cause instanceof Error && 'code' in cause && cause.code === 'EEXIST')) throw cause; }
       if (JSON.stringify(decode(ConfigSchema, JSON.parse(await readFile(configPath, 'utf8')))) !== JSON.stringify(config)) throw new Error('Concurrent UI configuration conflicts');
-    });
+    } finally { await rm(temporary, { force: true }); }
   }
   const ownerPath = join(config.controlDirectory, 'owner.json');
   const check = async () => {
     const result = await call(config, { command: 'status' });
     if (!result.ok) throw new Error(result.error);
     const owner = decode(OwnerSchema, JSON.parse(await readFile(ownerPath, 'utf8')));
-    if (owner.nonce !== result.owner.nonce || owner.pid !== result.owner.pid) throw new Error('UI manager ownership does not match its private record');
+    if (owner.nonce !== result.owner.nonce || owner.pid !== result.owner.pid) throw new Error(`UI manager ownership does not match its private record (record PID ${owner.pid}, response PID ${result.owner.pid}, nonce ${owner.nonce === result.owner.nonce ? 'matches' : 'differs'})`);
     return result;
   };
   try { return await check(); } catch (error) { if (!absent(error)) throw error; }

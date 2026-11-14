@@ -104,6 +104,7 @@ int fail(pf_engine* engine, int code, const char* message = nullptr) {
   if (engine) { engine->error_code = code; engine->error = message ? message : pf_message(code); }
   return -1;
 }
+int accepted(pf_engine* engine) { engine->error_code = PF_OK; engine->error = ""; return 0; }
 bool recording(const pf_engine* engine, int id) {
   double data[ST_SLOT_FIELDS]; st_slot_info(engine->sampler, id, 0, data);
   return data[ST_SLOT_RECORDING] != 0;
@@ -495,8 +496,8 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   auto identity = engine->profiles[PF_DEFAULT_PROFILE].rack ? nullptr : patches::Rack::create(nullptr, 0);
   const patches::Rack* definition = engine->profiles[PF_DEFAULT_PROFILE].rack ? engine->profiles[PF_DEFAULT_PROFILE].rack.get() : identity.get();
   if (!definition) return fail(engine, PF_ALLOCATION_FAILED);
-  const patches::Rack* definitions[PF_CHANNELS]; uint32_t revisions[PF_CHANNELS];
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) {
+  const patches::Rack* definitions[PF_VOICE_PROFILES]; uint32_t revisions[PF_VOICE_PROFILES];
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
     definitions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].rack.get() : definition;
     revisions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].revision : engine->profiles[PF_DEFAULT_PROFILE].revision;
   }
@@ -539,6 +540,84 @@ int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t byte
     std::memcpy(values.get() + index, &bits, sizeof(double));
   }
   return pf_configure_compiled(engine, values.get(), bytes / 8);
+}
+int pf_prepare_tuning_bank(pf_engine* engine, uint32_t profile, const double* slots, uint32_t count,
+  uint32_t clip_frames, uint32_t stable_frames, double confidence, double tolerance_cents) {
+  if (!engine || !engine->compiled || running(engine) || engine->tuning->snapshot().step != 0
+    || count != engine->tuning->snapshot().targetCount) return fail(engine, PF_INVALID_PROGRAM, "Select a scale and matching ordered note slots while stopped");
+  return engine->compiled->prepare_tuning_bank(profile, slots, count, clip_frames, stable_frames, confidence, tolerance_cents)
+    ? accepted(engine) : fail(engine, PF_INVALID_PROGRAM, "Invalid tuning bank preparation");
+}
+void pf_tuning_bank_info(const pf_engine* engine, double* out) {
+  if (!out) return;
+  std::fill(out, out + 32, 0);
+  if (engine && engine->compiled) engine->compiled->tuning_bank_info(out);
+}
+int pf_set_bend_parameters(pf_engine* engine, double velocity_per_semitone, double stale_ms) {
+  if (!engine || !engine->compiled || running(engine)) return fail(engine, PF_INVALID_PROGRAM);
+  return engine->compiled->set_bend_parameters(velocity_per_semitone, stale_ms) ? accepted(engine) : fail(engine, PF_INVALID_KNOB);
+}
+int pf_prepare_external_wav(pf_engine* engine, uint32_t slot, const uint8_t* bytes, uint32_t length) {
+  if (!engine || !engine->compiled || running(engine) || slot >= 64 || !bytes || length < 44 || length > 32 * 1024 * 1024)
+    return fail(engine, PF_INVALID_PROGRAM, "Invalid external WAV preparation");
+  auto u16 = [](const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8; };
+  auto u32 = [](const uint8_t* p) { return uint32_t(p[0]) | uint32_t(p[1]) << 8 | uint32_t(p[2]) << 16 | uint32_t(p[3]) << 24; };
+  if (std::memcmp(bytes, "RIFF", 4) || std::memcmp(bytes + 8, "WAVE", 4) || uint64_t(u32(bytes + 4)) + 8 != length)
+    return fail(engine, PF_INVALID_PROGRAM, "Invalid WAV container");
+  const uint8_t* format = nullptr; const uint8_t* pcm = nullptr; uint32_t pcm_bytes = 0;
+  uint64_t cursor = 12;
+  while (cursor < length) {
+    if (length - cursor < 8) return fail(engine, PF_INVALID_PROGRAM, "Truncated WAV chunk");
+    const uint8_t* chunk = bytes + cursor; uint32_t size = u32(chunk + 4);
+    if (uint64_t(size) > length - cursor - 8) return fail(engine, PF_INVALID_PROGRAM, "Truncated WAV payload");
+    if (!std::memcmp(chunk, "fmt ", 4)) {
+      if (format || size < 16) return fail(engine, PF_INVALID_PROGRAM, "Invalid WAV format chunk");
+      format = chunk + 8;
+    } else if (!std::memcmp(chunk, "data", 4)) {
+      if (pcm) return fail(engine, PF_INVALID_PROGRAM, "Multiple WAV data chunks");
+      pcm = chunk + 8; pcm_bytes = size;
+    }
+    cursor += 8 + uint64_t(size) + (size & 1);
+  }
+  if (cursor != length || !format || !pcm) return fail(engine, PF_INVALID_PROGRAM, "Missing WAV audio format or data");
+  uint32_t code = u16(format), channels = u16(format + 2), source_rate = u32(format + 4);
+  uint32_t align = u16(format + 12), bits = u16(format + 14);
+  if ((code != 1 || bits != 16) && (code != 3 || bits != 32)) return fail(engine, PF_INVALID_PROGRAM, "Use PCM16 or float32 WAV audio");
+  if ((channels != 1 && channels != 2) || source_rate < 8000 || source_rate > 192000 || align != channels * (bits / 8)
+    || u32(format + 8) != source_rate * align || !pcm_bytes || pcm_bytes % align || pcm_bytes / align > source_rate * 30)
+    return fail(engine, PF_INVALID_PROGRAM, "Invalid WAV audio dimensions");
+  uint32_t source_frames = pcm_bytes / align;
+  double output_count = std::ceil(source_frames * engine->rate / source_rate);
+  if (output_count < 1 || output_count > UINT32_MAX) return fail(engine, PF_INVALID_PROGRAM, "WAV sample is too long");
+  uint32_t count = uint32_t(output_count);
+  auto left = std::unique_ptr<float[]>(new (std::nothrow) float[count]);
+  auto right = channels == 2 ? std::unique_ptr<float[]>(new (std::nothrow) float[count]) : nullptr;
+  if (!left || (channels == 2 && !right)) return fail(engine, PF_ALLOCATION_FAILED);
+  auto sample = [&](uint32_t frame, uint32_t channel) {
+    const uint8_t* p = pcm + uint64_t(frame) * align + channel * (bits / 8);
+    if (code == 1) { uint32_t value = u16(p); return float(value >= 32768 ? int(value) - 65536 : int(value)) / 32768.f; }
+    uint32_t value = u32(p); float result; std::memcpy(&result, &value, sizeof(result)); return result;
+  };
+  for (uint32_t frame = 0; frame < source_frames; ++frame) for (uint32_t channel = 0; channel < channels; ++channel)
+    if (!std::isfinite(sample(frame, channel))) return fail(engine, PF_INVALID_PROGRAM, "WAV contains nonfinite audio");
+  for (uint32_t frame = 0; frame < count; ++frame) {
+    double position = frame * double(source_rate) / engine->rate;
+    uint32_t first = std::min(source_frames - 1, uint32_t(position)), second = std::min(source_frames - 1, first + 1);
+    double fraction = position - first;
+    left[frame] = float(sample(first, 0) * (1 - fraction) + sample(second, 0) * fraction);
+    if (right) right[frame] = float(sample(first, 1) * (1 - fraction) + sample(second, 1) * fraction);
+  }
+  return engine->compiled->prepare_external_sample(slot, left.get(), right.get(), count)
+    ? accepted(engine) : fail(engine, PF_INVALID_PROGRAM, "External sample slot is unavailable");
+}
+int pf_prepare_external_sample(pf_engine* engine, uint32_t slot, const float* left, const float* right, uint32_t frames) {
+  if (!engine || !engine->compiled || running(engine)) return fail(engine, PF_INVALID_PROGRAM);
+  return engine->compiled->prepare_external_sample(slot, left, right, frames) ? accepted(engine) : fail(engine, PF_INVALID_PROGRAM, "External sample preparation rejected");
+}
+int pf_trigger_external(pf_engine* engine, uint32_t slot) {
+  if (!engine || !engine->compiled) return fail(engine, PF_INVALID_PROGRAM);
+  int result = engine->compiled->trigger_external(slot);
+  return result == PF_OK ? accepted(engine) : fail(engine, result);
 }
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out) {
   if (!out) return;
@@ -583,7 +662,15 @@ int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected, in
     case PF_TUNER_CUE: applied = engine->tuning->cue(); break;
     case PF_TUNER_PLAY_SCALE: applied = engine->tuning->playScale(); break;
     case PF_TUNER_SILENCE: applied = engine->tuning->silence(); break;
-    case PF_TUNER_CONFIRM: applied = engine->tuning->confirm(expected); break;
+    case PF_TUNER_CONFIRM: {
+      const auto state = engine->tuning->snapshot();
+      if (engine->compiled && engine->compiled->tuning_bank_configured() && !engine->compiled->tuning_bank_ready(state.step))
+        return fail(engine, PF_NO_SAMPLE, "Sing the selected target steadily before locking its note");
+      applied = engine->tuning->confirm(expected);
+      if (applied && engine->compiled && engine->compiled->tuning_bank_configured()
+        && !engine->compiled->lock_tuning_note(state.step, state.targets[state.step].midi)) return fail(engine, PF_ACTION_FAILED);
+      break;
+    }
     case PF_TUNER_LISTEN:
       if (!flag(value) || (value && !engine->microphone)) return fail(engine, PF_MICROPHONE_REQUIRED);
       applied = engine->tuning->setListening(value != 0); break;
@@ -591,6 +678,8 @@ int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected, in
     default: return fail(engine, PF_INVALID_PROGRAM, "Unknown tuner command");
   }
   if (!applied) return fail(engine, PF_INVALID_PROGRAM, "Invalid tuner command or scale selection");
+  if (engine->compiled && command == PF_TUNER_CONFIGURE) engine->compiled->cancel_tuning_bank();
+  else if (engine->compiled && command != PF_TUNER_CONFIRM) engine->compiled->pause_tuning_bank();
   engine->error_code = PF_OK; engine->error = "";
   return 0;
 }
@@ -681,13 +770,13 @@ int pf_prepare_voice_effects(pf_engine* engine, const pf_effect_definition* effe
     total += counts[voice];
   }
   std::unique_ptr<patches::Rack> racks[PF_VOICE_PROFILES];
-  const patches::Rack* definitions[PF_CHANNELS];
+  const patches::Rack* definitions[PF_VOICE_PROFILES];
   for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
     if (changed[voice]) {
       racks[voice] = prepare_rack(engine->rate, counts[voice] ? effects + offsets[voice] : nullptr, counts[voice]);
       if (!racks[voice]) return fail(engine, PF_ALLOCATION_FAILED);
     }
-    if (voice < PF_CHANNELS) definitions[voice] = changed[voice] ? racks[voice].get() : engine->profiles[voice].rack.get();
+    definitions[voice] = changed[voice] ? racks[voice].get() : engine->profiles[voice].rack.get();
   }
   if (engine->compiled && !engine->compiled->prepare_effects(definitions, revisions)) return fail(engine, PF_ALLOCATION_FAILED, "Could not prepare voice capture resources");
   for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
@@ -749,15 +838,15 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
   if (!engine) return -1;
   engine->error_code = PF_OK; engine->error = "";
   if ((!command_id && command_length) || (command_id && (!command_length || command_length > 200))) {
-    fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, 0, control, value); return -1;
+    fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, (control == 5 || control == 7 || control >= 8) ? engine->processed : -1, 0, control, value); return -1;
   }
   if (command_id) {
     bool nonspace = false;
     for (uint32_t index = 0; index < command_length; ++index) if (!whitespace(command_id[index])) nonspace = true;
-    if (!nonspace) { fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, 0, control, value); return -1; }
+    if (!nonspace) { fail(engine, PF_INVALID_COMMAND_ID); emit(engine, PF_CONTROL, (control == 5 || control == 7 || control >= 8) ? engine->processed : -1, 0, control, value); return -1; }
     for (const Dedup& item : engine->dedup) if (item.present && item.length == command_length && std::memcmp(item.id, command_id, command_length * sizeof(uint16_t)) == 0) {
-      if (item.control != control || ((control == 5 || control == 7) && item.value != value)) { fail(engine, PF_COMMAND_CONFLICT); emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, 0, control, value); return -1; }
-      emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, 1, control, value); return 0;
+      if (item.control != control || ((control == 5 || control == 7) && item.value != value)) { fail(engine, PF_COMMAND_CONFLICT); emit(engine, PF_CONTROL, (control == 5 || control == 7 || control >= 8) ? engine->processed : -1, 0, control, value); return -1; }
+      emit(engine, PF_CONTROL, (control == 5 || control == 7 || control >= 8) ? engine->processed : -1, 1, control, value); return 0;
     }
   }
   int result = 0;
@@ -765,7 +854,10 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
   else if (control == 4) { engine->phase = PF_IDLE; engine->count_remaining = 0; silence(engine); }
   else if (control == 5) {
     if (!std::isfinite(value)) result = fail(engine, PF_INVALID_KNOB);
-    else if (engine->compiled && live_active(engine)) {
+    else if (engine->compiled && !running(engine) && engine->tuning->snapshot().listening) {
+      if (engine->compiled->tuning_motion(value, engine->processed))
+        result = pf_tuner_command_apply(engine, PF_TUNER_CONFIRM, engine->tuning->snapshot().commandRevision, 0, 0);
+    } else if (engine->compiled && live_active(engine)) {
       int code = engine->compiled->rotate(value, engine->processed, engine->bpm);
       if (code != PF_OK) result = fail(engine, code);
     }
@@ -774,6 +866,7 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
     else {
       bool rising = value == 1 && !engine->cue_button_held;
       engine->cue_button_held = value == 1;
+      if (value == 0 && engine->compiled) engine->compiled->release_current();
       if (rising && running(engine)) {
         if (engine->compiled) {
           int code = engine->compiled->press_current(engine->processed, engine->bpm, engine->microphone);
@@ -791,13 +884,16 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
         }
       }
     }
-  } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
+  } else if (control >= 16 && control < 80) {
+    int code = engine->compiled ? engine->compiled->trigger_external(uint32_t(control - 16)) : PF_INVALID_PROGRAM;
+    if (code != PF_OK && code != PF_CUE_LATE) result = fail(engine, code);
+  } else if (control >= 8 && control < 8 + PF_CHANNELS) { if (engine->compiled) engine->compiled->release(control - 8); } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
   else result = fail(engine, PF_INVALID_CHANNEL);
   if (result >= 0 && command_id) {
     Dedup& item = engine->dedup[engine->dedup_cursor++ % dedup_capacity];
     item.present = true; std::memcpy(item.id, command_id, command_length * sizeof(uint16_t)); item.length = command_length; item.control = control; item.value = value;
   }
-  emit(engine, PF_CONTROL, (control == 5 || control == 7) ? engine->processed : -1, result >= 0, control, value);
+  emit(engine, PF_CONTROL, (control == 5 || control == 7 || control >= 8) ? engine->processed : -1, result >= 0, control, value);
   return result;
 }
 int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
@@ -898,6 +994,12 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
     unsigned length = std::min(block, frames - offset), cursor = 0;
     engine->tuning->process(input ? input + offset : nullptr, left ? left + offset : nullptr,
       right ? right + offset : nullptr, length, engine->microphone);
+    if (engine->compiled && !running(engine)) {
+      const auto tuning = engine->tuning->snapshot();
+      engine->compiled->process_tuning_bank(input ? input + offset : nullptr, length,
+        engine->microphone && tuning.listening && !tuning.complete && tuning.detector.status == tuner::PitchStatus::Pitched,
+        tuning.detector.confidence, tuning.detector.midi, tuning.targets[tuning.step].midi, tuning.step);
+    }
     double start = engine->processed;
     bt_process(engine->tracker, input ? input + offset : nullptr, length);
     double events[64 * BT_E_COUNT]; unsigned count;

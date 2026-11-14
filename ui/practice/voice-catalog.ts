@@ -31,8 +31,9 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   let pendingSave = false;
   let effectMode: 'compiled' | 'dry' = 'compiled';
   let loadedDigest: string | undefined;
+  let sourceProfiles: readonly number[] = [];
   function savedConfigurations(): readonly VoiceEffectConfiguration[] {
-    return initialVoiceEffects(effectMode).map(configuration => {
+    return initialVoiceEffects(effectMode, sourceProfiles).map(configuration => {
       const row = rows.find(row => row.profile === configuration.profile);
       return { ...configuration, effects: (row ? resolveVoice(document, row)?.effects ?? configuration.effects : configuration.effects).map(effect => ({ ...effect })) };
     });
@@ -119,18 +120,19 @@ export function installVoiceCatalog(root: HTMLElement, options: {
     async exportSongVoices(song: CompiledSong, source: SongSource) {
       await ready;
       const latest = loadedDigest === song.source.digest || !client ? document : await client.snapshot();
-      const defaults = new Map(initialVoiceEffects('compiled').map(item => [item.profile, item.effects]));
+      const defaults = new Map(initialVoiceEffects('compiled', song.sourceProfiles?.map(source => source.profile)).map(item => [item.profile, item.effects]));
       return snapshotSongVoices(latest, discoverSheetVoices(song, source), defaults);
     },
     async load(song: SongScript) {
       await ready;
       effectMode = song.compiled ? 'compiled' : 'dry';
+      sourceProfiles = song.compiled?.sourceProfiles?.map(source => source.profile) ?? [];
       rows = song.compiled ? discoverSheetVoices(song.compiled, song.source) : [];
       cueRows = song.compiled ? discoverCueRows(song.compiled, song.source) : [];
       commandRows = new Map(rows.map(row => [row.key, song.compiled && row.partId ? loadedCommandRows(song.compiled, row.partId) : []]));
       loadedDigest = song.compiled?.source.digest;
       if (client) document = await client.snapshot();
-      const defaults = new Map(initialVoiceEffects(song.compiled ? 'compiled' : 'dry').map(item => [item.profile, item.effects]));
+      const defaults = new Map(initialVoiceEffects(song.compiled ? 'compiled' : 'dry', sourceProfiles).map(item => [item.profile, item.effects]));
       let next = reconcileCatalog(document, rows, defaults, () => crypto.randomUUID());
       if (song.voiceMetadata) next = mergeSongVoices(next, song.voiceMetadata, rows);
       if (client && next !== document) {

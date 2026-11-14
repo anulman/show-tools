@@ -1,8 +1,9 @@
+import { prepareDeclaredExternalAssets } from './external-assets.js';
 import { MusicXmlValidationError } from './musicxml-errors.js';
 export { MusicXmlValidationError } from './musicxml-errors.js';
 import { Schema } from 'effect';
 import { XMLBuilder, XMLParser, XMLValidator } from 'fast-xml-parser';
-import { CompiledSongSchema, SongMappingSchema, RotationSchema, decodeCompiledSong, type CompiledSong } from './compiled-song.js';
+import { CompiledSongSchema, SongMappingSchema, RotationSchema, LegacyCueSchema, migrateCompiledCueV6, decodeCompiledSong, type CompiledSong } from './compiled-song.js';
 import { SongSourceSchema, type SongSource } from './song-source.js';
 import type { MusicXmlReport, MusicXmlCell, MusicalAnnotations } from './musicxml-model.js';
 import { scoreXmlText as xml, stableMusicXmlJson } from './score-xml.js';
@@ -40,16 +41,21 @@ const MusicalAnnotationsSchema = Schema.Struct({
   instrumentDisplays: list(Schema.Struct({ cell: Schema.String, text: Schema.String })),
 });
 const Performance = Schema.Struct({
-  version: Schema.Literal(1), scope: Schema.Literal('complete'),
+  version: Schema.Literal(2), scope: Schema.Literal('complete'),
   id: CompiledSongSchema.fields.id, notationVersion: CompiledSongSchema.fields.notationVersion,
   source: CompiledSongSchema.fields.source, mappingDigest: CompiledSongSchema.fields.mappingDigest,
   voices: CompiledSongSchema.fields.voices, parts: list(RuntimePart),
   rotation: CompiledSongSchema.fields.rotation, cueWindow: CompiledSongSchema.fields.cueWindow,
+  sourceProfiles: CompiledSongSchema.fields.sourceProfiles,
+  noteBanks: CompiledSongSchema.fields.noteBanks,
+  externalSamples: CompiledSongSchema.fields.externalSamples,
+  terminalStops: CompiledSongSchema.fields.terminalStops,
+  authoredCues: CompiledSongSchema.fields.authoredCues,
   cues: CompiledSongSchema.fields.cues, takes: CompiledSongSchema.fields.takes,
   selections: CompiledSongSchema.fields.selections, playback: CompiledSongSchema.fields.playback,
   diagnostics: CompiledSongSchema.fields.diagnostics, executable: Schema.Boolean,
   chartBinding: Schema.Struct({
-    columns: list(Schema.Int), partialBars: list(Schema.Int),
+    columns: list(Schema.Int), labels: Schema.optionalKey(list(Schema.NonEmptyString)), partialBars: list(Schema.Int),
     leadInColumn: Schema.Int, leadInCues: CompiledSongSchema.fields.chart.fields.leadInCues,
     controlNames: CompiledSongSchema.fields.chart.fields.controlNames,
     annotatedThroughBar: Schema.Int,
@@ -58,6 +64,13 @@ const Performance = Schema.Struct({
   scoreParts: list(ProvenancePart), selectedLabelCells: list(Schema.String), conventions: list(Schema.String),
 });
 type PerformanceData = typeof Performance.Type;
+const LegacyPerformance = Schema.Struct({ ...Performance.fields, version: Schema.Literal(1), cues: list(LegacyCueSchema) });
+function decodePerformance(input: unknown): PerformanceData {
+  const version = Schema.decodeUnknownSync(Schema.Struct({ version: Schema.Int }))(input).version;
+  if (version !== 1) return Schema.decodeUnknownSync(Performance, { onExcessProperty: 'error' })(input);
+  const legacy = Schema.decodeUnknownSync(LegacyPerformance, { onExcessProperty: 'error' })(input);
+  return { ...legacy, version: 2, cues: legacy.cues.map(migrateCompiledCueV6) };
+}
 
 const Text = Schema.Struct({ id: Schema.optionalKey(Schema.String), '#text': Schema.optionalKey(Schema.String) });
 const Direction = Schema.Struct({
@@ -172,6 +185,7 @@ function validateAnnotations(report: Pick<MusicXmlReport, 'annotations' | 'parts
 
 export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<string> {
   const { song, report } = options;
+  await prepareDeclaredExternalAssets(song.externalSamples);
   validateAnnotations(report);
   if (report.parts.length < 1 || report.parts.some(part => part.cells.length !== song.chart.bars.length)) throw new MusicXmlValidationError('Canonical MusicXML needs complete chronological measures for every score part.');
   const partBindings = song.parts.map(part => {
@@ -181,11 +195,17 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
     return { ...fields, scorePartId: scorePart.id };
   });
   const performance: PerformanceData = {
-    version: 1, scope: 'complete', id: song.id, notationVersion: song.notationVersion,
+    version: 2, scope: 'complete', id: song.id, notationVersion: song.notationVersion,
+    ...(song.sourceProfiles === undefined ? {} : { sourceProfiles: song.sourceProfiles }),
+    ...(song.noteBanks === undefined ? {} : { noteBanks: song.noteBanks }),
+    ...(song.externalSamples === undefined ? {} : { externalSamples: song.externalSamples }),
     source: song.source, mappingDigest: song.mappingDigest, voices: song.voices, parts: partBindings,
+    ...(song.terminalStops === undefined ? {} : { terminalStops: song.terminalStops }),
+    ...(song.authoredCues === undefined ? {} : { authoredCues: song.authoredCues }),
     rotation: song.rotation, cueWindow: song.cueWindow, cues: song.cues, takes: song.takes,
     selections: song.selections, playback: song.playback, diagnostics: song.diagnostics, executable: song.executable,
-    chartBinding: { columns: song.chart.bars.map(bar => bar.column), partialBars: song.chart.bars.filter(bar => bar.partial).map(bar => bar.bar),
+    chartBinding: { columns: song.chart.bars.map(bar => bar.column),
+      ...(song.chart.bars.some(bar => bar.label !== undefined) ? { labels: song.chart.bars.map(bar => bar.label ?? String(bar.bar)) } : {}), partialBars: song.chart.bars.filter(bar => bar.partial).map(bar => bar.bar),
       leadInColumn: song.chart.leadInColumn, leadInCues: song.chart.leadInCues,
       controlNames: song.chart.controlNames, annotatedThroughBar: song.chart.annotatedThroughBar },
     stageCells: report.annotations.stageCells,
@@ -237,7 +257,7 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
       for (const [hit, offset] of cell.reading.offsets.entries()) body += direction(cell.reading.sampled ? 'show-tools:onset:sampled' : 'show-tools:onset', `onset-${cell.cell}-${hit}`, offset * countTicks, true);
     }
     body += `<note print-object="no"><rest measure="yes"/><duration>${report.meter.numerator * countTicks}</duration></note>`;
-    return `<measure number="${cell.bar}">${body}</measure>`;
+    return `<measure number="${xml(song.chart.bars[cell.bar - 1]?.label ?? String(cell.bar))}">${body}</measure>`;
   }).join('\n')}</part>`).join('\n');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<score-partwise version="4.0"><work><work-title>${xml(report.title)}</work-title></work><identification><encoding><software>${MUSICXML_SONG_PROFILE}</software><encoding-description>Complete canonical song. Hidden measure rests are layout spacers. Onset-only directions do not specify played duration or pitch.</encoding-description></encoding><miscellaneous>${metadata.map(([name, text]) => `<miscellaneous-field name="${name}">${xml(text)}</miscellaneous-field>`).join('')}</miscellaneous></identification><part-list>${report.parts.map(part => `<score-part id="${xml(part.id)}"><part-name>${xml(part.name)}</part-name></score-part>`).join('')}</part-list>\n${parts}\n</score-partwise>\n`;
 }
@@ -291,7 +311,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   const encoded = metadata.get('show-tools:performance');
   if (!encoded) throw new MusicXmlValidationError('Canonical MusicXML is missing required performance metadata.');
   const extension: unknown = JSON.parse(encoded);
-  const performance = Schema.decodeUnknownSync(Performance, { onExcessProperty: 'error' })(extension);
+  const performance = decodePerformance(extension);
   const standardIds = score.part.flatMap(part => part.measure.flatMap(measure => (measure.direction ?? []).flatMap(direction => [
     ...(direction['direction-type'].words ?? []), ...(direction['direction-type'].rehearsal ?? []), ...(direction['direction-type']['other-direction'] ?? []),
   ].flatMap(marker => marker.id ? [marker.id] : []))));
@@ -303,6 +323,8 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   if (partNames.size !== score.part.length || performance.scoreParts.length !== score.part.length) throw new MusicXmlValidationError('Canonical MusicXML score parts and bindings must match exactly.');
   const first = score.part[0];
   if (!first || first.measure.length < 1 || first.measure.length > 4096) throw new MusicXmlValidationError('Canonical MusicXML needs 1 through 4096 measures.');
+  const labels = performance.chartBinding.labels;
+  if (labels && (labels.length !== first.measure.length || new Set(labels).size !== labels.length)) throw new MusicXmlValidationError('Canonical measure labels must identify the complete chronological timeline uniquely.');
   const initial = first.measure[0].attributes;
   if (!initial?.time) throw new MusicXmlValidationError('Canonical MusicXML needs an explicit initial meter.');
   const meter = { numerator: numeric(initial.time.beats, 'meter'), denominator: numeric(initial.time['beat-type'], 'meter') };
@@ -334,7 +356,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     const binding = performance.scoreParts.find(binding => binding.id === part.id), name = partNames.get(part.id);
     if (!binding || !name?.trim() || part.measure.length !== first.measure.length) throw new MusicXmlValidationError(`Canonical MusicXML part ${part.id} has an incomplete identity or timeline.`);
     const cells = part.measure.map((measure, index): MusicXmlCell => {
-      if (numeric(measure.number, 'measure number') !== index + 1) throw new MusicXmlValidationError('Canonical MusicXML measures must be chronological and contiguous from 1.');
+      if (measure.number !== (performance.chartBinding.labels?.[index] ?? String(index + 1))) throw new MusicXmlValidationError('Canonical MusicXML measures must be chronological and contiguous from 1.');
       const attributes = measure.attributes;
       if (index === 0 && (!attributes?.time || numeric(attributes.divisions ?? '', 'divisions') !== 960)
         || attributes?.time && (numeric(attributes.time.beats, 'meter') !== meter.numerator || numeric(attributes.time['beat-type'], 'meter') !== meter.denominator)
@@ -424,7 +446,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
       if (!section) throw new MusicXmlValidationError('Canonical MusicXML section coverage is incomplete.');
       const words = (measure.direction ?? []).flatMap(direction => direction['direction-type'].words ?? []);
       const cueText = (button: string) => words.find(word => word.id === `command-${button}-${index + 1}`)?.['#text'] ?? '';
-      return { bar: index + 1, column: performance.chartBinding.columns[index], sectionId: section.id, section: section.label,
+      return { bar: index + 1, ...(performance.chartBinding.labels ? { label: performance.chartBinding.labels[index] } : {}), column: performance.chartBinding.columns[index], sectionId: section.id, section: section.label,
         partial: performance.chartBinding.partialBars.includes(index + 1), cues: { L1: cueText('L1'), L2: cueText('L2'), R1: cueText('R1'), R2: cueText('R2') } };
     }), sections, spreadsheetId: performance.source.spreadsheetId, sheetId: performance.source.sheetId,
     sheetName: performance.source.sheetName, leadInColumn: performance.chartBinding.leadInColumn,
@@ -440,9 +462,14 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   }
   const digest = await semanticDigest({ title: chart.title, meter, bpmPerChartCount: bpm, sections, vocalCues, parts, annotations }, performance, voices);
   const song = decodeCanonicalProgram({
-    schemaVersion: 6, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
+    schemaVersion: 7, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
     ticksPerQuarter: 960, meter, source: { ...performance.source, digest }, mappingDigest: digest, chart,
+    ...(performance.terminalStops === undefined ? {} : { terminalStops: performance.terminalStops }),
+    ...(performance.sourceProfiles === undefined ? {} : { sourceProfiles: performance.sourceProfiles }),
+    ...(performance.noteBanks === undefined ? {} : { noteBanks: performance.noteBanks }),
+    ...(performance.externalSamples === undefined ? {} : { externalSamples: performance.externalSamples }),
     voices: performance.voices, parts: resolvedParts, rotation: performance.rotation, cueWindow: performance.cueWindow,
+    ...(performance.authoredCues === undefined ? {} : { authoredCues: performance.authoredCues }),
     cues: performance.cues, takes: performance.takes, selections: performance.selections, playback: performance.playback,
     diagnostics: performance.diagnostics, executable: performance.executable,
   });
@@ -454,6 +481,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     sections, vocalCues, parts,
   };
   validateAnnotations(report);
+  await prepareDeclaredExternalAssets(song.externalSamples);
   return { song, report, source, mapping, voices };
 }
 
@@ -482,13 +510,13 @@ export async function migrateMusicXmlSongV2(input: string): Promise<string> {
   const oldWindow = Schema.Union([Schema.Struct({ kind: Schema.Literal('full') }),
     Schema.Struct({ kind: Schema.Literal('prefix'), endCount: Schema.Number.check(Schema.isFinite()) })]);
   const oldSelection = Schema.Struct({ ...CompiledSongSchema.fields.selections.schema.value.fields, window: oldWindow });
-  const oldPerformance = Schema.Struct({ ...Performance.fields, rotation: Schema.NullOr(oldRotation), selections: list(oldSelection) });
+  const oldPerformance = Schema.Struct({ ...LegacyPerformance.fields, rotation: Schema.NullOr(oldRotation), selections: list(oldSelection) });
   const performance = Schema.decodeUnknownSync(oldPerformance, { onExcessProperty: 'error' })(JSON.parse(metadata.get('show-tools:performance') ?? 'null'));
   const rotation = performance.rotation ? { voiceId: performance.rotation.voiceId, inactivityBeats: performance.rotation.releaseGridBeats,
     windows: performance.rotation.windows } : null;
   const replacements = new Map<string, string>([
     ['show-tools:profile', MUSICXML_SONG_PROFILE],
-    ['show-tools:performance', stableMusicXmlJson({ ...performance, rotation })],
+    ['show-tools:performance', stableMusicXmlJson({ ...performance, version: 2, cues: performance.cues.map(migrateCompiledCueV6), rotation })],
   ]);
   const mapping = metadata.get('show-tools:mapping');
   if (mapping) {

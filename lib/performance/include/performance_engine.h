@@ -12,6 +12,8 @@ typedef struct pf_engine pf_engine;
 enum pf_mode { PF_TRACKER = 0, PF_PERFORMANCE = 1, PF_PRACTICE = 2 };
 enum pf_phase { PF_IDLE = 0, PF_COUNT_IN = 1, PF_PLAYING = 2, PF_ENDED = 3 };
 enum pf_cue_kind { PF_NONE = 0, PF_UNSUPPORTED = 1, PF_TAP = 2, PF_ARM = 3, PF_COMMIT = 4, PF_COMMIT_ARM = 5, PF_STOP = 6, PF_PLAY = 7 };
+enum pf_launch_policy { PF_AUTOPLAY = 0, PF_STORE_ONLY = 1 };
+enum pf_playback_mode { PF_LOOP_MODE = 0, PF_ONESHOT_MODE = 1, PF_HELD_MODE = 2, PF_GATED_MODE = 3 };
 enum pf_timing { PF_NOW = 0, PF_BAR = 1 };
 enum pf_capture_kind { PF_CONTINUOUS = 0, PF_SPARSE = 1, PF_WHOLE_BAR = 2 };
 enum pf_light { PF_OFF = 0, PF_CUE = 1, PF_STEADY = 2, PF_RELEASING = 3 };
@@ -22,7 +24,7 @@ enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_A
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
   PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
   PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 10, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 11, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
 enum pf_tuner_command { PF_TUNER_CONFIGURE = 0, PF_TUNER_CUE = 1, PF_TUNER_CONFIRM = 2, PF_TUNER_LISTEN = 3, PF_TUNER_CLOSE = 4, PF_TUNER_PLAY_SCALE = 5, PF_TUNER_SILENCE = 6 };
 enum pf_tuner_field { PF_TUNER_REVISION, PF_TUNER_ROOT, PF_TUNER_SCALE, PF_TUNER_STEP, PF_TUNER_COUNT,
   PF_TUNER_COMPLETE, PF_TUNER_LISTENING, PF_TUNER_PREVIEW_KIND, PF_TUNER_PITCH_STATUS,
@@ -31,7 +33,7 @@ enum pf_tuner_field { PF_TUNER_REVISION, PF_TUNER_ROOT, PF_TUNER_SCALE, PF_TUNER
   PF_TUNER_PREVIEW_STEP, PF_TUNER_TARGETS, PF_TUNER_FIELDS = 72 };
 enum pf_tuner_target_field { PF_TUNER_TARGET_MIDI, PF_TUNER_TARGET_LETTER, PF_TUNER_TARGET_ACCIDENTAL,
   PF_TUNER_TARGET_OCTAVE, PF_TUNER_TARGET_FIELDS };
-enum pf_compiled_limits { PF_COMPILED_MAGIC = 0x50464331, PF_COMPILED_VERSION = 6, PF_COMPILED_HEADER_FIELDS = 16, PF_COMPILED_TAKE_FIELDS = 9, PF_COMPILED_CUE_FIELDS = 11, PF_COMPILED_MEMBER_FIELDS = 3, PF_COMPILED_PLAYBACK_FIELDS = 3, PF_COMPILED_MAX_TAKES = 32, PF_COMPILED_ROTATION_MAGIC = 0x50465231, PF_COMPILED_ROTATION_HEADER_FIELDS = 3, PF_COMPILED_ROTATION_FIELDS = 4, PF_COMPILED_WINDOW_MAGIC = 0x50465731, PF_COMPILED_WINDOW_HEADER_FIELDS = 2, PF_COMPILED_WINDOW_FIELDS = 4 };
+enum pf_compiled_limits { PF_COMPILED_MAGIC = 0x50464331, PF_COMPILED_LEGACY_VERSION = 6, PF_COMPILED_VERSION = 7, PF_COMPILED_HEADER_FIELDS = 16, PF_COMPILED_TAKE_FIELDS = 9, PF_COMPILED_LEGACY_CUE_FIELDS = 11, PF_COMPILED_CUE_FIELDS = 16, PF_COMPILED_MEMBER_FIELDS = 3, PF_COMPILED_PLAYBACK_FIELDS = 3, PF_COMPILED_MAX_TAKES = 32, PF_COMPILED_ROTATION_MAGIC = 0x50465231, PF_COMPILED_ROTATION_HEADER_FIELDS = 3, PF_COMPILED_ROTATION_FIELDS = 4, PF_COMPILED_SUSTAIN_MAGIC = 0x50464131, PF_COMPILED_PROFILES_MAGIC = 0x50465031, PF_COMPILED_PROFILES_FIELDS = 2, PF_COMPILED_NOTES_MAGIC = 0x50464e31, PF_COMPILED_NOTES_FIELDS = 5, PF_COMPILED_EXTERNAL_MAGIC = 0x50464531, PF_COMPILED_EXTERNAL_FIELDS = 5, PF_COMPILED_WINDOW_MAGIC = 0x50465731, PF_COMPILED_WINDOW_HEADER_FIELDS = 2, PF_COMPILED_WINDOW_FIELDS = 4 };
 enum pf_compiled_take_field { PF_TAKE_VOICE, PF_TAKE_READY, PF_TAKE_LENGTH, PF_TAKE_CAPACITY, PF_TAKE_REVISION, PF_TAKE_PHASE, PF_TAKE_PLAYBACK_STATE, PF_TAKE_PERIOD, PF_TAKE_SOURCE_END, PF_TAKE_SELECTION, PF_TAKE_FIELDS };
 enum pf_tempo_field { PF_TEMPO_COUNT, PF_TEMPO_FRAME, PF_TEMPO_HINT, PF_TEMPO_SOURCE, PF_TEMPO_ESTIMATED, PF_TEMPO_BPM, PF_TEMPO_FIELDS };
 enum pf_effect_type { PF_EFFECT_SLAPBACK = 1, PF_EFFECT_CHORUS = 2 };
@@ -92,6 +94,13 @@ int pf_configure(pf_engine* engine, double bpm, int beats_per_bar, int bar_count
 int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields);
 /* Portable artifact encoding is the same table as little-endian IEEE754 doubles. */
 int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t bytes);
+int pf_prepare_tuning_bank(pf_engine* engine, uint32_t profile, const double* slots, uint32_t count,
+  uint32_t clip_frames, uint32_t stable_frames, double confidence, double tolerance_cents);
+void pf_tuning_bank_info(const pf_engine* engine, double* out);
+int pf_set_bend_parameters(pf_engine* engine, double velocity_per_semitone, double stale_ms);
+int pf_prepare_external_wav(pf_engine* engine, uint32_t slot, const uint8_t* bytes, uint32_t length);
+int pf_prepare_external_sample(pf_engine* engine, uint32_t slot, const float* left, const float* right, uint32_t frames);
+int pf_trigger_external(pf_engine* engine, uint32_t slot);
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out);
 /* Shared pedal/star tempo evidence. Control 6 submits an unhinted pedal hit. */
 void pf_tempo_info(const pf_engine* engine, double* out);

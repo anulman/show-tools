@@ -54,7 +54,7 @@ Read the canonical `songs/<song-id>.musicxml` when one exists. Saved song effect
 
 Canonical MusicXML and the current Street preparation adapter are merged. The adapter reads MusicXML, using embedded voice assignments when present or an explicitly supplied catalog otherwise. Inspect the intended current document rather than binding historical registry hashes or substituting another checkout. This does not establish arbitrary scene graph support. Read `docs/implementation/musicxml-cutover.md` for source ownership.
 
-The initial Dance Yrself Clean XML contains eight parts but no saved voice metadata. Drunk Girls and I Can Change contain only a Form part and no voice metadata. Those two documents provide timing and form, not complete performer activity. Nine other songs have confirmed set-list entries but no registered canonical chart in this checkout. Keep all missing casting and cue bindings explicit.
+Dance Yrself Clean, Drunk Girls and Tribulations have executable canonical charts with performer activity. I Can Change remains a timing and form placeholder. Eight other songs have confirmed set-list entries but no registered canonical chart in this checkout. Inspect each current document for saved voice metadata; keep missing casting and cue bindings explicit.
 
 Record artistic timing in explicit beat units and distinguish proposed scene behavior from implemented behavior. PE owns authoritative musical time and activity. Directors describe visual intent. Procedural Video maps that intent into supported deterministic data and reports unsupported capabilities. No director creates a competing musical clock, browser beat scheduler, or audio behavior.
 

@@ -60,7 +60,7 @@ export function decodeNativeEvent(event: Float64Array, runId: string, message: (
       if (event[PF.EVENT_ERROR]) result.error = message(event[PF.EVENT_ERROR]);
       if (type === 'control') {
         const id = event[PF.EVENT_CONTROL];
-        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : id === 6 ? { id: 'tempo' } : id === 7 ? { id: 'cueButton', value: event[PF.EVENT_VALUE] === 1 ? 1 : 0 } : { id: CONTROL_IDS[id] };
+        result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : id === 6 ? { id: 'tempo' } : id === 7 ? { id: 'cueButton', value: event[PF.EVENT_VALUE] === 1 ? 1 : 0 } : id >= 16 && id < 80 ? { id: 'external', slot: id - 16 } : id >= 8 && id < 12 ? { id: CONTROL_IDS[id - 8], edge: 'release' } : { id: CONTROL_IDS[id] };
         result.applied = event[PF.EVENT_APPLIED] === 1;
       }
       if (type === 'tempo-hit') result.tempoHit = { beatHint: event[PF.EVENT_VALUE] === 1 ? 1 : null,

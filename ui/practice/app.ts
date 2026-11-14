@@ -1,3 +1,5 @@
+import { chartBarLabel, chartBarOrdinal } from '../../lib/performance/chart-position.js';
+import { enablePhoneMotion } from './phone-motion.js';
 import { audioMode, canChangeAudioMode, changeAudioMode } from './audio-mode.js';
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
 import { exportMusicXmlWithVoices } from '../../lib/performance/musicxml-authoring.js';
@@ -108,6 +110,8 @@ let tunerPort: TunerPort | undefined;
 const tunerDialog = requiredElement('#tuner-dialog', HTMLDialogElement);
 let remoteDesk: RemoteDesk | undefined;
 let preparing: Promise<PerformanceSession> | null = null;
+let preparationAbort: AbortController | undefined;
+let phoneMotionAbort: AbortController | undefined;
 let starting = false;
 let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorker } | { kind: 'pending' } | { kind: 'reloading' } = { kind: 'current' };
 let transportGeneration = 0;
@@ -182,7 +186,8 @@ async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[])
   startLabel.textContent = 'Preparing audio…';
   const generation = songGeneration;
   const currentSong = song;
-  preparing = import('./audio.js').then(({ PracticeAudio }) => PracticeAudio.create({ chart: currentSong.chart, program: currentSong.program, compiled: currentSong.compiled, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() })).then(async instance => {
+  const cancellation = new AbortController(); preparationAbort = cancellation;
+  preparing = import('./audio.js').then(({ PracticeAudio }) => PracticeAudio.create({ chart: currentSong.chart, program: currentSong.program, compiled: currentSong.compiled, signal: cancellation.signal, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() })).then(async instance => {
     if (generation !== songGeneration) {
       await instance.dispose();
       throw new Error('The song changed while audio was preparing.');
@@ -196,12 +201,17 @@ async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[])
       }
     });
     return instance;
-  }).finally(() => { preparing = null; render(state); });
+  }).finally(() => { if (preparationAbort === cancellation) preparationAbort = undefined; preparing = null; render(state); });
   return preparing;
 }
 
 function sharedTuner(instance: PerformanceSession): TunerPort {
+  const prepareBank = instance.tuner.prepareBank;
   return {
+    ...(prepareBank ? { prepareBank: (options: import('../../lib/tuner/model.js').TuningBankOptions) => {
+      if (instance !== audio || isRunning() || starting) return Promise.reject(new Error('Stop practice before preparing a note bank'));
+      return prepareBank(options);
+    } } : {}),
     snapshot: () => instance.tuner.snapshot(),
     subscribe: listener => instance.tuner.subscribe(listener),
     command: command => {
@@ -223,6 +233,7 @@ function syncTunerSession() {
 requiredElement('#open-tuner', HTMLButtonElement).addEventListener('click', () => {
   if (tunerDialog.open) return;
   tunerPanel = mountTuner(requiredElement('#tuner-root', HTMLElement), {
+    banks: song?.compiled?.noteBanks?.flatMap((bank, index) => bank.capture ? [{ id: `${bank.buttonId}/${index}`, label: song?.chart.controlNames[bank.buttonId] ?? bank.buttonId, capture: bank.capture }] : []) ?? [],
     connect: async () => {
       if (isRunning() || starting || outputCapture !== 'idle') throw new Error('Stop practice and finish the demo recording before using the tuner.');
       const instance = await ensureAudio();
@@ -258,13 +269,24 @@ function flash(id: ChannelId | 'mushroom', held = false) {
 }
 
 function releasePresses() {
+  for (const control of CONTROLS) if (heldKeys.has(control.key)) void act(() => releasePad(control.id));
   heldKeys.clear();
   keyboardInput?.disconnect();
   if (keyboardConnected) keyboardConnected = false;
   document.querySelectorAll('.pressed').forEach(element => element.classList.remove('pressed'));
 }
 
-async function triggerPad(id: ChannelId, commandId?: string) {
+const pendingPadPresses = new Map<ChannelId, Promise<void>>();
+function triggerPad(id: ChannelId, commandId?: string) {
+  const action = pressPad(id, commandId);
+  pendingPadPresses.set(id, action);
+  return action;
+}
+async function releasePad(id: ChannelId, commandId?: string) {
+  try { await pendingPadPresses.get(id); }
+  finally { if (audio) await audio.control({ id, edge: 'release' }, { commandId }); }
+}
+async function pressPad(id: ChannelId, commandId?: string) {
   if (voiceCatalog.busy) return;
   const generation = transportGeneration;
   const instance = await ensureAudio();
@@ -310,7 +332,7 @@ async function startPractice() {
   if (!chart) throw new Error('The song chart is still loading. Try again in a moment.');
   const bpm = Number(elements.bpm.value);
   const startBar = Number(elements['start-section'].value);
-  const endBar = Number(elements['end-bar'].value);
+  const endBar = chart ? chartBarOrdinal(chart, elements['end-bar'].value) : NaN;
   if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Choose a tempo between 40 and 240 BPM.');
   if (!Number.isInteger(endBar) || endBar < startBar || endBar > playableBars(chart)) throw new Error(`Choose an end bar from ${startBar} to ${playableBars(chart)}. Partial bars are not sequenced yet.`);
   if (remote) {
@@ -348,6 +370,8 @@ async function startPractice() {
 }
 
 async function stopPerformance(command: 'stop' | 'panic', commandId?: string) {
+  preparationAbort?.abort(new Error('Audio preparation canceled'));
+  phoneMotionAbort?.abort();
   transportGeneration++;
   chartFollower?.stop();
   finishOutputRecording();
@@ -426,12 +450,12 @@ function makePads() {
       act(() => triggerPad(control.id));
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      button.addEventListener(type, () => button.classList.remove('pressed'));
+      button.addEventListener(type, () => { button.classList.remove('pressed'); act(() => releasePad(control.id)); });
     }
     button.addEventListener('click', event => {
       if (event.detail !== 0) return;
       flash(control.id);
-      act(() => triggerPad(control.id));
+      act(async () => { await triggerPad(control.id); await releasePad(control.id); });
     });
   }
 }
@@ -444,8 +468,8 @@ function mountVoiceRows() {
   }
   elements['live-voices'].replaceChildren();
   for (const pad of pads.values()) pad.shell.querySelector('.voice-effects')?.remove();
-  const parts = song?.compiled?.parts;
-  for (const part of parts ?? []) {
+  const parts = [...song?.compiled?.parts ?? [], ...song?.compiled?.sourceProfiles?.map(profile => ({ ...profile, role: { kind: 'sampled-source' as const } })) ?? []];
+  for (const part of parts) {
     if (part.role.kind === 'pad') {
       const pad = pads.get(part.role.buttonId);
       if (pad) {
@@ -460,7 +484,7 @@ function mountVoiceRows() {
     const avatar = document.createElement('span'); avatar.className = 'performance-avatar'; avatar.hidden = true;
     voiceAvatars.set(part.profile, { root: avatar, name: part.name });
     const name = document.createElement('h2'); name.textContent = part.name;
-    main.title = part.role.kind === 'default-live' ? 'Default live voice' : 'Use vertical scroll while playing to turn the knob';
+    main.title = part.role.kind === 'default-live' ? 'Default live voice' : part.role.kind === 'rotation-live' ? 'Use vertical scroll while playing to turn the knob' : 'Prepared sampled voice';
     identity.append(avatar, name);
     const tools = document.createElement('div'); tools.className = 'voice-tools';
     const status = document.createElement('span'); status.className = 'voice-state'; status.textContent = 'STANDBY';
@@ -478,6 +502,46 @@ function mountVoiceRows() {
     main.append(identity, tools); shell.append(main); voiceEffects.mount(part, shell, remote ? undefined : () => voiceCatalog.openProfile(part.profile)); elements['live-voices'].append(shell);
   }
   elements['live-voices'].hidden = !liveVoiceStates.size;
+  mountPhoneMotion();
+}
+
+function mountPhoneMotion() {
+  phoneMotionAbort?.abort();
+  document.getElementById('phone-motion-controls')?.remove();
+  const sources = song?.compiled?.externalSamples?.filter(sample => sample.asset) ?? [];
+  if (!sources.length) return;
+  const group = document.createElement('section'); group.id = 'phone-motion-controls'; group.className = 'voice-row';
+  const seen = new Set<number>();
+  for (const source of sources) {
+    if (seen.has(source.slot)) continue;
+    seen.add(source.slot);
+    const button = document.createElement('button'); button.type = 'button';
+    const label = `Enable shake · ${source.voiceId}`; button.textContent = label;
+    let enabled = false;
+    button.addEventListener('click', () => { void act(async () => {
+      if (enabled) { phoneMotionAbort?.abort(); return; }
+      phoneMotionAbort?.abort();
+      const cancel = new AbortController(); phoneMotionAbort = cancel;
+      const generation = songGeneration, session = crypto.randomUUID(); let sequence = 0;
+      button.disabled = true;
+      try {
+        await enablePhoneMotion({ signal: cancel.signal, current: () => generation === songGeneration && !switching,
+          hit: () => {
+            const instance = audio;
+            if (!instance || !isRunning() || generation !== songGeneration || cancel.signal.aborted) return;
+            const commandId = `phone-motion/${session}/${++sequence}`;
+            void instance.control({ id: 'external', slot: source.slot }, { commandId }).catch(error => {
+              if (generation === songGeneration && audio === instance && !cancel.signal.aborted) showError(error);
+            });
+          },
+          stopped: () => { enabled = false; button.textContent = label; button.disabled = false; },
+        });
+        enabled = true; button.textContent = `Disable shake · ${source.voiceId}`;
+      } finally { button.disabled = false; }
+    }); });
+    group.append(button);
+  }
+  elements['live-voices'].insertAdjacentElement('afterend', group);
 }
 
 function browserModeBusy(): boolean {
@@ -521,8 +585,9 @@ function render(next: Partial<PracticeState>) {
   elements['practice-desk'].dataset.bar = state.bar === null ? '' : String(state.bar);
   elements['practice-desk'].dataset.beat = state.beat === null ? '' : String(state.beat);
   elements['phase-label'].textContent = inCountIn ? `COUNT-IN · ${state.countInRemaining ?? '…'} TO GO` : state.phase === 'playing' ? 'PLAYING' : state.phase === 'ended' ? 'RANGE COMPLETE' : 'READY TO PLAY';
-  elements['range-label'].textContent = `BARS ${running ? state.startBar : elements['start-section'].value}–${running ? state.endBar : elements['end-bar'].value}`;
-  elements['bar-number'].textContent = inCountIn ? 'IN' : String(displayBar).padStart(2, '0');
+  elements['range-label'].textContent = `BARS ${chartBarLabel(chart, running ? state.startBar ?? 1 : Number(elements['start-section'].value))}–${running ? chartBarLabel(chart, state.endBar ?? chart.bars.length) : elements['end-bar'].value}`;
+  elements['bar-number'].textContent = inCountIn ? 'IN' : currentBar?.label ?? String(displayBar).padStart(2, '0');
+  elements['bar-number'].classList.toggle('pickup', Boolean(currentBar?.label && !/^\d/.test(currentBar.label)));
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
   elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
@@ -549,7 +614,7 @@ function render(next: Partial<PracticeState>) {
   startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start practice';
   elements.stop.disabled = !starting && !running && !recording;
   for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting;
-  elements['sheet-link'].setAttribute('aria-label', `Open ${inCountIn ? 'lead-in' : `bar ${displayBar}`} in Google Sheets`);
+  elements['sheet-link'].setAttribute('aria-label', `Open ${inCountIn ? 'lead-in' : `bar ${chartBarLabel(chart, displayBar)}`} in Google Sheets`);
   for (const control of CONTROLS) {
     const pad = pads.get(control.id);
     if (!pad) continue;
@@ -709,7 +774,7 @@ elements['start-section'].addEventListener('change', () => {
   if (!chart) return;
   const start = Number(elements['start-section'].value);
   elements['end-bar'].min = String(start);
-  if (Number(elements['end-bar'].value) < start) elements['end-bar'].value = String(Math.min(playableBars(chart), chart.sections.find(section => section.startBar === start)?.endBar || playableBars(chart)));
+  if (!Number.isFinite(chartBarOrdinal(chart, elements['end-bar'].value)) || chartBarOrdinal(chart, elements['end-bar'].value) < start) elements['end-bar'].value = chartBarLabel(chart, Math.min(playableBars(chart), chart.sections.find(section => section.startBar === start)?.endBar || playableBars(chart)));
   render(state);
 });
 for (const element of [elements['count-in'], elements['end-bar']]) element.addEventListener('change', () => render(state));
@@ -750,10 +815,10 @@ window.addEventListener('keydown', event => {
   } else { heldKeys.add(event.code); act(() => isRunning() ? stopPractice() : startPractice()); }
 });
 window.addEventListener('keyup', event => {
-  if (event.code === 'Escape' || CONTROLS.some(control => control.key === event.code)) keyboardEdge(event, 'release');
+  const input = event.code === 'Escape' || CONTROLS.some(control => control.key === event.code) ? keyboardEdge(event, 'release') : null;
   heldKeys.delete(event.code);
   const control = CONTROLS.find(control => control.key === event.code);
-  if (control) pads.get(control.id)?.button.classList.remove('pressed');
+  if (control) { pads.get(control.id)?.button.classList.remove('pressed'); if (input) act(() => releasePad(control.id, peripheralCommandId(input))); }
   if (event.code === 'Escape') elements.mushroom.classList.remove('pressed');
 });
 function postPerformanceEvent(event: PracticeEvent): void {
@@ -774,7 +839,7 @@ window.addEventListener('message', event => {
 
 window.addEventListener('blur', releasePresses);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releasePresses(); });
-window.addEventListener('pagehide', () => { if (recorder?.state === 'recording') recorder.stop(); });
+window.addEventListener('pagehide', () => { phoneMotionAbort?.abort(); preparationAbort?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
 
 makePads();
 for (const entry of SONGS) {
@@ -790,7 +855,11 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
   if (voiceCatalog.busy) throw new Error('Wait for the voice library save before switching songs.');
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
+  phoneMotionAbort?.abort();
+  tunerPanel?.dispose(); tunerPanel = undefined; tunerSession = undefined; tunerPort = undefined;
+  if (tunerDialog.open) tunerDialog.close();
   const generation = ++songGeneration;
+  preparationAbort?.abort(new Error('The song changed while audio was preparing.'));
   transportGeneration++;
   switching = true;
   render(state);
@@ -830,7 +899,7 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
     elements['start-section'].value = String(loaded.practice.startBar);
     elements['end-bar'].min = String(loaded.practice.startBar);
     elements['end-bar'].max = String(playableBars(loaded.chart));
-    elements['end-bar'].value = String(loaded.practice.endBar);
+    elements['end-bar'].value = chartBarLabel(loaded.chart, loaded.practice.endBar);
   } catch (error) {
     if (song) elements['song-select'].value = song.id;
     throw error;
@@ -859,12 +928,12 @@ function syncRemoteTransport(current: PracticeState) {
   elements.bpm.value = String(current.bpm);
   const start = String(current.startBar);
   if (![...elements['start-section'].options].some(option => option.value === start)) {
-    const option = document.createElement('option'); option.value = start; option.textContent = `Bar ${start}`;
+    const option = document.createElement('option'); option.value = start; option.textContent = `Bar ${chart ? chartBarLabel(chart, current.startBar) : start}`;
     elements['start-section'].append(option);
   }
   elements['start-section'].value = start;
   elements['end-bar'].min = start;
-  elements['end-bar'].value = String(current.endBar);
+  elements['end-bar'].value = chart ? chartBarLabel(chart, current.endBar) : String(current.endBar);
   elements.loop.checked = current.loop;
   elements.click.checked = current.click;
 }

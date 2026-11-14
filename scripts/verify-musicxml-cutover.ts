@@ -36,11 +36,25 @@ function digest(input: string | Uint8Array): string {
 
 export function compiledMeaningDigest(song: CompiledSong): string {
   const { mappingDigest: _mappingDigest, source, ...meaning } = song;
+  assert(!song.externalSamples?.length, 'The frozen legacy song cannot acquire external sample bindings.');
+  const cues = song.cues.map(({ captureReplacement, launchPolicy, playbackMode, sourceName, groupId, ...cue }) => {
+    assert.equal(captureReplacement, false, 'Legacy capture replacement must stay disabled.');
+    assert.equal(launchPolicy, 'autoplay', 'Legacy commits must retain autoplay.');
+    assert.equal(playbackMode, 'loop', 'Legacy playback must remain looping.');
+    assert.equal(sourceName, null, 'Legacy cues must not acquire named sources.');
+    assert.equal(groupId, null, 'Legacy cues must not acquire grouped presses.');
+    return cue;
+  });
+  const takes = song.takes.map(({ sourceVoiceId, sourceName, ...take }) => {
+    assert(sourceVoiceId === undefined || sourceVoiceId === take.voiceId, 'Legacy source effects must retain their voice.');
+    assert(sourceName === undefined || sourceName === null, 'Legacy takes must not acquire named sources.');
+    return take;
+  });
   const rotation = meaning.rotation ? (() => {
     const { inactivityBeats, ...fields } = meaning.rotation;
     return { ...fields, releaseGridBeats: inactivityBeats };
   })() : null;
-  return digest(canonicalSongJson({ ...meaning, schemaVersion: 5, rotation, source: { ...source, digest: '' } }));
+  return digest(canonicalSongJson({ ...meaning, cues, takes, schemaVersion: 5, rotation, source: { ...source, digest: '' } }));
 }
 
 export async function frozenCutoverMusicXml(): Promise<string> {
@@ -53,11 +67,11 @@ export async function frozenCutoverMusicXml(): Promise<string> {
 export async function verifyMusicXmlCutover(musicxml: string) {
   const { song } = await readMusicXmlSong(musicxml);
   assert.equal(compiledMeaningDigest(song), baseline.song, `Compiled song differs from pre-cutover ${baseline.commit}. Only source and mapping digests may change.`);
-  assert.equal(song.schemaVersion, 6, 'The current compiled schema must be explicit.');
+  assert.equal(song.schemaVersion, 7, 'The current compiled schema must be explicit.');
   const program = encodeCompiledProgram(song);
   assert.equal(program[1], 6, 'The inactivity packet must use native version 6.');
   program[1] = 5;
-  let cursor = PF.COMPILED_HEADER_FIELDS + program[8] * PF.COMPILED_TAKE_FIELDS + program[9] * PF.COMPILED_CUE_FIELDS
+  let cursor = PF.COMPILED_HEADER_FIELDS + program[8] * PF.COMPILED_TAKE_FIELDS + program[9] * PF.COMPILED_LEGACY_CUE_FIELDS
     + program[10] * PF.COMPILED_MEMBER_FIELDS + program[11] * PF.COMPILED_PLAYBACK_FIELDS;
   const historical = Array.from(program.slice(0, cursor));
   while (cursor < program.length) {

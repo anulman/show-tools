@@ -1,10 +1,11 @@
-import type { TunerCommand, TunerNote, TunerPort, TunerScale, TunerState } from '../../lib/tuner/model.js';
+import type { TunerCommand, TunerNote, TunerPort, TunerScale, TunerState, TuningBankOptions } from '../../lib/tuner/model.js';
 import { createTunerDial } from './dial.js';
 
 type WithoutRevision<T> = T extends { expectedRevision: number } ? Omit<T, 'expectedRevision'> : never;
-type TunerAction = WithoutRevision<TunerCommand>;
+type TunerAction = WithoutRevision<TunerCommand> | { kind: 'prepare-bank'; capture: TuningBankOptions };
 type ScaleSelection = Extract<TunerAction, { kind: 'configure' }>;
-type TunerPanelOptions = { connect: () => Promise<TunerPort> };
+export type TunerCaptureBank = { readonly id: string; readonly label: string; readonly capture: TuningBankOptions };
+type TunerPanelOptions = { connect: () => Promise<TunerPort>; banks?: readonly TunerCaptureBank[] };
 export type TunerPanel = {
   setSession(port: TunerPort | null): void;
   close(): Promise<void>;
@@ -109,7 +110,20 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
   });
   reset.classList.add('tuner-quiet');
   actions.append(confirm, reset);
-  scaleCard.append(fields, steps, targetHeading, target, progress, audition, previewStatus, actions);
+  const banks = options.banks ?? [];
+  const bankCard = element('section', 'tuner-bank');
+  const bankStatus = element('p', 'tuner-muted');
+  bankStatus.setAttribute('role', 'status');
+  const bankField = selectField('Note bank', banks.map(bank => ({ value: bank.id, label: bank.label })), banks[0]?.id ?? '');
+  bankField.field.hidden = banks.length < 2;
+  const recordBank = button('Record selected scale', () => {
+    const bank = banks.find(candidate => candidate.id === bankField.select.value);
+    if (bank) run({ kind: 'prepare-bank', capture: bank.capture });
+  });
+  recordBank.hidden = banks.length === 0;
+  bankField.select.addEventListener('change', render);
+  bankCard.append(bankField.field, recordBank, bankStatus);
+  scaleCard.append(fields, steps, targetHeading, target, progress, audition, previewStatus, actions, bankCard);
   const sungCard = element('section', 'tuner-card tuner-sung');
   const sungHeader = element('div', 'tuner-card-header');
   const listen = button('Listen', () => { if (state) run({ kind: 'listen', enabled: !state.listening }); });
@@ -141,6 +155,13 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
       octaveField.select.value = String(Math.floor(state.root / 12) - 1);
       scaleField.select.value = state.scale;
     }
+    const captureBank = banks.find(candidate => candidate.id === bankField.select.value);
+    recordBank.disabled = !state || busy || closing !== null || !port?.prepareBank || !captureBank || captureBank.capture.slots.length !== state.targets.length;
+    bankField.select.disabled = busy || closing !== null;
+    bankStatus.textContent = !captureBank ? 'This song has no source-note capture order.'
+      : !port?.prepareBank && attached ? 'Note-bank capture is unavailable in this audio session.'
+      : state && captureBank.capture.slots.length !== state.targets.length ? 'Select a scale matching the authored source-note order.'
+      : 'Record this scale, then sing each target and Confirm or turn the knob right to lock it.';
     const current = state?.targets[state.step];
     hear.disabled ||= !current;
     playScale.disabled ||= !state?.targets.length;
@@ -228,7 +249,18 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
           if (configuration) queuedSelection = null;
           else queuedAction = null;
           try {
-            const next = await port.command({ ...command, expectedRevision: state.revision });
+            let next: TunerState;
+            if (command.kind === 'prepare-bank') {
+              const session = port;
+              const prepare = session.prepareBank;
+              if (!prepare || command.capture.slots.length !== state.targets.length) throw new Error('This session cannot prepare the selected note bank.');
+              const configured = await session.command({ kind: 'configure', root: state.root, scale: state.scale, expectedRevision: state.revision });
+              if (disposed || generation !== commandGeneration) return;
+              state = configured;
+              await prepare(command.capture);
+              if (disposed || generation !== commandGeneration) return;
+              next = await session.command({ kind: 'listen', enabled: true, expectedRevision: state.revision });
+            } else next = await port.command({ ...command, expectedRevision: state.revision });
             if (disposed || generation !== commandGeneration) return;
             state = next;
             if (configuration && selection === configuration) selection = null;

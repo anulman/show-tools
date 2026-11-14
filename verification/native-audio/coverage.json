@@ -1,9 +1,9 @@
 {
-  "revision": "9b51479061fa48fbfffb8271541c1cf475a7e101",
+  "revision": "cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4",
   "files": {
     "lib/remote-performance/controller.ts": "ebc16497d220594dcbb3c3709c87e2237a295fbab28c385a051b420f9373be97",
     "lib/remote-performance/session-schema.ts": "3981eeef834ad41d65c658ab38e5c0b7cbcb43e5336697c6378a68419f71962f",
-    "lib/remote-performance/native-schema.ts": "0f9d152eedb16e8b6dd6e620217f7fbc60aeae105b3bee7804924fa32517e180",
+    "lib/remote-performance/native-schema.ts": "e4e0fd06b7b3f5db85e64b0498b098d1eff82037b12a4a6962b1f701486538ca",
     "lib/performance/light-abi.ts": "b6f699c8d325315ab157dca027ea6f4ba3a77ce17dc2006a5da4447824bea09b",
     "lib/tuner/schema.ts": "6a4556c8906572f5492a84b2726f97c95a731126837ce11c3fb3d4fc36929e0c"
   },

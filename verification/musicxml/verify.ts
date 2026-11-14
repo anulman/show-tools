@@ -39,12 +39,16 @@ const baselineReport: unknown = JSON.parse(baseline.stdout);
 const original = await readFile(join(root, sourceFile), 'utf8');
 const displayLine = original.split('\n').find(line => line.includes('if (shown !== cue.source.text.trim()) throw new MusicXmlValidationError('));
 assert(displayLine, 'DISPLAY_GUARD_MISSING');
+const labelLine = original.split('\n').find(line => line.includes('if (measure.number !== (performance.chartBinding.labels?.[index]'));
+assert(labelLine, 'LABEL_GUARD_MISSING');
 const mutants = [
   { name: 'display-action-guard-removed', witness: 'display', marker: 'DISPLAY_ACTION_AGREEMENT',
     source: replaceExactlyOnce(original, displayLine, '      void shown;') },
   { name: 'voices-omitted-from-semantic-digest', witness: 'voices', marker: 'VOICE_SEMANTIC_IDENTITY',
     source: replaceExactlyOnce(original, 'chartBinding: { ...data.chartBinding, controlNames } }, voices };',
       'chartBinding: { ...data.chartBinding, controlNames } }, voices: null };') },
+  { name: 'measure-label-agreement-removed', witness: 'labels', marker: 'MEASURE_LABEL_AGREEMENT',
+    source: replaceExactlyOnce(original, labelLine, '      void measure.number;') },
 ];
 const temporary = await mkdtemp(join(tmpdir(), 'musicxml-verification-'));
 const outcomes: { name: string; witness: string; status: string; expectedFailure: string }[] = [];

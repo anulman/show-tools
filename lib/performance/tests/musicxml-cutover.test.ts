@@ -118,7 +118,7 @@ test('every bundled song exposes the canonical instructions, metadata and source
 
 test('displayed commands cannot silently enter the timing-only practice path', async () => {
   const { musicXmlSongScript } = await import('../../../songs/load-musicxml.js');
-  const xml = await readFile(new URL('../../../songs/drunk-girls.musicxml', import.meta.url), 'utf8');
+  const xml = await readFile(new URL('../../../songs/i-can-change.musicxml', import.meta.url), 'utf8');
   const blank = await readMusicXmlSong(xml);
   assert.equal(musicXmlSongScript(blank).compiled, undefined);
   const edited = xml.replace('<measure number="1">', '<measure number="1"><direction><direction-type><words id="command-R1-1">rb</words></direction-type></direction>');

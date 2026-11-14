@@ -1,3 +1,4 @@
+import { chartBarLabel, chartBarOrdinal } from '../../../lib/performance/chart-position.ts';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
@@ -8,7 +9,7 @@ import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
 import { audioMode, canChangeAudioMode, changeAudioMode } from '../audio-mode.ts';
 
 function prepareUIContext(context) {
-  for (const [key, value] of Object.entries({ URL, URLSearchParams, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
+  for (const [key, value] of Object.entries({ chartBarLabel, chartBarOrdinal, URL, URLSearchParams, AbortController, preparationAbort: undefined, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
   vm.createContext(context);
 }
 import { loadSong } from '../../../songs/index.ts';
@@ -77,7 +78,7 @@ for (const action of ['stopPractice', 'panic']) {
       PracticeAudio: { create: () => preparing.promise },
     };
     prepareUIContext(context);
-    vm.runInContext(`${uiSource}\nfunction render() {}\nchart = { bars: Array(218) }; song = { chart, program: { lengthBeats: 4, events: [] } };\nglobalThis.ui = { startPractice, stopPractice, panic };`, context);
+    vm.runInContext(`${uiSource}\nfunction render() {}\nchart = { bars: Array.from({ length: 218 }, (_, index) => ({ bar: index + 1 })) }; song = { chart, program: { lengthBeats: 4, events: [] } };\nglobalThis.ui = { startPractice, stopPractice, panic };`, context);
     const starting = context.ui.startPractice();
     await context.ui[action]();
     preparing.resolve({ subscribe() {}, onEvent() {}, async setClick() { commands.push('click'); }, async start() { commands.push('start'); } });
@@ -112,7 +113,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
   };
   prepareUIContext(context);
   const source = (await sourceForVM(new URL('../app.ts', import.meta.url))).replace(/^import .*;\n/gm, '').replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })').split('elements.start.addEventListener(')[0];
-  vm.runInContext(`${source}\nfunction render() {}\nchart = { bars: Array(218) }; song = { chart, program: { lengthBeats: 4, events: [] } }; globalThis.recordDemo = toggleOutputRecording;`, context);
+  vm.runInContext(`${source}\nfunction render() {}\nchart = { bars: Array.from({ length: 218 }, (_, index) => ({ bar: index + 1 })) }; song = { chart, program: { lengthBeats: 4, events: [] } }; globalThis.recordDemo = toggleOutputRecording;`, context);
   const first = context.recordDemo();
   const second = context.recordDemo();
   preparing.resolve({ subscribe() {}, onEvent() {}, outputStream: {} });
@@ -167,20 +168,23 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     playableBars: () => 76, PracticeAudio: { create: async options => { creations++; creationOptions.push(options); return audio; } },
   };
   prepareUIContext(context);
-  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = loadedSong?.chart || { bars: Array(76) }; song = loadedSong || { chart, program: {}, compiled: ${compiled ? '{ executable: true }' : 'undefined'} }; globalThis.controls = { ensureAudio, applyVoiceEffects, startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
+  vm.runInContext(`${uiSource}\nfunction render(next) { state = { ...state, ...next }; beginOutputRecording(state.phase); }\nchart = loadedSong?.chart || { bars: Array.from({ length: 76 }, (_, index) => ({ bar: index + 1 })) }; song = loadedSong || { chart, program: {}, compiled: ${compiled ? '{ executable: true }' : 'undefined'} }; globalThis.controls = { ensureAudio, applyVoiceEffects, startPractice, stopPractice, panic, toggleOutputRecording, phase: phase => render({ phase }) };`, context);
   return { commands, controls: context.controls, audio, elements, revoked, creationOptions, get creations() { return creations; } };
 }
 
 function voiceEditorHarness() {
   class Element {
     children = []; listeners = new Map(); attributes = {}; dataset = {}; value = '';
+    style = { setProperty() {} }; validationMessage = '';
+    replaceChildren(...children) { this.children = [...children]; }
+    setCustomValidity(message) { this.validationMessage = message; }
     constructor(tag) { this.tag = tag; }
     append(...children) { this.children.push(...children); }
     get lastElementChild() { return this.children.at(-1); }
     get valueAsNumber() { return this.value === '' ? NaN : Number(this.value); }
     setAttribute(name, value) { this.attributes[name] = value; }
     addEventListener(name, callback) { this.listeners.set(name, callback); }
-    reportValidity() { return this.value !== ''; }
+    reportValidity() { return this.value !== '' && !this.validationMessage; }
     querySelector() { return null; }
   }
   const roots = new Map(), applied = [];
@@ -211,7 +215,7 @@ function voiceEditorHarness() {
   } };
 }
 
-for (const [profile, label, stage, parameter] of [[0, 'Wet', 0, 'wet'], [0, 'Feedback', 0, 'feedback'], [5, 'Depth · ms', 1, 'depthMs']]) {
+for (const [profile, label, stage, parameter] of [[0, 'Wet', 0, 'wet'], [0, 'Feedback', 0, 'feedback'], [5, 'Depth', 1, 'depthMs']]) {
   test(`blank required ${label} remains invalid instead of becoming zero`, () => {
     const h = voiceEditorHarness(); h.field(profile, label, '');
     assert(Number.isNaN(h.editor.configurations()[profile].effects[stage][parameter]));
@@ -375,7 +379,7 @@ test('disposing failed audio disconnects every output without waiting for a work
   const released = [];
   const audio = Object.assign(Object.create(PracticeAudio.prototype), {
     startGeneration: 0, disposed: false,
-    detachState() {}, detachTracker() {},
+    detachState() {}, detachTracker() {}, detachPeripheral() {},
     endpoint: { port: { removeEventListener() {} }, dispose() { released.push('endpoint'); }, request() { throw new Error('Must not wait for an acknowledgment'); } },
     recordDestination: { stream: { getTracks: () => [{ stop() { released.push('recording-track'); } }] }, disconnect() { released.push('recording-node'); } },
     tracker: { node: { disconnect(...targets) { assert.equal(targets.length, 0); released.push('all-output'); } }, async dispose() { released.push('microphone'); } },
@@ -414,6 +418,7 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
   const source = await sourceForVM(new URL('../app.ts', import.meta.url));
   const listeners = new Map();
   const commands = [];
+  const releases = [];
   let panicCalls = 0;
   class Element {
     constructor(editing = false) { this.editing = editing; }
@@ -423,11 +428,11 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
   const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: controls,
     document: { querySelector: () => null, querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
-    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }),
+    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }), releasePad: (id, commandId) => releases.push({ id, commandId }),
   };
   prepareUIContext(context);
   const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const liveVoiceStates'));
-  const releaseSource = source.slice(source.indexOf('function releasePresses'), source.indexOf('async function triggerPad'));
+  const releaseSource = source.slice(source.indexOf('function releasePresses'), source.indexOf('const pendingPadPresses'));
   const handlers = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('function postPerformanceEvent'));
   vm.runInContext(adapterSource + releaseSource + handlers, context);
   const event = { target: new Element(), code: 'KeyQ', repeat: false, timeStamp: 123, preventDefault() {} };
@@ -458,6 +463,8 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
   listeners.get('keydown')(escape);
   assert.equal(panicCalls, 2, 'Escape also works when it is the first input after focus loss');
   assert.equal(commands.length, 8);
+  assert.equal(releases.length, 8, "every accepted key-up forwards a pad release");
+  assert.deepEqual(releases.map(control => control.id), commands.map(control => control.id));
   assert.equal(new Set(commands.map(command => command.commandId)).size, 8);
 });
 
@@ -520,7 +527,7 @@ test('Space on an effect disclosure, action button or link never toggles transpo
   assert.equal(panics, 1);
 });
 
-for (const id of ['drunk-girls', 'i-can-change']) {
+for (const id of ['i-can-change']) {
   test(`${id} starts with dry identity processing in every profile, including hidden live routes`, async () => {
     const song = await loadSong(id);
     assert.equal(song.compiled, undefined, 'this source has no compiled per-voice capture support');
@@ -559,4 +566,13 @@ test('passive preparation passes saved graphs while Start passes its explicitly 
   const start = startupHarness(undefined, { savedConfigurations: saved, voiceConfigurations: draft });
   await start.controls.startPractice();
   assert.equal(start.creationOptions[0].initialVoiceEffects, draft);
+});
+
+test('Drunk Girls loads the complete executable pickup and numbered timeline', async () => {
+  const song = await loadSong('drunk-girls');
+  assert.equal(song.compiled?.executable, true);
+  assert.equal(song.chart.bars.length, 137);
+  assert.equal(song.chart.bars[0].label, 'Pickup 0');
+  assert.equal(song.chart.bars[9].label, '1');
+  assert.equal(song.practice.endBar, 137);
 });

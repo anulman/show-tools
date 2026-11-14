@@ -247,7 +247,7 @@ test('independent native voice graphs survive equal-revision compiled loads and 
 });
 
 test('real WASM backup graph follows relative rotation and native quarter-count inactivity release with ordered PCM and natural tails', () => {
-  const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+  const program = [PF.COMPILED_MAGIC, PF.COMPILED_LEGACY_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
     PF.COMPILED_ROTATION_MAGIC, 2, .25, 1, 0, 1, 1, 2, 0, 3, 2];
   const native = engine(program);
   try {
@@ -297,7 +297,7 @@ test('real WASM backup graph follows relative rotation and native quarter-count 
 });
 
 test('WASM rejects old grid packets instead of reinterpreting their duration field', () => {
-  const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+  const program = [PF.COMPILED_MAGIC, PF.COMPILED_LEGACY_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
     PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
   const native = engine(program);
   try {
@@ -313,7 +313,7 @@ test('WASM rejects old grid packets instead of reinterpreting their duration fie
 
 for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
   test(`WASM full inactivity uses processed frames and fresh movement at the deadline (${rate} Hz, ${beats} counts)`, () => {
-    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_LEGACY_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
     const native = engine(program, rate);
     try {
@@ -347,7 +347,7 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
   });
 
   test(`WASM inactivity deadline follows a native tempo hit (${rate} Hz, ${beats} counts)`, () => {
-    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_LEGACY_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
     const native = engine(program, rate);
     try {
@@ -505,7 +505,7 @@ for (const rate of [44100, 48000]) test(`WASM cue button edges and engine light 
 
 for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
   test(`WASM jiggle ignores isolated tiny movement and confirms small reversal (${rate} Hz, ${beats} counts)`, () => {
-    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_LEGACY_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
     const native = engine(program, rate);
     try {
@@ -541,7 +541,7 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
 
 for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
   test(`WASM physical cue warnings use authored counts and accepted state (${rate} Hz, ${beats} counts)`, () => {
-    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 3, 120, 3, 25, 25, 0, 2, 0, 0, 0, 1, 2, 3,
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_LEGACY_VERSION, beats, 3, 120, 3, 25, 25, 0, 2, 0, 0, 0, 1, 2, 3,
       0, 0, 1, -1, PF.STOP, 1, 0, -1, -1, -1, 0,
       0, 0, 2, 0, PF.STOP, 0, 0, -1, -1, -1, 0];
     const native = engine(program, rate);
@@ -568,7 +568,7 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
 
 for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
   test(`WASM jiggle reconnect preserves accumulated movement and native time (${rate} Hz, ${beats} counts)`, () => {
-    const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    const program = [PF.COMPILED_MAGIC, PF.COMPILED_LEGACY_VERSION, beats, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF.COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0];
     const native = engine(program, rate);
     const backup = () => native.voiceEffects()[PF.BACKUP_PROFILE];

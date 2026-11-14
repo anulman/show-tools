@@ -43,7 +43,7 @@ test('chart CLI compiles the canonical DYC MusicXML into deterministic reviewabl
     assert.deepEqual(await readFile(native), firstBytes);
     await run(['compile', ...inputs, '--out', second]);
     assert.equal(await readFile(first, 'utf8'), await readFile(second, 'utf8'));
-    assert.match((await run(['inspect', 'songs/dance-yrself-clean.musicxml'])).stdout, /Schema 6.*executable/);
+    assert.match((await run(['inspect', 'songs/dance-yrself-clean.musicxml'])).stdout, /Schema 7.*executable/);
     await assert.rejects(run(['compile', '--source', 'songs/dance-yrself-clean.source.json', '--out', first]), /Unknown or repeated chart option --source/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

@@ -1,5 +1,38 @@
 # Capture verification result
 
+## Consolidated practice release
+
+The source-fenced run at `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4` passes: 201,097 generated and 11,894 distinct main-model states with an empty final queue, all eleven invariants, six model mutants, twelve actual-native scenarios and seven assertion-specific source mutants. The 782-state display and 102-state overview models also finish. The twelve-scenario pristine rerun and production-source hashes pass after all mutations. Receipt: `/private/tmp/practice-tonight-capture-final-cd3ae7e/receipt.json`.
+
+The store-only scenario now runs with automatic sustain analysis enabled, under profiles 0, 4 and 5 at 8, 44.1 and 48 kHz. Pressed and missed stores preserve their full sources and remain silent. A later ordinary play still works; a held press over the unsuitable constant source rejects without changing the retained take or its playing loop. The launch-policy mutants still fail the original autoplay/store assertions. No model property, bound, original scenario or mutation was weakened.
+
+The initial source-hash rejection and the new witness's first error-code assertion were verification drift. No capture-policy product defect was found. The finite model and configurations are byte-identical to the previous checked versions, so their prior statechart interpretation still applies. This run refreshes source correspondence and native execution evidence; it does not prove the periodic analyzer's musical quality, phase arithmetic or real-time cost. See [SOURCE-SYNC.md](SOURCE-SYNC.md).
+
+Current outcome: **updated** against native source commit `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. Exact production hashes are retained in [source-record.json](source-record.json). The finite model explicitly carries the outgoing `autoplay` or `store-only` launch policy. Ordinary commit and commit-and-arm keep their conditional autoplay promise. Store-only publication never launches its newly retained bank.
+
+The pinned command `node verification/capture/verify.ts` passes with explicit `JAVA` and `TLA2TOOLS` paths. The retained execution receipt is `/private/tmp/native-cues-capture-final-894915f-profiles/receipt.json`. Temporary execution files are evidence, not canonical application data.
+
+- Main bound remains 3 takes, 2 banks each, and at most 3 capture beginnings. TLC generates 201,097 states, finds 11,894 distinct states, and exhausts its queue. All eleven configured invariants pass.
+- The original smaller bound remains 2 takes and at most 2 beginnings. It exhausts 6,327 generated and 782 distinct states. Launch policy makes it larger than the statechart tool's 500-state complete-chart budget.
+- The separate one-beginning overview exhausts 555 generated and 102 distinct states. Its generated chart has 6 labels and 13 arrows. It omits 156 transitions whose endpoints share a label, and cannot display a successful second capture.
+- Six model mutants fail their named invariants. Seven actual-source mutants fail their intended native assertions. All twelve native scenarios pass before and after the temporary mutations, and production hashes remain unchanged.
+- Store-only native witnesses check pressed and missed endpoints at 8, 44.1, and 48 kHz for source profiles 0, 4, and 5 on physical bank 0. They check exact retained length and period, silent sample output, missed-play silence, and later explicit launch of the immutable source. Additional paths retain another source in the same voice and preserve newly published autoplay under a replacing combined commit-and-arm.
+- Strict TypeScript checking of the verifier, view, and runner passes. All three runner failure tests and `git diff --check` pass.
+
+All pristine and mutated model outcomes were interpreted through the current `/statechart` command. Every rule is checked. The store-only mutation has a two-step shortest counterexample after the initial state: arm a capture, then incorrectly autoplay its store-only publication. The latest-bank mutation has three steps. Each other intended policy violation has two. Additional mutant consequences remain visible, including retained-bank completeness and conditional autoplay after a missing endpoint.
+
+The newly added replacing combined witness exposed a product bug during implementation. Capture-start replacement stopped its own just-published outgoing take. The native fix excludes that outgoing take, and the unchanged autoplay expectation now passes. The initial sandbox socket failure was a harness restriction. Packet and source-fence updates were verification drift. These categories are recorded in [SOURCE-SYNC.md](SOURCE-SYNC.md).
+
+This remains a bounded model safety result with selected real C++ witnesses and mutation sensitivity. It does not prove arbitrary audio arithmetic, source phase, finite playback duration, pitch bend, held release, per-note selection, external sample loading, physical timing, or exhaustive refinement of C++. The main bound and the original two-capture display bound were not reduced.
+
+The source refresh from `8d9dd8b` to `7e3b3c1` changes playback gate ownership, practice-loop note availability, immutable source phase conversion, authored next-bar quantization, and packet group validation. The capture model, eleven invariant definitions, finite bounds, and all mutation controls are unchanged. The complete twelve-scenario native and seven-source-mutant rerun passes against the refreshed source hashes. These playback regressions require separate WASM execution checks and are not new claims of the finite capture proof.
+
+The source refresh through `894915f` separates each take's effect profile from its physical bank, expands source rack ownership to six profiles with separate default and backup monitor routes, and adds stopped Tuning note preparation plus native WAV preparation and external controls. The capture model and all eleven invariant definitions remain unchanged. The existing tuner-isolation scenario and its gate-removal mutant still pass their positive and negative checks. The native store-only witness now directly exercises profiles 4 and 5 in addition to the default profile. The complete source-fenced suite passes again with six model mutants, seven source mutants, and twelve native scenarios before and after mutation.
+
+Three focused real WASM regressions independently pass for same-bank source profile independence, sung-note Tuning capture and runtime isolation, and native WAV rate conversion with atomic malformed replacement rejection. Twelve focused canonical/source/asset tests also pass. Their owned Unix-socket acknowledgment test first hit sandbox `EPERM`; the reviewed retry passes. This was a harness permission restriction, not a product failure. These checks are selected integration evidence, not additions to the finite capture proof. Pitch stability arithmetic, WAV parsing, profile-specific DSP, and physical inputs remain outside the model.
+
+## Historical verification results
+
 Verified against source sync `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`, with the unchanged mapped source files checked by SHA-256. This is a bounded model safety result with actual C++ witness/mutation sensitivity. It is not an unrestricted implementation or DSP proof.
 
 The reproducible command is `node verification/capture/verify.ts` after provisioning the pinned `JAVA` and `TLA2TOOLS` environment paths. Logs and the full machine receipt are generated outside Git.

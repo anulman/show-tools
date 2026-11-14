@@ -1,6 +1,8 @@
 import { Schema } from 'effect';
 import type { Chart, ChartBar, ChartSection } from './model.js';
+import { parseSheetCues, type SheetCue } from './sheet-cues.js';
 import { columnName } from './columns.js';
+import { ExternalSampleAssetSchema, decodeExternalSampleWav } from './external-assets.js';
 import { SongSourceSchema } from './song-source.js';
 
 const list = <S extends Schema.Constraint>(schema: S) => Schema.mutable(Schema.Array(schema));
@@ -11,7 +13,7 @@ const CueKindSchema = Schema.Literals(['arm', 'commit', 'commit-arm', 'stop', 'p
 export const ExecutionSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('now') }),
   Schema.Struct({ kind: Schema.Literal('next-bar') }),
-  Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite }),
+  Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite, barOffset: Schema.optionalKey(Schema.Literals([0, 1])) }),
 ]);
 const PointSchema = Schema.Struct({ bar: Schema.Int, beat: Finite });
 const SourceRefSchema = Schema.Struct({ sheetId: Schema.Int, a1: Schema.String, text: Schema.String, note: Schema.String });
@@ -27,17 +29,26 @@ const ActionFields = {
   kind: CueKindSchema, cueBeat: Schema.NullOr(Finite), execution: ExecutionSchema,
   captureTail: Schema.Literals(['none', 'silence-to-bar-end']), tempoBeatHint: Schema.Literals([0, 1]),
 };
+const AuthoredCueSchema = Schema.Struct({
+  bar: Schema.Int, buttonId: ButtonSchema, voiceId: Schema.String, source: SourceRefSchema,
+  actions: list(Schema.Struct({ group: Schema.optionalKey(Schema.Int), operation: Schema.Literals(['cr', 'cx', 'r', 'c', 'x', 'p', 'g', 'h']), pressBeat: Schema.NullOr(Finite), sourceName: Schema.NullOr(Schema.String),
+    execution: Schema.Union([Schema.Struct({ kind: Schema.Literal('now') }), Schema.Struct({ kind: Schema.Literal('next-bar') }),
+      Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite, barOffset: Schema.Literals([0, 1]) })]) })),
+});
 const CueWindowSchema = Schema.Struct({ earlyMs: Finite, lateMs: Finite, ties: Schema.Literal('reject') });
 const OverrideSchema = Schema.Struct({
   a1: Schema.String, notation: Schema.String, ...ActionFields,
 });
 export const SongMappingSchema = Schema.Struct({
-  mappingVersion: Schema.Literal(6), notationVersion: Schema.Literal('dyc-v1'), songId: Schema.String,
+  mappingVersion: Schema.Literal(6), notationVersion: Schema.Literals(['dyc-v1', 'terse-v2']), songId: Schema.String,
   spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String,
   titleCell: Schema.String, bpmCell: Schema.String, sectionRow: Schema.Int, barRow: Schema.Int, leadInColumn: Schema.Int,
   startBar: Schema.Int, endBar: Schema.Int,
+  terminalStops: Schema.optionalKey(list(Schema.String)),
+  prelude: Schema.optionalKey(list(Schema.Struct({ label: Schema.NonEmptyString, counts: Schema.Int }))),
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
-  controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String })),
+  controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String, playbackMode: Schema.optionalKey(Schema.Literals(['loop', 'one-shot'])) })),
+  sourceBindings: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, sourceName: Schema.String, voiceId: Schema.optionalKey(Schema.String), profile: Schema.optionalKey(Schema.Int), sourceCell: Schema.optionalKey(Schema.String), captureReplacement: Schema.optionalKey(Schema.Boolean), loopCounts: Schema.optionalKey(Finite), playbackMode: Schema.Literals(['loop', 'one-shot']), default: Schema.optionalKey(Schema.Boolean), sustain: Schema.optionalKey(Schema.Union([Schema.Struct({ beginCount: Finite, endCount: Finite, loopCounts: Finite }), Schema.Struct({ kind: Schema.Literal('periodic') })])) }))),
   liveParts: list(Schema.Struct({ id: Schema.String, labelCell: Schema.String, role: Schema.Literals(['default-live', 'rotation-live']) })),
   rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, inactivityBeats: Finite })),
   cueWindow: Schema.NullOr(CueWindowSchema),
@@ -51,12 +62,17 @@ export const SongMappingSchema = Schema.Struct({
 export type SongMapping = typeof SongMappingSchema.Type;
 export const decodeSongMapping = Schema.decodeUnknownSync(SongMappingSchema);
 const DiagnosticSchema = Schema.Struct({ severity: Schema.Literals(['error', 'warning', 'info']), code: Schema.String, message: Schema.String, owner: Schema.String, source: SourceRefSchema });
-const CueSchema = Schema.Struct({
+export const LegacyCueSchema = Schema.Struct({
   id: Schema.String, bar: Schema.Int, buttonId: ButtonSchema, voiceId: Schema.String, ...ActionFields, takeId: Schema.NullOr(Schema.String),
   commitTakeId: Schema.NullOr(Schema.String), selectionId: Schema.NullOr(Schema.String), source: SourceRefSchema,
 });
+const CueSchema = Schema.Struct({ ...LegacyCueSchema.fields,
+  captureReplacement: Schema.Boolean,
+  launchPolicy: Schema.Literals(['autoplay', 'store']), playbackMode: Schema.Literals(['loop', 'one-shot', 'held', 'gated']),
+  sourceName: Schema.NullOr(Schema.String), groupId: Schema.NullOr(Schema.String),
+});
 const TakeSchema = Schema.Struct({
-  id: Schema.String, voiceId: Schema.String, slot: Schema.Int, begin: PointSchema,
+  id: Schema.String, voiceId: Schema.String, profile: Schema.optionalKey(Schema.Int), sourceVoiceId: Schema.optionalKey(Schema.String), sourceName: Schema.optionalKey(Schema.NullOr(Schema.String)), slot: Schema.Int, periodCounts: Schema.optionalKey(Finite), begin: PointSchema,
   captureEnd: Schema.NullOr(PointSchema), loopEnd: Schema.NullOr(PointSchema),
   groupId: Schema.NullOr(Schema.String), phraseAnchorTakeId: Schema.String,
   armCueId: Schema.String, commitCueId: Schema.NullOr(Schema.String), phrase: Schema.String,
@@ -65,29 +81,39 @@ const TakeSchema = Schema.Struct({
 const PadStrings = Schema.Struct({ L1: Schema.String, L2: Schema.String, R1: Schema.String, R2: Schema.String });
 export const ChartSchema = Schema.Struct({
   title: Schema.String, bpm: Finite, beatsPerBar: Schema.Int,
-  bars: list(Schema.Struct({ bar: Schema.Int, column: Schema.Int, sectionId: Schema.String, section: Schema.String, partial: Schema.Boolean, cues: PadStrings })),
+  bars: list(Schema.Struct({ bar: Schema.Int, label: Schema.optionalKey(Schema.NonEmptyString), column: Schema.Int, sectionId: Schema.String, section: Schema.String, partial: Schema.Boolean, cues: PadStrings })),
   sections: list(Schema.Struct({ id: Schema.String, label: Schema.String, startBar: Schema.Int, endBar: Schema.Int })),
   spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String, leadInColumn: Schema.Int,
   leadInCues: PadStrings, controlNames: PadStrings, annotatedThroughBar: Schema.Int,
 });
 const SelectionWindowSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('full') }),
+  Schema.Struct({ kind: Schema.Literal('sustain') }),
   Schema.Struct({ kind: Schema.Literal('prefix'), endCount: Finite }),
   Schema.Struct({ kind: Schema.Literal('slice'), beginCount: Finite, endCount: Finite, loopCounts: Finite }),
 ]);
 export const CompiledSongSchema = Schema.Struct({
-  schemaVersion: Schema.Literal(6), notationVersion: Schema.Literal('dyc-v1'), id: Schema.String, title: Schema.String,
+  schemaVersion: Schema.Literal(7), notationVersion: Schema.Literals(['dyc-v1', 'terse-v2']), id: Schema.String, title: Schema.String,
   ticksPerQuarter: Schema.Literal(960), meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   source: Schema.Struct({ spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String, range: Schema.String, digest: Schema.String }),
   mappingDigest: Schema.String, chart: ChartSchema,
   voices: list(Schema.Struct({ id: Schema.String, buttonId: ButtonSchema, arrangementRow: Schema.Int })),
+  sourceProfiles: Schema.optionalKey(list(Schema.Struct({ id: Schema.String, profile: Schema.Int, source: SourceRefSchema, name: Schema.String }))),
   parts: list(PartSchema), rotation: Schema.NullOr(RotationSchema),
   cueWindow: Schema.NullOr(CueWindowSchema),
+  noteBanks: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, toleranceMs: Finite, notes: list(Schema.Struct({ slot: Schema.Int, at: PointSchema })), capture: Schema.optionalKey(Schema.Struct({ profile: Schema.Int, slots: list(Schema.Int) })) }))),
+  externalSamples: Schema.optionalKey(list(Schema.Struct({ slot: Schema.Int, voiceId: Schema.String, begin: PointSchema, end: PointSchema, asset: Schema.optionalKey(ExternalSampleAssetSchema) }))),
+  terminalStops: Schema.optionalKey(list(SourceRefSchema)),
+  authoredCues: Schema.optionalKey(list(AuthoredCueSchema)),
   cues: list(CueSchema), takes: list(TakeSchema),
   selections: list(Schema.Struct({ id: Schema.String, voiceId: Schema.String, groupId: Schema.String, takeIds: list(Schema.String), gains: list(Finite), window: SelectionWindowSchema })),
   playback: list(Schema.Struct({ bar: Schema.Int, voiceId: Schema.String, selectionId: Schema.String })),
   diagnostics: list(DiagnosticSchema), executable: Schema.Boolean,
 });
+const LegacyCompiledSongSchema = Schema.Struct({ ...CompiledSongSchema.fields, schemaVersion: Schema.Literal(6), cues: list(LegacyCueSchema) });
+export function migrateCompiledCueV6(cue: typeof LegacyCueSchema.Type): typeof CueSchema.Type {
+  return { ...cue, captureReplacement: false, launchPolicy: 'autoplay', playbackMode: 'loop', sourceName: null, groupId: null };
+}
 export type CompiledSong = typeof CompiledSongSchema.Type;
 export type CompiledPart = typeof PartSchema.Type;
 export type CompiledCue = typeof CueSchema.Type;
@@ -96,7 +122,7 @@ export type SongDiagnostic = typeof DiagnosticSchema.Type;
 export type Execution = typeof ExecutionSchema.Type;
 function cueBoundary(cue: CompiledCue): typeof PointSchema.Type {
   return cue.execution.kind === 'next-bar' ? { bar: cue.bar + 1, beat: 0 }
-    : { bar: Math.max(1, cue.bar), beat: cue.execution.kind === 'beat' ? cue.execution.beat : cue.cueBeat ?? 0 };
+    : { bar: Math.max(1, cue.bar) + (cue.execution.kind === 'beat' ? cue.execution.barOffset ?? 0 : 0), beat: cue.execution.kind === 'beat' ? cue.execution.beat : cue.cueBeat ?? 0 };
 }
 function pointCount(point: typeof PointSchema.Type, beats: number): number { return (point.bar - 1) * beats + point.beat; }
 function samePoint(a: typeof PointSchema.Type, b: typeof PointSchema.Type): boolean { return a.bar === b.bar && a.beat === b.beat; }
@@ -113,7 +139,35 @@ function overlappingCaptures(takes: readonly CompiledTake[], beats: number) {
   return conflicts;
 }
 export function decodeCompiledSong(input: unknown): CompiledSong {
-  const song = Schema.decodeUnknownSync(CompiledSongSchema)(input);
+  const version = Schema.decodeUnknownSync(Schema.Struct({ schemaVersion: Schema.Int }))(input).schemaVersion;
+  const song = version === 6 ? (() => {
+    const legacy = Schema.decodeUnknownSync(LegacyCompiledSongSchema, { onExcessProperty: 'error' })(input);
+    return { ...legacy, schemaVersion: 7, cues: legacy.cues.map(migrateCompiledCueV6) } satisfies CompiledSong;
+  })() : Schema.decodeUnknownSync(CompiledSongSchema, { onExcessProperty: 'error' })(input);
+  if (song.notationVersion === 'terse-v2') {
+    if (song.authoredCues === undefined) throw new Error('Terse notation requires typed authored cues.');
+    const keys = new Set<string>();
+    for (const cell of song.authoredCues) {
+      const key = `${cell.bar}/${cell.buttonId}`;
+      if (keys.has(key)) throw new Error('Duplicate authored cue cell.');
+      keys.add(key);
+      const shown = cell.bar === 0 ? song.chart.leadInCues[cell.buttonId] : song.chart.bars.find(bar => bar.bar === cell.bar)?.cues[cell.buttonId];
+      const parsed = parseSheetCues(cell.source.text, song.meter.numerator);
+      if (shown !== cell.source.text.trim() || parsed.kind !== 'parsed' || canonicalSongJson(parsed.actions) !== canonicalSongJson(cell.actions)) throw new Error('Authored cue display or semantics disagree.');
+      if (song.executable) {
+        const native = song.cues.filter(cue => cue.bar === cell.bar && cue.buttonId === cell.buttonId);
+        if (native.length !== cell.actions.length || cell.actions.some(action => {
+          const expected = lowerSheetCue(action);
+          return !native.some(cue => (cue.sourceName !== null || cue.voiceId === cell.voiceId) && cue.source.a1 === cell.source.a1 && cue.kind === expected.kind && cue.cueBeat === expected.cueBeat && canonicalSongJson(cue.execution) === canonicalSongJson(expected.execution) && cue.sourceName === action.sourceName && cue.launchPolicy === (action.operation === 'cx' ? 'store' : 'autoplay') && cue.groupId === (action.group === undefined ? null : `${cell.source.a1}/group-${action.group}`) && (action.operation !== 'h' || cue.playbackMode === 'held') && (action.operation !== 'g' || cue.playbackMode === 'gated'));
+        })) throw new Error('Authored cues disagree with native lowering.');
+      }
+    }
+    for (const bar of [{ bar: 0, cues: song.chart.leadInCues }, ...song.chart.bars]) for (const button of ['L1', 'L2', 'R1', 'R2'] satisfies (keyof typeof bar.cues)[]) {
+      const parsed = parseSheetCues(bar.cues[button], song.meter.numerator);
+      if (song.executable && parsed.kind === 'invalid') throw new Error('Invalid authored cue cannot execute.');
+      if (bar.cues[button] && !keys.has(`${bar.bar}/${button}`) && parseSheetCues(bar.cues[button], song.meter.numerator).kind === 'parsed') throw new Error('Authored cue cell is missing.');
+    }
+  }
   if (!song.executable) return song;
   if (song.diagnostics.some(d => d.severity === 'error') || !song.cueWindow) throw new Error('An executable song cannot contain unresolved errors or cue policy.');
   const beats = song.meter.numerator;
@@ -123,8 +177,11 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   if (bars < 1 || bars > 4096 || song.chart.bars.some((bar, index) => bar.bar !== index + 1 || bar.partial
     || !Number.isSafeInteger(bar.column) || bar.column < 1)
     || song.chart.annotatedThroughBar < 1 || song.chart.annotatedThroughBar > bars) throw new Error('Invalid executable measure map.');
+  if (song.terminalStops?.some(stop => stop.text.trim() !== 'x') || new Set(song.terminalStops?.map(stop => stop.a1)).size !== (song.terminalStops?.length ?? 0)) throw new Error('Invalid terminal stops.');
+  const labels = song.chart.bars.filter(bar => bar.label !== undefined);
+  if (labels.length && (labels.length !== bars || new Set(labels.map(bar => bar.label)).size !== bars)) throw new Error('Invalid executable measure labels.');
   if ([song.cueWindow.earlyMs, song.cueWindow.lateMs].some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error('Invalid executable cue window; use 0 through 100 milliseconds.');
-  if (song.voices.length !== 4 || new Set(song.voices.map(voice => voice.buttonId)).size !== 4) throw new Error('Invalid executable button bindings.');
+  if (song.voices.length < 1 || song.voices.length > 4 || new Set(song.voices.map(voice => voice.buttonId)).size !== song.voices.length) throw new Error('Invalid executable button bindings.');
   const validGain = (value: number) => Number.isFinite(value) && value >= 0 && value <= 4;
   const validBeat = (value: number) => Number.isFinite(value) && value >= 0 && value < beats && Number.isInteger(value * 960);
   const validPoint = (point: typeof PointSchema.Type, end: boolean) => Number.isSafeInteger(point.bar) && point.bar >= 1
@@ -143,8 +200,19 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
       if (index < 0 || part.profile !== index) throw new Error('Invalid executable part binding.');
     } else if (part.profile !== (part.role.kind === 'default-live' ? 4 : 5)) throw new Error('Invalid executable live profile.');
   }
-  if (song.parts.length < 4 || song.parts.length > 6 || song.voices.some(voice => !song.parts.some(part => part.id === voice.id && part.role.kind === 'pad'))
+  if (song.parts.length < song.voices.length || song.parts.length > 6 || song.voices.some(voice => !song.parts.some(part => part.id === voice.id && part.role.kind === 'pad'))
     || song.parts.filter(part => part.role.kind === 'default-live').length > 1 || song.parts.filter(part => part.role.kind === 'rotation-live').length > 1) throw new Error('Invalid executable voice registry.');
+  unique((song.sourceProfiles ?? []).map(profile => profile.id), 'source profile');
+  unique((song.sourceProfiles ?? []).map(profile => String(profile.profile)), 'source effect profile');
+  for (const profile of song.sourceProfiles ?? []) {
+    const name = (profile.source.text.trim() || profile.source.note.trim()).replace(/^AF\s*-\s*/, '').trim();
+    if (!profile.id.trim() || !sourceValid(profile.source) || !name || profile.name !== name || !Number.isInteger(profile.profile)
+      || profile.profile < 0 || profile.profile >= 6) throw new Error('Invalid executable source profile identity.');
+  }
+  const profileOwners = [...song.parts, ...song.sourceProfiles ?? []];
+  for (const owner of profileOwners) if (profileOwners.some(other => other !== owner
+    && (other.profile === owner.profile || other.id === owner.id || other.source.a1 === owner.source.a1)
+    && (other.id !== owner.id || other.profile !== owner.profile || canonicalSongJson(other.source) !== canonicalSongJson(owner.source) || other.name !== owner.name))) throw new Error('Conflicting executable source profile ownership.');
   if (song.rotation) {
     if (!song.parts.some(part => part.id === song.rotation?.voiceId && part.role.kind === 'rotation-live')
       || !validInactivityBeats(song.rotation.inactivityBeats)) throw new Error('Invalid executable rotation route.');
@@ -159,18 +227,24 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   }
   if (song.takes.length > 28 || new Set(song.takes.map(t => t.slot)).size !== song.takes.length) throw new Error('Invalid prepared take resource count or slot identity.');
   for (const take of song.takes) {
+    const sourceVoiceId = take.sourceVoiceId ?? take.voiceId;
+    const profile = take.profile ?? song.voices.findIndex(voice => voice.id === take.voiceId);
+    if (!Number.isInteger(profile) || profile < 0 || profile >= 6
+      || ![...song.parts, ...song.sourceProfiles ?? []].some(source => source.id === sourceVoiceId && source.profile === profile)) throw new Error('Invalid executable source effect profile.');
     if (!song.voices.some(v => v.id === take.voiceId) || !take.captureEnd || !take.loopEnd || !take.groupId || take.gain === null || !validGain(take.gain)
       || take.retention === 'unresolved' || take.slot < 4 || take.slot >= 32 || !validPoint(take.begin, false) || !validPoint(take.captureEnd, true) || !validPoint(take.loopEnd, true)
       || pointCount(take.captureEnd, beats) <= pointCount(take.begin, beats) || pointCount(take.loopEnd, beats) < pointCount(take.captureEnd, beats)) throw new Error('Invalid executable take resource.');
     const anchor = song.takes.find(candidate => candidate.id === take.phraseAnchorTakeId);
     const period = loopCounts(take, beats), anchorPeriod = anchor && loopCounts(anchor, beats);
-    if (!anchor || anchor.voiceId !== take.voiceId || anchor.groupId !== take.groupId || anchor.phraseAnchorTakeId !== anchor.id || !period || period !== anchorPeriod
+    if (!anchor || anchor.voiceId !== take.voiceId || (anchor.sourceVoiceId ?? anchor.voiceId) !== sourceVoiceId || (anchor.profile ?? song.voices.findIndex(voice => voice.id === anchor.voiceId)) !== profile || anchor.groupId !== take.groupId || anchor.phraseAnchorTakeId !== anchor.id || !period || period !== anchorPeriod
       || anchor.phrase !== take.phrase || pointCount(take.begin, beats) < pointCount(anchor.begin, beats)
       || Math.round((pointCount(take.begin, beats) - pointCount(anchor.begin, beats)) * 960) % Math.round(period * 960) !== 0) throw new Error('Invalid executable phrase group or loop period.');
   }
   for (const selection of song.selections) {
     if (!selection.takeIds.length || selection.takeIds.length !== selection.gains.length || new Set(selection.takeIds).size !== selection.takeIds.length
       || selection.gains.some(gain => !validGain(gain)) || selection.takeIds.some(id => !song.takes.some(t => t.id === id && t.voiceId === selection.voiceId && t.groupId === selection.groupId))) throw new Error('Invalid executable take selection.');
+    if (selection.window.kind === 'sustain' && (selection.takeIds.length !== 1 || song.playback.some(cue => cue.selectionId === selection.id)
+      || song.cues.some(cue => cue.selectionId === selection.id && (cue.kind !== 'play' || !['held', 'gated'].includes(cue.playbackMode))))) throw new Error('Invalid automatic sustain selection.');
     if (selection.window.kind === 'prefix') {
       const take = song.takes.find(take => take.id === selection.takeIds[0]);
       const end = selection.window.endCount;
@@ -196,13 +270,17 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     if ((cue.kind === 'arm' || cue.kind === 'commit-arm') && cue.takeId === null
       || (cue.kind === 'commit' || cue.kind === 'commit-arm') && cue.commitTakeId === null
       || cue.kind === 'play' && cue.selectionId === null) throw new Error('Invalid executable cue resource.');
-    if (!song.voices.some(v => v.id === cue.voiceId && v.buttonId === cue.buttonId)
+    if (!song.voices.some(v => v.id === cue.voiceId)
+      || (cue.kind === 'arm' || cue.kind === 'commit' || cue.kind === 'commit-arm') && !song.voices.some(v => v.id === cue.voiceId && v.buttonId === cue.buttonId)
       || cue.takeId !== null && !song.takes.some(t => t.id === cue.takeId && t.voiceId === cue.voiceId)
       || cue.commitTakeId !== null && !song.takes.some(t => t.id === cue.commitTakeId && t.voiceId === cue.voiceId)
       || cue.selectionId !== null && !song.selections.some(s => s.id === cue.selectionId && s.voiceId === cue.voiceId)) throw new Error('Invalid executable cue reference.');
+    if (cue.commitTakeId !== null && cue.sourceName !== null && song.takes.find(take => take.id === cue.commitTakeId)?.sourceName !== cue.sourceName) throw new Error('Named commit source disagrees with its recording.');
     if ((cue.kind === 'arm' || cue.kind === 'commit-arm') !== (cue.takeId !== null)
       || (cue.kind === 'commit' || cue.kind === 'commit-arm') !== (cue.commitTakeId !== null)
-      || (cue.kind === 'commit' || cue.kind === 'commit-arm' || cue.kind === 'play') !== (cue.selectionId !== null)) throw new Error('Invalid executable capture cue kind.');
+      || (cue.kind === 'arm' && cue.selectionId !== null)
+      || ((cue.kind === 'commit' || cue.kind === 'commit-arm') && cue.selectionId === null)
+      || (cue.kind === 'play' && cue.selectionId === null)) throw new Error('Invalid executable capture cue kind.');
   }
   for (const take of song.takes) {
     const arms = song.cues.filter(cue => cue.takeId === take.id);
@@ -212,7 +290,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     if (arms.length !== 1 || commits.length !== 1 || arm.id !== take.armCueId || commit.id !== take.commitCueId
       || cueBoundary(arm).bar !== take.begin.bar || cueBoundary(arm).beat !== take.begin.beat
       || !take.captureEnd || !take.loopEnd || !samePoint(cueBoundary(commit), take.captureEnd)
-      || !samePoint(take.loopEnd, commit.captureTail === 'silence-to-bar-end' ? { bar: take.captureEnd.bar + 1, beat: 0 } : take.captureEnd)
+      || !(take.periodCounts !== undefined ? take.periodCounts > 0 && Number.isInteger(take.periodCounts * 960) && Math.abs(pointCount(take.loopEnd, beats) - pointCount(take.begin, beats) - take.periodCounts) < 1e-8 : samePoint(take.loopEnd, commit.captureTail === 'silence-to-bar-end' ? { bar: take.captureEnd.bar + 1, beat: 0 } : take.captureEnd))
       || !song.selections.some(selection => selection.id === commit.selectionId && selection.takeIds.includes(take.id)
         && (selection.window.kind === 'full' || selection.window.kind === 'slice'
           && selection.window.endCount === capturedCounts
@@ -221,6 +299,38 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     }
   }
   if (song.playback.some(p => p.bar < 1 || p.bar > bars || !song.selections.some(s => s.id === p.selectionId && s.voiceId === p.voiceId))) throw new Error('Invalid executable playback reference.');
+  if (song.noteBanks) {
+    const buttons = new Set<string>(), captureSlots = new Set<number>();
+    for (const bank of song.noteBanks) {
+      if (buttons.has(bank.buttonId) || bank.toleranceMs < 0 || bank.toleranceMs > 100 || !bank.notes.length) throw new Error('Invalid manual note bank.');
+      buttons.add(bank.buttonId);
+      if (bank.capture) {
+        const capture = bank.capture;
+        if (capture.profile < 0 || capture.profile >= 6 || !capture.slots.length || capture.slots.length > 13
+          || new Set(capture.slots).size !== capture.slots.length || capture.slots.some(slot => slot < 0 || slot > 63 || captureSlots.has(slot))
+          || bank.notes.some(note => !capture.slots.includes(note.slot))
+          || capture.slots.some(slot => song.externalSamples?.some(sample => sample.slot === slot))) throw new Error('Invalid note bank capture order or slot ownership.');
+        for (const slot of capture.slots) captureSlots.add(slot);
+      }
+      let previous = -1;
+      for (const note of bank.notes) {
+        const at = pointCount(note.at, beats);
+        if (note.slot < 0 || note.slot > 63 || !validPoint(note.at, false) || at <= previous) throw new Error('Invalid manual note order.');
+        previous = at;
+      }
+    }
+  }
+  if (song.externalSamples) {
+    const slots = new Set<number>();
+    for (const sample of song.externalSamples) {
+      if (!Number.isInteger(sample.slot) || sample.slot < 0 || sample.slot > 63 || slots.has(sample.slot)
+        || !sample.voiceId.trim() || !validPoint(sample.begin, false) || !validPoint(sample.end, true)
+        || pointCount(sample.end, beats) <= pointCount(sample.begin, beats)) throw new Error('Invalid external sample chart binding.');
+      if (song.noteBanks?.some(bank => bank.notes.some(note => note.slot === sample.slot))) throw new Error('External sample and note bank cannot own the same slot.');
+      if (sample.asset) decodeExternalSampleWav(sample.asset);
+      slots.add(sample.slot);
+    }
+  }
   const selectionReady = (id: string, point: typeof PointSchema.Type) => song.selections.find(selection => selection.id === id)?.takeIds.every(id => {
     const end = song.takes.find(take => take.id === id)?.captureEnd;
     return end && end.bar * beats + end.beat <= point.bar * beats + point.beat;
@@ -252,26 +362,20 @@ function coordinate(a1: string): { row: number; column: number } {
   return { row: Number(match[2]), column };
 }
 function at(values: readonly (readonly string[])[], row: number, column: number): string { return values[row - 1]?.[column - 1] ?? ''; }
-function parsedCue(text: string, beatsPerBar: number): Pick<CompiledCue, keyof typeof ActionFields> | null {
-  if (text.trim() === 'clb') return { kind: 'commit', cueBeat: null, execution: { kind: 'now' }, captureTail: 'none', tempoBeatHint: 0 };
-  const cutoff = /^([1-9])c([1-9])$/.exec(text.trim());
-  if (cutoff && Number(cutoff[1]) <= beatsPerBar && Number(cutoff[2]) <= beatsPerBar) return {
-    kind: 'commit', cueBeat: Number(cutoff[1]) - 1, execution: { kind: 'beat', beat: Number(cutoff[2]) - 1 }, captureTail: 'silence-to-bar-end', tempoBeatHint: 0,
-  };
-  if (text.trim() === '1p*') return { kind: 'play', cueBeat: 0, execution: { kind: 'now' }, captureTail: 'none', tempoBeatHint: 1 };
-  const match = /^(?:([1-9]\d*))?(cr|r|c|x|p)(b|e|&|a)?$/.exec(text.trim());
-  if (!match) return null;
-  const kinds: Record<string, CompiledCue['kind']> = { r: 'arm', c: 'commit', cr: 'commit-arm', x: 'stop', p: 'play' };
-  const kind = kinds[match[2]];
-  const cueBeat = match[1] ? Number(match[1]) - 1 : null;
-  if (cueBeat !== null && (cueBeat < 0 || cueBeat >= beatsPerBar)) return null;
-  if (match[3] === 'b') return { kind, cueBeat, execution: { kind: 'next-bar' }, captureTail: 'none', tempoBeatHint: 0 };
-  if (match[3]) {
-    if (cueBeat === null) return null;
-    const fractions: Record<string, number> = { e: .25, '&': .5, a: .75 };
-    return { kind, cueBeat, execution: { kind: 'beat', beat: cueBeat + fractions[match[3]] }, captureTail: 'none', tempoBeatHint: 0 };
-  }
-  return { kind, cueBeat, execution: { kind: 'now' }, captureTail: 'none', tempoBeatHint: 0 };
+type Action = Pick<CompiledCue, keyof typeof ActionFields>;
+/** Explicit boundary migration; archived notation is never interpreted downstream. */
+function migrateDycCue(text: string): { text: string; captureTail: Action['captureTail']; tempoBeatHint: 0 | 1 } {
+  if (text === 'clb') return { text: 'c', captureTail: 'none', tempoBeatHint: 0 };
+  if (text === '1p*') return { text: '1p', captureTail: 'none', tempoBeatHint: 1 };
+  return { text, captureTail: /^[1-9]c[1-9]$/.test(text) ? 'silence-to-bar-end' : 'none', tempoBeatHint: 0 };
+}
+function lowerSheetCue(cue: SheetCue): Action {
+  const execution: Execution = cue.execution.kind !== 'beat' ? cue.execution
+    : cue.execution.barOffset === 1 && cue.execution.beat === 0 ? { kind: 'next-bar' }
+    : { kind: 'beat', beat: cue.execution.beat, ...(cue.execution.barOffset ? { barOffset: cue.execution.barOffset } : {}) };
+  const fields = { cueBeat: cue.pressBeat, execution, captureTail: 'none', tempoBeatHint: 0 } satisfies Omit<Action, 'kind'>;
+  const kinds = { r: 'arm', c: 'commit', cr: 'commit-arm', cx: 'commit', x: 'stop', p: 'play', h: 'play', g: 'play' } satisfies Record<SheetCue['operation'], Action['kind']>;
+  return { ...fields, kind: kinds[cue.operation] };
 }
 export function parseArrangementHits(text: string, beatsPerBar = 4): number[] | null {
   const value = text.trim().replace(/'$/, '');
@@ -306,7 +410,20 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   if (mapping.spreadsheetId !== source.spreadsheetId || mapping.sheetId !== source.sheetId || mapping.sheetName !== source.sheetName) issue('source-identity', 'The mapping worksheet identity does not match the frozen source.', ref(1, 1));
   if (!(mapping.meter.numerator === 4 && mapping.meter.denominator === 4 || mapping.meter.numerator === 6 && mapping.meter.denominator === 8)) issue('meter', 'This native capability supports dominant 4/4 or 6/8. Other meter declarations need an engine capability before execution.', ref(3, 2));
   if (mapping.startBar !== 1 || mapping.endBar < 1 || mapping.endBar > 4096) issue('range', 'The first compiled range must start at bar 1 and contain at most 4096 bars.', ref(mapping.barRow, 1));
-  if (mapping.controls.length !== 4 || new Set(mapping.controls.map(c => c.buttonId)).size !== 4 || new Set(mapping.controls.map(c => c.voiceId)).size !== 4) issue('bindings', 'Map four distinct input buttons to four distinct logical voices.', ref(1, 1));
+  if (mapping.sourceBindings) {
+    const names = new Set<string>(), defaults = new Set<string>();
+    for (const binding of mapping.sourceBindings) {
+      if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(binding.sourceName) || names.has(binding.sourceName)
+        || binding.default && defaults.has(binding.buttonId)) issue('source-binding', 'Source names must be unique and each button can have one default source.', ref(1, 1));
+      const control = mapping.controls.find(control => control.buttonId === binding.buttonId);
+      if (binding.profile !== undefined && (!Number.isInteger(binding.profile) || binding.profile < 0 || binding.profile >= 6)) issue('source-profile', 'Source profiles must name a prepared profile from zero through five.', ref(control?.cueRow ?? 1, 1));
+      if (binding.voiceId !== undefined && binding.voiceId !== control?.voiceId && binding.profile === undefined)
+        issue('source-effects-capability', `Source ${binding.sourceName} belongs to ${binding.voiceId}; bind its independent prepared effect profile before execution.`, ref(control?.cueRow ?? 1, 1));
+      names.add(binding.sourceName);
+      if (binding.default) defaults.add(binding.buttonId);
+    }
+  }
+  if (mapping.controls.length < 1 || mapping.controls.length > 4 || new Set(mapping.controls.map(c => c.buttonId)).size !== mapping.controls.length || new Set(mapping.controls.map(c => c.voiceId)).size !== mapping.controls.length) issue('bindings', 'Map one through four distinct input buttons to distinct source voices.', ref(1, 1));
   if (new Set(mapping.overrides.map(o => o.a1)).size !== mapping.overrides.length) issue('duplicate-override', 'Each source cell can have only one explicit override.', ref(1, 1));
   if (new Set(mapping.capturePolicies.map(p => p.voiceId)).size !== mapping.capturePolicies.length) issue('duplicate-capture-policy', 'Each voice can have only one capture retention policy.', ref(1, 1));
   if (mapping.cueWindow === null) issue('cue-window', 'Specify the approved early/late cue window before loading this song.', ref(mapping.barRow, 1));
@@ -318,22 +435,51 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) issue('bpm', 'The initial reference BPM must be 40..240.', ref(bpmCell.row, bpmCell.column));
   const columns = new Map<number, number>();
   const barRow = source.values[mapping.barRow - 1] ?? [];
+  const prelude = mapping.prelude ?? [];
+  const offset = prelude.length, finalBar = mapping.endBar + offset;
+  if (new Set(prelude.map(measure => measure.label)).size !== offset || finalBar > 4096)
+    issue('prelude', 'Prelude labels must be unique and the complete timeline may contain at most 4096 measures.', ref(mapping.barRow, 1));
+  for (const [index, measure] of prelude.entries()) {
+    const matches = barRow.flatMap((label, column) => label.trim() === measure.label ? [column + 1] : []);
+    if (measure.counts !== mapping.meter.numerator || matches.length !== 1 || /^\d+$/.test(measure.label)) {
+      issue('prelude', 'Each prelude label must identify one explicitly declared full measure.', ref(mapping.barRow, matches[0] ?? 1)); continue;
+    }
+    columns.set(index + 1, matches[0]);
+  }
   barRow.forEach((text, index) => {
     if (!/^\d+(?:\*| \(part\))?$/.test(text.trim())) return;
-    const bar = Number.parseInt(text, 10);
-    if (bar < mapping.startBar || bar > mapping.endBar) return;
-    if (columns.has(bar)) issue('duplicate-bar', `Bar ${bar} occurs more than once.`, ref(mapping.barRow, index + 1));
+    const sourceBar = Number.parseInt(text, 10);
+    if (sourceBar < mapping.startBar || sourceBar > mapping.endBar) return;
+    const bar = sourceBar + offset;
+    if (columns.has(bar)) issue('duplicate-bar', `Bar ${sourceBar} occurs more than once.`, ref(mapping.barRow, index + 1));
     else columns.set(bar, index + 1);
   });
-  for (let bar = mapping.startBar; bar <= Math.min(mapping.endBar, 4096); bar++) if (!columns.has(bar)) issue('missing-bar', `Bar ${bar} is missing.`, ref(mapping.barRow, 1));
+  for (let bar = 1; bar <= Math.min(finalBar, 4096); bar++) if (!columns.has(bar)) issue('missing-bar', `Measure ${bar} is missing.`, ref(mapping.barRow, 1));
+  const chronological = [...columns].sort(([a], [b]) => a - b);
+  if (chronological.some(([, column], index) => index > 0 && column <= chronological[index - 1][1]))
+    issue('prelude-order', 'Source columns must follow the declared prelude and numbered measures chronologically.', ref(mapping.barRow, 1));
+  const terminalStops = (mapping.terminalStops ?? []).map(cell => {
+    const address = coordinate(cell), text = at(source.values, address.row, address.column).trim();
+    if (text !== 'x' || !mapping.controls.some(control => control.cueRow === address.row)
+      || barRow[address.column - 1]?.trim() !== 'Tail' || address.column <= Math.max(...columns.values()))
+      issue('terminal-stop', 'A terminal stop must be an authored x in the Tail column after the complete chart.', ref(address.row, address.column));
+    return ref(address.row, address.column);
+  });
+  const mappedColumns = new Set([mapping.leadInColumn, ...columns.values()]);
+  for (const control of mapping.controls) for (const [index, text] of (source.values[control.cueRow - 1] ?? []).entries()) {
+    const column = index + 1;
+    if (column > mapping.leadInColumn && !mappedColumns.has(column) && text.trim() && !terminalStops.some(stop => stop.a1 === `${columnName(column)}${control.cueRow}`)
+      && !/^\d+(?:\*| \(part\))?$/.test(barRow[index]?.trim() ?? ''))
+      issue('cue-timeline', `Cue belongs to ${barRow[index] || 'an uncounted column'} without an executable chart boundary. Add its explicit timeline before loading audio.`, ref(control.cueRow, column));
+  }
   const sectionRow = source.values[mapping.sectionRow - 1] ?? [];
   const sections: ChartSection[] = [], bars: ChartBar[] = [];
   let section: ChartSection | null = null;
   const padRow = (column: number) => ({
-    L1: at(source.values, mapping.controls.find(c => c.buttonId === 'L1')?.cueRow ?? 1, column).trim(),
-    L2: at(source.values, mapping.controls.find(c => c.buttonId === 'L2')?.cueRow ?? 1, column).trim(),
-    R1: at(source.values, mapping.controls.find(c => c.buttonId === 'R1')?.cueRow ?? 1, column).trim(),
-    R2: at(source.values, mapping.controls.find(c => c.buttonId === 'R2')?.cueRow ?? 1, column).trim(),
+    L1: mapping.controls.some(c => c.buttonId === 'L1') ? at(source.values, mapping.controls.find(c => c.buttonId === 'L1')?.cueRow ?? 1, column).trim() : '',
+    L2: mapping.controls.some(c => c.buttonId === 'L2') ? at(source.values, mapping.controls.find(c => c.buttonId === 'L2')?.cueRow ?? 1, column).trim() : '',
+    R1: mapping.controls.some(c => c.buttonId === 'R1') ? at(source.values, mapping.controls.find(c => c.buttonId === 'R1')?.cueRow ?? 1, column).trim() : '',
+    R2: mapping.controls.some(c => c.buttonId === 'R2') ? at(source.values, mapping.controls.find(c => c.buttonId === 'R2')?.cueRow ?? 1, column).trim() : '',
   });
   let previousColumn = 0;
   for (const [bar, column] of [...columns].sort(([a], [b]) => a - b)) {
@@ -344,7 +490,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     if (!section) { issue('section', 'The first compiled bar needs a section label.', ref(mapping.sectionRow, column)); section = { id: `section-${bar}`, label: 'Unresolved section', startBar: bar, endBar: bar }; sections.push(section); }
     section.endBar = bar;
     if (barRow[column - 1]?.includes('(part)')) issue('partial-bar', 'Specify the short measure length before compiling this range.', ref(mapping.barRow, column));
-    bars.push({ bar, column, sectionId: section.id, section: section.label, partial: barRow[column - 1]?.includes('(part)') ?? false, cues: padRow(column) });
+    bars.push({ bar, ...(offset ? { label: barRow[column - 1].trim() } : {}), column, sectionId: section.id, section: section.label, partial: barRow[column - 1]?.includes('(part)') ?? false, cues: padRow(column) });
   }
   const nameFor = (button: typeof ButtonSchema.Type) => {
     const control = mapping.controls.find(c => c.buttonId === button);
@@ -365,6 +511,19 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       issue('part-binding', 'Live parts need a source label, unique identity, and unique default or rotation role.', location);
     }
     parts.push({ id: part.id, name, source: location, role: { kind: part.role }, profile: part.role === 'default-live' ? 4 : 5 });
+  }
+  const sourceProfiles: NonNullable<CompiledSong['sourceProfiles']> = [];
+  for (const binding of mapping.sourceBindings ?? []) {
+    if (binding.profile === undefined) continue;
+    const voiceId = binding.voiceId ?? mapping.controls.find(control => control.buttonId === binding.buttonId)?.voiceId;
+    const existing = [...parts, ...sourceProfiles].find(part => part.id === voiceId);
+    const location = binding.sourceCell ? (() => { const cell = coordinate(binding.sourceCell); return ref(cell.row, cell.column); })() : existing?.source;
+    if (!voiceId || !location || !partName(location)) { issue('source-profile', 'A source effect profile needs its voice identity and source label cell.', ref(1, 1)); continue; }
+    if ([...parts, ...sourceProfiles].some(part => (part.id === voiceId || part.profile === binding.profile || part.source.a1 === location.a1)
+      && (part.id !== voiceId || part.profile !== binding.profile || part.source.a1 !== location.a1))) {
+      issue('source-profile', 'Each prepared effect profile belongs to one source voice identity.', location); continue;
+    }
+    if (!existing) sourceProfiles.push({ id: voiceId, profile: binding.profile, source: location, name: partName(location) });
   }
   let rotation: CompiledSong['rotation'] = null;
   if (mapping.rotationRule) {
@@ -405,25 +564,37 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   }
   const chart: Chart = { title, bpm: Number.isFinite(bpm) ? bpm : 0, beatsPerBar: mapping.meter.numerator, bars, sections,
     spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, leadInColumn: mapping.leadInColumn,
-    leadInCues: padRow(mapping.leadInColumn), controlNames: { L1: nameFor('L1'), L2: nameFor('L2'), R1: nameFor('R1'), R2: nameFor('R2') }, annotatedThroughBar: mapping.endBar };
+    leadInCues: padRow(mapping.leadInColumn), controlNames: { L1: nameFor('L1'), L2: nameFor('L2'), R1: nameFor('R1'), R2: nameFor('R2') }, annotatedThroughBar: finalBar };
   const cues: CompiledCue[] = [];
+  const authoredCues: (typeof AuthoredCueSchema.Type)[] = [];
   const usedOverrides = new Set<string>();
   for (const { buttonId, voiceId, cueRow } of mapping.controls) {
     for (const [bar, column] of [[0, mapping.leadInColumn], ...[...columns].sort(([a], [b]) => a - b)]) {
       const location = ref(cueRow, column), text = location.text.trim();
       if (!text) continue;
       const override = mapping.overrides.find(o => o.a1 === location.a1);
-      const action = override ?? parsedCue(text, mapping.meter.numerator);
+      const migrated = mapping.notationVersion === 'dyc-v1' ? migrateDycCue(text) : { text, captureTail: 'none', tempoBeatHint: 0 } satisfies ReturnType<typeof migrateDycCue>;
+      const parsed = parseSheetCues(migrated.text, mapping.meter.numerator);
       if (override) {
         usedOverrides.add(override.a1);
         if (override.notation !== text) { issue('stale-override', `Override expects ${JSON.stringify(override.notation)}, but the current cell differs.`, location); continue; }
+        if (mapping.notationVersion === 'terse-v2') { issue('cue-override', 'Terse cues must describe their complete action in the cell; remove the override.', location); continue; }
       }
-      if (!action) {
+      if (!override && parsed.kind === 'invalid') {
         const hits = parseArrangementHits(text, mapping.meter.numerator);
         if (hits?.length) issue('manual-tap-capability', `Manual tap positions ${hits.map(beat => beat + 1).join(', ')} are recognized, but this compiled runtime needs one-shot/sparse playback capability before loading that cue.`, location);
         else issue('unknown-cue', `Define the exact cue and execution meaning of ${JSON.stringify(text)}.`, location);
         continue;
       }
+      if (mapping.notationVersion === 'terse-v2' && parsed.kind === 'parsed') authoredCues.push({ bar, buttonId, voiceId, source: location, actions: parsed.actions });
+      const actions: (Action & { authored?: SheetCue })[] = [];
+      if (override) actions.push(override);
+      else if (parsed.kind === 'parsed') for (const cue of parsed.actions) {
+        const migratedCue: SheetCue = mapping.notationVersion === 'dyc-v1' && cue.execution.kind === 'beat' ? { ...cue, execution: { ...cue.execution, barOffset: 0 } } : cue;
+        const lowered = lowerSheetCue(migratedCue);
+        actions.push({ ...lowered, captureTail: migrated.captureTail, tempoBeatHint: migrated.tempoBeatHint, authored: migratedCue });
+      }
+      for (const [actionIndex, action] of actions.entries()) {
       if (action.cueBeat !== null && (!Number.isFinite(action.cueBeat) || action.cueBeat < 0 || action.cueBeat >= mapping.meter.numerator)
         || action.execution.kind === 'beat' && (!Number.isFinite(action.execution.beat) || action.execution.beat < 0 || action.execution.beat >= mapping.meter.numerator)) {
         issue('cue-timing', 'Cue and execution beats must lie inside the current measure.', location); continue;
@@ -431,15 +602,21 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       if (bar === 0 && (action.kind === 'arm' || action.kind === 'commit-arm') && action.execution.kind !== 'next-bar') {
         issue('lead-in-capture-capability', 'Immediate lead-in capture is unsupported because its duration depends on the count-in. Declare capture at the next song bar.', location);
       }
-      cues.push({ id: `${mapping.songId}/bar-${bar}/${buttonId}/${action.kind}`, bar, buttonId, voiceId, kind: action.kind,
+      cues.push({ id: `${mapping.songId}/bar-${bar}/${buttonId}/${action.kind}${actions.length > 1 ? `/${actionIndex + 1}` : ''}`, bar, buttonId, voiceId, kind: action.kind,
         cueBeat: action.cueBeat, execution: action.execution, captureTail: action.captureTail, tempoBeatHint: action.tempoBeatHint,
+        captureReplacement: mapping.sourceBindings?.find(binding => binding.buttonId === buttonId && (action.authored?.sourceName ? binding.sourceName === action.authored.sourceName : binding.default))?.captureReplacement ?? false,
+        launchPolicy: action.authored?.operation === 'cx' ? 'store' : 'autoplay',
+        playbackMode: action.authored?.operation === 'h' ? 'held' : action.authored?.operation === 'g' ? 'gated' : (mapping.sourceBindings?.find(binding => binding.buttonId === buttonId && (action.authored?.sourceName ? binding.sourceName === action.authored.sourceName : binding.default))?.playbackMode ?? mapping.controls.find(control => control.buttonId === buttonId)?.playbackMode ?? 'loop'),
+        sourceName: action.authored?.sourceName ?? null,
+        groupId: action.authored?.group === undefined ? null : `${location.a1}/group-${action.authored.group}`,
         takeId: null, commitTakeId: null, selectionId: null, source: location });
+      }
     }
   }
   for (const override of mapping.overrides) if (!usedOverrides.has(override.a1)) issue('unused-override', 'The override does not identify a nonempty control cell inside the compiled range.', { sheetId: source.sheetId, a1: override.a1, text: '', note: '' });
   const mappedRows = new Set(mapping.controls.map(c => c.cueRow));
   if (mapping.rotationRule) mappedRows.add(mapping.rotationRule.row);
-  for (const row of [17, 22, 23, 24]) {
+  for (const row of mapping.notationVersion === 'dyc-v1' ? [17, 22, 23, 24] : source.values.flatMap((cells, index) => /^(knob|big red button|pedal|phone|L1|L2|R1|R2)$/i.test(cells[0]?.trim() ?? '') ? [index + 1] : [])) {
     if (mappedRows.has(row)) continue;
     const nonempty = [[0, mapping.leadInColumn], ...columns].filter(([, c]) => at(source.values, row, c).trim());
     if (!nonempty.length) continue;
@@ -450,17 +627,26 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   for (const control of mapping.controls) {
     let open: CompiledTake | null = null;
     const policy = mapping.capturePolicies.find(p => p.voiceId === control.voiceId);
+    const defaultSource = mapping.sourceBindings?.find(binding => binding.buttonId === control.buttonId && binding.default)?.sourceName ?? null;
     const ordered = cues.filter(c => c.buttonId === control.buttonId).sort((a, b) => a.bar - b.bar || (a.cueBeat ?? 0) - (b.cueBeat ?? 0));
     for (let index = 0; index < ordered.length; index++) {
       let cue = ordered[index];
       if (cue.kind === 'commit' || cue.kind === 'commit-arm') {
         if (!open) issue('commit-without-take', 'No preceding known arm cue supplies this commit. Resolve any earlier ambiguous cue first.', cue.source);
         else {
+          const activeName = open.sourceName ?? defaultSource;
+          if (cue.sourceName !== null && activeName !== null && cue.sourceName !== activeName) issue('capture-source-mismatch', `This commit names ${cue.sourceName}, but the active recording is ${activeName}.`, cue.source);
           const end = cueBoundary(cue);
-          const loopEnd = cue.captureTail === 'silence-to-bar-end' ? { bar: end.bar + 1, beat: 0 } : end;
+          const sourceBinding = mapping.sourceBindings?.find(binding => binding.sourceName === open?.sourceName);
+          const periodCounts = sourceBinding?.loopCounts;
+          const absoluteLoopEnd = periodCounts === undefined ? null : pointCount(open.begin, mapping.meter.numerator) + periodCounts;
+          const loopEnd = absoluteLoopEnd !== null ? { bar: Math.floor(absoluteLoopEnd / mapping.meter.numerator) + 1, beat: absoluteLoopEnd % mapping.meter.numerator } : cue.captureTail === 'silence-to-bar-end' ? { bar: end.bar + 1, beat: 0 } : end;
           const begin = open.begin;
           if (end.bar < begin.bar || end.bar === begin.bar && end.beat <= begin.beat) issue('capture-span', 'The commit boundary must follow the capture boundary.', cue.source);
-          const final: CompiledTake = { ...open, captureEnd: end, loopEnd, commitCueId: cue.id,
+          const sourceName = open.sourceName ?? cue.sourceName ?? defaultSource;
+          const sourceVoiceId = mapping.sourceBindings?.find(binding => binding.buttonId === control.buttonId && binding.sourceName === sourceName)?.voiceId ?? control.voiceId;
+          const boundProfile = mapping.sourceBindings?.find(binding => binding.buttonId === control.buttonId && binding.sourceName === sourceName)?.profile;
+          const final: CompiledTake = { ...open, ...(periodCounts === undefined ? {} : { periodCounts }), ...(boundProfile === undefined ? {} : { profile: boundProfile }), sourceVoiceId, sourceName: open.sourceName ?? cue.sourceName ?? defaultSource, captureEnd: end, loopEnd, commitCueId: cue.id,
             phrase: Array.from({ length: Math.max(0, loopEnd.bar - begin.bar + (loopEnd.beat > 0 ? 1 : 0)) }, (_, offset) => {
               const column = columns.get(begin.bar + offset);
               return column ? normalizedPhrase(at(source.values, control.arrangementRow, column)) : '';
@@ -474,7 +660,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       if (cue.kind !== 'arm' && cue.kind !== 'commit-arm') continue;
       if (open) issue('overlapping-take', 'This arm occurs before the prior take has a known commit.', cue.source);
       const takeId = `${mapping.songId}/${control.voiceId}/take-${takes.filter(t => t.voiceId === control.voiceId).length + 1}`;
-      const take: CompiledTake = { id: takeId, voiceId: control.voiceId, slot: takes.length + 4, begin: cueBoundary(cue), captureEnd: null, loopEnd: null,
+      const take: CompiledTake = { id: takeId, voiceId: control.voiceId, sourceName: cue.sourceName ?? defaultSource, slot: takes.length + 4, begin: cueBoundary(cue), captureEnd: null, loopEnd: null,
         groupId: takeId, phraseAnchorTakeId: takeId,
         armCueId: cue.id, commitCueId: null, phrase: '', retention: policy?.retention ?? 'unresolved', gain: policy?.gain ?? 1 };
       if (!policy) issue('capture-policy', `Specify layer, variant, or replacement retention for ${control.voiceId}. Playback starts at unity gain.`, cue.source);
@@ -556,7 +742,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   for (const reuse of mapping.variantReuses) {
     const cell = coordinate(reuse.cell), location = ref(cell.row, cell.column);
     const bar = [...columns].find(([, column]) => column === cell.column)?.[0];
-    const rule = mapping.variantRules.find(rule => rule.row === cell.row && bar !== undefined && bar >= rule.fromBar);
+    const rule = mapping.variantRules.find(rule => rule.row === cell.row && bar !== undefined && bar >= rule.fromBar + offset);
     const sourceTake = takes.find(take => takeSource(take).a1 === reuse.sourceArmCell);
     if (reusedCells.has(reuse.cell)) { issue('duplicate-variant-reuse', 'Each arrangement cell can have only one retained-take reuse.', location); continue; }
     reusedCells.add(reuse.cell);
@@ -574,7 +760,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       || reuse.endCount >= pointCount(sourceTake.loopEnd, mapping.meter.numerator) - pointCount(sourceTake.begin, mapping.meter.numerator)) {
       issue('variant-reuse-window', 'A prefix endpoint must lie strictly inside the captured source and loop on the 960-tick count lattice.', location); continue;
     }
-    const beginCount = reuse.sourceBar === undefined ? 0 : (reuse.sourceBar - sourceTake.begin.bar) * mapping.meter.numerator;
+    const beginCount = reuse.sourceBar === undefined ? 0 : (reuse.sourceBar + offset - sourceTake.begin.bar) * mapping.meter.numerator;
     const sourceSlice = reuse.sourceBar === undefined ? undefined : selections.find(selection => selection.takeIds[0] === sourceTake.id
       && selection.window.kind === 'slice' && selection.window.beginCount === beginCount);
     if (reuse.sourceBar !== undefined && !sourceSlice) { issue('variant-reuse-source', 'The source bar must identify a retained capture slice.', location); continue; }
@@ -592,7 +778,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     let previous: { bar: number; selection: CompiledSong['selections'][number] } | undefined;
     for (const [bar, column] of columns) {
       const text = at(source.values, rule.row, column);
-      if (bar < rule.fromBar || !text.trim() || rule.sampledOnly && !text.includes("'")) continue;
+      if (bar < rule.fromBar + offset || !text.trim() || rule.sampledOnly && !text.includes("'")) continue;
       const reuse = reusedSelections.get(`${columnName(column)}${rule.row}`);
       if (reuse) {
         playback.push({ bar, voiceId: rule.voiceId, selectionId: reuse });
@@ -615,19 +801,48 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   cues.sort((a, b) => a.bar - b.bar || (a.cueBeat ?? 0) - (b.cueBeat ?? 0) || a.buttonId.localeCompare(b.buttonId));
   for (let i = 0; i < cues.length; i++) {
     const cue = cues[i];
-    if (cue.kind !== 'play') continue;
-    const executionBar = cueBoundary(cue).bar;
-    const previous = takes.filter(t => t.voiceId === cue.voiceId && t.captureEnd && t.captureEnd.bar <= cue.bar).at(-1);
-    const selectionId = playback.find(entry => entry.voiceId === cue.voiceId && entry.bar === executionBar)?.selectionId
-      ?? selections.find(s => previous && s.takeIds.includes(previous.id))?.id ?? null;
-    cues[i] = { ...cue, selectionId };
-    if (selectionId === null) issue('play-selection', 'The play cue has no resolved committed take selection.', cue.source);
+    if (cue.kind !== 'play' && !(cue.kind === 'stop' && cue.sourceName !== null)) continue;
+    const boundary = cueBoundary(cue);
+    const binding = cue.sourceName === null ? mapping.sourceBindings?.find(binding => binding.buttonId === cue.buttonId && binding.default)
+      : mapping.sourceBindings?.find(binding => binding.sourceName === cue.sourceName);
+    const control = mapping.controls.find(control => control.buttonId === (binding?.buttonId ?? cue.buttonId));
+    const playbackMode = cue.playbackMode === 'held' || cue.playbackMode === 'gated' ? cue.playbackMode : binding?.playbackMode ?? control?.playbackMode ?? cue.playbackMode;
+    const voiceId = control?.voiceId ?? cue.voiceId;
+    if (mapping.notationVersion === 'terse-v2' && cue.kind === 'play' && playbackMode === 'loop' && !control?.playbackMode && !binding)
+      issue('playback-mode', 'Declare loop or one-shot playback for this control.', cue.source);
+    const available = takes.filter(take => take.voiceId === voiceId && take.captureEnd
+      && pointCount(take.captureEnd, mapping.meter.numerator) <= pointCount(boundary, mapping.meter.numerator));
+    const selectedSource = cue.sourceName ?? binding?.sourceName ?? null;
+    let candidates = selectedSource === null ? available : available.filter(take => take.sourceName === selectedSource);
+    if ((playbackMode === 'one-shot' || playbackMode === 'held') && cue.sourceName === null && cue.cueBeat !== null) {
+      const parity = Math.floor(cue.cueBeat) % 2;
+      const matching = candidates.filter(take => Math.floor(take.begin.beat) % 2 === parity);
+      candidates = matching;
+    }
+    const previous = candidates.at(-1);
+    let selectionId = (cue.sourceName === null && cue.playbackMode === 'loop' ? playback.find(entry => entry.voiceId === cue.voiceId && entry.bar === boundary.bar)?.selectionId : undefined)
+      ?? selections.find(selection => previous && selection.takeIds.includes(previous.id))?.id ?? null;
+    if ((playbackMode === 'held' || playbackMode === 'gated') && previous && selectionId !== null) {
+      if (!binding?.sustain) issue('sustain-region', 'Declare a trimmed sustain source region before held playback.', cue.source);
+      else {
+        const selection = selections.find(selection => selection.id === selectionId);
+        if (selection) {
+          const id = `${selection.id}/held`;
+          if (!selections.some(selection => selection.id === id)) selections.push({ ...selection, id, window: 'kind' in binding.sustain ? { kind: 'sustain' } : { kind: 'slice', ...binding.sustain } });
+          selectionId = id;
+        }
+      }
+    }
+    cues[i] = { ...cue, voiceId, playbackMode, selectionId };
+    if (selectionId === null)
+      issue(cue.kind === 'stop' ? 'stop-selection' : 'play-selection', 'The named or played cue has no resolved committed source.', cue.source);
   }
   const artifact: CompiledSong = {
-    schemaVersion: 6, notationVersion: 'dyc-v1', id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
+    schemaVersion: 7, notationVersion: mapping.notationVersion, id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
     source: { spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, range: source.range, digest: await digest(source) },
     mappingDigest: await digest(mapping), chart, voices: mapping.controls.map(c => ({ id: c.voiceId, buttonId: c.buttonId, arrangementRow: c.arrangementRow })),
-    parts, rotation, cueWindow: mapping.cueWindow, cues, takes, selections, playback, diagnostics,
+    ...(terminalStops.length ? { terminalStops } : {}),
+    ...(sourceProfiles.length ? { sourceProfiles } : {}), parts, rotation, cueWindow: mapping.cueWindow, ...(mapping.notationVersion === 'terse-v2' ? { authoredCues } : {}), cues, takes, selections, playback, diagnostics,
     executable: !diagnostics.some(d => d.severity === 'error'),
   };
   return decodeCompiledSong(artifact);
@@ -637,10 +852,15 @@ export function inspectCompiledSong(input: unknown): string {
   const song = decodeCompiledSong(input);
   const lines = [`${song.title} (${song.id})`, `Schema ${song.schemaVersion} · ${song.notationVersion} · ${song.executable ? 'executable' : 'BLOCKED'}`,
     `Source ${song.source.sheetName} / gid ${song.source.sheetId} / ${song.source.digest}`, `Range ${song.chart.bars[0]?.bar ?? '?'}..${song.chart.bars.at(-1)?.bar ?? '?'} · ${song.meter.numerator}/${song.meter.denominator}`];
+  for (const stop of song.terminalStops ?? []) lines.push(`TERMINAL STOP\t${stop.a1}\t${stop.text}\ttransport end; no extra measure`);
   for (const part of song.parts) lines.push(`PART\t${part.source.a1}\t${part.name}\t${part.id}\tprofile ${part.profile}\t${part.role.kind}${part.role.kind === 'pad' ? ` ${part.role.buttonId}` : ''}`);
   if (song.rotation) {
     lines.push(`ROTATION\t${song.rotation.voiceId}\trelease after ${song.rotation.inactivityBeats} counted beats of inactivity after accepted jiggle; gate at written end; natural tails`);
     for (const window of song.rotation.windows) lines.push(`ROTATION WINDOW\t${window.source.a1} -> ${window.endSource.a1}\t${window.begin.bar}:${window.begin.beat + 1}..${window.end.bar}:${window.end.beat + 1}\thalf-open\t${window.sources.map(source => source.a1).join(',')}`);
+  }
+  for (const cell of song.authoredCues ?? []) for (const action of cell.actions) {
+    const execution = action.execution.kind === 'beat' ? `bar ${cell.bar + action.execution.barOffset} count ${action.execution.beat + 1}` : action.execution.kind;
+    lines.push(`AUTHORED\t${cell.source.a1}\t${cell.buttonId} -> ${cell.voiceId}\tpress ${action.pressBeat === null ? 'column' : action.pressBeat + 1}\t${action.operation}(${action.sourceName ?? 'default'})\t${execution}`);
   }
   for (const cue of song.cues) {
     const timing = cue.execution.kind === 'beat' ? `beat ${cue.execution.beat + 1}` : cue.execution.kind;
@@ -655,6 +875,7 @@ export function inspectCompiledSong(input: unknown): string {
     const rest = take.captureEnd && take.loopEnd ? pointCount(take.loopEnd, song.meter.numerator) - pointCount(take.captureEnd, song.meter.numerator) : null;
     lines.push(`TAKE\t${take.id}\t${arm} -> ${commit}\tcapture ${point(take.begin)}..${point(take.captureEnd)} (${captured ?? '?'} counts)\trest ${point(take.captureEnd)}..${point(take.loopEnd)} (${rest ?? '?'} counts, zero source)\tloop ${point(take.begin)}..${point(take.loopEnd)} (${loopCounts(take, song.meter.numerator) ?? '?'} counts)\tgroup ${take.groupId ?? '?'} anchor ${take.phraseAnchorTakeId}\t${take.retention}\t${JSON.stringify(take.phrase)}`);
   }
+  for (const selection of song.selections) if (selection.window.kind === 'sustain') lines.push(`SUSTAIN PREPARATION\t${selection.id}\tperiodic source analysis: 80 ms windows; 50..1200 Hz; reject nonperiodic source`);
   for (const selection of song.selections) if (selection.window.kind === 'prefix') lines.push(`SOURCE WINDOW\t${selection.id}\t${selection.takeIds[0]}\t0..${selection.window.endCount} counts, exclusive\toriginal source and loop period retained`);
   for (const selection of song.selections) if (selection.window.kind === 'slice') lines.push(`SOURCE SLICE\t${selection.id}\t${selection.takeIds[0]}\t${selection.window.beginCount}..${selection.window.endCount} counts, exclusive\tloop ${selection.window.loopCounts} counts; captured DSP history retained`);
   for (const diagnostic of song.diagnostics) lines.push(`${diagnostic.severity.toUpperCase()} ${diagnostic.code}\t${diagnostic.source.a1}\t${JSON.stringify(diagnostic.source.text)}\t${diagnostic.message}\towner ${diagnostic.owner}`);

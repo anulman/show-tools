@@ -64,3 +64,20 @@ test('tuner commands carry native revision and validate control inputs before en
     { kind: 'confirm', expectedRevision: 0x100000000 },
   ]) assert.throws(() => encodeCommand({ command: 'tuner', args }, state));
 });
+
+
+test('individual pad releases preserve their edge through the native transport', () => {
+  const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'test', String);
+  for (const [index, id] of ['L1', 'L2', 'R1', 'R2'].entries()) {
+    const bytes = encodeCommand({ command: 'control', args: { control: { id, edge: 'release' } } }, state);
+    assert.equal(bytes.readDoubleLE(2), index + 8);
+  }
+});
+
+
+test('external manual hits use the existing native control route with bounded slot identity', () => {
+  const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'test', String);
+  const bytes = encodeCommand({ command: 'control', args: { control: { id: 'external', slot: 3 } } }, state);
+  assert.equal(bytes.readUInt16LE(), 3); assert.equal(bytes.readDoubleLE(2), 19);
+  assert.throws(() => encodeCommand({ command: 'control', args: { control: { id: 'external', slot: 64 } } }, state));
+});

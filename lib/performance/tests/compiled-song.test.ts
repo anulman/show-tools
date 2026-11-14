@@ -203,7 +203,7 @@ test('genuinely overlapping recording intervals reject without forbidding earlie
 
 test('DYC source parts survive import independently of the four pad bindings', async () => {
   const song = await compileSheetsSong(dycSource, dycMapping);
-  assert.equal(song.schemaVersion, 6);
+  assert.equal(song.schemaVersion, 7);
   assert.equal(song.voices.length, 4);
   assert.deepEqual(song.parts.map(part => [part.id, part.name, part.source.a1, part.profile, part.role.kind]), [
     ['whistle', 'Whistle', 'A13', 0, 'pad'],

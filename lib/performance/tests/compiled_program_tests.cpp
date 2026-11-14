@@ -36,7 +36,7 @@ struct Engine {
   operator pf_engine*() { return value; }
 };
 std::vector<double> table(int beats = 4) {
-  std::vector<double> data{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 4, 120, 4, 25, 25, 3, 7, 4, 0, 0, 1, 2, 3};
+  std::vector<double> data{PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, double(beats), 4, 120, 4, 25, 25, 3, 7, 4, 0, 0, 1, 2, 3};
   const double takes[] = {0, 1, 0, 2, 0, 1, 2, 0, 0, 0, 2, 0, 3, 0, 1, 3, 0, 0, 1, 3, 0, 4, 0, 1, 4, 0, 2};
   data.insert(data.end(), std::begin(takes), std::end(takes));
   const double cues[] = {
@@ -155,7 +155,7 @@ void missing_play_and_stop_remain_manual() {
 }
 void early_capture_admission_has_bounded_source_capacity() {
   for (double initial_bpm : {40., 240.}) {
-    const double song[]{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 3, 40, 3, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
+    const double song[]{PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 3, 40, 3, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
       0, 1, 1, 2, 1, 1, 2, 1, 0,
       0, 0, 1, 1, PF_ARM, 0, 0, 0, -1, -1, 0,
       0, 0, 2, 1, PF_COMMIT, 0, 0, -1, 0, 0, 0,
@@ -178,7 +178,7 @@ void early_capture_admission_has_bounded_source_capacity() {
     require(heap_allocations == 0 && heap_frees == 0 && !program->has_capture(),
       "misaligned early capture is discarded recoverably at its written end without callback allocation");
   }
-  const double long_song[]{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 7, 40, 7, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
+  const double long_song[]{PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 7, 40, 7, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
     0, 1, 1, 6, 1, 1, 6, 1, 0,
     0, 0, 1, 1, PF_ARM, 0, 0, 0, -1, -1, 0,
     0, 0, 6, 1, PF_COMMIT, 0, 0, -1, 0, 0, 0,
@@ -232,7 +232,7 @@ void malformed_capture_graphs_preserve_loaded_take() {
   changed[cues + 7] = 1;
   invalid.push_back(changed);
   changed = good;
-  changed.erase(changed.begin() + cues, changed.begin() + cues + PF_COMPILED_CUE_FIELDS); --changed[9];
+  changed.erase(changed.begin() + cues, changed.begin() + cues + PF_COMPILED_LEGACY_CUE_FIELDS); --changed[9];
   invalid.push_back(changed);
   changed = good;
   changed[cues + 7] = good[8];
@@ -244,18 +244,18 @@ void malformed_capture_graphs_preserve_loaded_take() {
   changed[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS + 2] = 1;
   invalid.push_back(changed);
   changed = good;
-  changed.erase(changed.begin() + cues + 2 * PF_COMPILED_CUE_FIELDS, changed.begin() + cues + 3 * PF_COMPILED_CUE_FIELDS); --changed[9];
+  changed.erase(changed.begin() + cues + 2 * PF_COMPILED_LEGACY_CUE_FIELDS, changed.begin() + cues + 3 * PF_COMPILED_LEGACY_CUE_FIELDS); --changed[9];
   invalid.push_back(changed);
   changed = good;
-  changed[cues + 2 * PF_COMPILED_CUE_FIELDS + 8] = 0;
+  changed[cues + 2 * PF_COMPILED_LEGACY_CUE_FIELDS + 8] = 0;
   invalid.push_back(changed);
   changed = good;
-  changed[cues + 2 * PF_COMPILED_CUE_FIELDS + 9] = 0;
+  changed[cues + 2 * PF_COMPILED_LEGACY_CUE_FIELDS + 9] = 0;
   invalid.push_back(changed);
   changed = good;
-  changed.insert(changed.begin() + cues, good.begin() + cues, good.begin() + cues + PF_COMPILED_CUE_FIELDS); ++changed[9];
+  changed.insert(changed.begin() + cues, good.begin() + cues, good.begin() + cues + PF_COMPILED_LEGACY_CUE_FIELDS); ++changed[9];
   invalid.push_back(changed);
-  const size_t members = cues + size_t(good[9]) * PF_COMPILED_CUE_FIELDS;
+  const size_t members = cues + size_t(good[9]) * PF_COMPILED_LEGACY_CUE_FIELDS;
   changed = good;
   changed.insert(changed.begin() + members, {0, 1, 1}); ++changed[10];
   invalid.push_back(changed);
@@ -269,7 +269,7 @@ void malformed_capture_graphs_preserve_loaded_take() {
   changed[cues + 9] = 0;
   invalid.push_back(changed);
   changed = good;
-  changed[cues + 4 * PF_COMPILED_CUE_FIELDS + 9] = 0;
+  changed[cues + 4 * PF_COMPILED_LEGACY_CUE_FIELDS + 9] = 0;
   invalid.push_back(changed);
   changed = good;
   changed[13] = changed[12];
@@ -280,7 +280,7 @@ void malformed_capture_graphs_preserve_loaded_take() {
   invalid.push_back(changed);
   for (int cue : {1, 2}) {
     changed = good;
-    changed[cues + cue * PF_COMPILED_CUE_FIELDS + 9] = -1;
+    changed[cues + cue * PF_COMPILED_LEGACY_CUE_FIELDS + 9] = -1;
     invalid.push_back(changed);
   }
   changed = good;
@@ -300,7 +300,7 @@ void malformed_capture_graphs_preserve_loaded_take() {
 }
 void stale_bank_rejection_preserves_looping_transport() {
   const std::vector<double> song{
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 4, 120, 4, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
     0, 1, 0, 2, 0, 1, 2, 0, 0,
     0, 0, 1, -1, PF_ARM, 0, 0, 0, -1, -1, 0,
     0, 0, 2, -1, PF_COMMIT, 0, 0, -1, 0, 0, 0,
@@ -334,7 +334,7 @@ std::array<double, PF_TEMPO_FIELDS> tempo(pf_engine* engine) { std::array<double
 std::array<double, BT_S_COUNT> tracker(pf_engine* engine) { std::array<double, BT_S_COUNT> out{}; bt_snapshot(pf_tracker(engine), out.data()); return out; }
 std::vector<double> joined_table() {
   return {
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 6, 120, 6, 25, 25, 2, 3, 3, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 6, 120, 6, 25, 25, 2, 3, 3, 0, 0, 1, 2, 3,
     0, 1, 0, 3, 0, 1, 3, 0, 0,
     0, 3, 0, 4, 2, 1, 5, 0, 0,
     0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
@@ -430,7 +430,7 @@ void actual_rate_quantization_join() {
 }
 std::vector<double> tempo_table(int hint = 1, bool tied = false) {
   std::vector<double> song{
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 1, double(tied ? 5 : 4), 1, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 4, 120, 4, 25, 25, 1, double(tied ? 5 : 4), 1, 0, 0, 1, 2, 3,
     0, 1, 0, 2, 0, 1, 2, 0, 0,
     0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
     0, 0, 1, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0,
@@ -556,7 +556,7 @@ void stopped_partial_capture_preserves_latest() {
 }
 std::vector<double> disjoint_handoff_table(bool immediate_second = false) {
   return {
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 7, 120, 7, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 7, 120, 7, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
     2, 3, 0, 5, 0, 1, 5, 0, 0,
     1, 5, 0, 7, 0, 1, 7, 0, 1,
     2, 2, 2, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
@@ -608,7 +608,7 @@ void unified_button_and_light_priority() {
     if (swapped) {
       std::swap(song[13], song[14]);
       for (int id = 0; id < 4; ++id) {
-        auto& button = song[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS * 2 + id * PF_COMPILED_CUE_FIELDS];
+        auto& button = song[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS * 2 + id * PF_COMPILED_LEGACY_CUE_FIELDS];
         button = button == 1 ? 2 : 1;
       }
     }
@@ -684,8 +684,8 @@ void missed_commit_finishes_before_reserved_start() {
   invalid[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS + 3] = 6;
   invalid[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS + 6] = 6;
   const size_t cues = PF_COMPILED_HEADER_FIELDS + 2 * PF_COMPILED_TAKE_FIELDS;
-  invalid[cues + 2 * PF_COMPILED_CUE_FIELDS + 2] = 3;
-  invalid[cues + 3 * PF_COMPILED_CUE_FIELDS + 2] = 5;
+  invalid[cues + 2 * PF_COMPILED_LEGACY_CUE_FIELDS + 2] = 3;
+  invalid[cues + 3 * PF_COMPILED_LEGACY_CUE_FIELDS + 2] = 5;
   pf_stop(immediate); before = take(immediate, 0);
   require(pf_configure_compiled(immediate, invalid.data(), uint32_t(invalid.size())) < 0 && take(immediate, 0) == before, "portable loader rejects genuine declared capture-span overlap before replacement");
 }
@@ -774,7 +774,7 @@ void crb_history_has_one_audible_owner() {
 
 std::vector<double> missing_middle_handoff_table() {
   return {
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 4, 8, 7, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 5, 120, 5, 25, 25, 4, 8, 7, 0, 0, 1, 2, 3,
     0, 1, 0, 2, 0, 1, 2, 0, 0,
     0, 2, 0, 3, 0, 1, 3, 0, 0,
     0, 3, 0, 4, 0, 1, 4, 0, 0,
@@ -817,7 +817,7 @@ void commit_preflights_entire_selection_before_publication() {
 }
 void failed_period_blocks_same_boundary_start() {
   const std::vector<double> song{
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 6, 120, 6, 25, 25, 3, 5, 4, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 6, 120, 6, 25, 25, 3, 5, 4, 0, 0, 1, 2, 3,
     0, 1, 0, 3, 0, 1, 3, 0, 0,
     0, 3, 0, 4, 2, 1, 5, 0, 0,
     1, 4, 2, 6, 2, 1, 6, 2, 2,
@@ -867,7 +867,7 @@ void crb_unavailable_start_preserves_old_capture() {
 }
 void independent_unavailable_arm_does_not_rollback_commit() {
   const std::vector<double> song{
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 5, 120, 5, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
     2, 3, 0, 4, 0, 1, 4, 0, 0,
     1, 4, 0, 5, 0, 1, 5, 0, 1,
     2, 2, 2, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
@@ -894,7 +894,7 @@ struct Venue {
   void apply(pf_engine* engine) { ok(engine, pf_prepare_voice_effects(engine, effects.data(), counts.data(), revisions.data())); }
 };
 std::vector<double> rotation_table(int beats = 4) {
-  return { PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+  return { PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
     PF_COMPILED_ROTATION_MAGIC, 2, .25, 1, 0, 1, 1, 2, 0, 3, 2 };
 }
 void rotation_releases_after_inactivity() {
@@ -952,7 +952,7 @@ void rotation_releases_after_inactivity() {
 void jiggle_filters_small_motion_in_bounded_musical_buckets() {
   for (double rate : {44100., 48000.}) for (int beats : {4, 6}) {
     auto identity = patches::Rack::create(nullptr, 0);
-    std::vector<double> song{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+    std::vector<double> song{PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, double(beats), 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
       PF_COMPILED_ROTATION_MAGIC, 1, .25, 1, 0, 4, 0};
     auto program = compiled::Program::create(song.data(), song.size(), rate, *identity, 1);
     program->start(1, 0, 0, 120); program->beat(PF_PLAYING, 1, 1, 0, 0, 120);
@@ -1131,7 +1131,7 @@ void rotation_uses_musical_time_and_preserves_capture() {
 
 void automatic_finish_preserves_same_voice_armed_route() {
   const std::vector<double> song{
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 5, 120, 5, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
     0, 1, 0, 2, 2, 1, 2, 2, 0,
     0, 3, 0, 4, 0, 1, 4, 0, 1,
     0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
@@ -1190,7 +1190,7 @@ void prepared_capture_reuses_banks_without_heap_work() {
   require(heap_allocations == 0 && heap_frees == 0, "idempotent stopped preparation avoids allocations when all reusable banks are current");
 }
 std::vector<double> prefix_table() {
-  return {PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 88, 98, 88, 25, 25, 1, 4, 2, 3, 0, 1, 2, 3,
+  return {PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 88, 98, 88, 25, 25, 1, 4, 2, 3, 0, 1, 2, 3,
     0, 82, 0, 83, 0, 1, 83, 0, 0,
     0, 0, 82, -1, PF_ARM, 0, 0, 0, -1, -1, 0,
     0, 0, 82, 3, PF_COMMIT, 1, 0, -1, 0, 0, 0,

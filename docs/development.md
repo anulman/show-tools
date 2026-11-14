@@ -393,3 +393,22 @@ or knob commands; buttons, native light publication and cleanup still work.
 The synthetic native-host fixtures cover attachment during playback, publication
 gaps and reconnects without changing the audio lifecycle. Object configurations
 retain their acknowledged threshold setup and ordered signed motion.
+
+### Verify terse Sheets cues
+
+Run `npm run verify:formal:cues` for the bounded actual-parser domain and six source mutation controls. Run `node --import tsx --test lib/performance/tests/sheet-cues.test.ts` for ingestion and archive-free canonical roundtrip. See [the language contract](implementation/sheet-cues.md) for current native capability boundaries; canonical import success does not mean native execution is supported.
+
+### Verify native terse playback
+
+Build WASM with `npm run build:wasm`, then run `node --import tsx --test lib/performance/tests/terse-wasm.test.ts lib/performance/tests/compiled-wasm.test.ts`. The fixtures use synthetic microphone PCM, explicit sustain regions, and supplied note order. They do not open devices or establish physical latency. Build `lib/performance` with CMake and run CTest for the native engine and patch checks. After covered native changes, run `npm run verify:formal:capture` with the pinned toolchain and inspect source mapping and mutation failures before updating its source record.
+
+Tuning capture UI and native singing checks run with `node --import tsx --test ui/tuner/tests/panel-capture.test.ts lib/performance/tests/note-bank-capture.test.ts`. External assets and phone ingress use `lib/performance/tests/external-assets.test.ts`, `ui/practice/tests/phone-motion.test.ts` and `ui/practice/tests/phone-ui.test.ts`. These permission/event fixtures and real native/WASM PCM checks acquire no physical device. Full UI build verification includes the registered Tribulations XML and offline asset list. Do not start operator-managed CDP or a live practice session for these checks.
+
+
+### Verify main-view effect rows
+
+Run `node --import tsx --test ui/practice/tests/voice-effects.test.ts ui/practice/tests/voice-catalog.test.ts ui/practice/tests/audio-lifecycle.test.mjs`. After `npm run build:ui`, build the browser check with `node --import tsx scripts/build-voice-effects-check.ts --out-dir dist/fx-check`. Serve `dist/` and open `/fx-check/index.html` on an isolated preview origin. The page checks real DOM draft edits, native acknowledgements, per-profile Apply, pending dry changes, remote stack management, exact saved decimals, invalid drafts and 390px overflow. Its final title must read `PASS: effect rows`.
+
+In the actual practice desk, verify keyboard arrows adjust a focused knob without triggering Q/W/A/S or Space transport shortcuts. Verify Apply readback and reload persistence while stopped. Drag up/right to increase, down/left to decrease; Shift gives fine control. Keep the operator's active desk and audio session untouched. Main-view controls lock during practice; native DSP and the existing save/apply boundary own the effect change.
+
+For the full Drunk Girls pickup/capture regression, run `node --import tsx scripts/verify-drunk-girls-performance.ts` after rebuilding WASM. It creates private temporary artifacts and executes the native host; it does not start a service or access devices. Inspect the canonical song with `./show-tools chart inspect songs/drunk-girls.musicxml`. Periodic live-source preparation and pickup-phase witnesses also run in `lib/performance/tests/terse-wasm.test.ts`.

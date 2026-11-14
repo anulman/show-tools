@@ -250,8 +250,9 @@ test('consistent snapshots reopen in a fresh process and never clobber existing 
     const copied = store.snapshot(destination);
     const backup = SceneAuthoringStore.open(copied.filename);
     try { assert.deepEqual(backup.read(songId),before); } finally { backup.close(); }
+    const storeModule = new URL('../store.ts', import.meta.url).href;
     const child = spawnSync(process.execPath,['--import','tsx','--input-type=module','-e',
-      `import {SceneAuthoringStore} from './lib/video/scene-authoring/store.ts'; const s=SceneAuthoringStore.open(process.argv[1]); process.stdout.write(JSON.stringify(s.read('${songId}')));s.close();`,copied.filename],{ cwd:process.cwd(),encoding:'utf8' });
+      `import {SceneAuthoringStore} from '${storeModule}'; const s=SceneAuthoringStore.open(process.argv[1]); process.stdout.write(JSON.stringify(s.read('${songId}')));s.close();`,copied.filename],{ cwd:process.cwd(),encoding:'utf8' });
     assert.equal(child.status,0,child.stderr); assert.deepEqual(JSON.parse(child.stdout),before);
     assert.throws(() => store.snapshot(destination));
     const alias = join(directory,'alias'); await symlink(destination,alias); assert.throws(() => store.snapshot(alias));

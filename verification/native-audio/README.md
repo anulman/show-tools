@@ -74,3 +74,17 @@ Each TLC mutant must fail its specific named invariant. The ownership mutant has
 | `observe` | Omit the subscription admission fence. | A canceled or old subscription publishes an event. |
 
 These are sensitivity and selected conformance checks, not a proof of every implementation interleaving. A model-only mutant is never counted as source verification. The separate unassigned-child fault probe changes no production operation and now asserts the repaired baseline remains Stopping and rejects replacement. Ordinary tests also cover launch failure before/after child creation, cancellation before handle publication, failed exit queries, and recoverable failures before a spawn request.
+
+## Pad-release schema maintenance
+
+The current source record includes the explicit pad release edge introduced by `4f4e557`. The native event schema separates pad controls from Panic and tempo controls so that a pad can carry `edge: release`. The lifecycle controller, session schema, light ABI and tuner schema remain byte-identical to the previous sync. This changes accepted payload data without adding an ownership state, await or admission rule. The model, seven invariants and finite bounds remain unchanged. Adapter release delivery and held sample behavior have separate native and bridge tests.
+
+## External-sample schema maintenance
+
+The source record at `894915f` also includes the typed external-sample control with slot 0 through 63. The controller and the other four covered files are unchanged. External asset uploads finish inside the same attempt-owned `prepareInstalledPackage` promise before its stopped readback and Ready publication. Cancellation checks remain inside preparation and at the controller boundary after it returns. This extends validated input and package preparation data without changing the lifecycle model, its seven invariants or its bounds. The replay substitutes preparation, so native WAV decoding, upload cancellation and old-engine asset ownership require the separate integration tests.
+
+## Consolidated practice release
+
+All five covered source files are byte-identical between `894915f` and `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. The current release therefore remains **in sync** with this model and its replay. The coverage revision records that inspection. A baseline run and a fresh source-fenced rerun both exhaust the same 1,761 states, preserve all seven invariants and reject all six actual-controller source mutants, including both pending-ownership paths. The controller, model, replay, dependencies, properties and bounds are unchanged.
+
+DG's periodic sustain preparation, pickup labeling, and the static UI manager are outside the covered lifecycle controller. Neither their quality nor their process behavior is established by this proof. The final receipt is `/private/tmp/practice-tonight-lifecycle-final-cd3ae7e/receipt.json`.

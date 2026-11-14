@@ -4,3 +4,5 @@
 .tuner-panel .tuner-audition{margin-top:14px}.tuner-panel .tuner-preview{min-height:18px;margin-top:8px}.tuner-panel .tuner-step[data-preview=true]{box-shadow:0 3px 0 0 #d4e8b8;position:relative}.tuner-panel .tuner-step[data-preview=true]::after{content:"";position:absolute;bottom:-7px;width:3px;height:3px;border-radius:50%;background:var(--tuner-accent)}
 
 .tuner-panel .tuner-dial{display:grid;place-items:center;max-width:100%;overflow:auto;margin:12px 0}.tuner-dial canvas{display:block;image-rendering:pixelated;max-width:none}.tuner-panel .tuner-dial-error{padding:20px 0;text-align:center}@media(max-width:360px){.tuner-dialog{padding:8px}.tuner-panel{padding:8px}.tuner-panel .tuner-sung{padding:8px}}
+
+.tuner-panel .tuner-bank{display:grid;gap:10px;margin-top:18px;padding-top:18px;border-top:1px solid var(--tuner-line)}

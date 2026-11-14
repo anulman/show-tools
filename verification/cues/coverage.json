@@ -1,0 +1,13 @@
+{
+  "syncCommit": "cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4",
+  "files": {
+    "lib/performance/sheet-cues.ts": "cfa9be2836e483a24aa42becfbe6a92cedd445475b91a9c2373a05425d0c8574",
+    "lib/performance/compiled-song.ts": "9b979eadce01865c0311c427ebfb35976b5b89dbfa84a717b4a8bb7e599dad8d",
+    "lib/performance/musicxml-song.ts": "3a201e63df82dad8eab31cb021482a17100490c9c8d86312acf65f861e31574c",
+    "verification/cues/check.ts": "1c2b13bb38df1aedde62762dbc8023d043cf691c6fa161886c4587e1aab4ac02",
+    "lib/performance/tests/sheet-cues.test.ts": "56fa00cf83bda1d50482799706582771e62dc31eed9b9125b780a88c077c2faf",
+    "package-lock.json": "a094cbe140ca5384c42eff39345bc4d4346fe11ade3296bec534bb44943f1be6",
+    "lib/performance/external-assets.ts": "80910da673940d5cc43e2ad3b84674278334487cbd37f23b89ceb754232b7141"
+  },
+  "scope": "32,390 bounded actual parser cases including groups; canonical schema7 native lowering integration tests. Native execution verified separately."
+}
