@@ -455,8 +455,8 @@ function mountVoiceRows() {
   }
   elements['live-voices'].replaceChildren();
   for (const pad of pads.values()) pad.shell.querySelector('.voice-effects')?.remove();
-  const parts = song?.compiled?.parts;
-  for (const part of parts ?? []) {
+  const parts = [...song?.compiled?.parts ?? [], ...song?.compiled?.sourceProfiles?.map(profile => ({ ...profile, role: { kind: 'sampled-source' as const } })) ?? []];
+  for (const part of parts) {
     if (part.role.kind === 'pad') {
       const pad = pads.get(part.role.buttonId);
       if (pad) {
@@ -471,7 +471,7 @@ function mountVoiceRows() {
     const avatar = document.createElement('span'); avatar.className = 'performance-avatar'; avatar.hidden = true;
     voiceAvatars.set(part.profile, { root: avatar, name: part.name });
     const name = document.createElement('h2'); name.textContent = part.name;
-    main.title = part.role.kind === 'default-live' ? 'Default live voice' : 'Use vertical scroll while playing to turn the knob';
+    main.title = part.role.kind === 'default-live' ? 'Default live voice' : part.role.kind === 'rotation-live' ? 'Use vertical scroll while playing to turn the knob' : 'Prepared sampled voice';
     identity.append(avatar, name);
     const tools = document.createElement('div'); tools.className = 'voice-tools';
     const status = document.createElement('span'); status.className = 'voice-state'; status.textContent = 'STANDBY';

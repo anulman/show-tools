@@ -24,7 +24,9 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
     return indexOf(voices, voice.id);
   });
   const kinds: Record<CompiledSong['cues'][number]['kind'], number> = { arm: PF.ARM, commit: PF.COMMIT, 'commit-arm': PF.COMMIT_ARM, stop: PF.STOP, play: PF.PLAY };
-  const legacy = song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && song.cues.every(cue =>
+  const profileRows = song.takes.flatMap((take, index) => take.profile === undefined || take.profile === indexOf(voices, take.voiceId) ? [] : [index, take.profile]);
+  const profiles = profileRows.length ? [PF.COMPILED_PROFILES_MAGIC, profileRows.length / PF.COMPILED_PROFILES_FIELDS, ...profileRows] : [];
+  const legacy = !profileRows.length && song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && song.cues.every(cue =>
     !cue.captureReplacement && cue.launchPolicy === 'autoplay' && cue.playbackMode === 'loop' && cue.groupId === null && cue.sourceName === null
     && (cue.execution.kind !== 'beat' || !cue.execution.barOffset));
   const cueFields = legacy ? PF.COMPILED_LEGACY_CUE_FIELDS : PF.COMPILED_CUE_FIELDS;
@@ -58,7 +60,7 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
     ...song.externalSamples.flatMap(sample => [sample.slot, sample.begin.bar, sample.begin.beat, sample.end.bar, sample.end.beat])] : [];
   const notes = song.noteBanks?.length ? [PF.COMPILED_NOTES_MAGIC, song.noteBanks.reduce((count, bank) => count + bank.notes.length, 0),
     ...song.noteBanks.flatMap(bank => bank.notes.flatMap(note => [CONTROL_IDS.indexOf(bank.buttonId), note.slot, note.at.bar, note.at.beat, bank.toleranceMs]))] : [];
-  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes];
+  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes, ...profiles];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
     || cueRows.length !== song.cues.length * cueFields || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
   if (song.meter.denominator !== (song.meter.numerator === 6 ? 8 : 4)) throw new Error('This native build supports 4/4 and 6/8 compiled programs.');

@@ -34,7 +34,8 @@ export function bindingMatches(row: SheetVoiceRow, binding: Pick<SheetBinding, '
 
 export function discoverSheetVoices(compiled: CompiledSong, source?: SongSource): SheetVoiceRow[] {
   const identity = { spreadsheetId: compiled.source.spreadsheetId, sheetId: compiled.source.sheetId, sheetName: compiled.source.sheetName };
-  if (!source) return compiled.parts.map(part => {
+  const profiledParts = [...compiled.parts, ...compiled.sourceProfiles ?? []];
+  if (!source) return profiledParts.map(part => {
     const sourceLabel = part.source.text || part.source.note;
     const binding = { ...identity, labelCell: part.source.a1 };
     return { ...binding, key: sheetVoiceKey(binding), sourceLabel, name: part.name,
@@ -61,7 +62,7 @@ export function discoverSheetVoices(compiled: CompiledSong, source?: SongSource)
     return [{ row, column, labelCell, sourceLabel, values, managed: managedPrefix.test(sourceLabel.trim()) }];
   });
   const firstManagedRow = Math.min(...labels.filter(label => label.managed && !controlRows.has(label.row)).map(label => label.row));
-  const parts = new Map(compiled.parts.filter(part => part.source.sheetId === identity.sheetId).map(part => [part.source.a1, part]));
+  const parts = new Map(profiledParts.filter(part => part.source.sheetId === identity.sheetId).map(part => [part.source.a1, part]));
   return labels.flatMap(label => {
     if (controlRows.has(label.row)) return [];
     const part = parts.get(label.labelCell);

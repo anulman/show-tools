@@ -12,7 +12,7 @@ export function validateInstalledPackage(manifest: Buffer, packet: Buffer, confi
 	const effects = encodeInitialProfiles(configurations);
 	const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 	if (hash(packet) !== metadata.packetSha256 || hash(effects) !== metadata.profilesSha256) throw new Error('Package digest mismatch');
-	if (!metadata.song.compiled || !packet.equals(Buffer.from(compiledProgramBytes(metadata.song.compiled))) || packet.length < PF.COMPILED_HEADER_FIELDS * 8 || packet.readDoubleLE(0) !== PF.COMPILED_MAGIC || ![PF.COMPILED_LEGACY_VERSION, PF.COMPILED_VERSION].includes(packet.readDoubleLE(8))
+	if (!metadata.song.compiled || !packet.equals(Buffer.from(compiledProgramBytes(metadata.song.compiled))) || packet.length < PF.COMPILED_HEADER_FIELDS * 8 || packet.readDoubleLE(0) !== PF.COMPILED_MAGIC || (packet.readDoubleLE(8) !== PF.COMPILED_LEGACY_VERSION && packet.readDoubleLE(8) !== PF.COMPILED_VERSION)
 		|| packet.readDoubleLE(16) !== metadata.song.chart.beatsPerBar || packet.readDoubleLE(24) !== metadata.song.chart.bars.length
 		|| packet.readDoubleLE(32) !== metadata.song.chart.bpm || packet.readDoubleLE(40) !== metadata.song.chart.annotatedThroughBar
 		|| packet.readDoubleLE(64) !== metadata.takeCount) throw new Error('Package song identity mismatch');

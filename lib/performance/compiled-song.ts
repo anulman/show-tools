@@ -45,7 +45,7 @@ export const SongMappingSchema = Schema.Struct({
   startBar: Schema.Int, endBar: Schema.Int,
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String, playbackMode: Schema.optionalKey(Schema.Literals(['loop', 'one-shot'])) })),
-  sourceBindings: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, sourceName: Schema.String, voiceId: Schema.optionalKey(Schema.String), captureReplacement: Schema.optionalKey(Schema.Boolean), playbackMode: Schema.Literals(['loop', 'one-shot']), default: Schema.optionalKey(Schema.Boolean), sustain: Schema.optionalKey(Schema.Struct({ beginCount: Finite, endCount: Finite, loopCounts: Finite })) }))),
+  sourceBindings: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, sourceName: Schema.String, voiceId: Schema.optionalKey(Schema.String), profile: Schema.optionalKey(Schema.Int), sourceCell: Schema.optionalKey(Schema.String), captureReplacement: Schema.optionalKey(Schema.Boolean), playbackMode: Schema.Literals(['loop', 'one-shot']), default: Schema.optionalKey(Schema.Boolean), sustain: Schema.optionalKey(Schema.Struct({ beginCount: Finite, endCount: Finite, loopCounts: Finite })) }))),
   liveParts: list(Schema.Struct({ id: Schema.String, labelCell: Schema.String, role: Schema.Literals(['default-live', 'rotation-live']) })),
   rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, inactivityBeats: Finite })),
   cueWindow: Schema.NullOr(CueWindowSchema),
@@ -69,7 +69,7 @@ const CueSchema = Schema.Struct({ ...LegacyCueSchema.fields,
   sourceName: Schema.NullOr(Schema.String), groupId: Schema.NullOr(Schema.String),
 });
 const TakeSchema = Schema.Struct({
-  id: Schema.String, voiceId: Schema.String, sourceVoiceId: Schema.optionalKey(Schema.String), sourceName: Schema.optionalKey(Schema.NullOr(Schema.String)), slot: Schema.Int, begin: PointSchema,
+  id: Schema.String, voiceId: Schema.String, profile: Schema.optionalKey(Schema.Int), sourceVoiceId: Schema.optionalKey(Schema.String), sourceName: Schema.optionalKey(Schema.NullOr(Schema.String)), slot: Schema.Int, begin: PointSchema,
   captureEnd: Schema.NullOr(PointSchema), loopEnd: Schema.NullOr(PointSchema),
   groupId: Schema.NullOr(Schema.String), phraseAnchorTakeId: Schema.String,
   armCueId: Schema.String, commitCueId: Schema.NullOr(Schema.String), phrase: Schema.String,
@@ -94,6 +94,7 @@ export const CompiledSongSchema = Schema.Struct({
   source: Schema.Struct({ spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String, range: Schema.String, digest: Schema.String }),
   mappingDigest: Schema.String, chart: ChartSchema,
   voices: list(Schema.Struct({ id: Schema.String, buttonId: ButtonSchema, arrangementRow: Schema.Int })),
+  sourceProfiles: Schema.optionalKey(list(Schema.Struct({ id: Schema.String, profile: Schema.Int, source: SourceRefSchema, name: Schema.String }))),
   parts: list(PartSchema), rotation: Schema.NullOr(RotationSchema),
   cueWindow: Schema.NullOr(CueWindowSchema),
   noteBanks: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, toleranceMs: Finite, notes: list(Schema.Struct({ slot: Schema.Int, at: PointSchema })) }))),
@@ -193,6 +194,17 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   }
   if (song.parts.length < 4 || song.parts.length > 6 || song.voices.some(voice => !song.parts.some(part => part.id === voice.id && part.role.kind === 'pad'))
     || song.parts.filter(part => part.role.kind === 'default-live').length > 1 || song.parts.filter(part => part.role.kind === 'rotation-live').length > 1) throw new Error('Invalid executable voice registry.');
+  unique((song.sourceProfiles ?? []).map(profile => profile.id), 'source profile');
+  unique((song.sourceProfiles ?? []).map(profile => String(profile.profile)), 'source effect profile');
+  for (const profile of song.sourceProfiles ?? []) {
+    const name = (profile.source.text.trim() || profile.source.note.trim()).replace(/^AF\s*-\s*/, '').trim();
+    if (!profile.id.trim() || !sourceValid(profile.source) || !name || profile.name !== name || !Number.isInteger(profile.profile)
+      || profile.profile < 0 || profile.profile >= 6) throw new Error('Invalid executable source profile identity.');
+  }
+  const profileOwners = [...song.parts, ...song.sourceProfiles ?? []];
+  for (const owner of profileOwners) if (profileOwners.some(other => other !== owner
+    && (other.profile === owner.profile || other.id === owner.id || other.source.a1 === owner.source.a1)
+    && (other.id !== owner.id || other.profile !== owner.profile || canonicalSongJson(other.source) !== canonicalSongJson(owner.source) || other.name !== owner.name))) throw new Error('Conflicting executable source profile ownership.');
   if (song.rotation) {
     if (!song.parts.some(part => part.id === song.rotation?.voiceId && part.role.kind === 'rotation-live')
       || !validInactivityBeats(song.rotation.inactivityBeats)) throw new Error('Invalid executable rotation route.');
@@ -207,13 +219,16 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   }
   if (song.takes.length > 28 || new Set(song.takes.map(t => t.slot)).size !== song.takes.length) throw new Error('Invalid prepared take resource count or slot identity.');
   for (const take of song.takes) {
-    if (take.sourceVoiceId !== undefined && take.sourceVoiceId !== take.voiceId) throw new Error('Independent source effect profiles require native preparation.');
+    const sourceVoiceId = take.sourceVoiceId ?? take.voiceId;
+    const profile = take.profile ?? song.voices.findIndex(voice => voice.id === take.voiceId);
+    if (!Number.isInteger(profile) || profile < 0 || profile >= 6
+      || ![...song.parts, ...song.sourceProfiles ?? []].some(source => source.id === sourceVoiceId && source.profile === profile)) throw new Error('Invalid executable source effect profile.');
     if (!song.voices.some(v => v.id === take.voiceId) || !take.captureEnd || !take.loopEnd || !take.groupId || take.gain === null || !validGain(take.gain)
       || take.retention === 'unresolved' || take.slot < 4 || take.slot >= 32 || !validPoint(take.begin, false) || !validPoint(take.captureEnd, true) || !validPoint(take.loopEnd, true)
       || pointCount(take.captureEnd, beats) <= pointCount(take.begin, beats) || pointCount(take.loopEnd, beats) < pointCount(take.captureEnd, beats)) throw new Error('Invalid executable take resource.');
     const anchor = song.takes.find(candidate => candidate.id === take.phraseAnchorTakeId);
     const period = loopCounts(take, beats), anchorPeriod = anchor && loopCounts(anchor, beats);
-    if (!anchor || anchor.voiceId !== take.voiceId || anchor.groupId !== take.groupId || anchor.phraseAnchorTakeId !== anchor.id || !period || period !== anchorPeriod
+    if (!anchor || anchor.voiceId !== take.voiceId || (anchor.sourceVoiceId ?? anchor.voiceId) !== sourceVoiceId || (anchor.profile ?? song.voices.findIndex(voice => voice.id === anchor.voiceId)) !== profile || anchor.groupId !== take.groupId || anchor.phraseAnchorTakeId !== anchor.id || !period || period !== anchorPeriod
       || anchor.phrase !== take.phrase || pointCount(take.begin, beats) < pointCount(anchor.begin, beats)
       || Math.round((pointCount(take.begin, beats) - pointCount(anchor.begin, beats)) * 960) % Math.round(period * 960) !== 0) throw new Error('Invalid executable phrase group or loop period.');
   }
@@ -250,6 +265,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
       || cue.takeId !== null && !song.takes.some(t => t.id === cue.takeId && t.voiceId === cue.voiceId)
       || cue.commitTakeId !== null && !song.takes.some(t => t.id === cue.commitTakeId && t.voiceId === cue.voiceId)
       || cue.selectionId !== null && !song.selections.some(s => s.id === cue.selectionId && s.voiceId === cue.voiceId)) throw new Error('Invalid executable cue reference.');
+    if (cue.commitTakeId !== null && cue.sourceName !== null && song.takes.find(take => take.id === cue.commitTakeId)?.sourceName !== cue.sourceName) throw new Error('Named commit source disagrees with its recording.');
     if ((cue.kind === 'arm' || cue.kind === 'commit-arm') !== (cue.takeId !== null)
       || (cue.kind === 'commit' || cue.kind === 'commit-arm') !== (cue.commitTakeId !== null)
       || (cue.kind === 'arm' && cue.selectionId !== null)
@@ -380,8 +396,9 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(binding.sourceName) || names.has(binding.sourceName)
         || binding.default && defaults.has(binding.buttonId)) issue('source-binding', 'Source names must be unique and each button can have one default source.', ref(1, 1));
       const control = mapping.controls.find(control => control.buttonId === binding.buttonId);
-      if (binding.voiceId !== undefined && binding.voiceId !== control?.voiceId)
-        issue('source-effects-capability', `Source ${binding.sourceName} belongs to ${binding.voiceId}; prepare its independent effect profile before execution.`, ref(control?.cueRow ?? 1, 1));
+      if (binding.profile !== undefined && (!Number.isInteger(binding.profile) || binding.profile < 0 || binding.profile >= 6)) issue('source-profile', 'Source profiles must name a prepared profile from zero through five.', ref(control?.cueRow ?? 1, 1));
+      if (binding.voiceId !== undefined && binding.voiceId !== control?.voiceId && binding.profile === undefined)
+        issue('source-effects-capability', `Source ${binding.sourceName} belongs to ${binding.voiceId}; bind its independent prepared effect profile before execution.`, ref(control?.cueRow ?? 1, 1));
       names.add(binding.sourceName);
       if (binding.default) defaults.add(binding.buttonId);
     }
@@ -452,6 +469,19 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       issue('part-binding', 'Live parts need a source label, unique identity, and unique default or rotation role.', location);
     }
     parts.push({ id: part.id, name, source: location, role: { kind: part.role }, profile: part.role === 'default-live' ? 4 : 5 });
+  }
+  const sourceProfiles: NonNullable<CompiledSong['sourceProfiles']> = [];
+  for (const binding of mapping.sourceBindings ?? []) {
+    if (binding.profile === undefined) continue;
+    const voiceId = binding.voiceId ?? mapping.controls.find(control => control.buttonId === binding.buttonId)?.voiceId;
+    const existing = [...parts, ...sourceProfiles].find(part => part.id === voiceId);
+    const location = binding.sourceCell ? (() => { const cell = coordinate(binding.sourceCell); return ref(cell.row, cell.column); })() : existing?.source;
+    if (!voiceId || !location || !partName(location)) { issue('source-profile', 'A source effect profile needs its voice identity and source label cell.', ref(1, 1)); continue; }
+    if ([...parts, ...sourceProfiles].some(part => (part.id === voiceId || part.profile === binding.profile || part.source.a1 === location.a1)
+      && (part.id !== voiceId || part.profile !== binding.profile || part.source.a1 !== location.a1))) {
+      issue('source-profile', 'Each prepared effect profile belongs to one source voice identity.', location); continue;
+    }
+    if (!existing) sourceProfiles.push({ id: voiceId, profile: binding.profile, source: location, name: partName(location) });
   }
   let rotation: CompiledSong['rotation'] = null;
   if (mapping.rotationRule) {
@@ -562,13 +592,16 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       if (cue.kind === 'commit' || cue.kind === 'commit-arm') {
         if (!open) issue('commit-without-take', 'No preceding known arm cue supplies this commit. Resolve any earlier ambiguous cue first.', cue.source);
         else {
+          const activeName = open.sourceName ?? defaultSource;
+          if (cue.sourceName !== null && activeName !== null && cue.sourceName !== activeName) issue('capture-source-mismatch', `This commit names ${cue.sourceName}, but the active recording is ${activeName}.`, cue.source);
           const end = cueBoundary(cue);
           const loopEnd = cue.captureTail === 'silence-to-bar-end' ? { bar: end.bar + 1, beat: 0 } : end;
           const begin = open.begin;
           if (end.bar < begin.bar || end.bar === begin.bar && end.beat <= begin.beat) issue('capture-span', 'The commit boundary must follow the capture boundary.', cue.source);
           const sourceName = open.sourceName ?? cue.sourceName ?? defaultSource;
           const sourceVoiceId = mapping.sourceBindings?.find(binding => binding.buttonId === control.buttonId && binding.sourceName === sourceName)?.voiceId ?? control.voiceId;
-          const final: CompiledTake = { ...open, sourceVoiceId, sourceName: open.sourceName ?? cue.sourceName ?? defaultSource, captureEnd: end, loopEnd, commitCueId: cue.id,
+          const boundProfile = mapping.sourceBindings?.find(binding => binding.buttonId === control.buttonId && binding.sourceName === sourceName)?.profile;
+          const final: CompiledTake = { ...open, ...(boundProfile === undefined ? {} : { profile: boundProfile }), sourceVoiceId, sourceName: open.sourceName ?? cue.sourceName ?? defaultSource, captureEnd: end, loopEnd, commitCueId: cue.id,
             phrase: Array.from({ length: Math.max(0, loopEnd.bar - begin.bar + (loopEnd.beat > 0 ? 1 : 0)) }, (_, offset) => {
               const column = columns.get(begin.bar + offset);
               return column ? normalizedPhrase(at(source.values, control.arrangementRow, column)) : '';
@@ -734,7 +767,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       issue('playback-mode', 'Declare loop or one-shot playback for this control.', cue.source);
     const available = takes.filter(take => take.voiceId === voiceId && take.captureEnd
       && pointCount(take.captureEnd, mapping.meter.numerator) <= pointCount(boundary, mapping.meter.numerator));
-    let candidates = cue.sourceName === null ? available : available.filter(take => take.sourceName === cue.sourceName);
+    const selectedSource = cue.sourceName ?? binding?.sourceName ?? null;
+    let candidates = selectedSource === null ? available : available.filter(take => take.sourceName === selectedSource);
     if ((playbackMode === 'one-shot' || playbackMode === 'held') && cue.sourceName === null && cue.cueBeat !== null) {
       const parity = Math.floor(cue.cueBeat) % 2;
       const matching = candidates.filter(take => Math.floor(take.begin.beat) % 2 === parity);
@@ -762,7 +796,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     schemaVersion: 7, notationVersion: mapping.notationVersion, id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
     source: { spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, range: source.range, digest: await digest(source) },
     mappingDigest: await digest(mapping), chart, voices: mapping.controls.map(c => ({ id: c.voiceId, buttonId: c.buttonId, arrangementRow: c.arrangementRow })),
-    parts, rotation, cueWindow: mapping.cueWindow, ...(mapping.notationVersion === 'terse-v2' ? { authoredCues } : {}), cues, takes, selections, playback, diagnostics,
+    ...(sourceProfiles.length ? { sourceProfiles } : {}), parts, rotation, cueWindow: mapping.cueWindow, ...(mapping.notationVersion === 'terse-v2' ? { authoredCues } : {}), cues, takes, selections, playback, diagnostics,
     executable: !diagnostics.some(d => d.severity === 'error'),
   };
   return decodeCompiledSong(artifact);

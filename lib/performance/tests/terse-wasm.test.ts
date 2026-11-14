@@ -7,13 +7,13 @@ import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
 
 const module = await WebAssembly.compile(await readFile(new URL('../../../ui/practice/wasm/manual-clock.wasm', import.meta.url)));
-function engine(program: readonly number[]) {
+function engine(program: readonly number[], profiles?: Parameters<NativePerformance['prepareVoiceEffects']>[0]) {
   let memory: WebAssembly.Memory;
   const instance = new WebAssembly.Instance(module, { env: { abort() { throw new Error('WASM aborted'); }, emscripten_notify_memory_growth() {} },
     wasi_snapshot_preview1: { fd_write(_fd: number, _vectors: number, _count: number, written: number) { new DataView(memory.buffer).setUint32(written, 0, true); return 0; }, fd_close: () => 0, fd_seek: () => 0, proc_exit(code: number) { throw new Error(`WASM exited ${code}`); } } });
   assert(instance.exports.memory instanceof WebAssembly.Memory); memory = instance.exports.memory;
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
-  return new NativePerformance({ api: instance.exports, sampleRate: 8000, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0 });
+  return new NativePerformance({ api: instance.exports, sampleRate: 8000, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0, initialVoiceEffects: profiles });
 }
 function render(native: NativePerformance, frames: number, input = .25) {
   const out = [new Float32Array(frames), new Float32Array(frames)];
@@ -238,5 +238,36 @@ test('held pitch uses signed velocity, forgets a stale baseline and resets on re
     assert(phase() - down >= 84 && phase() - down <= 85, 'negative signed velocity clamps at minus three semitones');
     native.control({ id: 'R1', edge: 'release' }); render(native, 1);
     assert.equal(native.state().compiledTakes?.[1].playback, 'idle');
+  } finally { native.dispose(); }
+});
+
+test('two named source profiles on one bank preserve independent capture, effects, selection and stopping', () => {
+  const cue = (bar: number, kind: number, take: number, commit: number, selection: number, launch = 0) =>
+    [0, 0, bar, 0, kind, 0, 0, take, commit, selection, 0, launch, 0, 0, -1, 0];
+  const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 7, 120, 7, 25, 25, 2, 6, 2, 0, 0, 1, 2, 3,
+    0, 1, 0, 2, 0, 1, 2, 0, 0, 0, 3, 0, 4, 0, 1, 4, 0, 1,
+    ...cue(1, PF.ARM, 0, -1, -1), ...cue(2, PF.COMMIT, -1, 0, 0),
+    ...cue(3, PF.ARM, 1, -1, -1), ...cue(4, PF.COMMIT, -1, 1, 1, 1),
+    ...cue(5, PF.PLAY, -1, -1, 1), ...cue(6, PF.STOP, -1, -1, 0),
+    0, 0, 1, 1, 1, 1, PF.COMPILED_PROFILES_MAGIC, 1, 1, 4];
+  const profiles = Array.from({ length: 6 }, (_, profile) => ({ profile, effects: profile === 4
+    ? [{ kind: 'slapback' as const, delayMs: 40, feedback: 0, wet: .5 }] : [] }));
+  const native = engine(program, profiles);
+  try {
+    native.setMicrophone(true); native.start({ runId: 'independent-source-profiles', bpm: 120, countInBars: 1, startBar: 1, endBar: 7 });
+    until(native, 1); native.control({ id: 'L1' });
+    until(native, 2); native.control({ id: 'L1' });
+    until(native, 3); native.control({ id: 'L1' });
+    assert(render(native, 128).every(value => Math.abs(value - .25) < 1e-6), 'new source recording leaves unrelated dry playback running');
+    until(native, 4); native.control({ id: 'L1' });
+    assert.equal(native.state().compiledTakes?.[1].playback, 'idle', 'store-only effected source stays silent');
+    until(native, 5); native.control({ id: 'L1' });
+    const mixed = render(native, 640).slice(400);
+    assert(mixed.every(value => Math.abs(value - .625) < 1e-6), 'new source uses its own slapback rack while the dry source continues');
+    assert.equal(native.state().compiledTakes?.[0].playback, 'playing');
+    assert.equal(native.state().compiledTakes?.[1].playback, 'playing');
+    until(native, 6); native.control({ id: 'L1' }); render(native, 1);
+    assert.equal(native.state().compiledTakes?.[0].playback, 'idle');
+    assert.equal(native.state().compiledTakes?.[1].playback, 'playing', 'named stop does not stop another profile on its bank');
   } finally { native.dispose(); }
 });

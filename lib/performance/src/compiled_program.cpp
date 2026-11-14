@@ -6,6 +6,7 @@
 
 namespace compiled {
 namespace {
+constexpr int default_route = PF_VOICE_PROFILES, backup_route = PF_VOICE_PROFILES + 1, route_count = PF_VOICE_PROFILES + 2;
 constexpr double epsilon = 1e-8;
 constexpr double minimum_bpm = 40, maximum_bpm = 240;
 bool whole(double value, double maximum) { return std::isfinite(value) && value >= 0 && value <= maximum && std::floor(value) == value; }
@@ -17,7 +18,7 @@ double cue_boundary(int bar, double cue, int timing, double execute, int beats) 
 }
 }
 struct Program::Take {
-  int voice = 0, latest = -1, anchor = -1, commit_cue = -1;
+  int voice = 0, profile = 0, active_selection = -1, latest = -1, anchor = -1, commit_cue = -1;
   double begin = 0, end = 0, loop_end = 0, gain = 1;
   double capture_start_phase = 0;
   uint32_t capacity = 0;
@@ -38,8 +39,8 @@ struct Program::Pending { int cue = -1, reserved_take = -1; double position = 0;
 
 Program::~Program() = default;
 std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, double rate, const patches::Rack& definition, uint32_t revision) noexcept {
-  const patches::Rack* definitions[PF_CHANNELS]; uint32_t revisions[PF_CHANNELS];
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) { definitions[voice] = &definition; revisions[voice] = revision; }
+  const patches::Rack* definitions[PF_VOICE_PROFILES]; uint32_t revisions[PF_VOICE_PROFILES];
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) { definitions[voice] = &definition; revisions[voice] = revision; }
   return create(data, fields, rate, definitions, revisions);
 }
 std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, double rate, const patches::Rack* const* definitions, const uint32_t* revisions) noexcept {
@@ -52,8 +53,8 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   uint64_t needed = PF_COMPILED_HEADER_FIELDS + uint64_t(data[8]) * PF_COMPILED_TAKE_FIELDS + uint64_t(data[9]) * cue_fields
     + uint64_t(data[10]) * PF_COMPILED_MEMBER_FIELDS + uint64_t(data[11]) * PF_COMPILED_PLAYBACK_FIELDS;
   if (needed > fields) return nullptr;
-  int rotation_count = 0, window_count = 0, external_count = 0, note_count = 0; double rotation_inactivity = .25;
-  uint64_t rotation_offset = 0, window_offset = 0, external_offset = 0, note_offset = 0, cursor = needed;
+  int rotation_count = 0, window_count = 0, external_count = 0, note_count = 0, profile_count = 0; double rotation_inactivity = .25;
+  uint64_t rotation_offset = 0, window_offset = 0, external_offset = 0, note_offset = 0, profile_offset = 0, cursor = needed;
   while (cursor < fields) {
     if (data[cursor] == PF_COMPILED_ROTATION_MAGIC) {
       if (rotation_offset || window_offset || fields - cursor < PF_COMPILED_ROTATION_HEADER_FIELDS
@@ -64,6 +65,10 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       if (window_offset || fields - cursor < PF_COMPILED_WINDOW_HEADER_FIELDS || !whole(data[cursor + 1], PF_MAX_EVENTS)) return nullptr;
       window_offset = cursor; window_count = int(data[cursor + 1]);
       cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + uint64_t(window_count) * PF_COMPILED_WINDOW_FIELDS;
+    } else if (data[cursor] == PF_COMPILED_PROFILES_MAGIC) {
+      if (profile_offset || fields - cursor < 2 || !whole(data[cursor + 1], data[8])) return nullptr;
+      profile_offset = cursor; profile_count = int(data[cursor + 1]);
+      cursor += 2 + uint64_t(profile_count) * PF_COMPILED_PROFILES_FIELDS;
     } else if (data[cursor] == PF_COMPILED_NOTES_MAGIC) {
       if (note_offset || fields - cursor < 2 || !whole(data[cursor + 1], PF_MAX_EVENTS)) return nullptr;
       note_offset = cursor; note_count = int(data[cursor + 1]);
@@ -132,16 +137,22 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       || !whole(row[3], program->bars_ + 1) || row[3] < 1 || !point(row[4], program->beats_) || (row[3] == program->bars_ + 1 && row[4] != 0) || !std::isfinite(row[5]) || row[5] < 0 || row[5] > 4
       || !whole(row[6], program->bars_ + 1) || row[6] < 1 || !point(row[7], program->beats_) || (row[6] == program->bars_ + 1 && row[7] != 0)
       || !index(row[8], program->take_count_)) return nullptr;
-    Take& take = program->takes_[id]; take.voice = int(row[0]); take.begin = (row[1] - 1) * program->beats_ + row[2]; take.end = (row[3] - 1) * program->beats_ + row[4]; take.gain = row[5]; take.loop_end = (row[6] - 1) * program->beats_ + row[7]; take.anchor = int(row[8]);
+    Take& take = program->takes_[id]; take.voice = int(row[0]); take.profile = take.voice; take.begin = (row[1] - 1) * program->beats_ + row[2]; take.end = (row[3] - 1) * program->beats_ + row[4]; take.gain = row[5]; take.loop_end = (row[6] - 1) * program->beats_ + row[7]; take.anchor = int(row[8]);
     if (take.loop_end < take.end || std::ceil((take.loop_end - take.begin) * rate * 60 / minimum_bpm) > std::numeric_limits<uint32_t>::max()) return nullptr;
     double capacity = std::ceil((take.end - take.begin) * rate * 60 / minimum_bpm);
     if (capacity < 1 || capacity > std::numeric_limits<uint32_t>::max()) return nullptr;
     take.capacity = uint32_t(capacity); pcm_bytes += uint64_t(take.capacity) * (sizeof(patches::Stereo) + sizeof(float)) * 2;
   }
+  bool profile_assigned[PF_COMPILED_MAX_TAKES]{};
+  for (int id = 0; id < profile_count; ++id) {
+    const double* row = data + profile_offset + 2 + id * PF_COMPILED_PROFILES_FIELDS;
+    if (!index(row[0], program->take_count_) || !index(row[1], PF_VOICE_PROFILES) || profile_assigned[int(row[0])]) return nullptr;
+    profile_assigned[int(row[0])] = true; program->takes_[int(row[0])].profile = int(row[1]);
+  }
   for (int id = 0; id < program->take_count_; ++id) {
     const Take& take = program->takes_[id]; const Take& anchor = program->takes_[take.anchor];
     int64_t period = std::llround(take.loop_end * 960) - std::llround(take.begin * 960);
-    if (period <= 0 || anchor.anchor != take.anchor || anchor.voice != take.voice
+    if (period <= 0 || anchor.anchor != take.anchor || anchor.voice != take.voice || anchor.profile != take.profile
       || period != std::llround(anchor.loop_end * 960) - std::llround(anchor.begin * 960) || (take.anchor != id && (take.anchor > id || anchor.end > take.begin))
       || (std::llround(take.begin * 960) - std::llround(anchor.begin * 960)) % period != 0) return nullptr;
   }
@@ -264,25 +275,25 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
 }
 
 bool Program::prepare_effects(const patches::Rack& definition, uint32_t revision) noexcept {
-  const patches::Rack* definitions[PF_CHANNELS]; uint32_t revisions[PF_CHANNELS];
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) { definitions[voice] = &definition; revisions[voice] = revision; }
+  const patches::Rack* definitions[PF_VOICE_PROFILES]; uint32_t revisions[PF_VOICE_PROFILES];
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) { definitions[voice] = &definition; revisions[voice] = revision; }
   return prepare_effects(definitions, revisions);
 }
 bool Program::prepare_effects(const patches::Rack* const* definitions, const uint32_t* revisions) noexcept {
   for (int id = 0; id < take_count_; ++id) for (const auto& playback : takes_[id].playback)
     if (playback && playback->state() != patches::PlaybackState::idle) return false;
-  bool stale[PF_CHANNELS]{}, changed_graph[PF_CHANNELS]{};
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) {
+  bool stale[PF_VOICE_PROFILES]{}, changed_graph[PF_VOICE_PROFILES]{};
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
     if (!definitions[voice]) return false;
     changed_graph[voice] = !voices_[voice] || !voices_[voice]->compatible(*definitions[voice]);
     stale[voice] = changed_graph[voice];
   }
   for (int id = 0; id < take_count_; ++id) for (int bank = 0; bank < 2; ++bank)
-    if (bank != takes_[id].latest && (!takes_[id].cache[bank] || takes_[id].cache[bank]->revision() != revisions[takes_[id].voice])) stale[takes_[id].voice] = true;
-  if (std::none_of(stale, stale + PF_CHANNELS, [](bool value) { return value; })) {
-    std::copy(revisions, revisions + PF_CHANNELS, prepared_revision_); return true;
+    if (bank != takes_[id].latest && (!takes_[id].cache[bank] || takes_[id].cache[bank]->revision() != revisions[takes_[id].profile])) stale[takes_[id].profile] = true;
+  if (std::none_of(stale, stale + PF_VOICE_PROFILES, [](bool value) { return value; })) {
+    std::copy(revisions, revisions + PF_VOICE_PROFILES, prepared_revision_); return true;
   }
-  std::unique_ptr<patches::Rack> voices[PF_CHANNELS], tails[PF_CHANNELS];
+  std::unique_ptr<patches::Rack> voices[PF_VOICE_PROFILES], tails[PF_VOICE_PROFILES];
   std::unique_ptr<patches::ProcessedTake> caches[PF_COMPILED_MAX_TAKES][2];
   std::unique_ptr<patches::Playback> players[PF_COMPILED_MAX_TAKES][2];
   auto checkpoints = std::unique_ptr<std::unique_ptr<patches::Rack>[]>(new (std::nothrow) std::unique_ptr<patches::Rack>[window_count_ * 2]);
@@ -290,7 +301,7 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
   uint64_t estimated = 0;
   for (int id = 0; id < take_count_; ++id) for (int bank = 0; bank < 2; ++bank)
     if (takes_[id].cache[bank]) estimated += takes_[id].cache[bank]->memory_bytes() + takes_[id].playback[bank]->memory_bytes();
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) {
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
     if (voices_[voice]) estimated += voices_[voice]->memory_bytes();
     if (tails_[voice]) estimated += tails_[voice]->memory_bytes();
     if (!stale[voice]) continue;
@@ -299,9 +310,9 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
     estimated += voices[voice]->memory_bytes() + tails[voice]->memory_bytes();
   }
   for (int id = 0; id < take_count_; ++id) for (int bank = 0; bank < 2; ++bank) {
-    uint32_t revision = revisions[takes_[id].voice];
-    if (takes_[id].latest == bank || (!changed_graph[takes_[id].voice] && takes_[id].cache[bank] && takes_[id].cache[bank]->revision() == revision)) continue;
-    caches[id][bank] = patches::ProcessedTake::create(*definitions[takes_[id].voice], takes_[id].capacity, revision, 1);
+    uint32_t revision = revisions[takes_[id].profile];
+    if (takes_[id].latest == bank || (!changed_graph[takes_[id].profile] && takes_[id].cache[bank] && takes_[id].cache[bank]->revision() == revision)) continue;
+    caches[id][bank] = patches::ProcessedTake::create(*definitions[takes_[id].profile], takes_[id].capacity, revision, 1);
     if (!caches[id][bank]) return false;
     players[id][bank] = patches::Playback::create(*caches[id][bank], patches::PlaybackMode::evolving);
     if (!players[id][bank]) return false;
@@ -312,12 +323,12 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
     auto& window = selection_windows_[id];
     if (window.initial[bank]) estimated += window.initial[bank]->memory_bytes();
     if (window.initial[bank] && !caches[window.take][bank]) continue;
-    checkpoints[id * 2 + bank] = definitions[takes_[window.take].voice]->snapshot();
+    checkpoints[id * 2 + bank] = definitions[takes_[window.take].profile]->snapshot();
     if (!checkpoints[id * 2 + bank]) return false;
     estimated += checkpoints[id * 2 + bank]->memory_bytes();
     if (estimated > 200ULL * 1024 * 1024) return false;
   }
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) {
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
     if (voices[voice]) { voices_[voice] = std::move(voices[voice]); tails_[voice] = std::move(tails[voice]); }
     prepared_revision_[voice] = revisions[voice];
   }
@@ -336,7 +347,8 @@ void Program::start(int start_bar, int count_in_beats, double frame, double bpm)
   anchor_frame_ = frame; anchor_position_ = (start_bar - 1) * beats_ - count_in_beats - 1;
   query_position_ = anchor_position_; query_frame_ = frame;
   for (int id = 0; id < cue_count_; ++id) { cues_[id].used = false; cues_[id].occurred_frame = std::numeric_limits<double>::quiet_NaN(); }
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) { suppressed_[voice] = false; gated_[voice] = held_[voice] = -1; button_down_[voice] = false; }
+  std::fill(suppressed_, suppressed_ + PF_VOICE_PROFILES, false);
+  for (int voice = 0; voice < PF_CHANNELS; ++voice) { gated_[voice] = held_[voice] = -1; button_down_[voice] = false; }
 
 }
 void Program::stop() noexcept {
@@ -347,23 +359,23 @@ void Program::stop() noexcept {
     else take.cache[active_capture_.bank]->reset_for_capture();
   }
   for (auto& voice : external_playback_) voice = {};
-  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_frame_ = -1; clear_gesture(); phase_ = PF_IDLE;
+  active_capture_ = {}; live_route_ = -1; monitor_route_ = default_route; rotation_deadline_frame_ = -1; clear_gesture(); phase_ = PF_IDLE;
 
   for (int button = 0; button < PF_CHANNELS; ++button) { gated_[button] = held_[button] = -1; button_down_[button] = false; } error_ = PF_OK;
   for (int id = 0; id < cue_count_; ++id) pending_[id] = {};
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) { if (voices_[voice]) voices_[voice]->reset(); if (tails_[voice]) tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
-  drain_[PF_DEFAULT_PROFILE] = 0; drain_[PF_BACKUP_PROFILE] = 0;
-  std::fill(handed_off_, handed_off_ + PF_CHANNELS, false);
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) { if (voices_[voice]) voices_[voice]->reset(); if (tails_[voice]) tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
+  drain_[default_route] = 0; drain_[backup_route] = 0;
+  std::fill(handed_off_, handed_off_ + PF_VOICE_PROFILES, false);
   for (int id = 0; id < take_count_; ++id) for (auto& playback : takes_[id].playback) if (playback) playback->reset();
 }
 void Program::microphone_lost() noexcept {
   if (active_capture_.take >= 0) takes_[active_capture_.take].cache[active_capture_.bank]->reset_for_capture();
   for (auto& voice : external_playback_) voice = {};
-  active_capture_ = {}; live_route_ = -1; monitor_route_ = PF_DEFAULT_PROFILE; rotation_deadline_frame_ = -1; clear_gesture();
+  active_capture_ = {}; live_route_ = -1; monitor_route_ = default_route; rotation_deadline_frame_ = -1; clear_gesture();
   for (int id = 0; id < cue_count_; ++id) pending_[id] = {};
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) { voices_[voice]->reset(); tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
-  drain_[PF_DEFAULT_PROFILE] = 0; drain_[PF_BACKUP_PROFILE] = 0;
-  std::fill(handed_off_, handed_off_ + PF_CHANNELS, false);
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) { voices_[voice]->reset(); tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
+  drain_[default_route] = 0; drain_[backup_route] = 0;
+  std::fill(handed_off_, handed_off_ + PF_VOICE_PROFILES, false);
 }
 double Program::cue_frame(const Cue& cue, double bpm) const noexcept {
   return std::isfinite(cue.occurred_frame) ? cue.occurred_frame : anchor_frame_ + ((cue.bar - 1) * beats_ + cue.cue - anchor_position_) * rate_ * 60 / bpm;
@@ -405,7 +417,7 @@ double Program::frame_at(double position) const noexcept { return anchor_frame_ 
 int Program::available_bank(int id) const noexcept {
   if (id < 0 || id >= take_count_) return -1;
   const Take& take = takes_[id];
-  for (int bank = 0; bank < 2; ++bank) if (bank != take.latest && !(active_capture_.take == id && active_capture_.bank == bank) && take.cache[bank] && take.cache[bank]->revision() == prepared_revision_[take.voice] && take.playback[bank] && take.playback[bank]->state() == patches::PlaybackState::idle) return bank;
+  for (int bank = 0; bank < 2; ++bank) if (bank != take.latest && !(active_capture_.take == id && active_capture_.bank == bank) && take.cache[bank] && take.cache[bank]->revision() == prepared_revision_[take.profile] && take.playback[bank] && take.playback[bank]->state() == patches::PlaybackState::idle) return bank;
   return -1;
 }
 bool Program::cue_warning(int end_bar) const noexcept {
@@ -501,10 +513,14 @@ int Program::rotate(double value, double frame, double bpm) noexcept {
   return PF_OK;
 }
 int Program::profile_activity(int profile) const noexcept {
-  int selected = rotation_remaining() > 0 ? PF_BACKUP_PROFILE : live_route_ < 0 ? PF_DEFAULT_PROFILE : live_route_;
-  if ((phase_ == PF_COUNT_IN || phase_ == PF_PLAYING) && profile == selected) return PF_VOICE_LIVE;
-  if (profile < PF_CHANNELS && active_capture_.take >= 0 && takes_[active_capture_.take].voice == profile) return PF_VOICE_CAPTURE;
-  return profile >= 0 && profile < PF_VOICE_PROFILES && drain_[profile] ? PF_VOICE_TAIL : PF_VOICE_STANDBY;
+  int selected = rotation_remaining() > 0 ? backup_route : live_route_ < 0 ? default_route : live_route_;
+  int selected_profile = selected == default_route ? PF_DEFAULT_PROFILE : selected == backup_route ? PF_BACKUP_PROFILE : selected;
+  if ((phase_ == PF_COUNT_IN || phase_ == PF_PLAYING) && profile == selected_profile) return PF_VOICE_LIVE;
+  if (active_capture_.take >= 0 && takes_[active_capture_.take].profile == profile) return PF_VOICE_CAPTURE;
+  bool draining = profile >= 0 && profile < PF_VOICE_PROFILES && drain_[profile];
+  if (profile == PF_DEFAULT_PROFILE) draining = draining || drain_[default_route];
+  if (profile == PF_BACKUP_PROFILE) draining = draining || drain_[backup_route];
+  return draining ? PF_VOICE_TAIL : PF_VOICE_STANDBY;
 }
 int Program::resolve(int button, double frame, double bpm) noexcept {
   if (button < 0 || button >= PF_CHANNELS || phase_ == PF_IDLE || phase_ == PF_ENDED) return -PF_INVALID_CHANNEL;
@@ -647,7 +663,7 @@ int Program::press_selected(int found, double frame, double bpm, bool microphone
     if (result != PF_OK) { if (plan.invalid_draft) discard_invalid_draft(cue); return result; }
   }
   if (cue.tempo_hint && (!tempo_hit_ || tempo_hit_(tempo_context_, cue.tempo_hint) != PF_OK)) return PF_TEMPO_REJECTED;
-  if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) { switch_route(cue.voice); if (error_ != PF_OK) return error_; }
+  if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) { switch_route(takes_[cue.take].profile); if (error_ != PF_OK) return error_; }
   if (target <= now + epsilon) {
     int result = execute(found, frame);
     if (result != PF_OK) { error_ = PF_OK; return result; }
@@ -657,6 +673,16 @@ int Program::press_selected(int found, double frame, double bpm, bool microphone
 bool Program::selections_overlap(int first, int second) const noexcept {
   for (int a = 0; a < member_count_; ++a) if (members_[a].selection == first)
     for (int b = 0; b < member_count_; ++b) if (members_[b].selection == second && members_[a].take == members_[b].take) return true;
+  return false;
+}
+bool Program::selection_profiles_overlap(int first, int second) const noexcept {
+  for (int member = 0; member < member_count_; ++member)
+    if (members_[member].selection == first && selection_profile(second, takes_[members_[member].take].profile)) return true;
+  return false;
+}
+bool Program::selection_profile(int selection, int profile) const noexcept {
+  for (int member = 0; member < member_count_; ++member)
+    if (members_[member].selection == selection && takes_[members_[member].take].profile == profile) return true;
   return false;
 }
 bool Program::selection_ready(int selection, int voice) const noexcept {
@@ -684,11 +710,12 @@ void Program::stop_voice(int voice, bool hard) noexcept {
   }
 }
 bool Program::select(int voice, int selection, bool automatic, int mode, bool retrigger) noexcept {
-  if (!selection_ready(selection, voice) || (automatic && suppressed_[voice])) return false;
+  if (!selection_ready(selection, voice)) return false;
+  if (automatic) for (int profile = 0; profile < PF_VOICE_PROFILES; ++profile) if (selection_profile(selection, profile) && suppressed_[profile]) return false;
   bool playing = false;
-  for (int id = 0; id < take_count_; ++id) if (takes_[id].voice == voice) for (const auto& playback : takes_[id].playback) if (playback->state() == patches::PlaybackState::playing) playing = true;
+  for (int id = 0; id < take_count_; ++id) if (takes_[id].voice == voice && selection_profile(selection, takes_[id].profile)) for (const auto& playback : takes_[id].playback) if (playback->state() == patches::PlaybackState::playing) playing = true;
   if (automatic && !playing) { selection_[voice] = selection; return true; }
-  for (int id = 0; id < take_count_; ++id) if (takes_[id].voice == voice) {
+  for (int id = 0; id < take_count_; ++id) if (takes_[id].voice == voice && selection_profile(selection, takes_[id].profile)) {
     bool selected = false;
     for (int member = 0; member < member_count_; ++member) if (members_[member].selection == selection && members_[member].take == id) selected = true;
     if (!selected) for (auto& playback : takes_[id].playback) playback->stop();
@@ -719,6 +746,7 @@ bool Program::select(int voice, int selection, bool automatic, int mode, bool re
       if (phase < 0) phase += take.cache[take.latest]->period();
       player->seek_phase(uint32_t(std::floor(phase)));
     }
+    take.active_selection = selection;
     take.playback_gain[take.latest] = take.gain * members_[member].gain;
   }
   selection_[voice] = selection; return true;
@@ -761,7 +789,7 @@ int Program::preflight_start(const Cue& cue, const Cue* staged_commit, uint32_t 
 void Program::discard_invalid_draft(const Cue& cue) noexcept {
   if (active_capture_.take != cue.commit) return;
   takes_[cue.commit].cache[active_capture_.bank]->reset_for_capture(); active_capture_ = {};
-  if (live_route_ == cue.voice && !has_capture()) switch_route(-1);
+  if (live_route_ == takes_[cue.commit].profile && !has_capture()) switch_route(-1);
 }
 int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept {
   Take& take = takes_[active_capture_.take];
@@ -783,12 +811,12 @@ int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_
   }
   // END playback owns this source epoch. Related monitor clones retire, while
   // other voices and unrelated detached histories keep their own tails.
-  if (tail_generation_[cue.voice] == completed_generation) { drain_[cue.voice] = 0; tail_generation_[cue.voice] = 0; }
-  voices_[cue.voice]->reset();
+  if (tail_generation_[take.profile] == completed_generation) { drain_[take.profile] = 0; tail_generation_[take.profile] = 0; }
+  voices_[take.profile]->reset();
   if (cue.launch == PF_AUTOPLAY && cue.selection >= 0) {
     if (!select(cue.voice, cue.selection, false, cue.mode)) return error_ = PF_ACTION_FAILED;
   } else if (cue.launch == PF_AUTOPLAY && !play_take(cue.commit)) return error_ = PF_ACTION_FAILED;
-  if (!starts_next && live_route_ == cue.voice && !has_capture()) switch_route(-1, true);
+  if (!starts_next && live_route_ == take.profile && !has_capture()) switch_route(-1, true);
   return PF_OK;
 }
 int Program::execute(int id, double frame) noexcept {
@@ -810,15 +838,15 @@ int Program::execute(int id, double frame) noexcept {
   if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) {
     Take& take = takes_[cue.take];
     if (cue.replacement_capture) for (int previous = 0; previous < take_count_; ++previous)
-      if (takes_[previous].voice == cue.voice && previous != cue.commit) for (auto& playback : takes_[previous].playback) playback->stop();
-    if (!take.cache[bank]->reset_for_capture() || !take.cache[bank]->begin(*voices_[cue.voice])) return error_ = PF_ACTION_FAILED;
+      if (takes_[previous].profile == take.profile && previous != cue.commit) for (auto& playback : takes_[previous].playback) playback->stop();
+    if (!take.cache[bank]->reset_for_capture() || !take.cache[bank]->begin(*voices_[take.profile])) return error_ = PF_ACTION_FAILED;
     capture_bpm_ = bpm_;
     const Take& anchor = takes_[take.anchor];
     take.capture_start_phase = take.anchor != cue.take && anchor.latest >= 0 ? anchor.playback[anchor.latest]->phase() % anchor.cache[anchor.latest]->period() : 0;
     uint64_t generation = ++capture_generation_;
-    if (live_route_ != cue.voice && drain_[cue.voice] && !detached_tail_[cue.voice]) {
-      if (!tails_[cue.voice]->copy_state(*voices_[cue.voice])) return error_ = PF_ACTION_FAILED;
-      detached_tail_[cue.voice] = true; tail_generation_[cue.voice] = generation;
+    if (live_route_ != take.profile && drain_[take.profile] && !detached_tail_[take.profile]) {
+      if (!tails_[take.profile]->copy_state(*voices_[take.profile])) return error_ = PF_ACTION_FAILED;
+      detached_tail_[take.profile] = true; tail_generation_[take.profile] = generation;
     }
     active_capture_ = {cue.take, bank, generation};
     for (int window = 0; window < window_count_; ++window) if (selection_windows_[window].take == cue.take) {
@@ -830,7 +858,7 @@ int Program::execute(int id, double frame) noexcept {
     for (int button = 0; button < PF_CHANNELS; ++button) {
       int active = gated_[button] >= 0 ? gated_[button] : held_[button];
       if (active >= 0 && cues_[active].voice == cue.voice
-        && (cue.kind == PF_PLAY || cue.selection < 0 || selections_overlap(cues_[active].selection, cue.selection))) {
+        && (cue.selection < 0 || (cue.kind == PF_PLAY ? selection_profiles_overlap(cues_[active].selection, cue.selection) : selections_overlap(cues_[active].selection, cue.selection)))) {
         release(button); gated_[button] = held_[button] = -1;
       }
     }
@@ -839,11 +867,17 @@ int Program::execute(int id, double frame) noexcept {
     if (cue.selection >= 0) stop_selection(cue.selection); else stop_voice(cue.voice, false);
     gated_[cue.button] = -1; held_[cue.button] = -1;
 
-    suppressed_[cue.voice] = true;
+    for (int profile = 0; profile < PF_VOICE_PROFILES; ++profile) {
+      bool bound = false;
+      for (int take = 0; take < take_count_; ++take) if (takes_[take].voice == cue.voice && takes_[take].profile == profile) bound = true;
+      if ((cue.selection >= 0 && selection_profile(cue.selection, profile)) || (cue.selection < 0 && bound)) suppressed_[profile] = true;
+    }
   }
   if (cue.kind == PF_PLAY) {
     if (cue.mode == PF_GATED_MODE) {
-      stop_voice(cue.voice, false); gated_[cue.button] = id;
+      for (int take = 0; take < take_count_; ++take) if (selection_profile(cue.selection, takes_[take].profile))
+        for (auto& playback : takes_[take].playback) playback->stop();
+      gated_[cue.button] = id;
       int result = gate_press(cue.button, frame, true);
       if (result != PF_OK) return error_ = result;
     } else {
@@ -854,7 +888,7 @@ int Program::execute(int id, double frame) noexcept {
       } else return error_ = PF_NO_SAMPLE;
       if (cue.mode == PF_HELD_MODE) { for (int other = 0; other < PF_CHANNELS; ++other) if (other != cue.button && held_[other] >= 0) release(other); held_[cue.button] = id; }
     }
-    suppressed_[cue.voice] = false;
+    for (int profile = 0; profile < PF_VOICE_PROFILES; ++profile) if (selection_profile(cue.selection, profile)) suppressed_[profile] = false;
   }
   return error_ = PF_OK;
 }
@@ -865,7 +899,7 @@ void Program::observe_windows(double frame) noexcept {
     if (window.take == active_capture_.take && window.start[active_capture_.bank] < 0
       && frame >= std::ceil(frame_at(takes_[window.take].begin + window.begin))) {
       window.start[active_capture_.bank] = takes_[window.take].cache[active_capture_.bank]->length();
-      if (!window.initial[active_capture_.bank]->copy_state(*voices_[takes_[window.take].voice])) error_ = PF_ACTION_FAILED;
+      if (!window.initial[active_capture_.bank]->copy_state(*voices_[takes_[window.take].profile])) error_ = PF_ACTION_FAILED;
     }
     if (window.take == active_capture_.take && window.cut[active_capture_.bank] < 0
       && frame >= std::ceil(frame_at(takes_[window.take].begin + window.end)))
@@ -980,29 +1014,29 @@ void Program::render(const float* input, float* left, float* right, float* live_
     float source = input && std::isfinite(input[offset]) ? input[offset] : 0;
     patches::Stereo current{}, monitor{};
     if (live && (phase_ == PF_COUNT_IN || phase_ == PF_PLAYING)) {
-      int recording_voice = active_capture_.take >= 0 ? takes_[active_capture_.take].voice : -1;
-      auto rack_for = [&](int profile) -> patches::Rack& { return profile == PF_DEFAULT_PROFILE ? default_rack : profile == PF_BACKUP_PROFILE ? backup_rack : *voices_[profile]; };
-      int desired = rotation_remaining() > 0 ? PF_BACKUP_PROFILE : live_route_ < 0 ? PF_DEFAULT_PROFILE : live_route_;
+      int recording_voice = active_capture_.take >= 0 ? takes_[active_capture_.take].profile : -1;
+      auto rack_for = [&](int profile) -> patches::Rack& { return profile == default_route ? default_rack : profile == backup_route ? backup_rack : *voices_[profile]; };
+      int desired = rotation_remaining() > 0 ? backup_route : live_route_ < 0 ? default_route : live_route_;
       if (desired != monitor_route_) {
         int outgoing = monitor_route_;
-        bool handed_off = outgoing < PF_CHANNELS && handed_off_[outgoing];
+        bool handed_off = outgoing < PF_VOICE_PROFILES && handed_off_[outgoing];
         if (!handed_off) {
-          if (outgoing < PF_CHANNELS) {
+          if (outgoing < PF_VOICE_PROFILES) {
             detached_tail_[outgoing] = recording_voice == outgoing;
             tail_generation_[outgoing] = detached_tail_[outgoing] ? active_capture_.generation : 0;
             if (detached_tail_[outgoing] && !tails_[outgoing]->copy_state(*voices_[outgoing])) { stop(); error_ = PF_ACTION_FAILED; break; }
           }
           drain_[outgoing] = rack_for(outgoing).maximum_tail_frames();
         }
-        if (outgoing < PF_CHANNELS) handed_off_[outgoing] = false;
+        if (outgoing < PF_VOICE_PROFILES) handed_off_[outgoing] = false;
         monitor_route_ = desired; drain_[desired] = 0;
-        if (desired < PF_CHANNELS) { detached_tail_[desired] = false; tail_generation_[desired] = 0; handed_off_[desired] = false; }
+        if (desired < PF_VOICE_PROFILES) { detached_tail_[desired] = false; tail_generation_[desired] = 0; handed_off_[desired] = false; }
       }
       current = rack_for(desired).process({source, source}); monitor = current;
       patches::Stereo captured = current;
       if (recording_voice >= 0 && recording_voice != desired) captured = voices_[recording_voice]->process({source, source});
-      for (int profile = 0; profile < PF_VOICE_PROFILES; ++profile) if (profile != desired && drain_[profile]) {
-        patches::Rack& rack = profile < PF_CHANNELS && detached_tail_[profile] ? *tails_[profile] : rack_for(profile);
+      for (int profile = 0; profile < route_count; ++profile) if (profile != desired && drain_[profile]) {
+        patches::Rack& rack = profile < PF_VOICE_PROFILES && detached_tail_[profile] ? *tails_[profile] : rack_for(profile);
         patches::Stereo tail = rack.process({}); --drain_[profile]; monitor.left += tail.left; monitor.right += tail.right;
       }
       if (active_capture_.take >= 0) {
@@ -1126,7 +1160,7 @@ void Program::take_info(uint32_t id, double* out) const noexcept {
   out[PF_TAKE_SOURCE_END] = take.playback[bank]->source_end();
   out[PF_TAKE_PHASE] = take.playback[bank]->phase(); out[PF_TAKE_PLAYBACK_STATE] = int(take.playback[bank]->state());
   if (take.playback[bank]->state() == patches::PlaybackState::playing) {
-    const int selected = selection_[take.voice];
+    const int selected = take.active_selection;
     for (int member = 0; member < member_count_; ++member)
       if (members_[member].selection == selected && members_[member].take == int(id)) {
         out[PF_TAKE_SELECTION] = selected; break;

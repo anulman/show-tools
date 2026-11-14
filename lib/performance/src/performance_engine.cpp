@@ -495,8 +495,8 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   auto identity = engine->profiles[PF_DEFAULT_PROFILE].rack ? nullptr : patches::Rack::create(nullptr, 0);
   const patches::Rack* definition = engine->profiles[PF_DEFAULT_PROFILE].rack ? engine->profiles[PF_DEFAULT_PROFILE].rack.get() : identity.get();
   if (!definition) return fail(engine, PF_ALLOCATION_FAILED);
-  const patches::Rack* definitions[PF_CHANNELS]; uint32_t revisions[PF_CHANNELS];
-  for (int voice = 0; voice < PF_CHANNELS; ++voice) {
+  const patches::Rack* definitions[PF_VOICE_PROFILES]; uint32_t revisions[PF_VOICE_PROFILES];
+  for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
     definitions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].rack.get() : definition;
     revisions[voice] = engine->profiles[voice].rack ? engine->profiles[voice].revision : engine->profiles[PF_DEFAULT_PROFILE].revision;
   }
@@ -694,13 +694,13 @@ int pf_prepare_voice_effects(pf_engine* engine, const pf_effect_definition* effe
     total += counts[voice];
   }
   std::unique_ptr<patches::Rack> racks[PF_VOICE_PROFILES];
-  const patches::Rack* definitions[PF_CHANNELS];
+  const patches::Rack* definitions[PF_VOICE_PROFILES];
   for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
     if (changed[voice]) {
       racks[voice] = prepare_rack(engine->rate, counts[voice] ? effects + offsets[voice] : nullptr, counts[voice]);
       if (!racks[voice]) return fail(engine, PF_ALLOCATION_FAILED);
     }
-    if (voice < PF_CHANNELS) definitions[voice] = changed[voice] ? racks[voice].get() : engine->profiles[voice].rack.get();
+    definitions[voice] = changed[voice] ? racks[voice].get() : engine->profiles[voice].rack.get();
   }
   if (engine->compiled && !engine->compiled->prepare_effects(definitions, revisions)) return fail(engine, PF_ALLOCATION_FAILED, "Could not prepare voice capture resources");
   for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {

@@ -126,6 +126,7 @@ int main(int argc, char** argv) {
       inactivity = field(bytes, cursor + 2);
       cursor += PF_COMPILED_ROTATION_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_ROTATION_FIELDS;
     } else if (field(bytes, cursor) == PF_COMPILED_WINDOW_MAGIC) cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + size_t(field(bytes, cursor + 1)) * PF_COMPILED_WINDOW_FIELDS;
+    else if (field(bytes, cursor) == PF_COMPILED_PROFILES_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1)) * PF_COMPILED_PROFILES_FIELDS;
     else if (field(bytes, cursor) == PF_COMPILED_EXTERNAL_MAGIC || field(bytes, cursor) == PF_COMPILED_NOTES_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1)) * 5;
     else return fail("Unsupported compiled extension");
   }

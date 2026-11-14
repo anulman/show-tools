@@ -45,6 +45,7 @@ const Performance = Schema.Struct({
   source: CompiledSongSchema.fields.source, mappingDigest: CompiledSongSchema.fields.mappingDigest,
   voices: CompiledSongSchema.fields.voices, parts: list(RuntimePart),
   rotation: CompiledSongSchema.fields.rotation, cueWindow: CompiledSongSchema.fields.cueWindow,
+  sourceProfiles: CompiledSongSchema.fields.sourceProfiles,
   noteBanks: CompiledSongSchema.fields.noteBanks,
   externalSamples: CompiledSongSchema.fields.externalSamples,
   authoredCues: CompiledSongSchema.fields.authoredCues,
@@ -192,6 +193,7 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
   });
   const performance: PerformanceData = {
     version: 2, scope: 'complete', id: song.id, notationVersion: song.notationVersion,
+    ...(song.sourceProfiles === undefined ? {} : { sourceProfiles: song.sourceProfiles }),
     ...(song.noteBanks === undefined ? {} : { noteBanks: song.noteBanks }),
     ...(song.externalSamples === undefined ? {} : { externalSamples: song.externalSamples }),
     source: song.source, mappingDigest: song.mappingDigest, voices: song.voices, parts: partBindings,
@@ -455,6 +457,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   const song = decodeCanonicalProgram({
     schemaVersion: 7, notationVersion: performance.notationVersion, id: performance.id, title: chart.title,
     ticksPerQuarter: 960, meter, source: { ...performance.source, digest }, mappingDigest: digest, chart,
+    ...(performance.sourceProfiles === undefined ? {} : { sourceProfiles: performance.sourceProfiles }),
     ...(performance.noteBanks === undefined ? {} : { noteBanks: performance.noteBanks }),
     ...(performance.externalSamples === undefined ? {} : { externalSamples: performance.externalSamples }),
     voices: performance.voices, parts: resolvedParts, rotation: performance.rotation, cueWindow: performance.cueWindow,

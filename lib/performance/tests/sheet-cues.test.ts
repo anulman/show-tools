@@ -148,7 +148,7 @@ test('unprepared gating and mixed source effects block only their dependent song
   const mixed = await compileSheetsSong(source, { ...mapping, sourceBindings: mapping.sourceBindings?.map(binding => binding.sourceName === 'pick' ? { ...binding, voiceId: 'separate-guitar-effect' } : binding) });
   assert.equal(mixed.executable, false);
   assert(mixed.diagnostics.some(diagnostic => diagnostic.code === 'source-effects-capability'));
-  assert.throws(() => decodeCompiledSong({ ...mixed, executable: true, diagnostics: [] }), /Independent source effect profiles/);
+  assert.throws(() => decodeCompiledSong({ ...mixed, executable: true, diagnostics: [] }), /source effect profile/);
 });
 
 test('explicit per-note fixture order is canonical data and encodes manual native hits', async () => {

@@ -5,9 +5,9 @@ type Voice = { id: string; name: string; profile: number };
 type Footer = { edit?: () => void; voice: Voice; root: HTMLDetailsElement; summary: HTMLSpanElement; pending: HTMLSpanElement; controls: HTMLInputElement[]; buttons: HTMLButtonElement[] };
 const slapback = (): LiveEffectDefinition => ({ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 });
 const chorus = (): LiveEffectDefinition => ({ kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: .35 });
-export function initialVoiceEffects(mode: 'compiled' | 'dry' = 'compiled'): VoiceEffectConfiguration[] {
+export function initialVoiceEffects(mode: 'compiled' | 'dry' = 'compiled', sourceProfiles: readonly number[] = []): VoiceEffectConfiguration[] {
   return Array.from({ length: VOICE_PROFILE_COUNT }, (_, profile) => ({ profile,
-    effects: mode === 'dry' ? [] : profile === ROTATION_LIVE_PROFILE ? [slapback(), chorus()] : profile === DEFAULT_LIVE_PROFILE ? [slapback()] : [] }));
+    effects: mode === 'dry' || sourceProfiles.includes(profile) ? [] : profile === ROTATION_LIVE_PROFILE ? [slapback(), chorus()] : profile === DEFAULT_LIVE_PROFILE ? [slapback()] : [] }));
 }
 export function effectSummary(effects: readonly LiveEffectDefinition[]): string {
   return effects.map(effect => effect.kind === 'slapback'
