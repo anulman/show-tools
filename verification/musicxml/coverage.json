@@ -1,9 +1,9 @@
 {
-  "syncCommit": "894915fd154c07529d08c79182cafe46cc9191ef",
+  "syncCommit": "cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4",
   "files": {
-    "lib/performance/musicxml-song.ts": "7d5fa8dd84420f2adfe34fe650ec0cfbe144caa540eb6e2b44c9689db8dcaeae",
+    "lib/performance/musicxml-song.ts": "3a201e63df82dad8eab31cb021482a17100490c9c8d86312acf65f861e31574c",
     "lib/performance/sheet-musicxml.ts": "e20668333a28bcf746e98eabac54fa8158e099dc53b965b6892cea4b4d9295d9",
-    "lib/performance/compiled-song.ts": "530b0caae3f43c758973701ca84da0ea72bc5c5813c2936465ae76633b21ee57",
+    "lib/performance/compiled-song.ts": "9b979eadce01865c0311c427ebfb35976b5b89dbfa84a717b4a8bb7e599dad8d",
     "lib/performance/song-source.ts": "a68139ca0d84af478a8d536b9ffa530ad620cefd2358ab4b06b9a5404b36c0ee",
     "lib/performance/sheet-musical-annotations.ts": "06b45c504611bddfb79f239ff20f95722fdf9184d43ced03bec2570ff8a51e1d",
     "lib/performance/sheet-stage-notation.ts": "27c4274a77175324c103756d3dbc833eeb3248fa42a508d8d17db61683f232ab",

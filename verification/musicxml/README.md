@@ -100,7 +100,7 @@ The stop-only Cartesian grammar remains unchanged. Its 7,488 cases still check d
 
 The legacy cutover verifier asserts that every schema-seven policy still has its historical default before removing those additive fields from its historical comparison. It then checks the unchanged native digest `237b834c47ede65e4488e25c268a7202c4da1845388ff5cfa63fa9e94e51c7a8` and all nine musician-sheet pages. Compatible `dyc-v1` songs retain packet six and its eleven-field cue rows. New instructions use packet seven and sixteen-field cue rows.
 
-Capture sources with an independently named, unprepared effect profile remain blocked. Held and gated sources require a prepared source and an explicit sustain window. A cue in an unmodeled pickup or tail column produces a source-cell diagnostic instead of disappearing from the executable instructions.
+Capture sources with an independently named, unprepared effect profile remain blocked. Held and gated sources require a prepared sustain window or an explicit periodic-analysis policy whose native preparation accepts the captured source. Undeclared pickup or tail cues produce a source-cell diagnostic instead of disappearing from executable instructions.
 
 ## Explicit source profile ownership
 
@@ -109,3 +109,19 @@ Optional source profiles and per-take profile IDs now preserve prepared effect o
 The existing 7,488-case domain and two actual-source mutation witnesses retain their original bounds and claims. Additional source-profile tests verify canonical/native representation and ownership rejection. They do not prove profile-specific capture DSP or live monitoring; the shared native/WASM witnesses establish that separately.
 
 Portable external WAV declarations retain their data URI, SHA-256 and license metadata in canonical Performance data. The writer and reader verify declared bytes before returning a canonical result. The external-asset dependency is source-fenced. The finite 7,488-case grammar remains unchanged; focused `external-assets.test.ts` tests cover asset identity, archive-free roundtrip and slot ownership. This finite grammar does not exhaust WAV decoding or cryptographic behavior.
+
+## Practice release source review
+
+Outcome: updated at `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. The covered diff from `894915f` changes only `compiled-song.ts` and `musicxml-song.ts`, in `3abe656` and `08c921d`. The other eleven covered files are unchanged. The initial runners stopped at `SOURCE_DRIFT`; these failures were stale source records, not product counterexamples.
+
+| Covered change | Effect on the verification |
+| --- | --- |
+| Declared full-measure preludes become chronological ordinals while retaining unique source labels. Variant source-bar references receive the prelude offset. | Intentional timeline extension. The existing Cartesian domain has no prelude, so its bounds and all seven properties remain unchanged. `pickup-timeline.test.ts` separately checks nine pickups, the explicit 32-count period and rejection of an undeclared short pickup. |
+| Standard MusicXML measure numbers agree with optional `chartBinding.labels`. Reader and writer preserve the complete label list. | New canonical display agreement. One supplemental witness checks `Pickup 0`, numbered `1`, archive removal and read/write/read. Editing the standard pickup label must reject. A third actual-source mutant removes that precise reader guard and must fail `MEASURE_LABEL_AGREEMENT`. This witness is separate from the 7,488-case Cartesian product. |
+| `terminalStops` retains an authored Tail `x` without inventing another measure. | The supplemental timeline witness also preserves the source-located stop through archive-free roundtrip. It does not prove native transport-end behavior. |
+| One through four active controls replace the previous mandatory four bindings; undeclared hardware rows are discovered by their labels. | The four-pad Cartesian inputs remain valid and unchanged. `inactive-banks.test.ts` separately checks three controls, native representation, written cues on unassigned controls, empty bindings and duplicate bindings. These cases do not extend the Cartesian domain. |
+| Take `periodCounts` and selection window `sustain` preserve explicit loop periods and automatic periodic preparation policy. | No capture or sustain exists in the Cartesian domain. Native packet encoding, waveform analysis, source quality and playback remain separate actual native/WASM checks. No DSP proof is implied by pinning these compiler files. |
+
+The rerun passes all 7,488 canonical cases, 624 voice groups, 312 action pairs and 3,744 equivalent-tempo cases. The case fingerprint remains `8fe4c7f6f6d9cd56188cfbf48f2a130f4a568ce1e41c726465e74cf0e4188a6e` across this maintenance pass. All three actual-source mutants fail their named structured assertions, and every pristine and restored witness passes. The parser separately passes 32,390 cases and six actual-source mutants. The scoped TypeScript check and 36 canonical/ingestion integration tests pass.
+
+Receipts: `/private/tmp/practice-musicxml-final-cd3ae7e-labels.json`, `/private/tmp/practice-cues-final-cd3ae7e.json`, and `/private/tmp/practice-canonical-integration-cd3ae7e.log`. No property or bound was weakened and no generated case was removed. The supplemental witness does not establish arbitrary labels, shortened measures, every prelude length, native sustain preparation or musical suitability.

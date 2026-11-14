@@ -1,5 +1,19 @@
 # Capture source synchronization
 
+## Consolidated practice release at cd3ae7e
+
+Outcome: **updated** from `894915fd154c07529d08c79182cafe46cc9191ef` to `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. The unchanged command first rejected the changed `compiled_program.cpp` hash. This was source-fence drift, not a capture-policy counterexample.
+
+Read the complete covered-source change in `08c921d` and its integrated result. Four covered files change: `compiled_program.cpp`, its header, `performance_engine.h`, and `patch_engine.h`. The new optional packet extension declares automatically prepared held selections. Stopped preparation allocates their analysis/checkpoint racks within the existing resource budget. During a capture, `observe_sustain` reads the active draft's source and updates only its selection-window observations and snapshots. `ProcessedTake::source_sample` is read-only. `finish_capture`, commit preflight, protected-bank choice, capture generation, and declared launch ordering are unchanged.
+
+The model already treats selection readiness and numerical period validation as inputs to its serialized owner-thread transactions. Periodic selection analysis does not introduce another capture writer or publication transition. The eleven properties, three-take/two-bank/three-beginning bounds, and model/configuration bytes remain unchanged. Pickup labels and chronological ordinals are importer/presentation changes outside this package's native capture abstraction.
+
+The store-only native witness now includes an automatic held selection over the same retained source. Its nonperiodic constant input rejects that held selection while the store still publishes the complete source and a normal explicit play still launches it. The rejected held press preserves source length, revision, and the existing loop. Pressed and missed commits exercise this branch at 8, 44.1, and 48 kHz under profiles 0, 4, and 5. The original launch-policy mutants remain unchanged and must fail their original assertions.
+
+This is not a proof of pitch detection, periodic analysis quality, source-loop phase arithmetic, DSP fidelity, or real-time cost. Those need separate native/WASM and musical audition evidence. An initial new witness compared the public API's negative rejection return with a positive error enum; its corrected assertion checks the return and `PF_ERROR` separately. That was verification-fixture drift, not a product defect.
+
+The final result and source-bound receipt are recorded in [RESULTS.md](RESULTS.md).
+
 Outcome: **updated** from `679a8f35ddaba418f4d4286094c3f98a9f62386d` to `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`. The original runner failed closed on the changed `compiled_program.cpp` SHA-256 before running TLC. That failure was verification drift, not a reproduced engine defect. All ten invariants and the three-take/two-bank/three-beginning domain remain unchanged. The invalid-release negative variant now enforces that same generation bound when it deliberately admits an invalid incoming capture.
 
 ## Changes inspected

@@ -59,12 +59,35 @@ async function voiceDigests(document: MusicXmlSong): Promise<string[]> {
   return result;
 }
 
+async function pickupTimelineWitness(): Promise<void> {
+  const example = scoreCases().next().value;
+  assert(example, 'NONEMPTY_GRAMMAR');
+  const input = scoreInput(example);
+  const values = input.source.values.map(row => [...row.slice(0, 2), '', ...row.slice(2)]);
+  values[1][5] = '98'; values[3][2] = 'Pickup'; values[4][2] = 'Pickup 0';
+  values[4][4] = 'Tail'; values[17][4] = 'x';
+  const imported = await importSheetMusicXml({ source: { ...input.source, range: 'A1:G21', values },
+    mapping: { ...input.mapping, prelude: [{ label: 'Pickup 0', counts: 4 }], terminalStops: ['E18'] } });
+  const original = await readMusicXmlSong(imported.xml);
+  assert.equal(original.song.executable, true, 'PICKUP_WITNESS_EXECUTABLE');
+  assert.deepEqual(original.song.chart.bars.map(bar => bar.label), ['Pickup 0', '1'], 'PICKUP_LABELS_PRESERVED');
+  assert.deepEqual(original.song.terminalStops?.map(stop => [stop.a1, stop.text]), [['E18', 'x']], 'TERMINAL_STOP_PRESERVED');
+  const standalone = await readMusicXmlSong(archives(imported.xml, 'neither'));
+  assert.deepEqual(meaning(standalone), meaning(original), 'PICKUP_ARCHIVE_INDEPENDENCE');
+  const rewritten = await readMusicXmlSong(await writeMusicXmlSong(writeInput(standalone)));
+  assert.deepEqual(meaning(rewritten), meaning(original), 'PICKUP_ROUNDTRIP_MEANING');
+  const inconsistent = imported.xml.replace('measure number="Pickup 0"', 'measure number="Wrong pickup"');
+  assert.notEqual(inconsistent, imported.xml, 'PICKUP_LABEL_EDIT_APPLIED');
+  await assert.rejects(readMusicXmlSong(inconsistent), /chronological and contiguous/, 'MEASURE_LABEL_AGREEMENT');
+}
+
 async function witness(property: string): Promise<void> {
   const example = scoreCases().next().value;
   assert(example, 'NONEMPTY_GRAMMAR');
   const imported = await importSheetMusicXml(scoreInput(example));
   if (property === 'display') await displayAgreement(imported.xml);
   else if (property === 'voices') await voiceDigests(await readMusicXmlSong(imported.xml));
+  else if (property === 'labels') await pickupTimelineWitness();
   else throw new Error('Unknown witness property');
 }
 
@@ -125,14 +148,15 @@ async function verifyDomain() {
   assert.equal(scoreIds.size, scoreCount, 'EXHAUSTIVE_SCORE_CARDINALITY');
   assert.equal(caseIds.size, canonicalCount, 'EXHAUSTIVE_CANONICAL_CARDINALITY');
   assert.equal(roundtrips, canonicalCount); assert.equal(displayRejections, canonicalCount); assert.equal(archiveChecks, canonicalCount);
-  return { status: 'PASS-bounded-exhaustive-musicxml', grammar, scoreCases: scoreCount, canonicalCases: canonicalCount,
+  await pickupTimelineWitness();
+  return { status: 'PASS-bounded-exhaustive-musicxml', grammar, scoreCases: scoreCount, canonicalCases: canonicalCount, supplementalTimelineWitnesses: 1,
     roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks,
     caseFingerprint: fingerprint.digest('hex'), scope: 'Finite grammar through actual TypeScript implementation, not arbitrary XML or an unbounded proof.' };
 }
 
 if (process.argv[2] === '--witness') {
   const property = process.argv[3];
-  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : null;
+  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : null;
   try {
     await witness(property);
     process.stdout.write(JSON.stringify({ status: 'PASS-witness', property }) + '\n');
@@ -142,6 +166,6 @@ if (process.argv[2] === '--witness') {
     process.exitCode = 1;
   }
 } else {
-  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices');
+  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels');
   process.stdout.write(JSON.stringify(await verifyDomain()) + '\n');
 }

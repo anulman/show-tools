@@ -1,5 +1,11 @@
 # Initial checked result
 
+## Consolidated practice release
+
+Outcome: **in sync** at `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. All five covered source files, the lifecycle model, configurations, replay and dependency versions are byte-identical to `894915f`. The baseline run passed before this maintenance; a fresh rerun with the release revision in `coverage.json` also exhausts 1,761 states with all seven invariants. Six real controller-source mutants are rejected, including both pending-ownership paths. Scoped TypeScript and diff checks pass. Receipt: `/private/tmp/practice-tonight-lifecycle-final-cd3ae7e/receipt.json`.
+
+No ownership promise changed and no lifecycle bug was found. The unchanged model bytes retain their previous complete statechart interpretation. New native periodic analysis, pickup display, static manager recovery, physical process/device behavior and sound quality are outside this proof.
+
 The repaired source is synced to `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`; the exact source and dependency pins are in `coverage.json`. The pinned TLC release is 1.7.4, reporting TLC2 version 2.19, run with Temurin 25.0.5+8, Node 25.6.0 and Effect 4.0.6 on macOS ARM64. A fresh run records its actual versions and model/source hashes in its receipt.
 
 The complete baseline search found 1,761 distinct reachable states and exhausted its queue with all seven invariants holding. It uses two distinct attempts and one issued command in total. It has no depth cutoff and makes no fairness or eventual-termination claim. This is a finite-model result with selected actual-code correspondence, not an unbounded implementation proof.

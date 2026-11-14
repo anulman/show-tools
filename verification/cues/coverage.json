@@ -1,9 +1,9 @@
 {
-  "syncCommit": "894915fd154c07529d08c79182cafe46cc9191ef",
+  "syncCommit": "cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4",
   "files": {
     "lib/performance/sheet-cues.ts": "cfa9be2836e483a24aa42becfbe6a92cedd445475b91a9c2373a05425d0c8574",
-    "lib/performance/compiled-song.ts": "530b0caae3f43c758973701ca84da0ea72bc5c5813c2936465ae76633b21ee57",
-    "lib/performance/musicxml-song.ts": "7d5fa8dd84420f2adfe34fe650ec0cfbe144caa540eb6e2b44c9689db8dcaeae",
+    "lib/performance/compiled-song.ts": "9b979eadce01865c0311c427ebfb35976b5b89dbfa84a717b4a8bb7e599dad8d",
+    "lib/performance/musicxml-song.ts": "3a201e63df82dad8eab31cb021482a17100490c9c8d86312acf65f861e31574c",
     "verification/cues/check.ts": "1c2b13bb38df1aedde62762dbc8023d043cf691c6fa161886c4587e1aab4ac02",
     "lib/performance/tests/sheet-cues.test.ts": "56fa00cf83bda1d50482799706582771e62dc31eed9b9125b780a88c077c2faf",
     "package-lock.json": "a094cbe140ca5384c42eff39345bc4d4346fe11ade3296bec534bb44943f1be6",

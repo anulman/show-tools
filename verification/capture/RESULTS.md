@@ -1,6 +1,14 @@
 # Capture verification result
 
-Current outcome: **updated** against native source commit `894915fd154c07529d08c79182cafe46cc9191ef`. Exact production hashes are retained in [source-record.json](source-record.json). The finite model explicitly carries the outgoing `autoplay` or `store-only` launch policy. Ordinary commit and commit-and-arm keep their conditional autoplay promise. Store-only publication never launches its newly retained bank.
+## Consolidated practice release
+
+The source-fenced run at `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4` passes: 201,097 generated and 11,894 distinct main-model states with an empty final queue, all eleven invariants, six model mutants, twelve actual-native scenarios and seven assertion-specific source mutants. The 782-state display and 102-state overview models also finish. The twelve-scenario pristine rerun and production-source hashes pass after all mutations. Receipt: `/private/tmp/practice-tonight-capture-final-cd3ae7e/receipt.json`.
+
+The store-only scenario now runs with automatic sustain analysis enabled, under profiles 0, 4 and 5 at 8, 44.1 and 48 kHz. Pressed and missed stores preserve their full sources and remain silent. A later ordinary play still works; a held press over the unsuitable constant source rejects without changing the retained take or its playing loop. The launch-policy mutants still fail the original autoplay/store assertions. No model property, bound, original scenario or mutation was weakened.
+
+The initial source-hash rejection and the new witness's first error-code assertion were verification drift. No capture-policy product defect was found. The finite model and configurations are byte-identical to the previous checked versions, so their prior statechart interpretation still applies. This run refreshes source correspondence and native execution evidence; it does not prove the periodic analyzer's musical quality, phase arithmetic or real-time cost. See [SOURCE-SYNC.md](SOURCE-SYNC.md).
+
+Current outcome: **updated** against native source commit `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. Exact production hashes are retained in [source-record.json](source-record.json). The finite model explicitly carries the outgoing `autoplay` or `store-only` launch policy. Ordinary commit and commit-and-arm keep their conditional autoplay promise. Store-only publication never launches its newly retained bank.
 
 The pinned command `node verification/capture/verify.ts` passes with explicit `JAVA` and `TLA2TOOLS` paths. The retained execution receipt is `/private/tmp/native-cues-capture-final-894915f-profiles/receipt.json`. Temporary execution files are evidence, not canonical application data.
 

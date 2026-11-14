@@ -39,7 +39,7 @@ This is a safety proof of the model under these abstractions. It does not establ
 
 ## Source mapping and sensitivity
 
-The last source sync is `894915fd154c07529d08c79182cafe46cc9191ef`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
+The last source sync is `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
 
 | Model action or rule | Current source boundary |
 | --- | --- |
@@ -78,6 +78,8 @@ Use `/maintain-formal-verification-skill` after source changes that did not reru
 ## Store-only capture coverage
 
 `store-only-endpoint` checks actual `pf_process_stems` execution at 8, 44.1, and 48 kHz. Each rate checks a pressed store and a missed store under source effect profiles 0, 4, and 5 on physical bank 0. Both retain the complete source and period at the written endpoint while sample output stays silent. A separate declared nonreplacement capture in the same voice retains another playing source without silencing it or adding a second loop. A replacing combined commit-and-arm also keeps its just-published outgoing source playing, preserving the ordinary `cr` autoplay promise. Missing the later manual play also stays silent. Pressing that later play launches the same retained source without changing its length or revision.
+
+The same witness now declares an automatically prepared held selection over that capture. Its constant source cannot supply a periodic sustain region. Store publication still retains the complete take, ordinary playback still launches it, and a later rejected held press leaves that source and its existing loop unchanged. This reaches automatic selection-window allocation and observation under profiles 0, 4 and 5 at all three rates. It does not establish periodic analysis accuracy or musical suitability.
 
 The paired `storeAutoplays` model and native mutants replace store-only publication with autoplay and must fail the dedicated store-only rule or native assertion. The existing `noAutoplay` pair remains separate. Its actual-source mutation changes the outgoing launch policy rather than deleting individual start calls, so both full-take and slice launch paths remain covered when their implementation moves.
 

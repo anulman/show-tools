@@ -90,12 +90,14 @@ void tuner_isolation() {
 
 void store_only_endpoint() {
   const std::vector<double> song{
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 1, 3, 1, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 1, 4, 2, 0, 0, 1, 2, 3,
     0, 1, 0, 2, 0, 1, 2, 0, 0,
     0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0, PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, 0,
     0, 0, 1, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0, PF_STORE_ONLY, PF_LOOP_MODE, 0, -1, 0,
     0, 0, 3, 0, PF_PLAY, 0, 0, -1, -1, 0, 0, PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, 0,
-    0, 0, 1};
+    0, 0, 4, 0, PF_PLAY, 0, 0, -1, -1, 1, 0, PF_AUTOPLAY, PF_HELD_MODE, 0, -1, 0,
+    0, 0, 1, 1, 0, 1,
+    PF_COMPILED_SUSTAIN_MAGIC, 1, 1};
   for (int profile : {0, 4, 5}) for (double rate : {8000., 44100., 48000.}) for (bool press_finish : {false, true}) {
     auto program = song;
     if (profile) program.insert(program.end(), {PF_COMPILED_PROFILES_MAGIC, 1, 0, double(profile)});
@@ -124,6 +126,14 @@ void store_only_endpoint() {
     require(take(engine, 0)[PF_TAKE_LENGTH] == retained[PF_TAKE_LENGTH]
       && take(engine, 0)[PF_TAKE_REVISION] == retained[PF_TAKE_REVISION],
       "later playback preserves immutable stored source length and revision");
+    until(engine, 4);
+    require(press(engine, 0) < 0 && state(engine)[PF_ERROR] == PF_NO_SAMPLE,
+      "unavailable periodic sustain rejects without admitting another playback");
+    require(take(engine, 0)[PF_TAKE_READY]
+      && take(engine, 0)[PF_TAKE_LENGTH] == retained[PF_TAKE_LENGTH]
+      && take(engine, 0)[PF_TAKE_REVISION] == retained[PF_TAKE_REVISION]
+      && take(engine, 0)[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::playing),
+      "rejected periodic sustain preserves the published source and existing loop");
   }
 }
 
