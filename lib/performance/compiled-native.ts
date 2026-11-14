@@ -18,9 +18,10 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
   const optionalIndex = (map: ReadonlyMap<string, number>, id: string | null) => id === null ? -1 : indexOf(map, id);
   const groups = new Map([...new Set(song.cues.flatMap(cue => cue.groupId === null ? [] : [cue.groupId]))].map((id, index) => [id, index]));
   const members = song.selections.flatMap((selection, index) => selection.takeIds.flatMap((id, member) => [index, indexOf(takes, id), selection.gains[member]]));
+  let inactive = song.voices.length;
   const binding = CONTROL_IDS.map(button => {
     const voice = song.voices.find(voice => voice.buttonId === button);
-    if (!voice) throw new Error(`Missing compiled input binding ${button}.`);
+    if (!voice) return inactive++;
     return indexOf(voices, voice.id);
   });
   const kinds: Record<CompiledSong['cues'][number]['kind'], number> = { arm: PF.ARM, commit: PF.COMMIT, 'commit-arm': PF.COMMIT_ARM, stop: PF.STOP, play: PF.PLAY };

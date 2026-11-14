@@ -15,6 +15,7 @@ export const CONTROLS: readonly { id: ChannelId; key: string; shortcut: string; 
 
 export interface ChartBar {
   bar: number;
+  label?: string;
   column: number;
   sectionId: string;
   section: string;

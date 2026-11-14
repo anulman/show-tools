@@ -1,3 +1,4 @@
+import { chartBarLabel, chartBarOrdinal } from '../../lib/performance/chart-position.js';
 import { enablePhoneMotion } from './phone-motion.js';
 import { audioMode, canChangeAudioMode, changeAudioMode } from './audio-mode.js';
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
@@ -331,7 +332,7 @@ async function startPractice() {
   if (!chart) throw new Error('The song chart is still loading. Try again in a moment.');
   const bpm = Number(elements.bpm.value);
   const startBar = Number(elements['start-section'].value);
-  const endBar = Number(elements['end-bar'].value);
+  const endBar = chart ? chartBarOrdinal(chart, elements['end-bar'].value) : NaN;
   if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Choose a tempo between 40 and 240 BPM.');
   if (!Number.isInteger(endBar) || endBar < startBar || endBar > playableBars(chart)) throw new Error(`Choose an end bar from ${startBar} to ${playableBars(chart)}. Partial bars are not sequenced yet.`);
   if (remote) {
@@ -584,8 +585,9 @@ function render(next: Partial<PracticeState>) {
   elements['practice-desk'].dataset.bar = state.bar === null ? '' : String(state.bar);
   elements['practice-desk'].dataset.beat = state.beat === null ? '' : String(state.beat);
   elements['phase-label'].textContent = inCountIn ? `COUNT-IN · ${state.countInRemaining ?? '…'} TO GO` : state.phase === 'playing' ? 'PLAYING' : state.phase === 'ended' ? 'RANGE COMPLETE' : 'READY TO PLAY';
-  elements['range-label'].textContent = `BARS ${running ? state.startBar : elements['start-section'].value}–${running ? state.endBar : elements['end-bar'].value}`;
-  elements['bar-number'].textContent = inCountIn ? 'IN' : String(displayBar).padStart(2, '0');
+  elements['range-label'].textContent = `BARS ${chartBarLabel(chart, running ? state.startBar ?? 1 : Number(elements['start-section'].value))}–${running ? chartBarLabel(chart, state.endBar ?? chart.bars.length) : elements['end-bar'].value}`;
+  elements['bar-number'].textContent = inCountIn ? 'IN' : currentBar?.label ?? String(displayBar).padStart(2, '0');
+  elements['bar-number'].classList.toggle('pickup', Boolean(currentBar?.label && !/^\d/.test(currentBar.label)));
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
   elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
@@ -772,7 +774,7 @@ elements['start-section'].addEventListener('change', () => {
   if (!chart) return;
   const start = Number(elements['start-section'].value);
   elements['end-bar'].min = String(start);
-  if (Number(elements['end-bar'].value) < start) elements['end-bar'].value = String(Math.min(playableBars(chart), chart.sections.find(section => section.startBar === start)?.endBar || playableBars(chart)));
+  if (!Number.isFinite(chartBarOrdinal(chart, elements['end-bar'].value)) || chartBarOrdinal(chart, elements['end-bar'].value) < start) elements['end-bar'].value = chartBarLabel(chart, Math.min(playableBars(chart), chart.sections.find(section => section.startBar === start)?.endBar || playableBars(chart)));
   render(state);
 });
 for (const element of [elements['count-in'], elements['end-bar']]) element.addEventListener('change', () => render(state));
@@ -897,7 +899,7 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
     elements['start-section'].value = String(loaded.practice.startBar);
     elements['end-bar'].min = String(loaded.practice.startBar);
     elements['end-bar'].max = String(playableBars(loaded.chart));
-    elements['end-bar'].value = String(loaded.practice.endBar);
+    elements['end-bar'].value = chartBarLabel(loaded.chart, loaded.practice.endBar);
   } catch (error) {
     if (song) elements['song-select'].value = song.id;
     throw error;
@@ -926,12 +928,12 @@ function syncRemoteTransport(current: PracticeState) {
   elements.bpm.value = String(current.bpm);
   const start = String(current.startBar);
   if (![...elements['start-section'].options].some(option => option.value === start)) {
-    const option = document.createElement('option'); option.value = start; option.textContent = `Bar ${start}`;
+    const option = document.createElement('option'); option.value = start; option.textContent = `Bar ${chart ? chartBarLabel(chart, current.startBar) : start}`;
     elements['start-section'].append(option);
   }
   elements['start-section'].value = start;
   elements['end-bar'].min = start;
-  elements['end-bar'].value = String(current.endBar);
+  elements['end-bar'].value = chart ? chartBarLabel(chart, current.endBar) : String(current.endBar);
   elements.loop.checked = current.loop;
   elements.click.checked = current.click;
 }
