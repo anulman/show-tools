@@ -2,7 +2,7 @@ type State = {
   active: number; activeBank: number;
   latest: Record<string, number>; playing: Record<string, Record<string, boolean>>;
   published: Record<string, number>;
-  event: { kind: string; valid: boolean; ready: boolean; take: number; bank: number; gen: number };
+  event: { kind: string; valid: boolean; ready: boolean; take: number; bank: number; gen: number; launch: 'autoplay' | 'store-only' };
 };
 export const title = 'Capture handoff and retained takes';
 export function state(value: State): string {
@@ -12,7 +12,9 @@ export function state(value: State): string {
   if (['independent', 'automatic'].includes(event.kind) && !event.valid && value.active !== 0) return 'Invalid outgoing draft admitted a new recording';
   if (event.kind === 'automatic' && event.valid && value.published[event.gen] === 0) return 'Written endpoint left the capture unfinished';
   if (['commit', 'combined', 'independent', 'automatic'].includes(event.kind) && event.valid && (event.kind !== 'combined' || event.ready)
-    && !value.playing[event.take][event.bank]) return 'Committed take did not autoplay';
+    && event.launch === 'autoplay' && !value.playing[event.take][event.bank]) return 'Committed take did not autoplay';
+  if (['commit', 'combined', 'independent', 'automatic'].includes(event.kind) && event.valid && (event.kind !== 'combined' || event.ready)
+    && event.launch === 'store-only' && value.playing[event.take][event.bank]) return 'Stored take started unauthorized playback';
   if (event.kind === 'fault') return 'Stopped after resource failure';
   if (value.active !== 0) {
     if (event.kind === 'combined' && !event.ready) return 'Recording preserved after rejected handoff';
@@ -24,12 +26,13 @@ export function state(value: State): string {
 export function step(action: string, _from: State, to: State): string {
   if (action === 'Begin') return 'you arm an available take';
   if (action === 'StopComplete') return 'you stop with a complete draft, retaining it without playback';
-  if (action === 'Finish') return 'valid capture commits and autoplays';
-  if (action === 'Combined') return to.event.ready ? 'combined commit and arm succeeds' : 'combined handoff rejects unavailable target';
+  if (action === 'Finish') return to.event.launch === 'store-only' ? 'valid capture stores without launching' : 'valid capture commits and autoplays';
+  if (action === 'Combined') return to.event.ready ? (to.event.launch === 'store-only' ? 'combined store and arm succeeds' : 'combined commit and arm succeeds') : 'combined handoff rejects unavailable target';
   if (action === 'Boundary') {
     if (!to.event.valid) return 'invalid outgoing draft blocks incoming capture';
-    if (to.event.kind === 'automatic') return to.event.ready ? 'written endpoint commits and starts next take' : 'written endpoint commits without incoming capture';
-    return to.event.ready ? 'standalone commit then independent arm succeeds' : 'standalone commit survives failed independent arm';
+    const publication = to.event.launch === 'store-only' ? 'stores without launching' : 'commits and autoplays';
+    if (to.event.kind === 'automatic') return to.event.ready ? `written endpoint ${publication} and starts next capture` : `written endpoint ${publication}`;
+    return to.event.ready ? `standalone capture ${publication} then independent arm succeeds` : `standalone capture ${publication} despite failed independent arm`;
   }
   if (action.startsWith('Fault')) return 'resource failure stops the operation';
   return action === 'Done' ? 'the bounded run is complete' : 'you stop, discarding only an incomplete draft';

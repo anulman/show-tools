@@ -55,11 +55,11 @@ const mutations = [
   { name: 'overwriteLatest', scenario: 'retained-bank', invariant: 'CaptureBankNotLatest', message: 'Stop discards an incompatible partial draft and preserves latest complete PCM/period/revision',
     edits: [{ before: 'if (bank != take.latest && !(active_capture_.take == id', after: 'if (!(active_capture_.take == id' }] },
   { name: 'noAutoplay', scenario: 'autoplay', invariant: 'SuccessfulPublicationAutoplays', message: 'commit autoplays processed mono-to-stereo take once',
-    edits: [
-      { before: '!take.playback[bank]->start_window_at_capture_end(true, uint32_t(committed_view->start[bank]), uint32_t(committed_view->cut[bank]),\n        uint32_t(committed_view->finish[bank] - committed_view->start[bank]))', after: 'false' },
-      { before: 'if (!take.playback[take.latest]->start_at_capture_end(true)) return error_ = PF_ACTION_FAILED;', after: 'if (false) return error_ = PF_ACTION_FAILED;' },
-      { before: '  if (cue.selection >= 0) {\n    if (!select(cue.voice, cue.selection, false)) return error_ = PF_ACTION_FAILED;\n  } else if (!play_take(cue.commit)) return error_ = PF_ACTION_FAILED;', after: '' },
-    ] },
+    edits: [{ before: 'int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept {',
+      after: 'int Program::finish_capture(const Cue& incoming, const CommitPlan& plan, bool starts_next) noexcept {\n  Cue cue = incoming; cue.launch = PF_STORE_ONLY;' }] },
+  { name: 'storeAutoplays', scenario: 'store-only-endpoint', invariant: 'StoreOnlyPublicationDoesNotLaunch', message: 'store-only completion never starts playback',
+    edits: [{ before: 'int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept {',
+      after: 'int Program::finish_capture(const Cue& incoming, const CommitPlan& plan, bool starts_next) noexcept {\n  Cue cue = incoming; cue.launch = PF_AUTOPLAY;' }] },
   { name: 'missEndpoint', scenario: 'automatic-endpoint', invariant: 'AutomaticEndpointCompletes', message: 'missing finish press commits at the authored endpoint',
     edits: [{ before: 'if (active_capture_.take >= 0 && frame >= std::ceil(frame_at(takes_[active_capture_.take].end))', after: 'if (false && active_capture_.take >= 0 && frame >= std::ceil(frame_at(takes_[active_capture_.take].end))' }] },
 ];
@@ -79,6 +79,10 @@ const displayChecked = checkModel('model-display', 'none', readFileSync(join(dir
 assert.equal(displayChecked.status, 0, 'Smaller display model did not pass');
 assert.match(displayChecked.log, /Model checking completed\. No error has been found\./);
 assert.match(displayChecked.log, /0 states left on queue/);
+const overviewChecked = checkModel('model-overview', 'none', readFileSync(join(directory, 'CaptureHandoff-overview.cfg'), 'utf8'));
+assert.equal(overviewChecked.status, 0, 'One-capture overview model did not pass');
+assert.match(overviewChecked.log, /Model checking completed\. No error has been found\./);
+assert.match(overviewChecked.log, /0 states left on queue/);
 const modelWitnesses = [];
 for (const mutation of mutations) {
   const result = checkModel('model-' + mutation.name, mutation.name);
@@ -105,7 +109,7 @@ const objects = sourceFiles.map((file, index) => {
 });
 const executable = join(build, 'replay');
 accepted(compiler, objects.concat(['-o', executable]), 'link-pristine');
-const scenarios = ['combined-admission', 'independent-admission', 'invalid-outgoing', 'retained-bank', 'autoplay', 'stop-complete', 'automatic-endpoint', 'selection-preflight', 'boundary-orders', 'wrap-preserves-latest', 'tuner-isolation'];
+const scenarios = ['combined-admission', 'independent-admission', 'invalid-outgoing', 'retained-bank', 'autoplay', 'stop-complete', 'automatic-endpoint', 'selection-preflight', 'boundary-orders', 'wrap-preserves-latest', 'tuner-isolation', 'store-only-endpoint'];
 for (const scenario of scenarios) accepted(executable, [scenario], 'replay-' + scenario, build);
 const nativeWitnesses = [];
 const nativeMutations = [
@@ -139,7 +143,8 @@ for (const [file, hash] of Object.entries(sourceRecord.files)) assert.equal(dige
 const receipt = { status: 'PASS', scope: 'Bounded capture handoff model plus real C++ witness and source-mutation sensitivity; not an unrestricted implementation proof', sourceCommit: sourceRecord.sourceCommit,
   model: { takeCount: 3, banksPerTake: 2, maximumCaptureBeginnings: 3, completeQueueExhaustion: true, stats: checked.log.match(/\d+ states generated, \d+ distinct states found, 0 states left on queue\./)?.[0], witnesses: modelWitnesses },
   displayModel: { takeCount: 2, banksPerTake: 2, maximumCaptureBeginnings: 2, completeQueueExhaustion: true, stats: displayChecked.log.match(/\d+ states generated, \d+ distinct states found, 0 states left on queue\./)?.[0], purpose: 'Smaller separately checked statechart model, not the full proof bound' },
+  overviewModel: { takeCount: 2, banksPerTake: 2, maximumCaptureBeginnings: 1, completeQueueExhaustion: true, stats: overviewChecked.log.match(/\d+ states generated, \d+ distinct states found, 0 states left on queue\./)?.[0], purpose: 'Readable one-capture overview, not the main or two-capture display proof' },
   native: { scenarios, witnesses: nativeWitnesses, pristineRerunPassed: true }, toolchain: { tlcJarSha256: toolchainHash, java: javaVersion, compiler: accepted(compiler, ['--version'], 'compiler-version').log.split('\n')[0] },
-  sourceFiles: sourceRecord.files, verificationFiles: Object.fromEntries(['CaptureHandoff.tla', 'CaptureHandoff.cfg', 'CaptureHandoff-chart.cfg', 'view.ts', 'statechart.mmd', 'replay.cpp', 'verify.ts'].map(file => [file, digest(readFileSync(join(directory, file)))])), outputDirectory: output };
+  sourceFiles: sourceRecord.files, verificationFiles: Object.fromEntries(['CaptureHandoff.tla', 'CaptureHandoff.cfg', 'CaptureHandoff-chart.cfg', 'CaptureHandoff-overview.cfg', 'view.ts', 'statechart.mmd', 'replay.cpp', 'verify.ts'].map(file => [file, digest(readFileSync(join(directory, file)))])), outputDirectory: output };
 writeFileSync(join(output, 'receipt.json'), JSON.stringify(receipt, null, 2) + '\n');
 process.stdout.write(JSON.stringify({ status: receipt.status, model: receipt.model.stats, nativeScenarios: scenarios.length, actualSourceMutantsRejected: nativeWitnesses.length, receipt: join(output, 'receipt.json') }) + '\n');

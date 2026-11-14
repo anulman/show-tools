@@ -1,5 +1,24 @@
 # Capture verification result
 
+Current outcome: **updated** against native source commit `8d9dd8b12ce696e75565aaf4ff7d4970a8e30c52`. Exact production hashes are retained in [source-record.json](source-record.json). The finite model explicitly carries the outgoing `autoplay` or `store-only` launch policy. Ordinary commit and commit-and-arm keep their conditional autoplay promise. Store-only publication never launches its newly retained bank.
+
+The pinned command `node verification/capture/verify.ts` passes with explicit `JAVA` and `TLA2TOOLS` paths. The retained execution receipt is `/private/tmp/native-cues-capture-final-8d9dd8b/receipt.json`. Temporary execution files are evidence, not canonical application data.
+
+- Main bound remains 3 takes, 2 banks each, and at most 3 capture beginnings. TLC generates 201,097 states, finds 11,894 distinct states, and exhausts its queue. All eleven configured invariants pass.
+- The original smaller bound remains 2 takes and at most 2 beginnings. It exhausts 6,327 generated and 782 distinct states. Launch policy makes it larger than the statechart tool's 500-state complete-chart budget.
+- The separate one-beginning overview exhausts 555 generated and 102 distinct states. Its generated chart has 6 labels and 13 arrows. It omits 156 transitions whose endpoints share a label, and cannot display a successful second capture.
+- Six model mutants fail their named invariants. Seven actual-source mutants fail their intended native assertions. All twelve native scenarios pass before and after the temporary mutations, and production hashes remain unchanged.
+- Store-only native witnesses check pressed and missed endpoints at 8, 44.1, and 48 kHz. They check exact retained length and period, silent sample output, missed-play silence, and later explicit launch of the immutable source. Additional paths retain another source in the same voice and preserve newly published autoplay under a replacing combined commit-and-arm.
+- Strict TypeScript checking of the verifier, view, and runner passes. All three runner failure tests and `git diff --check` pass.
+
+All pristine and mutated model outcomes were interpreted through the current `/statechart` command. Every rule is checked. The store-only mutation has a two-step shortest counterexample after the initial state: arm a capture, then incorrectly autoplay its store-only publication. The latest-bank mutation has three steps. Each other intended policy violation has two. Additional mutant consequences remain visible, including retained-bank completeness and conditional autoplay after a missing endpoint.
+
+The newly added replacing combined witness exposed a product bug during implementation. Capture-start replacement stopped its own just-published outgoing take. The native fix excludes that outgoing take, and the unchanged autoplay expectation now passes. The initial sandbox socket failure was a harness restriction. Packet and source-fence updates were verification drift. These categories are recorded in [SOURCE-SYNC.md](SOURCE-SYNC.md).
+
+This remains a bounded model safety result with selected real C++ witnesses and mutation sensitivity. It does not prove arbitrary audio arithmetic, source phase, finite playback duration, pitch bend, held release, per-note selection, external sample loading, physical timing, or exhaustive refinement of C++. The main bound and the original two-capture display bound were not reduced.
+
+## Historical verification results
+
 Verified against source sync `09e5ecfbed4d37bd3ea595dc5c35ea9339ed15f0`, with the unchanged mapped source files checked by SHA-256. This is a bounded model safety result with actual C++ witness/mutation sensitivity. It is not an unrestricted implementation or DSP proof.
 
 The reproducible command is `node verification/capture/verify.ts` after provisioning the pinned `JAVA` and `TLA2TOOLS` environment paths. Logs and the full machine receipt are generated outside Git.

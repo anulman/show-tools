@@ -31,7 +31,7 @@ void complete_stop_retains_without_playback() {
 
 void sliced_endpoint_reuses_protected_banks() {
   const std::vector<double> song{
-    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 4, 120, 4, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
     0, 1, 0, 3, 0, 1, 3, 0, 0,
     0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
     0, 0, 2, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0,
@@ -88,6 +88,71 @@ void tuner_isolation() {
     "capture playback retains microphone PCM without reference contamination");
 }
 
+void store_only_endpoint() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 1, 3, 1, 0, 0, 1, 2, 3,
+    0, 1, 0, 2, 0, 1, 2, 0, 0,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0, PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, 0,
+    0, 0, 1, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0, PF_STORE_ONLY, PF_LOOP_MODE, 0, -1, 0,
+    0, 0, 3, 0, PF_PLAY, 0, 0, -1, -1, 0, 0, PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, 0,
+    0, 0, 1};
+  for (double rate : {8000., 44100., 48000.}) for (bool press_finish : {false, true}) {
+    Engine engine(rate); prepare(engine, song);
+    ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0));
+    ok(engine, press(engine, 0)); until(engine, 1);
+    if (press_finish) ok(engine, press(engine, 0));
+    until(engine, 2);
+    const auto retained = take(engine, 0);
+    require(retained[PF_TAKE_READY] && retained[PF_TAKE_LENGTH] == rate * 2
+      && retained[PF_TAKE_PERIOD] == rate * 2,
+      "store-only completion retains the exact source at its authored endpoint");
+    require(retained[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::idle),
+      "store-only completion never starts playback");
+    const auto silent = render(engine, 64);
+    require(std::all_of(silent.left.begin(), silent.left.end(), [](float sample) { return sample == 0; }),
+      "store-only completion produces no sample audio");
+    until(engine, 3);
+    require(take(engine, 0)[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::idle),
+      "missing later play remains silent after store-only completion");
+    ok(engine, press(engine, 0));
+    const auto playback = render(engine, 64);
+    require(take(engine, 0)[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::playing)
+      && std::any_of(playback.left.begin(), playback.left.end(), [](float sample) { return sample != 0; }),
+      "explicit play later launches the stored source");
+    require(take(engine, 0)[PF_TAKE_LENGTH] == retained[PF_TAKE_LENGTH]
+      && take(engine, 0)[PF_TAKE_REVISION] == retained[PF_TAKE_REVISION],
+      "later playback preserves immutable stored source length and revision");
+  }
+}
+
+void store_only_preserves_other_source(bool replacement) {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 2, 3, 2, 0, 0, 1, 2, 3,
+    0, 1, 0, 2, 0, 1, 2, 0, 0,
+    0, 2, 0, 3, 0, 1, 3, 0, 1,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0, PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, 0,
+    0, 0, 1, -1, PF_COMMIT_ARM, 1, 0, 1, 0, 0, 0, PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, double(replacement),
+    0, 0, 2, -1, PF_COMMIT, 1, 0, -1, 1, 1, 0, PF_STORE_ONLY, PF_LOOP_MODE, 0, -1, 0,
+    0, 0, 1, 1, 1, 1};
+  Engine engine; prepare(engine, song);
+  ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0));
+  ok(engine, press(engine, 0)); until(engine, 2);
+  const auto original = take(engine, 0);
+  require(original[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::playing),
+    "first source plays while another source in the same bank records");
+  until(engine, 3);
+  const auto continued = take(engine, 0);
+  require(take(engine, 1)[PF_TAKE_READY]
+    && take(engine, 1)[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::idle)
+    && continued[PF_TAKE_PLAYBACK_STATE] == int(patches::PlaybackState::playing)
+    && continued[PF_TAKE_LENGTH] == original[PF_TAKE_LENGTH]
+    && continued[PF_TAKE_REVISION] == original[PF_TAKE_REVISION],
+    "store-only publication preserves the other immutable playing source");
+  const auto output = render(engine, 64);
+  require(std::all_of(output.left.begin(), output.left.end(), [](float sample) { return std::abs(sample - .3125f) < 1e-6; }),
+    "store-only publication neither silences nor layers over another playing source");
+}
+
 int main(int argc, char** argv) {
   if (argc != 2) return 2;
   const char* scenario = argv[1];
@@ -101,6 +166,7 @@ int main(int argc, char** argv) {
   else if (std::strcmp(scenario, "selection-preflight") == 0) commit_preflights_entire_selection_before_publication();
   else if (std::strcmp(scenario, "boundary-orders") == 0) { disjoint_reservation_handoff_both_orders(); unified_button_and_light_priority(); unified_button_reports_independent_failures(); }
   else if (std::strcmp(scenario, "wrap-preserves-latest") == 0) loop_wrap_discards_unfinished_capture_and_preserves_latest();
+  else if (std::strcmp(scenario, "store-only-endpoint") == 0) { store_only_endpoint(); store_only_preserves_other_source(false); store_only_preserves_other_source(true); }
   else if (std::strcmp(scenario, "tuner-isolation") == 0) tuner_isolation();
   else return 2;
   std::printf("PASS capture witness %s\n", scenario);
