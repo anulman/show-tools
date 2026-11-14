@@ -26,12 +26,17 @@ class Program {
   void stop() noexcept;
   void microphone_lost() noexcept;
   int press(int button, double frame, double bpm, bool microphone) noexcept;
+  void release(int button) noexcept;
+  void release_current() noexcept;
   int press_current(double frame, double bpm, bool microphone) noexcept;
   void beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm) noexcept;
   void render(const float* input, float* left, float* right, float* live_left, float* live_right,
     uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack, patches::Rack& backup_rack) noexcept;
   void set_channel(int button, double gain, bool muted) noexcept;
   VoiceInfo channel_info(int button, double bpm) const noexcept;
+  bool set_bend_parameters(double velocity_per_semitone, double stale_ms) noexcept;
+  bool prepare_external_sample(uint32_t slot, const float* left, const float* right, uint32_t frames) noexcept;
+  int trigger_external(uint32_t slot) noexcept;
   void take_info(uint32_t take, double* out) const noexcept;
   int beats_per_bar() const noexcept { return beats_; }
   int bars() const noexcept { return bars_; }
@@ -50,6 +55,19 @@ class Program {
   struct Member;
   struct PlaybackCue;
   struct Pending;
+  struct Due;
+  struct InstrumentNote { int button = 0; uint32_t slot = 0; double at = 0, tolerance = 0; bool played = false; };
+  std::unique_ptr<InstrumentNote[]> notes_;
+  int note_count_ = 0;
+  int play_note(int button) noexcept;
+  int launch_external(uint32_t slot) noexcept;
+  struct ExternalWindow { uint32_t slot = 0; double begin = 0, end = 0; };
+  struct ExternalSample { std::unique_ptr<patches::Stereo[]> pcm; uint32_t frames = 0; };
+  struct ExternalPlayback { int slot = -1; uint32_t frame = 0; };
+  ExternalSample external_samples_[64];
+  ExternalPlayback external_playback_[32];
+  std::unique_ptr<ExternalWindow[]> external_windows_;
+  int external_count_ = 0;
   struct RotationWindow { double begin = 0, end = 0; };
   struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2]; };
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
@@ -66,7 +84,9 @@ class Program {
   int execute(int cue, double frame) noexcept;
   bool selection_ready(int selection, int voice) const noexcept;
   void observe_windows(double frame) noexcept;
-  bool select(int voice, int selection, bool automatic) noexcept;
+  bool select(int voice, int selection, bool automatic, int mode = PF_LOOP_MODE, bool retrigger = false) noexcept;
+  int gate_press(int button, double frame, bool microphone) noexcept;
+  void stop_selection(int selection, bool hard = false) noexcept;
   bool play_take(int take, double gain = 1) noexcept;
   void stop_voice(int voice, bool hard) noexcept;
   void switch_route(int voice, bool history_handed_off = false) noexcept;
@@ -93,12 +113,15 @@ class Program {
   std::unique_ptr<Member[]> members_;
   std::unique_ptr<PlaybackCue[]> playback_;
   std::unique_ptr<Pending[]> pending_;
+  std::unique_ptr<Due[]> due_;
   std::unique_ptr<patches::Rack> voices_[PF_CHANNELS], tails_[PF_CHANNELS];
   bool detached_tail_[PF_CHANNELS]{};
   uint64_t tail_generation_[PF_CHANNELS]{}, capture_generation_ = 0;
   int take_count_ = 0, cue_count_ = 0, member_count_ = 0, playback_count_ = 0;
   int beats_ = 4, bars_ = 1, end_ = 1, start_ = 1, phase_ = PF_IDLE, bar_ = 0;
   int binding_[PF_CHANNELS]{0, 1, 2, 3}, selection_[PF_CHANNELS]{-1, -1, -1, -1};
+  int gated_[PF_CHANNELS]{-1, -1, -1, -1}, held_[PF_CHANNELS]{-1, -1, -1, -1};
+  bool button_down_[PF_CHANNELS]{};
   bool muted_[PF_CHANNELS]{}, suppressed_[PF_CHANNELS]{};
   double gain_[PF_CHANNELS]{1, 1, 1, 1};
   uint64_t drain_[PF_VOICE_PROFILES]{};
@@ -106,6 +129,7 @@ class Program {
   double capture_bpm_ = 120;
   ActiveCapture active_capture_;
   int live_route_ = -1, error_ = PF_OK;
+  double last_motion_frame_ = -1, motion_velocity_ = 0, bend_baseline_[PF_CHANNELS]{}, bend_velocity_per_semitone_ = 24, bend_stale_ms_ = 100;
   void* outcome_context_ = nullptr;
   void (*outcome_)(void*, double, int, int, int) = nullptr;
   void* tempo_context_ = nullptr;

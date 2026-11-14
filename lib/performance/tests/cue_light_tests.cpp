@@ -35,11 +35,11 @@ void until(pf_engine* engine, int bar, int beat) {
   require(false, "reach cue light musical position");
 }
 std::vector<double> song(int beats, int bar, double cue, int timing = 0) {
-  return {PF_COMPILED_MAGIC, PF_COMPILED_VERSION, double(beats), 5, 120, 5, 25, 25, 0, 1, 0, 0, 0, 1, 2, 3,
+  return {PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, double(beats), 5, 120, 5, 25, 25, 0, 1, 0, 0, 0, 1, 2, 3,
     0, 0, double(bar), cue, double(PF_STOP), double(timing), 0, -1, -1, -1, 0};
 }
 std::vector<double> capture_song() {
-  return {PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 1, 3, 1, 0, 0, 1, 2, 3,
+  return {PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 5, 120, 5, 25, 25, 1, 3, 1, 0, 0, 1, 2, 3,
     0, 2, 0, 3, 0, 1, 3, 0, 0,
     0, 0, 1, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
     0, 0, 2, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0,

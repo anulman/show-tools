@@ -540,6 +540,19 @@ int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t byte
   }
   return pf_configure_compiled(engine, values.get(), bytes / 8);
 }
+int pf_set_bend_parameters(pf_engine* engine, double velocity_per_semitone, double stale_ms) {
+  if (!engine || !engine->compiled || running(engine)) return fail(engine, PF_INVALID_PROGRAM);
+  return engine->compiled->set_bend_parameters(velocity_per_semitone, stale_ms) ? 0 : fail(engine, PF_INVALID_KNOB);
+}
+int pf_prepare_external_sample(pf_engine* engine, uint32_t slot, const float* left, const float* right, uint32_t frames) {
+  if (!engine || !engine->compiled || running(engine)) return fail(engine, PF_INVALID_PROGRAM);
+  return engine->compiled->prepare_external_sample(slot, left, right, frames) ? 0 : fail(engine, PF_INVALID_PROGRAM, "External sample preparation rejected");
+}
+int pf_trigger_external(pf_engine* engine, uint32_t slot) {
+  if (!engine || !engine->compiled) return fail(engine, PF_INVALID_PROGRAM);
+  int result = engine->compiled->trigger_external(slot);
+  return result == PF_OK ? 0 : fail(engine, result);
+}
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out) {
   if (!out) return;
   if (engine && engine->compiled) engine->compiled->take_info(take, out);
@@ -774,6 +787,7 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
     else {
       bool rising = value == 1 && !engine->cue_button_held;
       engine->cue_button_held = value == 1;
+      if (value == 0 && engine->compiled) engine->compiled->release_current();
       if (rising && running(engine)) {
         if (engine->compiled) {
           int code = engine->compiled->press_current(engine->processed, engine->bpm, engine->microphone);
@@ -791,7 +805,7 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
         }
       }
     }
-  } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
+  } else if (control >= 8 && control < 8 + PF_CHANNELS) { if (engine->compiled) engine->compiled->release(control - 8); } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
   else result = fail(engine, PF_INVALID_CHANNEL);
   if (result >= 0 && command_id) {
     Dedup& item = engine->dedup[engine->dedup_cursor++ % dedup_capacity];

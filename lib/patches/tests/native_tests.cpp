@@ -280,8 +280,8 @@ void appended_capture_and_reuse() {
     require(copy->append_processed(*appended, sl.data(), sr.data(), al.data(), ar.data(), 2) && copy->commit(), "new bank commit");
     require(second->start(false), "prepared playback can use replacement bank");
     equal(second->next(), copy->sample(0), "replacement bank has fresh printed PCM");
-    require(!second->start(true, 1), "nonzero start explicitly unavailable");
-    equal(second->next(), copy->sample(1), "unsupported seek leaves playhead and processing state intact");
+    require(second->start(true, 1) && second->phase() == 1, "phase start reconstructs the preceding effect history");
+    equal(second->next(), copy->sample(1), "phase start returns the matching printed source frame");
     second->reset();
   }
   uint64_t calls = 0;
@@ -532,7 +532,7 @@ void capture_period_admission() {
     require(playback->start_at_capture_end(true) && calls == 2, "endpoint start copies state without DSP");
     equal(playback->next(), {}, "huge virtual period reads implicit zero suffix");
     require(calls == 3, "one virtual suffix frame advances DSP exactly once");
-    require(!playback->start(true, 1) && playback->state() == PlaybackState::playing, "unsupported arbitrary seek preserves active endpoint playback");
+    require(!playback->start(true, take->period()) && playback->state() == PlaybackState::playing, "out-of-period seek preserves active endpoint playback");
     equal(playback->next(), {}, "rejected seek preserves endpoint suffix cursor and state");
     require(calls == 4, "rejected seek neither advances nor replays DSP");
     playback->reset();

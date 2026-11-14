@@ -287,10 +287,11 @@ void Playback::finish() noexcept {
   state_ = PlaybackState::idle; release_remaining_ = 0;
 }
 bool Playback::start(bool loop, uint32_t start_frame) noexcept {
-  if (start_frame || take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.initial_)) return false;
+  if (start_frame >= take_.period_ || take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.initial_)) return false;
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
   clear_source_end(); source_begin_ = 0; window_period_ = take_.period_; printed_history_valid_ = true;
-  phase_ = 0; iteration_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
+  phase_ = 0; rate_ = 1; iteration_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing;
+  seek_phase(start_frame); return true;
 }
 bool Playback::start_at_capture_end(bool loop) noexcept {
   if (take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.end_)) return false;
@@ -313,7 +314,7 @@ bool Playback::start_window(bool loop, uint32_t begin, uint32_t end, uint32_t pe
 bool Playback::set_window(uint32_t begin, uint32_t end, uint32_t period) noexcept {
   if (take_.state_ != TakeState::committed || begin > end || end > take_.length_ || !period || period < end - begin) return false;
   if (source_begin_ != begin || source_end_ != end || window_period_ != period) printed_history_valid_ = false;
-  if (window_period_ != period) phase_ %= period;
+  if (window_period_ != period) phase_ = std::fmod(phase_, double(period));
   source_begin_ = begin; source_end_ = end; window_period_ = period;
   return true;
 }
@@ -321,27 +322,46 @@ bool Playback::start_window_at_capture_end(bool loop, uint32_t begin, uint32_t e
   if (end != take_.length_ || !start_window(loop, begin, end, period, *take_.end_)) return false;
   printed_history_valid_ = false; iteration_ = 1; return true;
 }
+void Playback::set_semitones(double semitones) noexcept {
+  if (!std::isfinite(semitones)) return;
+  rate_ = std::pow(2.0, std::clamp(semitones, -3.0, 3.0) / 12.0);
+  if (rate_ != 1) printed_history_valid_ = false;
+}
+void Playback::seek_phase(uint32_t phase) noexcept {
+  if (state_ != PlaybackState::playing || !window_period_) return;
+  phase %= window_period_;
+  while (phase_ < phase) next();
+}
 void Playback::stop() noexcept {
   if (state_ != PlaybackState::playing) return;
   release_remaining_ = shadow_->maximum_tail_frames();
   if (release_remaining_) state_ = PlaybackState::releasing;
   else finish();
 }
-void Playback::reset() noexcept { shadow_->reset(); finish(); phase_ = 0; iteration_ = 0; clear_source_end(); printed_history_valid_ = true; }
+void Playback::reset() noexcept { rate_ = 1; shadow_->reset(); finish(); phase_ = 0; iteration_ = 0; clear_source_end(); printed_history_valid_ = true; }
 Stereo Playback::next() noexcept {
-  if (state_ == PlaybackState::playing && phase_ == window_period_) {
+  if (state_ == PlaybackState::playing && phase_ >= window_period_) {
     if (loop_) {
-      phase_ = 0;
+      phase_ = std::fmod(phase_, double(window_period_));
       if (iteration_ != std::numeric_limits<uint64_t>::max()) ++iteration_;
     } else stop();
   }
   if (state_ == PlaybackState::playing) {
-    uint32_t source_frame = source_begin_ + phase_;
+    uint32_t source_frame = source_begin_ + uint32_t(phase_);
     bool suppressed = source_frame >= source_end_;
     if (suppressed) printed_history_valid_ = false;
-    Stereo evolved = shadow_->process(suppressed ? Stereo{} : take_.read_source(source_frame));
+    Stereo source = suppressed ? Stereo{} : take_.read_source(source_frame);
+    if (!suppressed && rate_ != 1) {
+      uint32_t following = source_frame + 1;
+      if (following >= source_end_ || following >= source_begin_ + window_period_) following = source_begin_;
+      Stereo after = take_.read_source(following);
+      double fraction = phase_ - std::floor(phase_);
+      source.left += float((after.left - source.left) * fraction);
+      source.right += float((after.right - source.right) * fraction);
+    }
+    Stereo evolved = shadow_->process(source);
     Stereo output = !iteration_ && printed_history_valid_ && source_frame < take_.length_ ? take_.printed_[source_frame] : evolved;
-    ++phase_; return output;
+    phase_ += rate_; return output;
   }
   if (state_ == PlaybackState::releasing) {
     Stereo output = shadow_->process({});

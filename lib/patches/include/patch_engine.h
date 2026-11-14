@@ -113,12 +113,14 @@ class Playback {
   bool set_source_end(uint32_t exclusive_frame) noexcept;
   void clear_source_end() noexcept { source_end_ = UINT32_MAX; }
   double source_end() const noexcept { return source_end_ == UINT32_MAX ? -1 : double(source_end_); }
+  void set_semitones(double semitones) noexcept;
+  void seek_phase(uint32_t phase) noexcept;
   void stop() noexcept;
   void reset() noexcept;
   Stereo next() noexcept;
   bool render(float* left, float* right, uint32_t frames) noexcept;
   PlaybackState state() const noexcept { return state_; }
-  uint32_t phase() const noexcept { return phase_; }
+  uint32_t phase() const noexcept { return uint32_t(phase_); }
   uint64_t release_remaining_frames() const noexcept { return release_remaining_; }
   size_t memory_bytes() const noexcept;
  private:
@@ -126,7 +128,7 @@ class Playback {
   const ProcessedTake& take_;
   std::unique_ptr<Rack> shadow_;
   PlaybackState state_ = PlaybackState::idle;
-  uint32_t phase_ = 0;
+  double phase_ = 0, rate_ = 1;
   uint32_t source_end_ = UINT32_MAX;
   uint32_t source_begin_ = 0, window_period_ = 0;
   uint64_t release_remaining_ = 0, iteration_ = 0;
