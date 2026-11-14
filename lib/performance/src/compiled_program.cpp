@@ -169,6 +169,13 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     if ((cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM) && (cue.commit < 0 || program->takes_[cue.commit].voice != cue.voice)) return nullptr;
     if (cue.kind == PF_COMMIT_ARM && cue.take == cue.commit) return nullptr;
   }
+  for (int id = 0; id < program->cue_count_; ++id) if (program->cues_[id].group >= 0) {
+    const Cue& cue = program->cues_[id];
+    for (int previous = 0; previous < id; ++previous) {
+      const Cue& other = program->cues_[previous];
+      if (other.group == cue.group && (other.button != cue.button || other.bar != cue.bar || other.cue != cue.cue)) return nullptr;
+    }
+  }
   unsigned arms[PF_COMPILED_MAX_TAKES]{}, commits[PF_COMPILED_MAX_TAKES]{};
   for (int id = 0; id < program->cue_count_; ++id) {
     const Cue& cue = program->cues_[id];
@@ -608,7 +615,7 @@ int Program::press_selected(int found, double frame, double bpm, bool microphone
   if (cue.kind == PF_COMMIT && active_capture_.take != cue.commit) return PF_NO_RECORDING;
   if (cue.kind == PF_PLAY && cue.selection >= 0 && !selection_ready(cue.selection, cue.voice) && cue.group < 0) return PF_NO_SAMPLE;
   double target = now;
-  if (cue.timing == 1) target = phase_ == PF_COUNT_IN ? (start_ - 1) * beats_ : (std::floor(now / beats_) + 1) * beats_;
+  if (cue.timing == 1) target = phase_ == PF_COUNT_IN ? (start_ - 1) * beats_ : cue.bar * beats_;
   if (cue.timing == 2) target = (cue.bar - 1 + cue.bar_offset) * beats_ + cue.execute;
   if (cue.kind == PF_PLAY && cue.mode == PF_LOOP_MODE && cue.timing == 0 && cue.selection >= 0) {
     for (int member = 0; member < member_count_; ++member) if (members_[member].selection == cue.selection) {
@@ -646,6 +653,11 @@ int Program::press_selected(int found, double frame, double bpm, bool microphone
     if (result != PF_OK) { error_ = PF_OK; return result; }
   } else { pending_[found].cue = found; pending_[found].position = target; pending_[found].reserved_take = cue.take; }
   cue.used = true; return PF_OK;
+}
+bool Program::selections_overlap(int first, int second) const noexcept {
+  for (int a = 0; a < member_count_; ++a) if (members_[a].selection == first)
+    for (int b = 0; b < member_count_; ++b) if (members_[b].selection == second && members_[a].take == members_[b].take) return true;
+  return false;
 }
 bool Program::selection_ready(int selection, int voice) const noexcept {
   for (int id = 0; id < window_count_; ++id) if (selection_windows_[id].selection == selection) {
@@ -703,7 +715,7 @@ bool Program::select(int voice, int selection, bool automatic, int mode, bool re
     }
     if (retrigger && mode == PF_LOOP_MODE) {
       double counts = query_position_ - take.begin;
-      double phase = std::fmod(counts * rate_ * 60 / capture_bpm_, double(take.cache[take.latest]->period()));
+      double phase = std::fmod(counts * take.cache[take.latest]->period() / (take.loop_end - take.begin), double(take.cache[take.latest]->period()));
       if (phase < 0) phase += take.cache[take.latest]->period();
       player->seek_phase(uint32_t(std::floor(phase)));
     }
@@ -813,6 +825,15 @@ int Program::execute(int id, double frame) noexcept {
       selection_windows_[window].start[bank] = selection_windows_[window].cut[bank] = selection_windows_[window].finish[bank] = -1;
     }
     observe_windows(frame);
+  }
+  if (cue.kind == PF_STOP || (cue.kind == PF_PLAY && cue.mode == PF_LOOP_MODE)) {
+    for (int button = 0; button < PF_CHANNELS; ++button) {
+      int active = gated_[button] >= 0 ? gated_[button] : held_[button];
+      if (active >= 0 && cues_[active].voice == cue.voice
+        && (cue.kind == PF_PLAY || cue.selection < 0 || selections_overlap(cues_[active].selection, cue.selection))) {
+        release(button); gated_[button] = held_[button] = -1;
+      }
+    }
   }
   if (cue.kind == PF_STOP) {
     if (cue.selection >= 0) stop_selection(cue.selection); else stop_voice(cue.voice, false);
@@ -934,6 +955,7 @@ void Program::beat(int phase, int bar, int beat, int count_remaining, double fra
   double next_position = (bar - 1) * beats_ + beat - 1;
   bool wrap = phase == PF_PLAYING && phase_ == PF_PLAYING && next_position < anchor_position_;
   if (wrap) {
+    for (int id = 0; id < note_count_; ++id) notes_[id].played = false;
     rotation_deadline_frame_ = -1;
     apply_pending(std::ceil(frame), bpm);
     if (active_capture_.take >= 0) {

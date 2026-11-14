@@ -82,6 +82,7 @@ class Program {
   void discard_invalid_draft(const Cue& cue) noexcept;
   int finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept;
   int execute(int cue, double frame) noexcept;
+  bool selections_overlap(int first, int second) const noexcept;
   bool selection_ready(int selection, int voice) const noexcept;
   void observe_windows(double frame) noexcept;
   bool select(int voice, int selection, bool automatic, int mode = PF_LOOP_MODE, bool retrigger = false) noexcept;
