@@ -76,7 +76,7 @@ export async function ensureManager(config: Config) {
     const result = await call(config, { command: 'status' });
     if (!result.ok) throw new Error(result.error);
     const owner = decode(OwnerSchema, JSON.parse(await readFile(ownerPath, 'utf8')));
-    if (owner.nonce !== result.owner.nonce || owner.pid !== result.owner.pid) throw new Error('UI manager ownership does not match its private record');
+    if (owner.nonce !== result.owner.nonce || owner.pid !== result.owner.pid) throw new Error(`UI manager ownership does not match its private record (record PID ${owner.pid}, response PID ${result.owner.pid}, nonce ${owner.nonce === result.owner.nonce ? 'matches' : 'differs'})`);
     return result;
   };
   try { return await check(); } catch (error) { if (!absent(error)) throw error; }

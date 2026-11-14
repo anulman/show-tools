@@ -122,6 +122,23 @@ test('an unavailable socket with a live recorded owner fails closed without sign
   } finally { await f.cleanup(); }
 });
 
+test('a mismatched private ownership record fails closed without stopping the responding manager', async () => {
+  const f = await fixture();
+  try {
+    const ready = await ensureManager(f.config);
+    const ownerPath = join(f.config.controlDirectory, 'owner.json');
+    const original = await readFile(ownerPath, 'utf8');
+    try {
+      await writeFile(ownerPath, JSON.stringify({ ...ready.owner, nonce: 'different-owner' }));
+      await assert.rejects(ensureManager(f.config), /record PID \d+, response PID \d+, nonce differs/);
+      const responding = await call(f.config, { command: 'status' });
+      assert(responding.ok);
+      assert.deepEqual(responding.owner, ready.owner);
+      process.kill(ready.owner.pid, 0);
+    } finally { await writeFile(ownerPath, original); }
+  } finally { await f.cleanup(); }
+});
+
 test('a different worktree recreated at the same path cannot inherit the prior origin', async () => {
   const f = await fixture(); const path = join(f.root, 'preview');
   try {
