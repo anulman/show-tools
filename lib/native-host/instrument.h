@@ -23,6 +23,9 @@ public:
   bool can_start() const;
   void stop();
   int control(int id, double value);
+  int input_attach(uint32_t producer, double session, double generation, uint32_t kind, uint32_t released, uint32_t held);
+  int input_event(uint32_t producer, double session, double generation, double sequence, uint32_t input, double value);
+  int input_revoke(uint32_t producer, double session);
   int select(int channel);
   int set_channel(int channel, double gain, int muted);
   int set_automatic(int enabled);

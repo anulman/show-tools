@@ -3,6 +3,18 @@ import { TunerCommandSchema } from '../tuner/schema.js';
 import { tunerCommandValues } from '../tuner/observation.js';
 import { CONTROL_IDS, type PracticeState, type VoiceEffectsState } from '../performance/model.js';
 import { PF } from '../performance/wasm-abi.js';
+import { InputAttachSchema, InputEventSchema, InputProducerKindSchema, InputRevokeSchema } from '../performance/input-bindings.js';
+
+const InputClientCommandSchema = Schema.Union([
+  Schema.Struct({ command: Schema.Literal('inputAttach'), args: Schema.Struct({ kind: InputProducerKindSchema,
+    bindingGeneration: InputAttachSchema.fields.bindingGeneration, releasedMask: InputAttachSchema.fields.releasedMask, heldMask: InputAttachSchema.fields.heldMask }) }),
+  Schema.Struct({ command: Schema.Literal('inputEvent'), args: Schema.Struct({ kind: InputProducerKindSchema,
+    bindingGeneration: InputEventSchema.fields.bindingGeneration, sequence: InputEventSchema.fields.sequence,
+    input: InputEventSchema.fields.input, value: InputEventSchema.fields.value }) }),
+  Schema.Struct({ command: Schema.Literal('inputRevoke'), args: Schema.Struct({ kind: InputProducerKindSchema }) }),
+]);
+export const decodeClientInputCommand = Schema.decodeUnknownSync(InputClientCommandSchema, { onExcessProperty: 'error' });
+export type ClientInputCommand = typeof InputClientCommandSchema.Type;
 
 const Finite = Schema.Number.check(Schema.isFinite());
 const Channel = Schema.Literals(['L1', 'L2', 'R1', 'R2']);
@@ -11,6 +23,9 @@ const Effect = Schema.Union([
 	Schema.Struct({ kind: Schema.Literal('chorus'), rateHz: Finite, depthMs: Finite, baseDelayMs: Finite, wet: Finite }),
 ]);
 const Commands = Schema.Union([
+	Schema.Struct({ command: Schema.Literal('inputAttach'), args: InputAttachSchema }),
+	Schema.Struct({ command: Schema.Literal('inputEvent'), args: InputEventSchema }),
+	Schema.Struct({ command: Schema.Literal('inputRevoke'), args: InputRevokeSchema }),
 	Schema.Struct({ command: Schema.Literal('tuner'), args: TunerCommandSchema }),
 	Schema.Struct({ command: Schema.Literal('configureJiggle'), args: Schema.Struct({ minimumTravel: Finite, minimumReversal: Finite }) }),
 	Schema.Struct({ command: Schema.Literal('start'), args: Schema.Struct({ bpm: Schema.optionalKey(Finite), countInBars: Schema.optionalKey(Schema.Int), startBar: Schema.optionalKey(Schema.Int), endBar: Schema.optionalKey(Schema.Int), loop: Schema.optionalKey(Schema.Boolean), automatic: Schema.optionalKey(Schema.Boolean), runId: Schema.optionalKey(Schema.String) }) }),
@@ -22,13 +37,22 @@ const Commands = Schema.Union([
 	Schema.Struct({ command: Schema.Literal('configureVoiceProfile'), args: Schema.Struct({ profile: Schema.Int, expectedRevision: Schema.Int, effects: Schema.Array(Effect) }) }),
 	Schema.Struct({ command: Schema.Literal('configureVoiceEffects'), args: Schema.Struct({ configurations: Schema.Array(Schema.Struct({ profile: Schema.Int, effects: Schema.Array(Effect) })) }) }),
 ]);
-const decode = Schema.decodeUnknownSync(Commands);
-const parse = Schema.decodeUnknownOption(Commands);
+const decode = Schema.decodeUnknownSync(Commands, { onExcessProperty: 'error' });
+const parse = Schema.decodeUnknownOption(Commands, { onExcessProperty: 'error' });
 
-export function isPriorityCommand(input: unknown): boolean {
+export function isPriorityCommand(input: unknown, state?: PracticeState): boolean {
 	const result = parse(input);
 	if (result._tag === 'None') return false;
 	const command = result.value;
+	if (command.command === 'inputEvent') {
+		const routing = state?.inputRouting;
+		const event = command.args;
+		if (!routing || routing.bindingGeneration !== event.bindingGeneration || event.value !== 1) return false;
+		const producer = routing.producers.find(value => value.producer === event.producer && value.session === event.session);
+		if (!producer || event.sequence <= producer.lastSequence || !(producer.releasedMask & 1 << event.input)
+			|| producer.heldMask & 1 << event.input) return false;
+		return producer.kind === 'physical' ? event.input < 6 && !!(routing.panicMask & 1 << event.input) : event.input === 4;
+	}
 	return command.command === 'stop' || (command.command === 'control' && command.args.control.id === 'mushroom');
 }
 
@@ -82,6 +106,15 @@ export function encodeInitialProfiles(configurations: unknown) {
 export function encodeCommand(input: unknown, state: PracticeState) {
 	const command = decode(input);
 	switch (command.command) {
+		case 'inputAttach': {
+			const a = command.args;
+			return numeric(14, [a.producer, a.session, a.bindingGeneration, InputProducerKindSchema.literals.indexOf(a.kind), a.releasedMask, a.heldMask]);
+		}
+		case 'inputEvent': {
+			const a = command.args;
+			return numeric(16, [a.producer, a.session, a.bindingGeneration, a.sequence, a.input, a.value]);
+		}
+		case 'inputRevoke': return numeric(17, [command.args.producer, command.args.session]);
 		case 'tuner': return numeric(13, [...tunerCommandValues(command.args)]);
 		case 'configureJiggle': {
 			const { minimumTravel, minimumReversal } = command.args;
