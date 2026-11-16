@@ -1,5 +1,15 @@
 # Capture verification result
 
+## Staged held-owner execution maintenance
+
+Outcome: **updated** at source `7740b3bf9b98d77f2e0a85b6db7f8dd650403313`, after reviewing fix `8947b62`. The original gate rejected the changed `compiled_program.cpp` hash before model execution. That was source correspondence drift. The native playback defect that motivated the fix is outside this capture model; no capture-policy counterexample was found.
+
+The complete pinned run passes 201,097 generated and 11,894 distinct main states with an empty queue. The unchanged display and overview finish at 782 and 102 states. All eleven invariants, six model mutants, twelve pristine native scenarios, seven assertion-specific source mutants and twelve restored scenarios pass their expected checks. Receipt: `/private/tmp/capture-owner-fixed-final/receipt.json`. All recorded source hashes match after restoration.
+
+All nine statechart interpretations finish with no unchecked rules. The overview retains six labels, thirteen arrows and 156 hidden same-label steps. Each intended mutation has a two-step shortest counterexample except the three-step retained-bank violation. Reports are in `/private/tmp/capture-owner-statecharts/`. The three runner failure regressions also pass.
+
+Only held or gated `PF_PLAY` execution receives the new owner check. Capture preflight, commit-before-arm execution, protected banks, publication and launch policy remain unchanged. The model, finite bounds, replay scenarios and mutation controls are unchanged. Producer isolation, Panic priority, hardware behavior and successful cross-row held-playback policy remain outside this formal claim.
+
 ## Identified input routing maintenance
 
 Outcome: **updated** at `dfd9c1fc61dd6273b08026f8f2da29516e8f58d8`. The complete run passes 201,097 generated and 11,894 distinct main states with an empty queue, all eleven invariants, six model mutants, twelve pristine/restored native scenarios and seven assertion-specific real-source mutants. The separate display and overview checks finish at 782 and 102 states. Receipt: `/private/tmp/routing-capture-final-restored/receipt.json`.
