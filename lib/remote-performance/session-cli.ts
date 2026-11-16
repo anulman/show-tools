@@ -156,7 +156,7 @@ const migrateProfile = Command.make('migrate', { input: inputFlag, output: outpu
   for (const path of [releasePaths.nodeExecutable, releasePaths.entrypoint, releasePaths.native]) if (!(await stat(path)).isFile()) throw new Error('Release executable or gateway file is missing.');
   if (!(await stat(releasePaths.staticRoot)).isDirectory()) throw new Error('Release static directory is missing.');
   const releaseManifest: unknown = JSON.parse(await readFile(join(releaseRoot, 'release.json'), 'utf8'));
-  Schema.decodeUnknownSync(Schema.Struct({ schemaVersion: Schema.Literal(1) }))(releaseManifest);
+  Schema.decodeUnknownSync(Schema.Struct({ schemaVersion: Schema.Literal(2) }))(releaseManifest);
   if (new Set(options.entries.map(entry => entry.id)).size !== options.entries.length || !options.entries.some(entry => entry.id === options.initialSongId))
     throw new Error('Catalog IDs must be unique and include the initial song.');
   const migrated = migrateSessionProfileV1(JSON.parse(await readFile(input, 'utf8')), { catalog: options, authoringDatabase, restartPolicy });

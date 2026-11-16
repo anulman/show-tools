@@ -283,7 +283,7 @@ test('song list and explicit bindings use authenticated sequenced gateway revisi
   } finally { await f.close(); }
 });
 
-test('explicit V1 migration preserves host settings, requires new output and never contacts services', async () => {
+test('explicit V1 migration requires a V2 release, preserves host settings and never contacts services', async () => {
   const f = await fixture();
   try {
     const { catalog, authoringDatabase, restartPolicy: _restart, ...current } = f.profile;
@@ -296,6 +296,17 @@ test('explicit V1 migration preserves host settings, requires new output and nev
     for (const path of ['runtime/node', 'gateway/server.mjs', 'native/native_alsa_host']) { await mkdir(dirname(join(f.workspace, path)), { recursive: true }); await writeFile(join(f.workspace, path), 'fixture'); }
     await mkdir(join(f.workspace, 'static')); await writeFile(join(f.workspace, 'release.json'), '{"schemaVersion":1}');
     const args = ['profile', 'migrate', '--input', input, '--output', output, '--catalog', catalogFile, '--release', f.workspace, '--authoring-database', authoringDatabase, '--restart-policy', 'no'];
+    const legacyRelease = await f.cli(...args);
+    assert.notEqual(legacyRelease.code, 0); assert.match(legacyRelease.stderr, /schemaVersion/);
+    await assert.rejects(readFile(output), { code: 'ENOENT' });
+    assert.equal(await readFile(input, 'utf8'), JSON.stringify(original));
+    assert.deepEqual(await f.calls(), []); assert.equal(f.requests.length, 0);
+    await writeFile(join(f.workspace, 'release.json'), '{"schemaVersion":2}');
+    const launcherRelease = join(f.workspace, 'cli-release');
+    for (const directory of ['gateway', 'provenance', 'bin', 'runtime']) await mkdir(join(launcherRelease, directory), { recursive: true });
+    await buildSessionBundles(resolve('.'), launcherRelease); await writeSessionLaunchers(launcherRelease);
+    await symlink(process.execPath, join(launcherRelease, 'runtime/node'));
+    f.useLauncher(join(launcherRelease, 'bin/show-tools-session'));
     const migrated = await f.cli(...args); assert.equal(migrated.code, 0, migrated.stderr);
     assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), { ...current, schemaVersion: 2, catalog: { initialSongId: catalog.initialSongId, entries: [{ id: catalog.initialSongId, path: join(f.workspace, 'songs/dyc') }] }, authoringDatabase, restartPolicy: 'no', server: { nodeExecutable: join(f.workspace, 'runtime/node'), entrypoint: join(f.workspace, 'gateway/server.mjs') }, native: { ...current.native, executable: join(f.workspace, 'native/native_alsa_host') }, staticRoot: join(f.workspace, 'static') });
     assert.equal(await readFile(input, 'utf8'), JSON.stringify(original));
