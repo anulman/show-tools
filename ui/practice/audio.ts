@@ -338,9 +338,8 @@ export class PracticeAudio {
     globalThis.window?.removeEventListener(musicalInputPolicyEvent, this.onInputPolicy);
     this.startGeneration++;
     this.microphoneGeneration++;
-    let peripheralFailure: unknown;
-    try { await this.peripheralTransition; await this.detachPeripheral(); }
-    catch (error) { peripheralFailure = error; }
+    const peripheralCleanup = this.peripheralTransition.then(() => this.detachPeripheral());
+    void peripheralCleanup.catch(() => {});
     this.disposed = true;
     this.clearMonitoring();
     this.detachState?.();
@@ -353,10 +352,10 @@ export class PracticeAudio {
     this.recordDestination.disconnect();
     this.liveMonitor?.disconnect();
     this.endpoint.dispose();
-    await Promise.all([this.sampler.dispose(), this.tracker.dispose()]);
+    const localCleanup = Promise.all([this.sampler.dispose(), this.tracker.dispose()]);
     this.listeners.clear();
     this.tunerListeners.clear();
     this.eventListeners.clear();
-    if (peripheralFailure) throw peripheralFailure;
+    await Promise.all([localCleanup, peripheralCleanup]);
   }
 }

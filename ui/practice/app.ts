@@ -961,6 +961,22 @@ const hardwareStatus = requiredElement('#hardware-audio-status', HTMLSpanElement
 const enableAudio = requiredElement('#enable-audio', HTMLButtonElement);
 const terminateAudio = requiredElement('#terminate-audio', HTMLButtonElement);
 
+async function replaceHardwareDesk(desk: RemoteDesk) {
+  try {
+    const releases = await Promise.allSettled([keyboardProducer.pause(), pointerProducer.pause()]);
+    for (const release of releases) if (release.status === 'rejected') throw release.reason;
+    await remoteDesk?.dispose();
+    remoteDesk = desk;
+    audio = undefined;
+  } catch (error) {
+    await desk.dispose();
+    throw error;
+  } finally {
+    keyboardProducer.resume();
+    pointerProducer.resume();
+  }
+}
+
 function renderHardwareUnavailable() {
   for (const control of [elements.start, elements.stop, elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop, elements.click, elements.mushroom, elements['record-demo'], elements['song-select'], elements['monitor-relationship']]) control.disabled = true;
   elements['phase-label'].textContent = 'AUDIO UNAVAILABLE';
@@ -991,8 +1007,7 @@ if (remote) {
       const desk = await hardwareAuth.connect(key => RemoteDesk.connect(key), reason => window.prompt(reason === 'rejected'
         ? 'Saved key was rejected. Enter the hardware session key' : 'Enter the hardware session key. This browser will remember it.'));
       hardwareKeyStatus.textContent = hardwareAuth.remembered() ? 'Key remembered in this browser.' : 'Key kept for this page only. Browser storage is unavailable.';
-      await remoteDesk?.dispose();
-      remoteDesk = desk;
+      await replaceHardwareDesk(desk);
       await switchSong(desk.snapshot().song.id, undefined, undefined, { remoteSong: desk.snapshot().song });
       desk.subscribe(view => {
         const status = view.audio;

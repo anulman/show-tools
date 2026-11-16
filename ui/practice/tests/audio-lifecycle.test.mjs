@@ -411,7 +411,7 @@ test('microphone tracks release before a failed worklet notification settles', a
 test('disposing failed audio disconnects every output without waiting for a worklet reply', async () => {
   const released = [];
   const audio = Object.assign(Object.create(PracticeAudio.prototype), {
-    startGeneration: 0, disposed: false,
+    startGeneration: 0, disposed: false, peripheralTransition: Promise.resolve(),
     detachState() {}, detachTracker() {}, detachPeripheral() {},
     endpoint: { port: { removeEventListener() {} }, dispose() { released.push('endpoint'); }, request() { throw new Error('Must not wait for an acknowledgment'); } },
     recordDestination: { stream: { getTracks: () => [{ stop() { released.push('recording-track'); } }] }, disconnect() { released.push('recording-node'); } },
@@ -424,6 +424,43 @@ test('disposing failed audio disconnects every output without waiting for a work
   assert(released.includes('microphone'));
   assert.equal(audio.disposed, true);
 });
+
+for (const stage of ['transition', 'detach']) for (const acknowledgement of ['delayed', 'hung', 'rejected']) {
+  test(`local disposal silences audio during ${acknowledgement} peripheral ${stage}`, async () => {
+    const calls = [];
+    const waiting = acknowledgement === 'hung' ? { promise: new Promise(() => {}) } : deferred();
+    const failure = new Error('Peripheral cleanup unconfirmed');
+    const audio = Object.assign(Object.create(PracticeAudio.prototype), {
+      startGeneration: 0, microphoneGeneration: 0, disposed: false,
+      peripheralTransition: stage === 'transition' ? waiting.promise : Promise.resolve(),
+      detachPeripheral() { calls.push('peripheral-stop'); return stage === 'detach' ? waiting.promise : Promise.resolve(); },
+      detachState() {}, detachTracker() {}, monitoring: { kind: 'unconfirmed' },
+      liveMonitor: { gain: { value: 1 }, disconnect() { calls.push('monitor'); } },
+      endpoint: { port: { removeEventListener() {} }, dispose() { calls.push('endpoint'); } },
+      recordDestination: { stream: { getTracks: () => [{ stop() { calls.push('recording-track'); } }] }, disconnect() { calls.push('recording-node'); } },
+      tracker: { node: { disconnect() { calls.push('all-output'); } }, async dispose() { calls.push('microphone'); } },
+      sampler: { async dispose() { calls.push('sampler'); } },
+      listeners: new Set(), eventListeners: new Set(), tunerListeners: new Set(),
+    });
+    let settled = false;
+    const result = audio.dispose().then(() => { settled = true; }, error => { settled = true; throw error; });
+    void result.catch(() => {});
+    try {
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(audio.liveMonitor.gain.value, 0, 'a physical acknowledgement cannot keep live monitoring audible');
+      assert.equal(audio.disposed, true);
+      for (const resource of ['recording-track', 'all-output', 'recording-node', 'monitor', 'endpoint', 'sampler', 'microphone'])
+        assert(calls.includes(resource), `${resource} must be released before the peripheral acknowledges`);
+      assert.equal(settled, false, 'source cleanup uncertainty is retained after local silence');
+    } finally {
+      if (waiting.resolve) {
+        waiting.resolve(acknowledgement === 'rejected' ? Promise.reject(failure) : undefined);
+        if (acknowledgement === 'rejected') await assert.rejects(result, error => error === failure);
+        else await result;
+      }
+    }
+  });
+}
 
 test('Escape triggers Panic with an input focused while pad shortcuts still ignore editing', async () => {
   const source = await sourceForVM(new URL('../app.ts', import.meta.url));

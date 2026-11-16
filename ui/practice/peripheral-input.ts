@@ -15,6 +15,7 @@ export function createMusicalInputProducer(options: {
   readonly releasedMask: number;
 }) {
   let revision = 0;
+  let paused = false;
   let active: { endpoint: MusicalInputEndpoint; bindingGeneration: number; sequence: number; revision: number } | undefined;
   let pending: Promise<void> = Promise.resolve();
   function enqueue(action: () => Promise<void>) {
@@ -22,8 +23,16 @@ export function createMusicalInputProducer(options: {
     pending = result.catch(() => {});
     return result;
   }
+  function reset() {
+    revision++;
+    return enqueue(async () => {
+      const previous = active;
+      if (previous) { await previous.endpoint.inputRevoke({ kind: options.kind }); active = undefined; }
+    });
+  }
   return {
     event(input: number, value: number) {
+      if (paused) return Promise.resolve();
       const requested = revision;
       return enqueue(async () => {
         if (requested !== revision) return;
@@ -49,12 +58,8 @@ export function createMusicalInputProducer(options: {
           sequence: ++active.sequence, input, value });
       });
     },
-    reset() {
-      revision++;
-      return enqueue(async () => {
-        const previous = active;
-        if (previous) { await previous.endpoint.inputRevoke({ kind: options.kind }); active = undefined; }
-      });
-    },
+    reset,
+    pause() { paused = true; return reset(); },
+    resume() { paused = false; },
   };
 }

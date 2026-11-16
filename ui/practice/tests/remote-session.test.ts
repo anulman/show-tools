@@ -1,9 +1,12 @@
 import { tunerFixture } from '../../../lib/remote-performance/tests/tuner-fixture.js';
 import { lightFixture } from '../../../lib/remote-performance/tests/light-fixture.js';
 import { test } from 'node:test';
+import { Schema } from 'effect';
+import { NativeTargetSchema } from '../../../lib/remote-performance/session-schema.js';
 import { strict as assert } from 'node:assert';
 import { loadSong } from '../../../songs/index.js';
-import { RemoteDesk } from '../remote-session.js';
+import { createMusicalInputProducer } from '../peripheral-input.js';
+import { RemoteDesk, RemoteSession } from '../remote-session.js';
 import vm from 'node:vm';
 import { sourceForVM } from '../../../scripts/source-for-vm.js';
 import type { TunerCommand, TunerState } from '../../../lib/tuner/model.js';
@@ -251,3 +254,88 @@ for (const reason of ['off', 'fault', 'disconnected']) {
     });
   }
 }
+
+for (const outcome of ['applied', 'rejected', 'unknown']) test(`same-engine reauthentication ${outcome === 'applied' ? 'releases used roles before invalidating their client' : `retains ${outcome} ownership and discards candidate`}`, async () => {
+  const previous = globalThis.fetch;
+  const routing = { bindingGeneration: 1, sessionHighWatermark: 0, panicMask: 0, producers: [] };
+  const native = { ...performance, state: { ...state, inputRouting: routing } };
+  const view = { ...ready, audio: { ...ready.audio, performance: native } };
+  const calls: { sessionId: string; command: string; args: { kind: string } }[] = [];
+  const streams: ReadableStreamDefaultController<Uint8Array>[] = [];
+  let sessions = 0;
+  let release!: () => void;
+  const acknowledgement = new Promise<void>(resolve => { release = resolve; });
+  globalThis.fetch = async (input, init) => {
+    if (String(input) === '/api/session') return Response.json({ sessionId: `client-${++sessions}`, view });
+    if (String(input) === '/api/events') return new Response(new ReadableStream({ start(controller) { streams.push(controller); } }));
+    assert.equal(String(input), '/api/command');
+    const body = JSON.parse(String(init?.body));
+    calls.push(body);
+    if (body.command === 'inputRevoke') {
+      await acknowledgement;
+      if (outcome !== 'applied' && body.args.kind === 'pointer') return Response.json({ outcome, error: 'Revoke unconfirmed' });
+    }
+    return Response.json({ outcome: 'applied', ...native, revision: String(calls.length + 1) });
+  };
+  const old = await RemoteDesk.connect('secret');
+  const candidate = await RemoteDesk.connect('secret');
+  void old.listen(); await tick();
+  const context = vm.createContext({ remoteDesk: old, audio: old.performance() });
+  const keyboard = createMusicalInputProducer({ kind: 'keyboard', endpoint: async () => context.remoteDesk.performance(), releasedMask: 0 });
+  const pointer = createMusicalInputProducer({ kind: 'pointer', endpoint: async () => context.remoteDesk.performance(), releasedMask: 223 });
+  Object.assign(context, { keyboardProducer: keyboard, pointerProducer: pointer });
+  const handoff = source.slice(source.indexOf('async function replaceHardwareDesk('), source.indexOf('function renderHardwareUnavailable('));
+  vm.runInContext(handoff, context);
+  try {
+    for (const producer of [keyboard, pointer]) { await producer.event(0, 1); await producer.event(0, 0); }
+    const original = old.performance();
+    const replacement = context.replaceHardwareDesk(candidate);
+    void replacement.catch(() => {});
+    await tick();
+    const during = calls.length;
+    await keyboard.event(0, 1); await pointer.event(0, 1);
+    assert.equal(calls.length, during, 'no events enter either client during source cleanup');
+    assert.equal(old.performance(), original, 'old endpoint remains valid while its exact revokes await acknowledgement');
+    assert.equal(calls.filter(call => call.command === 'inputRevoke').length, 2);
+    assert(calls.every(call => call.sessionId === 'client-1'));
+    release();
+    if (outcome !== 'applied') {
+      await assert.rejects(replacement, /Revoke unconfirmed/);
+      assert.equal(context.remoteDesk, old);
+      assert.equal(candidate.connection.kind, 'disconnected');
+      await assert.rejects(pointer.event(0, 1), outcome === 'unknown' ? /stale/ : /Revoke unconfirmed/);
+      assert(calls.every(call => call.sessionId === 'client-1'));
+    } else {
+      await replacement;
+      assert.equal(context.remoteDesk, candidate);
+      assert.equal(context.audio, undefined, 'UI cannot supply the invalidated old endpoint while the candidate connects');
+      await assert.rejects(original.inputRevoke({ kind: 'pointer' }), /stale/);
+      void candidate.listen(); await tick();
+      assert.equal(original.inputScope, candidate.performance().inputScope);
+      for (const producer of [keyboard, pointer]) { await producer.event(0, 1); await producer.event(0, 0); }
+      assert.deepEqual(calls.slice(during).map(call => [call.sessionId, call.command]),
+        ['inputAttach', 'inputEvent', 'inputEvent', 'inputAttach', 'inputEvent', 'inputEvent'].map(command => ['client-2', command]));
+    }
+  } finally {
+    release(); await old.dispose(); await candidate.dispose();
+    for (const stream of streams) stream.close();
+    globalThis.fetch = previous;
+  }
+});
+
+test('invalidating a used source before same-engine handoff remains fail-closed', async () => {
+  const native = { state: { inputRouting: { bindingGeneration: 1, sessionHighWatermark: 0, panicMask: 0, producers: [] } } };
+  const calls: string[] = [];
+  const desk = { async command(_endpoint: unknown, _target: unknown, command: string) { calls.push(command); return native.state; } };
+  const target = Schema.decodeUnknownSync(NativeTargetSchema)({ attempt: 'same-attempt', hostEpoch: 'same-engine' });
+  const first = new RemoteSession(desk as never, target, native as never);
+  const second = new RemoteSession(desk as never, target, native as never);
+  let current = first;
+  const producer = createMusicalInputProducer({ kind: 'pointer', endpoint: async () => current, releasedMask: 223 });
+  await producer.event(0, 1); await producer.event(0, 0);
+  first.invalidate(); current = second;
+  assert.equal(first.inputScope, second.inputScope);
+  await assert.rejects(producer.event(0, 1), /stale/);
+  await assert.rejects(producer.event(0, 0), /stale/);
+  assert.deepEqual(calls, ['inputAttach', 'inputEvent', 'inputEvent']);
+});
