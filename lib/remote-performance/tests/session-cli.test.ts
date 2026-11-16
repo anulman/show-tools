@@ -1,10 +1,13 @@
+import { createHash } from 'node:crypto';
+import { buildSessionBundles, writeSessionLaunchers } from '../../../scripts/session-bundles.js';
+import { SongBindingAuthority } from '../song-bindings.js';
 import { tunerFixture } from './tuner-fixture.js';
 import { lightFixture } from './light-fixture.js';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, writeFile, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -27,6 +30,7 @@ async function fixture() {
   const bin = join(workspace, 'bin');
   await mkdir(bin);
   const requests: Array<{ path: string; body: unknown }> = [];
+  let launcher: string | undefined;
   let kind = 'off';
   let phase = 'idle';
   let authorized = true;
@@ -49,6 +53,9 @@ async function fixture() {
     else if (req.url === '/api/status') {
       if (transitions > 0 && --transitions === 0) kind = audioFault ? 'fault' : kind === 'starting' ? 'ready' : 'off';
       res.end(JSON.stringify(view()));
+    } else if (req.url === '/api/songs') { res.end(JSON.stringify({ songs: [{ id: song.id, title: 'DYC', packageDigest: 'a'.repeat(64) }] }));
+    } else if (req.url === '/api/song' || req.url === '/api/song-bindings') {
+      res.end(JSON.stringify(kind === 'off' ? { outcome: 'accepted', view: view() } : { outcome: 'rejected', error: 'Audio must be off', view: view() }));
     } else if (req.url === '/api/audio') {
       assert.deepEqual(body, { sessionId: 'cli', sequence: 1, goal: kind === 'ready' ? 'off' : 'on' });
       kind = kind === 'ready' ? 'stopping' : 'starting'; transitions = 3;
@@ -61,11 +68,11 @@ async function fixture() {
   assert(address && typeof address !== 'string');
   const origin = `http://127.0.0.1:${address.port}`;
   const profilePath = join(workspace, 'profile.json');
-  const profile = decodeSessionProfile({ schemaVersion: 1, serviceName: 'show-tools-test.service', host: '127.0.0.1', port: address.port, origin,
+  const profile = decodeSessionProfile({ schemaVersion: 2, restartPolicy: 'on-failure', serviceName: 'show-tools-test.service', host: '127.0.0.1', port: address.port, origin,
     server: { nodeExecutable: process.execPath, entrypoint: '/opt/show tools/server $x%test".mjs' },
     tokenFile: join(workspace, 'token'), staticRoot: '/opt/desk', runtimeRoot: '/tmp/desk',
     native: { executable: '/opt/native', sampleRate: 48000, blockFrames: 256, maxVoices: 8, maxSeconds: 30, driver: { kind: 'fake', inputLevel: 0 } },
-    package: { manifest: '/opt/package.json', packet: '/opt/song.bin', effects: '/opt/effects.json' },
+    catalog: { initialSongId: 'dance-yrself-clean', entries: [{ id: 'dance-yrself-clean', path: '/opt/song' }] }, authoringDatabase: join(workspace, 'bindings.sqlite'),
   });
   await writeFile(profilePath, JSON.stringify(profile));
   await writeFile(profile.tokenFile, token, { mode: 0o600 });
@@ -78,7 +85,7 @@ async function fixture() {
   async function sync() { await writeFile(control, JSON.stringify({ active, badStop })); }
   async function cli(...args: string[]) {
     await sync();
-    const child = spawn(process.execPath, ['--import', 'tsx', entry, 'session', ...args], {
+    const child = spawn(launcher ?? process.execPath, launcher ? args : ['--import', 'tsx', entry, 'session', ...args], {
       env: { ...process.env, XDG_CONFIG_HOME: configDirectory, PATH: bin + ':' + process.env.PATH }, stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '', stderr = '';
@@ -89,7 +96,7 @@ async function fixture() {
     active = result.active;
     return { code, stdout, stderr };
   }
-  return { workspace, configDirectory, unit, profile, profilePath, requests, cli, origin, bin,
+  return { workspace, configDirectory, unit, profile, profilePath, requests, cli, origin, bin, useLauncher: (path: string) => { launcher = path; },
     closeServer: async () => { server.closeAllConnections(); await new Promise<void>(done => server.close(() => done())); },
     bootstraps: () => bootstraps,
     calls: async () => { try { return (await readFile(calls, 'utf8')).trim().split('\n').filter(Boolean).map(line => JSON.parse(line)); } catch { return []; } },
@@ -249,5 +256,102 @@ test('install refuses to silently replace an older web unit restart policy', asy
     assert.equal(await readFile(f.unit, 'utf8'), legacy);
     assert.deepEqual(await f.calls(), [], 'reviewed upgrade remains separate from install/start');
     assert.equal(f.bootstraps(), 0);
+  } finally { await f.close(); }
+});
+
+
+test('song list and explicit bindings use authenticated sequenced gateway revisions; enabled audio blocks mutations', async () => {
+  const f = await fixture();
+  try {
+    const list = await f.cli('songs', 'list', '--profile', f.profilePath);
+    assert.equal(list.code, 0, list.stderr); assert.match(list.stdout, /DYC/);
+    const selected = await f.cli('songs', 'select', '--song', song.id, '--profile', f.profilePath);
+    assert.equal(selected.code, 0, selected.stderr);
+    const bindings = [{ controlId: 'red', target: { kind: 'cue-rows', rows: ['R1'] } }];
+    const filename = join(f.workspace, 'buttons.json'); await writeFile(filename, JSON.stringify(bindings));
+    const assigned = await f.cli('songs', 'bind', '--song', song.id, '--bindings', filename, '--profile', f.profilePath);
+    assert.equal(assigned.code, 0, assigned.stderr);
+    assert.deepEqual(f.requests.filter(request => request.path === '/api/song' || request.path === '/api/song-bindings'), [
+      { path: '/api/song', body: { sessionId: 'cli', sequence: 1, songId: song.id, expectedRevision: '1' } },
+      { path: '/api/song-bindings', body: { sessionId: 'cli', sequence: 1, songId: song.id, expectedRevision: '1', bindings } },
+    ]);
+    f.set({ kind: 'ready' });
+    const blocked = await f.cli('songs', 'select', '--song', song.id, '--profile', f.profilePath);
+    assert.notEqual(blocked.code, 0); assert.match(blocked.stderr, /audio off/);
+    assert.equal(f.requests.filter(request => request.path === '/api/song').length, 1);
+    assert.deepEqual(await f.calls(), []);
+  } finally { await f.close(); }
+});
+
+test('explicit V1 migration preserves host settings, requires new output and never contacts services', async () => {
+  const f = await fixture();
+  try {
+    const { catalog, authoringDatabase, restartPolicy: _restart, ...current } = f.profile;
+    const original = { ...current, schemaVersion: 1, package: { manifest: '/opt/old.json', packet: '/opt/old.pfp', effects: '/opt/old-fx.json' } };
+    const input = join(f.workspace, 'v1.json'), output = join(f.workspace, 'v2.json'), catalogFile = join(f.workspace, 'catalog.json');
+    await writeFile(input, JSON.stringify(original));
+    await mkdir(join(f.workspace, 'songs/dyc'), { recursive: true });
+    await writeFile(catalogFile, JSON.stringify({ schemaVersion: 1, initialSongId: catalog.initialSongId, entries: [{ id: catalog.initialSongId, path: 'songs/dyc', title: 'DYC', packageDigest: 'a'.repeat(64), files: Object.fromEntries(['manifest.json', 'song.pfp', 'effects.json', 'source.musicxml'].map(name => [name, createHash('sha256').update('fixture').digest('hex')])) }] }));
+    for (const name of ['manifest.json', 'song.pfp', 'effects.json', 'source.musicxml']) await writeFile(join(f.workspace, 'songs/dyc', name), 'fixture');
+    for (const path of ['runtime/node', 'gateway/server.mjs', 'native/native_alsa_host']) { await mkdir(dirname(join(f.workspace, path)), { recursive: true }); await writeFile(join(f.workspace, path), 'fixture'); }
+    await mkdir(join(f.workspace, 'static')); await writeFile(join(f.workspace, 'release.json'), '{"schemaVersion":1}');
+    const args = ['profile', 'migrate', '--input', input, '--output', output, '--catalog', catalogFile, '--release', f.workspace, '--authoring-database', authoringDatabase, '--restart-policy', 'no'];
+    const migrated = await f.cli(...args); assert.equal(migrated.code, 0, migrated.stderr);
+    assert.deepEqual(JSON.parse(await readFile(output, 'utf8')), { ...current, schemaVersion: 2, catalog: { initialSongId: catalog.initialSongId, entries: [{ id: catalog.initialSongId, path: join(f.workspace, 'songs/dyc') }] }, authoringDatabase, restartPolicy: 'no', server: { nodeExecutable: join(f.workspace, 'runtime/node'), entrypoint: join(f.workspace, 'gateway/server.mjs') }, native: { ...current.native, executable: join(f.workspace, 'native/native_alsa_host') }, staticRoot: join(f.workspace, 'static') });
+    assert.equal(await readFile(input, 'utf8'), JSON.stringify(original));
+    assert.notEqual((await f.cli(...args)).code, 0);
+    assert.deepEqual(await f.calls(), []); assert.equal(f.requests.length, 0);
+  } finally { await f.close(); }
+});
+
+
+test('binding backup verify and create-only restore report their limited scope and retain existing targets', async () => {
+  const f = await fixture();
+  try {
+    SongBindingAuthority.open(f.profile.authoringDatabase).close();
+    const backup = join(f.workspace, 'backup.sqlite'), restored = join(f.workspace, 'restored.sqlite');
+    const result = await f.cli('bindings', 'backup', '--profile', f.profilePath, '--output', backup);
+    assert.equal(result.code, 0, result.stderr); assert.match(result.stdout, /excludes charts, effects and recordings/);
+    assert.equal((await f.cli('bindings', 'verify', '--input', backup)).code, 0);
+    assert.equal((await f.cli('bindings', 'restore', '--input', backup, '--output', restored)).code, 0);
+    const before = await readFile(restored);
+    assert.notEqual((await f.cli('bindings', 'restore', '--input', backup, '--output', restored)).code, 0);
+    assert.deepEqual(await readFile(restored), before);
+    assert.deepEqual(await f.calls(), []); assert.equal(f.requests.length, 0);
+  } finally { await f.close(); }
+});
+
+test('peripheral serve waits unconfigured without USB and exits cleanly when cancelled', async () => {
+  const workspace = await mkdtemp(join(tmpdir(), 'show-tools-peripheral-wait-'));
+  try {
+    const child = spawn(process.execPath, ['--import', 'tsx', entry, 'peripheral', 'serve', '--config', join(workspace, 'missing.json')], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = '';
+    child.stderr.on('data', chunk => { stderr += chunk; });
+    const ready = new Promise<void>((done, reject) => { child.stdout.on('data', chunk => { stdout += chunk; if (stdout.includes('USB is unopened')) done(); }); child.once('exit', () => reject(new Error('Peripheral exited before waiting state: ' + stderr))); });
+    const timeout = setTimeout(() => child.kill('SIGKILL'), 10000);
+    try {
+      await ready;
+      child.kill('SIGTERM');
+      const [code] = await once(child, 'exit'); assert.equal(code, 0, stderr);
+      assert.match(stdout, /Waiting for peripheral configuration/);
+    } finally { clearTimeout(timeout); if (child.exitCode === null) child.kill('SIGKILL'); }
+  } finally { await rm(workspace, { recursive: true, force: true }); }
+});
+
+
+test('release-relative installed launchers expose setup help and authenticated session status', async () => {
+  const f = await fixture();
+  try {
+    const release = join(f.workspace, 'release');
+    for (const directory of ['gateway', 'provenance', 'bin', 'runtime']) await mkdir(join(release, directory), { recursive: true });
+    await buildSessionBundles(resolve('.'), release); await writeSessionLaunchers(release);
+    await symlink(process.execPath, join(release, 'runtime/node'));
+    f.useLauncher(join(release, 'bin/show-tools-session'));
+    const help = await f.cli('--help'); assert.equal(help.code, 0, help.stderr); assert.match(help.stdout, /songs/);
+    await f.installFile(); f.set({ active: true });
+    const status = await f.cli('status', '--profile', f.profilePath); assert.equal(status.code, 0, status.stderr); assert.match(status.stdout, /Server active.*Audio off/);
+    const child = spawn(join(release, 'bin/show-tools-peripheral'), ['setup', '--help'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '', stderr = ''; child.stdout.on('data', chunk => { stdout += chunk; }); child.stderr.on('data', chunk => { stderr += chunk; });
+    const [code] = await once(child, 'exit'); assert.equal(code, 0, stderr); assert.match(stdout, /--dial/); assert.match(stdout, /--test/);
   } finally { await f.close(); }
 });
