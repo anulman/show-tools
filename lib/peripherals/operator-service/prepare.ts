@@ -95,6 +95,9 @@ async function publishPacket(manifest: { files: Record<string, string>; webSourc
   const stage = `/home/anulman/.local/share/show-tools/staging/peripheral-service-${source.slice(0, 7)}-${installerSource.slice(0, 7)}`;
   const sourcePin = manifest.files['install.py'];
   const command = `/usr/bin/env -i HOME=/home/anulman USER=anulman LOGNAME=anulman PATH=/usr/bin:/bin XDG_RUNTIME_DIR=/run/user/1000 DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus /usr/bin/python3 -I -c 'import hashlib; p="${stage}/install.py"; b=open(p,"rb").read(65537); assert len(b)<=65536 and hashlib.sha256(b).hexdigest()=="${sourcePin}"; __file__=p; exec(compile(b,p,"exec"))' --manifest-sha256 ${sha(manifestData)} --activate`;
-  await writeFile(join(out, 'OPERATOR-COMMAND.txt'), command + '\n', { mode: 0o600, flag: 'wx' });
+  const commandData = command + '\n';
+  await writeFile(join(out, 'OPERATOR-COMMAND.txt'), commandData, { mode: 0o600, flag: 'wx' });
+  const reference = { schemaVersion: 1, applicationSourceRevision: source, installerSourceRevision: installerSource, manifestSha256: sha(manifestData), command: { path: `${stage}/OPERATOR-COMMAND.txt`, bytes: Buffer.byteLength(commandData, 'utf8'), sha256: sha(commandData) } };
+  await writeFile(join(out, 'BOOTSTRAP-REFERENCE.json'), JSON.stringify(reference, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   process.stdout.write(JSON.stringify({ ready: true, out, sourceRevision: source, ...(manifest.webSourceRevision === undefined ? {} : { webSourceRevision: manifest.webSourceRevision }), installerSourceRevision: installerSource, manifestSha256: sha(manifestData), installerSha256: sourcePin }) + '\n');
 }

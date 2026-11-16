@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile, access } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile, access, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -71,16 +71,18 @@ test('waiting packet pins the reviewed CLI and emits no profile or credential re
   const directory = await mkdtemp(join(tmpdir(), 'operator-waiting-fixture-'));
   try {
     const release = join(directory, 'release');
-    const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const revision = '743160a8cde6fd11c31588cf5b3c6a4fac379abe';
+    const installerRevision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
     const names = ['release.json', 'runtime/node', 'bin/show-tools-peripheral', 'gateway/peripheral-cli.mjs', 'native/peripheral/peripheral-host', 'bin/show-tools-session', 'gateway/session-cli.mjs', 'provenance/source/lib/peripherals/bridge-cli.ts'];
     for (const name of names) {
       const path = join(release, name); await mkdir(resolve(path, '..'), { recursive: true });
       await writeFile(path, name === 'release.json' ? JSON.stringify({ sourceRevision: revision }) : name.startsWith('provenance/') ? await readFile(resolve('lib/peripherals/bridge-cli.ts')) : `synthetic fixture ${name}`);
     }
     const prepare = (out: string, ...extra: string[]) => JSON.parse(execFileSync(process.execPath,
-      ['--import', 'tsx', resolve('lib/peripherals/operator-service/prepare.ts'), '--release', release, '--source-revision', revision, '--installer-source-revision', revision, '--waiting-configuration', '--out', out, ...extra], { encoding: 'utf8', stdio: 'pipe' }));
+      ['--import', 'tsx', resolve('lib/peripherals/operator-service/prepare.ts'), '--release', release, '--source-revision', revision, '--installer-source-revision', installerRevision, '--waiting-configuration', '--out', out, ...extra], { encoding: 'utf8', stdio: 'pipe' }));
     const output = join(directory, 'packet');
-    assert.equal(prepare(output).ready, true);
+    const result = prepare(output);
+    assert.equal(result.ready, true);
     const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'));
     assert.equal(manifest.schemaVersion, 3);
     assert.equal(manifest.mode, 'waiting-configuration');
@@ -90,6 +92,15 @@ test('waiting packet pins the reviewed CLI and emits no profile or credential re
     await assert.rejects(access(join(output, 'profile.json')));
     assert.match(await readFile(join(output, 'README.txt'), 'utf8'), /without sudo/);
     assert.match(await readFile(join(output, 'OPERATOR-COMMAND.txt'), 'utf8'), /--manifest-sha256 [a-f0-9]{64} --activate/);
+    const command = await readFile(join(output, 'OPERATOR-COMMAND.txt'));
+    const reference = JSON.parse(await readFile(join(output, 'BOOTSTRAP-REFERENCE.json'), 'utf8'));
+    assert.deepEqual(reference, { schemaVersion: 1, applicationSourceRevision: revision, installerSourceRevision: installerRevision, manifestSha256: sha(await readFile(join(output, 'manifest.json'))), command: { path: `/home/anulman/.local/share/show-tools/staging/peripheral-service-${revision.slice(0, 7)}-${installerRevision.slice(0, 7)}/OPERATOR-COMMAND.txt`, bytes: command.byteLength, sha256: sha(command) } });
+    assert.equal(reference.manifestSha256, result.manifestSha256);
+    assert.equal(command.at(-1), 10);
+    assert.equal((await stat(join(output, 'BOOTSTRAP-REFERENCE.json'))).mode & 0o777, 0o600);
+    assert.notEqual(reference.applicationSourceRevision, reference.installerSourceRevision);
+    assert.throws(() => prepare(output));
+    assert.equal(sha(await readFile(join(output, 'OPERATOR-COMMAND.txt'))), reference.command.sha256);
     for (const extra of [['--disable-jiggle'], ['--input-map', '/unused'], ['--web-profile', '/unused'], ['--jiggle-travel', '4']]) {
       assert.throws(() => prepare(join(directory, `mixed-${extra[0]}`), ...extra));
     }

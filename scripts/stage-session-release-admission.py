@@ -26,6 +26,7 @@ ASSIGNED_UID = ASSIGNED_GID = 1000
 ASSIGNED_USER = 'anulman'
 ASSIGNED_HOME = Path('/home/anulman')
 QUALIFIED_SHARE = ASSIGNED_HOME / '.local/share'
+QUALIFIED_MANAGED_ANCESTORS = ('.config/systemd', '.config/systemd/user', '.local/bin')
 ACL_ATTRIBUTES = {'system.posix_acl_access', 'system.posix_acl_default',
                   'com.apple.system.Security', 'com.apple.acl.text'}
 CHECKER = Path('/usr/local/libexec/show-tools-delegation-check.py')
@@ -102,8 +103,9 @@ def private_group():
 
 
 def private_share(fd, home_fd, current, owner):
-    require(current == QUALIFIED_SHARE and owner == (ASSIGNED_UID, ASSIGNED_GID) and home_fd is not None,
-            'Group-writable ancestry is outside the fixed private-share exception')
+    require(current in {QUALIFIED_SHARE, *(ASSIGNED_HOME / name for name in QUALIFIED_MANAGED_ANCESTORS)}
+            and owner == (ASSIGNED_UID, ASSIGNED_GID) and home_fd is not None,
+            'Group-writable ancestry is outside the fixed private-group exceptions: ' + str(current))
     info, home = os.fstat(fd), os.fstat(home_fd)
     require((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (ASSIGNED_UID, ASSIGNED_GID, 0o775),
             'Private-share metadata differs')

@@ -286,21 +286,77 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Wrong application host'): self.run_apply()
         self.assertEqual(self.calls, [])
 
-    def test_only_fixed_share_accepts_private_group_0775_ancestry_without_chmod(self):
-        def metadata(uid, gid, mode):
-            return os.stat_result((stat.S_IFDIR | mode, 1, 1, 1, uid, gid, 0, 0, 0, 0))
-        values = [metadata(0, 0, 0o755), metadata(0, 0, 0o755), metadata(1000, 1000, 0o700),
-                  metadata(1000, 1000, 0o755), metadata(1000, 1000, 0o775)]
-        with patch.object(m, 'HOME', '/home/anulman'), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.os, 'open', side_effect=range(10, 15)) as opened, patch.object(m.os, 'fstat', side_effect=values), patch.object(m.os, 'close'), patch.object(m.os, 'listxattr', return_value=[], create=True), patch.object(m.os, 'chmod') as chmod:
-            self.assertEqual(directory_impl('/home/anulman/.local/share'), 14)
-            self.assertTrue(all(call.args[1] & os.O_NOFOLLOW for call in opened.call_args_list[1:]))
+    @contextlib.contextmanager
+    def directory_fixture(self, mode_overrides=None, owner_overrides=None, acl_path=None, replaced_path=None):
+        home = '/home/anulman'
+        modes = {home: 0o700, home + '/.config': 0o700, **(mode_overrides or {})}
+        owners = owner_overrides or {}
+        opened = {}
+        def selected(name, parent=None):
+            return name if name.startswith('/') else opened[parent].rstrip('/') + '/' + name
+        def metadata(path, replaced=False):
+            assigned = path == home or path.startswith(home + '/')
+            uid, gid = owners.get(path, (1000, 1000) if assigned else (0, 0))
+            inode = 999 if replaced else 100 + sum(path.encode())
+            return os.stat_result((stat.S_IFDIR | modes.get(path, 0o755), inode, 1, 1, uid, gid, 0, 0, 0, 0))
+        def open_directory(name, flags, dir_fd=None):
+            if name != '/': self.assertTrue(flags & os.O_NOFOLLOW)
+            fd = 10 + len(opened)
+            opened[fd] = selected(name, dir_fd)
+            return fd
+        def linked(name, *, dir_fd=None, follow_symlinks=True):
+            self.assertFalse(follow_symlinks)
+            path = selected(name, dir_fd)
+            return metadata(path, path == replaced_path)
+        with patch.object(m, 'HOME', home), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.os, 'open', side_effect=open_directory), patch.object(m.os, 'fstat', side_effect=lambda fd: metadata(opened[fd])), patch.object(m.os, 'stat', side_effect=linked), patch.object(m.os, 'close'), patch.object(m.os, 'listxattr', side_effect=lambda fd: ['system.posix_acl_access'] if opened[fd] == acl_path else [], create=True), patch.object(m.os, 'chmod') as chmod:
+            yield opened
             chmod.assert_not_called()
-        for changed, mode in ((1, 0o775), (2, 0o755), (3, 0o775)):
-            changed_values = list(values)
-            old = changed_values[changed]
-            changed_values[changed] = metadata(old.st_uid, old.st_gid, mode)
-            with self.subTest(changed=changed), patch.object(m, 'HOME', '/home/anulman'), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.os, 'open', side_effect=range(10, 15)), patch.object(m.os, 'fstat', side_effect=changed_values), patch.object(m.os, 'close'), patch.object(m.os, 'listxattr', return_value=[], create=True):
-                with self.assertRaises(ValueError): directory_impl('/home/anulman/.local/share')
+
+    def test_only_fixed_managed_ancestors_accept_private_group_0775_without_chmod(self):
+        home = '/home/anulman'
+        paths = ['/.local/share', '/.local/bin', '/.config/systemd', '/.config/systemd/user']
+        modes = {home + path: 0o775 for path in paths}
+        modes[home + '/.config/systemd/user/default.target.wants'] = 0o700
+        for suffix in [*paths, '/.config/systemd/user/default.target.wants']:
+            with self.subTest(path=suffix), self.directory_fixture(modes) as opened, patch.object(m, 'private_group') as group:
+                result = directory_impl(home + suffix)
+                self.assertEqual(opened[result], home + suffix)
+                self.assertGreaterEqual(group.call_count, 1)
+
+    def test_managed_ancestor_rejects_foreign_owner_group_wrong_modes_and_acl(self):
+        home = '/home/anulman'
+        path = home + '/.config/systemd'
+        for owner in ((2000, 1000), (1000, 2000)):
+            with self.subTest(owner=owner), self.directory_fixture({path: 0o775}, {path: owner}):
+                with self.assertRaisesRegex(ValueError, 'owner/group'): directory_impl(path)
+        for mode in (0o770, 0o773, 0o777):
+            with self.subTest(mode=mode), self.directory_fixture({path: mode}):
+                with self.assertRaises(ValueError): directory_impl(path)
+        for acl_path in (home, home + '/.config', path):
+            with self.subTest(acl_path=acl_path), self.directory_fixture({path: 0o775}, acl_path=acl_path):
+                with self.assertRaisesRegex(ValueError, 'ACL'): directory_impl(path)
+
+    def test_managed_ancestor_requires_fresh_private_group_and_private_home_barrier(self):
+        home = '/home/anulman'
+        path = home + '/.config/systemd/user'
+        modes = {home + '/.config/systemd': 0o775, path: 0o775}
+        with self.directory_fixture(modes), patch.object(m, 'private_group', side_effect=OSError('NSS lookup failed')):
+            with self.assertRaisesRegex(OSError, 'NSS'): directory_impl(path)
+        with self.directory_fixture({**modes, home: 0o755}):
+            with self.assertRaisesRegex(ValueError, 'mode0700'): directory_impl(path)
+        with self.directory_fixture(modes, replaced_path=home):
+            with self.assertRaisesRegex(ValueError, 'private barrier'): directory_impl(path)
+        with self.directory_fixture(modes, replaced_path=path):
+            with self.assertRaisesRegex(ValueError, 'pathname changed'): directory_impl(path)
+
+    def test_sibling_writable_ancestors_and_noncanonical_paths_stay_rejected(self):
+        home = '/home/anulman'
+        for suffix in ('/.config/other', '/.config/systemd-other', '/.local/bin-other', '/.local/other', '/.local/share-other', '/.config/systemd/user/default.target.wants'):
+            path = home + suffix
+            with self.subTest(path=path), self.directory_fixture({path: 0o775}):
+                with self.assertRaisesRegex(ValueError, 'fixed managed-path'): directory_impl(path)
+        with self.directory_fixture():
+            with self.assertRaisesRegex(ValueError, 'Noncanonical'): directory_impl(home + '//.config')
 
     def test_private_group_refuses_other_primary_supplementary_or_unresolved_users(self):
         account = SimpleNamespace(pw_name='anulman', pw_uid=1000, pw_gid=1000, pw_dir='/home/anulman')
