@@ -1,5 +1,5 @@
 {
-  "sourceCommit": "7740b3bf9b98d77f2e0a85b6db7f8dd650403313",
+  "sourceCommit": "90502854aaaff31cabda1cb21c7c374bc40dcc3c",
   "files": {
     "lib/performance/src/compiled_program.cpp": "6a07b7613e59db67de4ef702e184c72dcf54d631a7d511edee7b29afd16a50cc",
     "lib/performance/src/compiled_program.h": "998997281c5701ac214cc246f90f0be01ab162f0a43c47c8dee0b477a8f49b17",
@@ -11,7 +11,7 @@
     "lib/performance/include/performance_light_output.h": "5ca26325f4fcfa44de4e2bc3898a147e488e078b3340829c8ada40699b464265",
     "lib/tuner/include/tuner.h": "568bb3da9355328b8b589b621a30d971388d1599f8fef33f9d52b932b145da98",
     "lib/tuner/src/tuner.cpp": "23341a5ca6d70105cc7f43571cca85767371d27d79f60a74bebcdb01dbdb32b2",
-    "lib/performance/src/input_router.h": "b4e5aa4a8f7f0a5e1509fb613c794c5e2dbda6fbbaf3c6697324c31905484628",
+    "lib/performance/src/input_router.h": "7357d56f107d386ea137d8f7d0ccd3d382b061a054d33c159e75109c11b12b80",
     "lib/peripherals/include/peripheral_controls.h": "96659635a0cc1ff63c178d1c47935c3f23ad3cc54f408098808df2abd03b4c8f",
     "lib/peripherals/src/peripheral_controls.cpp": "509a6d35fb4bf76d67269e8274da68ccb42363b0e9942dbc926973d979fee275"
   }

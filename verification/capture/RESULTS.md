@@ -1,5 +1,11 @@
 # Capture verification result
 
+## GNU header portability maintenance
+
+Outcome: **updated** at `9050285`. Adding the explicit `<iterator>` include changes no capture semantics. The original gate rejected the header hash before execution. The complete pinned rerun passes 201,097 generated and 11,894 distinct main states, 782 display states and 102 overview states. All six model mutants, seven actual-source mutants and twelve pristine/restored native scenarios pass their expected checks. Receipt: `/private/tmp/capture-portability-final/receipt.json`.
+
+All nine statechart interpretations have no unchecked rules and retain their expected two- or three-step mutant counterexamples. Reports: `/private/tmp/capture-portability-statecharts/outcomes.json`. The model, finite bounds and native scenarios are unchanged. This does not establish producer isolation, spinner history, LED wiring or physical hardware acceptance.
+
 ## Staged held-owner execution maintenance
 
 Outcome: **updated** at source `7740b3bf9b98d77f2e0a85b6db7f8dd650403313`, after reviewing fix `8947b62`. The original gate rejected the changed `compiled_program.cpp` hash before model execution. That was source correspondence drift. The native playback defect that motivated the fix is outside this capture model; no capture-policy counterexample was found.

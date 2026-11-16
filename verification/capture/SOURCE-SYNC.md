@@ -167,3 +167,8 @@ The unchanged gate first rejected `compiled_program.cpp` because its recorded ha
 The independently reproduced dangling held-playback bug and its native/WASM regression are separate product evidence. This capture model does not represent producer ownership and cannot prove that bug fixed. The refresh checks that the unchanged capture promises still hold against the corrected C++ implementation. Successful cross-row held-playback policy remains unchanged and outside this model.
 
 The full pinned rerun passed at `/private/tmp/capture-owner-fixed-final/receipt.json`. It exhausted 11,894 main states, 782 display states and 102 overview states. All twelve native scenarios passed before and after seven assertion-specific source mutants. All six model mutants failed their intended invariants. Every source hash matched after restoration. All nine current statechart interpretations checked every rule. Their intended shortest violations retain two steps, except the three-step retained-bank violation.
+
+
+## GNU standard-library dependency at 9050285
+
+The old gate rejected the changed `input_router.h` source hash before model execution. The only covered-source delta from `7740b3b` is an explicit `<iterator>` include for the existing `std::begin` and `std::end` array operations. GNU libstdc++ requires that declaration; the Mac standard library had exposed it transitively. No router body, capture operation, model action, invariant, bound, native scenario or mutation changes. The separate fixture rename avoids GNU's `linux` macro and is outside this proof. This refresh preserves the existing finite capture claim and does not add a producer-ownership proof.
