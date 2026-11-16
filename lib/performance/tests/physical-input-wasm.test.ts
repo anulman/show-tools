@@ -116,7 +116,10 @@ test('identified physical cue rows preserve capture doubling, native beat pulse 
     assert.equal(native.state().recording?.status, 'recording');
     const recordingLevel = level(native, 257);
     assert(recordingLevel !== null && recordingLevel >= 0 && recordingLevel <= .7);
-    edge(0, 1); edge(0, 0);
+    edge(0, 1);
+    assert.equal(level(native, 257), 1, 'held feedback overrides the current recording pulse');
+    edge(0, 0);
+    assert.equal(level(native, 257), recordingLevel, 'release restores the current sequenced pulse');
     until(native, 2);
     assert.equal(native.compiledTake(0).frames, 16000);
     until(native, 3);

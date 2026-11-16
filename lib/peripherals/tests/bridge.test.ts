@@ -3,6 +3,7 @@ import { Readable } from 'node:stream';
 import { test } from 'node:test';
 import { boundedLines, decodePeripheralBridgeConfig, decodePeripheralInputMap, peripheralHelperArgs, PeripheralRelay } from '../bridge.js';
 import type { PhysicalInputEvent } from '../bridge.js';
+import { PHYSICAL_SWITCH_IDS } from '../../performance/model.js';
 
 const inputMap = decodePeripheralInputMap({
 	sources: [{ kind: 'linux', id: 'keys', interfaceNumber: 2, eventTypes: [0, 1], keyCodes: [41, 42], relativeAxes: [] },
@@ -103,4 +104,35 @@ test('disabled motion is validated and consumes sequence before discard; button 
 	await new Promise(resolve => setImmediate(resolve));
 	await relay.close();
 	assert.deepEqual(sent, [{ sequence: 6, input: 0, value: 1 }, { sequence: 8, input: 0, value: 0 }]);
+});
+
+
+test('synthetic six-switch installation maps four independent LEDs including a noncontiguous channel', async () => {
+  const map = decodePeripheralInputMap({
+    sources: [{ kind: 'linux', id: 'keys', interfaceNumber: 2, eventTypes: [0, 1], keyCodes: [41, 42, 43, 44, 45, 46], relativeAxes: [] },
+      { kind: 'linux', id: 'motion', interfaceNumber: 3, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] }],
+    switches: PHYSICAL_SWITCH_IDS.map((controlId, index) => ({ controlId, sourceId: 'keys', type: 1, code: 41 + index })),
+    axis: { sourceId: 'motion', type: 2, code: 1 },
+    leds: [{ controlId: 'blue', sdkChannel: 0 }, { controlId: 'yellow', sdkChannel: 1 },
+      { controlId: 'red', sdkChannel: 2 }, { controlId: 'green', sdkChannel: 48 }],
+    confirmWiring: true,
+  });
+  const contiguous = decodePeripheralInputMap({ ...map, leds: [...map.leds.slice(0, 3), { controlId: 'green', sdkChannel: 3 }] });
+  assert.equal(contiguous.leds[3].sdkChannel, 3);
+  const args = peripheralHelperArgs(7, map);
+  assert.equal(args.filter(value => value === '--switch').length, 6);
+  assert.deepEqual(args.slice(-13), ['--led', 'blue', '0', '--led', 'yellow', '1', '--led', 'red', '2', '--led', 'green', '48', '--confirm-wiring']);
+  assert.throws(() => decodePeripheralInputMap({ ...map, leds: [...map.leds.slice(0, 3), { controlId: 'green', sdkChannel: 2 }] }));
+  const sent: PhysicalInputEvent[] = [];
+  const relay = new PeripheralRelay(7, async event => { sent.push(event); }, error => { throw error; });
+  relay.input({ type: 'ready', version: 2, session: 7, switches: PHYSICAL_SWITCH_IDS.map(controlId => ({ controlId, state: 'released' })) });
+  relay.start();
+  for (const [index, controlId] of PHYSICAL_SWITCH_IDS.entries())
+    relay.input({ type: 'button', controlId, session: 7, sequence: index + 1, down: true });
+  for (const [index, controlId] of PHYSICAL_SWITCH_IDS.entries())
+    relay.input({ type: 'button', controlId, session: 7, sequence: index + 7, down: false });
+  await new Promise(resolve => setImmediate(resolve));
+  await relay.close();
+  assert.deepEqual(sent, [...PHYSICAL_SWITCH_IDS.map((_, input) => ({ sequence: input + 1, input, value: 1 })),
+    ...PHYSICAL_SWITCH_IDS.map((_, input) => ({ sequence: input + 7, input, value: 0 }))]);
 });
