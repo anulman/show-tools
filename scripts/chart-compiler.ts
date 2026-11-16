@@ -2,8 +2,8 @@ import { readFile, writeFile, rename, mkdir, mkdtemp, rm, stat } from 'node:fs/p
 import { realpathSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { Schema } from 'effect';
-import { decodeCompiledSong, decodeSongMapping, inspectCompiledSong, canonicalSongJson } from '../lib/performance/compiled-song.js';
-import { compiledProgramBytes } from '../lib/performance/compiled-native.js';
+import { decodeSongMapping, inspectCompiledSong, canonicalSongJson } from '../lib/performance/compiled-song.js';
+import { decodeCompiledProgram } from '../lib/performance/compiled-native.js';
 import { fetchSongSource, parseSongSource, parseWorkbookSource, parseWorksheetUrl } from '../lib/performance/song-source.js';
 import { readMusicXmlSong, MusicXmlValidationError } from '../lib/performance/musicxml-song.js';
 import { importSheetMusicXml } from '../lib/performance/sheet-musicxml.js';
@@ -180,11 +180,11 @@ async function executeChartCompiler(args: readonly string[], report: (message: s
     return;
   }
   if (command === 'encode') {
-    const song = await jsonFile(required('--song'), decodeCompiledSong);
-    if (!song.executable) throw productFailure({ code: 'CHART_ENCODE_BLOCKED', message: 'Native encoding is blocked by chart diagnostics.',
+    const decoded = await jsonFile(required('--song'), decodeCompiledProgram);
+    if (decoded.kind === 'blocked') throw productFailure({ code: 'CHART_ENCODE_BLOCKED', message: 'Native encoding is blocked by chart diagnostics.',
       nextSteps: ['Inspect the song, resolve its source/mapping diagnostics, and compile again.'], locations: [required('--song')] });
-    await atomicWrite(output, compiledProgramBytes(song), [required('--song')]);
-    report(`Encoded ${song.id}, schema ${song.schemaVersion}.\n`);
+    await atomicWrite(output, decoded.bytes, [required('--song')]);
+    report(`Encoded ${decoded.song.id}, schema ${decoded.song.schemaVersion}.\n`);
     return;
   }
   const { song } = await musicXmlFile(required('--musicxml'));

@@ -5,7 +5,7 @@ import type { SongMapping } from '../compiled-song.js';
 import type { SongSource } from '../song-source.js';
 import dycSource from '../../../songs/dance-yrself-clean.source.json';
 import dycMapping from '../../../songs/dance-yrself-clean.cutover.mapping.json';
-import { encodeCompiledProgram } from '../compiled-native.js';
+import { compiledProgramBytes, decodeCompiledProgram, encodeCompiledProgram } from '../compiled-native.js';
 import { PF } from '../wasm-abi.js';
 
 function fixture(): { source: SongSource; mapping: SongMapping } {
@@ -417,4 +417,31 @@ test('imported capture graph preserves each unique arm, commit, and boundary', a
     { ...song, playback: [{ bar: 1, voiceId: song.takes[0].voiceId, selectionId: song.selections[0].id }] },
     { ...song, chart: { ...song.chart, bars: song.chart.bars.map((bar, index) => index === 1 ? { ...bar, column: song.chart.bars[0].column } : bar) } },
   ]) assert.throws(() => decodeCompiledSong(changed));
+});
+
+test('decode and encode completes before mutable song data escapes', async () => {
+  const { source, mapping } = fixture();
+  const song = await compileSheetsSong(source, mapping);
+  const decoded = decodeCompiledProgram(song);
+  assert.equal(decoded.kind, 'encoded');
+  if (decoded.kind !== 'encoded') throw new Error('Expected executable fixture');
+  assert.deepEqual(decoded.bytes, compiledProgramBytes(song));
+  const original = decoded.bytes.slice();
+  assert.equal(Reflect.set(decoded.song.chart, 'bpm', 99), true);
+  assert.deepEqual(decoded.bytes, original);
+  assert.equal(new DataView(compiledProgramBytes(decoded.song).buffer).getFloat64(32, true), 99);
+  assert.equal(Reflect.set(decoded.song.chart, 'beatsPerBar', 99), true);
+  for (const decode of [decodeCompiledProgram, encodeCompiledProgram, compiledProgramBytes, inspectCompiledSong])
+    assert.throws(() => decode(decoded.song), /Invalid executable meter/);
+  assert.equal(song.chart.bpm, 98);
+});
+
+test('decode and encode retains blocked inspection data without emitting a packet', async () => {
+  const { source, mapping } = fixture();
+  const song = await compileSheetsSong(source, { ...mapping, cueWindow: null });
+  const decoded = decodeCompiledProgram(song);
+  assert.equal(decoded.kind, 'blocked');
+  assert.equal(decoded.song.executable, false);
+  assert.equal('bytes' in decoded, false);
+  assert.throws(() => compiledProgramBytes(song), /Resolve the song inspection errors/);
 });

@@ -6,7 +6,7 @@ import { PF } from '../../performance/wasm-abi.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
 import { tunerImageFixture } from './tuner-fixture.js';
 import { lightFixture } from './light-fixture.js';
-import { decodeSnapshot, parseManifest } from '../observation.js';
+import { decodeSnapshot, parseManifest, parseManifestProgram } from '../observation.js';
 
 function counted(values: number[]) {
 	const bytes = Buffer.alloc(4 + values.length * 8);
@@ -77,4 +77,18 @@ test('light image schema rejects malformed complete publications without alterin
   }
   const terminal = lightFixture(); terminal[LIGHT.LIGHT_SEQUENCE] = Number.MAX_SAFE_INTEGER;
   assert.deepEqual(decode(terminal), terminal);
+});
+
+test('both manifest readers reject malformed nested compiled songs', () => {
+  assert.ok(song.compiled);
+  for (const compiled of [null, { ...song.compiled, schemaVersion: 6 }, { ...song.compiled, schemaVersion: 999 },
+    { ...song.compiled, chart: { ...song.compiled.chart, beatsPerBar: 99 } },
+    { ...song.compiled, unexpected: true },
+    { ...song.compiled, executable: false }]) {
+    const bytes = Buffer.from(JSON.stringify({ id: song.id, description: '', compiled,
+      practice: { startBar: 1, endBar: 10 }, takeCount: song.compiled.takes.length,
+      packetSha256: 'x', profilesSha256: 'y' }));
+    const digest = createHash('sha256').update(bytes).digest();
+    for (const read of [parseManifest, parseManifestProgram]) assert.throws(() => read(bytes, digest));
+  }
 });

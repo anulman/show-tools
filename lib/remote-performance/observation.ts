@@ -1,7 +1,8 @@
+import { decodeCompiledProgram } from '../performance/compiled-native.js';
 import { decodeTunerState } from '../tuner/observation.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Schema } from 'effect';
-import { CompiledSongSchema, decodeCompiledSong } from '../performance/compiled-song.js';
+import { decodeCompiledSong, type CompiledSong } from '../performance/compiled-song.js';
 import { decodeNativeEvent, decodeNativeInputRouting, decodeNativeLiveEffects, decodeNativeState, decodeNativeTake, decodeNativeTempo, decodeNativeVoices } from '../performance/native-observation.js';
 import type { SongScript } from '../performance/model.js';
 import { PF } from '../performance/wasm-abi.js';
@@ -11,13 +12,14 @@ import { LightPublicationSchema } from './native-schema.js';
 const Manifest = Schema.Struct({
 	id: Schema.String,
 	description: Schema.String,
-	compiled: CompiledSongSchema,
+	compiled: Schema.Unknown,
 	practice: Schema.Struct({ startBar: Schema.Int, endBar: Schema.Int }),
 	takeCount: Schema.Int,
 	packetSha256: Schema.String,
 	profilesSha256: Schema.String,
 });
 const decodeManifest = Schema.decodeUnknownSync(Manifest);
+const decodeManifestVersion = Schema.decodeUnknownSync(Schema.Struct({ schemaVersion: Schema.Literal(7) }));
 
 class Reader {
 	private offset = 0;
@@ -42,14 +44,31 @@ class Reader {
 	end() { if (this.offset !== this.bytes.length) throw new Error('Unexpected host publication data'); }
 }
 
-export function parseManifest(bytes: Buffer, digest: Buffer) {
+function readManifest(bytes: Buffer, digest: Buffer) {
 	if (bytes.length > 1024 * 1024 || digest.length !== 32 || !timingSafeEqual(createHash('sha256').update(bytes).digest(), digest)) throw new Error('Invalid manifest digest');
 	const manifest = decodeManifest(JSON.parse(bytes.toString('utf8')));
-	const compiled = decodeCompiledSong(manifest.compiled);
+	decodeManifestVersion(manifest.compiled);
+	return manifest;
+}
+
+function manifestSong(manifest: ReturnType<typeof decodeManifest>, compiled: CompiledSong) {
 	if (manifest.takeCount < 0 || manifest.takeCount > PF.COMPILED_MAX_TAKES || manifest.practice.startBar < 1 || manifest.practice.endBar < manifest.practice.startBar || manifest.practice.endBar > compiled.chart.bars.length) throw new Error('Invalid manifest range');
 	if (!compiled.executable || compiled.id !== manifest.id || compiled.takes.length !== manifest.takeCount) throw new Error('Invalid manifest identity');
 	const song: SongScript = { id: manifest.id, description: manifest.description, chart: compiled.chart, compiled, practice: manifest.practice, program: { lengthBeats: compiled.chart.beatsPerBar, events: [] } };
 	return { song, takeCount: manifest.takeCount, packetSha256: manifest.packetSha256, profilesSha256: manifest.profilesSha256 };
+}
+
+export function parseManifest(bytes: Buffer, digest: Buffer) {
+	const manifest = readManifest(bytes, digest);
+	return manifestSong(manifest, decodeCompiledSong(manifest.compiled));
+}
+
+export function parseManifestProgram(bytes: Buffer, digest: Buffer) {
+	const manifest = readManifest(bytes, digest);
+	const decoded = decodeCompiledProgram(manifest.compiled);
+	const metadata = manifestSong(manifest, decoded.song);
+	if (decoded.kind === 'blocked') throw new Error('Invalid manifest identity');
+	return { ...metadata, packet: decoded.bytes };
 }
 
 const message = (code: number) => `Native error ${code}`;
