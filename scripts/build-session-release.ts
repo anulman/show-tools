@@ -7,20 +7,20 @@ import { chmod, cp, lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/p
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { validateInstalledPackage } from '../lib/remote-performance/prepare.js';
+import { readSongCatalog } from './build-song-catalog.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const required = Schema.NonEmptyString;
 const revisionString = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/));
 const options = Schema.decodeUnknownSync(Schema.Struct({
-  'native-artifact': required, 'peripheral-artifact': required, 'node-runtime': required, 'song-package': required, out: required,
+  'native-artifact': required, 'peripheral-artifact': required, 'node-runtime': required, 'song-catalog': required, out: required,
   'reviewed-revision': Schema.optionalKey(revisionString),
 }))(parseArgs({ options: { 'native-artifact': { type: 'string' }, 'peripheral-artifact': { type: 'string' }, 'node-runtime': { type: 'string' },
-  'song-package': { type: 'string' }, out: { type: 'string' }, 'reviewed-revision': { type: 'string' } } }).values);
+  'song-catalog': { type: 'string' }, out: { type: 'string' }, 'reviewed-revision': { type: 'string' } } }).values);
 const native = resolve(options['native-artifact']);
 const peripheral = await readPeripheralArtifact(root, resolve(options['peripheral-artifact']));
 const runtime = resolve(options['node-runtime']);
-const song = resolve(options['song-package']);
+const catalog = await readSongCatalog(resolve(options['song-catalog']));
 const output = resolve(options.out);
 const sha256 = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
 const assertCommittedSource = () => {
@@ -47,14 +47,13 @@ const nativeBytes = await readFile(join(native, 'native_alsa_host'));
 if (nativeBytes.length < 20 || nativeBytes.readUInt32BE(0) !== 0x7f454c46 || nativeBytes[4] !== 2 || nativeBytes[5] !== 1 || nativeBytes.readUInt16LE(18) !== 62) throw new Error('Expected a Linux x86-64 ELF native host');
 const nodeBytes = await readFile(join(runtime, 'bin/node'));
 if (sha256(nodeBytes) !== '94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c99b919629a90') throw new Error('Expected the reviewed official Node22.23.4 Linux x64 executable');
-validateInstalledPackage(await readFile(join(song, 'manifest.json')), await readFile(join(song, 'song.pfp')),
-  JSON.parse(await readFile(join(song, 'effects.json'), 'utf8')));
+if (catalog.catalog.entries.map(entry => entry.id).sort().join(',') !== 'dance-yrself-clean,drunk-girls,tribulations') throw new Error('Release requires exactly DYC, Drunk Girls, and Tribulations');
 await mkdir(output);
 execFileSync('bash', ['lib/beat-tracker/scripts/build-manual-wasm.sh'], { cwd: root, stdio: 'inherit' });
 execFileSync(process.execPath, ['--import', 'tsx', 'scripts/build-ui.ts'], { cwd: root, stdio: 'inherit' });
 assertCommittedSource();
 await Promise.all([
-  mkdir(join(output, 'native/peripheral'), { recursive: true }), mkdir(join(output, 'song')),
+  mkdir(join(output, 'native/peripheral'), { recursive: true }), mkdir(join(output, 'catalog')),
   cp(join(root, 'dist'), join(output, 'static'), { recursive: true }),
   mkdir(join(output, 'gateway')), mkdir(join(output, 'runtime')), mkdir(join(output, 'bin')),
   mkdir(join(output, 'provenance')), mkdir(join(output, 'licenses')),
@@ -62,7 +61,11 @@ await Promise.all([
 for (const name of [...nativeFiles, 'SHA256SUMS']) await cp(join(native, name), join(output, 'native', name));
 for (const [name, bytes] of peripheral.files) await writeFile(join(output, 'native/peripheral', name), bytes);
 await chmod(join(output, 'native/peripheral/peripheral-host'), 0o755);
-for (const name of ['manifest.json', 'song.pfp', 'effects.json']) await cp(join(song, name), join(output, 'song', name));
+for (const [name, bytes] of catalog.files) {
+  const destination = join(output, 'catalog', name);
+  await mkdir(dirname(destination), { recursive: true });
+  await writeFile(destination, bytes);
+}
 await writeFile(join(output, 'runtime/node'), nodeBytes, { mode: 0o755 });
 await chmod(join(output, 'native/native_alsa_host'), 0o755);
 await cp(join(runtime, 'LICENSE'), join(output, 'runtime/NODE-LICENSE'));
@@ -72,7 +75,7 @@ for (const name of ['manual-clock-build.json', 'manual-clock-compiler.txt']) awa
 await buildSessionBundles(root, output);
 const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
 const reviewSources = new Set(git('ls-files', '-z', '--', 'lib', 'scripts/build-session-release.ts',
-  'scripts/session-bundles.ts', 'scripts/peripheral-artifact.ts', 'scripts/build-peripheral-artifact.ts',
+  'scripts/build-song-catalog.ts', 'scripts/tests/build-song-catalog.test.ts', 'scripts/session-bundles.ts', 'scripts/peripheral-artifact.ts', 'scripts/build-peripheral-artifact.ts',
   'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
   'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', '.github/workflows/native-host.yml', '.github/workflows/peripherals.yml',
   'package.json', 'package-lock.json').split('\0').filter(Boolean));
@@ -123,7 +126,7 @@ async function collect(directory: string, relative = '') {
   }
 }
 await collect(output);
-await writeFile(join(output, 'release.json'), JSON.stringify({ schemaVersion: 1, sourceRevision, nativeRevision, peripheralRevision: peripheral.sourceRevision,
+await writeFile(join(output, 'release.json'), JSON.stringify({ schemaVersion: 2, sourceRevision, nativeRevision, peripheralRevision: peripheral.sourceRevision,
   nodeVersion: '22.23.4', platform: 'linux-x64', totalFileBytes: files.reduce((sum, file) => sum + file.bytes, 0), files }, null, 2));
 await writeFile(join(output, 'SHA256SUMS'), [...files.map(file => `${file.sha256}  ${file.path}`),
   `${sha256(await readFile(join(output, 'release.json')))}  release.json`].join('\n') + '\n');
