@@ -148,10 +148,12 @@ export function createInputBindingPanel({ onSave }: { onSave: (bindings: InputBi
 		get pending() { return saving; },
 		get dirty() { return dirty(); },
 		update(next: InputBindingPanelView) {
+			const bindings = decodeInputBindings(next.bindings);
+			const candidate = { ...next, bindings };
 			const newSong = next.songId !== view?.songId;
 			const keepDraft = !newSong && (dirty() || saving);
 			if (newSong) { generation++; saving = false; notice = ''; failure = ''; }
-			view = next; applied = decodeInputBindings(next.bindings); song.textContent = next.title;
+			view = candidate; applied = bindings; song.textContent = candidate.title;
 			if (!keepDraft) renderBindings(applied);
 			refresh();
 		},

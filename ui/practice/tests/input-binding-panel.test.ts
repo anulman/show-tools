@@ -113,6 +113,22 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	expect(panel.element.scrollWidth <= panel.element.clientWidth, 'Panel fits a 390px container');
 	expect(requests[0].find(binding => binding.controlId === 'blue')?.target.kind === 'cue-rows', 'Save uses the canonical binding schema');
 	expect(savedSongs.join(',') === 'dyc,dyc,dyc', 'Each save carries the song identity captured before awaiting');
+	const rejectedSongs: string[] = [];
+	let acknowledgeRejectedUpdate: ((bindings: InputBindings) => void) | undefined;
+	const rejected = create({ onSave: async (_bindings, songId) => { rejectedSongs.push(songId); return new Promise(resolve => { acknowledgeRejectedUpdate = resolve; }); } });
+	document.body.append(rejected.element); rejected.element.open = true; rejected.update(initial);
+	action(rejected, 'Blue', 'tempo');
+	const invalidNext = { songId: 'dg', title: 'Drunk Girls', editable: true, bindings: [{ controlId: 'not-a-control', target: { kind: 'tempo' } }] };
+	function rejectedUpdate() { let failed = false; try { Reflect.apply(rejected.update, undefined, [invalidNext]); } catch { failed = true; } expect(failed, 'Invalid next-song bindings are rejected'); }
+	rejectedUpdate();
+	expect(rejected.element.textContent?.includes('Dance Yrself Clean') && rejected.dirty && selectControl(rejected, 'Blue').value === 'tempo', 'Rejected update preserves the original song and draft');
+	apply(rejected);
+	expect(rejectedSongs.join(',') === 'dyc' && rejected.pending && button(rejected).disabled, 'Apply after a rejected update targets the original song');
+	rejectedUpdate();
+	expect(rejected.pending && button(rejected).disabled, 'Rejected update cannot unlock or invalidate a pending save');
+	expect(acknowledgeRejectedUpdate, 'Original-song save remains in flight');
+	acknowledgeRejectedUpdate([{ controlId: 'blue', target: { kind: 'tempo' } }]); await flush();
+	expect(!rejected.pending && !rejected.dirty && rejected.element.textContent?.includes('Dance Yrself Clean'), 'Original pending save still applies to its own song after rejection');
 	return { requestCount: requests.length, width: panel.element.clientWidth };
 }
 
