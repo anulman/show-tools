@@ -23,7 +23,9 @@ function unitArgument(value: string) {
 }
 
 export function renderSessionUnit(profile: SessionProfile, profilePath: string) {
-  return `# Managed by show-tools session install. Do not edit this unit.\n[Unit]\nDescription=Show Tools performance desk\nStartLimitIntervalSec=0\n\n[Service]\nType=exec\nExecStart=${unitArgument(profile.server.nodeExecutable)} ${unitArgument(profile.server.entrypoint)} --profile ${unitArgument(resolve(profilePath))}\nRestart=${profile.restartPolicy}\nRestartSec=3s\nKillMode=control-group\nTimeoutStopSec=15s\nSendSIGKILL=yes\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
+  const retryLimit = profile.restartPolicy === 'on-failure' ? 'StartLimitIntervalSec=0\n' : '';
+  const retryDelay = profile.restartPolicy === 'on-failure' ? 'RestartSec=3s\n' : '';
+  return `# Managed by show-tools session install. Do not edit this unit.\n[Unit]\nDescription=Show Tools performance desk\n${retryLimit}\n[Service]\nType=exec\nExecStart=${unitArgument(profile.server.nodeExecutable)} ${unitArgument(profile.server.entrypoint)} --profile ${unitArgument(resolve(profilePath))}\nRestart=${profile.restartPolicy}\n${retryDelay}KillMode=control-group\nTimeoutStopSec=15s\nSendSIGKILL=yes\nUMask=0077\n\n[Install]\nWantedBy=default.target\n`;
 }
 
 export function sessionConfigDirectory(env: NodeJS.ProcessEnv = process.env) {
@@ -71,7 +73,13 @@ export function createSessionService(profile: SessionProfile, profilePath: strin
       return unitPath;
     },
     state: properties,
-    start: async () => { await verifyInstalled(); await checked('start', profile.serviceName); },
+    start: async (signal?: AbortSignal) => {
+      signal?.throwIfAborted();
+      await verifyInstalled();
+      signal?.throwIfAborted();
+      await checked('start', profile.serviceName);
+      signal?.throwIfAborted();
+    },
     stop: async () => {
       await verifyInstalled();
       await checked('stop', profile.serviceName);

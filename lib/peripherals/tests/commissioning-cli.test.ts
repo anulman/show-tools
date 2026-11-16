@@ -450,3 +450,42 @@ test('offline setup refuses a foreign web unit before issuing stop or opening a 
     assert.equal(touched, false); assert.equal(commands.length, 1); assert.equal(commands[0]?.[1], 'show');
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
+
+for (const stage of ['before-dispatch', 'after-dispatch', 'unconfirmed-stop']) test(`restore cancellation ${stage} preserves publication truth and confirms cleanup`, async () => {
+  const f = await dialMaintenanceFixture(), controller = new AbortController();
+  const before = await readFile(f.config);
+  const unitDirectory = join(f.directory, 'systemd/user'); await mkdir(unitDirectory, { recursive: true });
+  const unit = join(unitDirectory, f.session.serviceName);
+  await writeFile(unit, renderSessionUnit(f.session, f.sessionPath), { mode: 0o600 });
+  let active = true, captured = false, stops = 0, savedShows = 0;
+  const actions: string[] = [], output: string[] = [];
+  const webService = createSessionService(f.session, f.sessionPath, { configDirectory: f.directory,
+    run: async (executable, args) => {
+      assert.equal(executable, 'systemctl');
+      const operation = args[1] ?? ''; actions.push(operation);
+      if (operation === 'show' && captured && !before.equals(await readFile(f.config)) && ++savedShows === 2 && stage === 'before-dispatch')
+        controller.abort(new Error('cancel inside restore verification'));
+      if (operation === 'start') { active = true; controller.abort(new Error('cancel after start dispatch')); }
+      if (operation === 'stop') {
+        stops++;
+        if (stops === 2 && stage === 'unconfirmed-stop') return { code: 1, stdout: '' };
+        active = false;
+      }
+      return { code: 0, stdout: operation === 'show' ? `LoadState=loaded\nActiveState=${active ? 'active' : 'inactive'}\nMainPID=${active ? '4321' : '0'}\nTasksCurrent=${active ? '1' : '0'}\nFragmentPath=${unit}\nDropInPaths=\n` : '' };
+    } });
+  try {
+    await assert.rejects(runCommissioningCli([...f.args, '--stop-performance'], {
+      stagingRoot: f.directory, signal: controller.signal, webService, checkListenerAbsent: async () => {},
+      service: { inspect: async () => ({ active: false }), stop: async () => {}, start: async () => {} },
+      captureAxis: async () => { captured = true; return f.axis; },
+      io: { question: async () => '', write: message => { output.push(message); } },
+    }), stage === 'unconfirmed-stop' ? /Configuration saved\. Web restoration cancelled; stopping .* is unconfirmed/ : /Configuration saved\. Web restoration cancelled; .* is verified stopped/);
+    assert(controller.signal.aborted);
+    assert(!before.equals(await readFile(f.config)), 'the successfully published map remains saved');
+    assert.equal(actions.includes('start'), stage !== 'before-dispatch');
+    assert.equal(stops, 2);
+    assert.equal(active, stage === 'unconfirmed-stop');
+    assert(!output.some(message => message.includes('restarted. Audio is off')));
+    await assert.rejects(readFile(f.config + '.commissioning.lock'), /ENOENT/);
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});

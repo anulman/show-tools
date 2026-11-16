@@ -184,7 +184,17 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
         return result;
       } finally {
         if (completed && active === 'active') {
-          await webService.start();
+          try {
+            await webService.start(signal);
+            signal.throwIfAborted();
+          } catch (error) {
+            const reason = signal.aborted ? 'cancelled' : 'failed';
+            try { await webService.stop(); }
+            catch (cleanup) {
+              throw new Error(`Configuration saved. Web restoration ${reason}; stopping ${session.serviceName} is unconfirmed. Inspect the named service before recovery.`, { cause: new AggregateError([error, cleanup]) });
+            }
+            throw new Error(`Configuration saved. Web restoration ${reason}; ${session.serviceName} is verified stopped. Start it explicitly after recovery.`, { cause: error });
+          }
           io.write(`${session.serviceName} restarted. Audio is off.\n`);
         } else io.write(`${session.serviceName} is left stopped. Start it explicitly after setup or recovery.\n`);
       }
