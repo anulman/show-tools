@@ -43,18 +43,21 @@ try {
   await cp(join(root, 'verification/cues/check.ts'), join(temporary, 'verification/cues/check.ts'));
   await writeFile(join(temporary, 'package.json'), '{"type":"module"}');
   await symlink(join(root, 'node_modules'), join(temporary, 'node_modules'));
+  await writeFile(join(temporary, sourcePath), source);
+  assert.equal(run(temporary).status, 0, 'PRISTINE_WITNESS');
   for (const mutant of mutants) {
     assert.equal(source.split(mutant.before).length, 2, 'MUTANT_SOURCE_DRIFT');
-    await writeFile(join(temporary, sourcePath), source);
-    assert.equal(run(temporary).status, 0, 'PRISTINE_WITNESS');
     await writeFile(join(temporary, sourcePath), source.replace(mutant.before, mutant.after));
     const result = run(temporary);
     assert.equal(result.status, 1, `MUTANT_SURVIVED: ${mutant.name}`);
     assert.match(result.stderr, /AssertionError/, `WRONG_FAILURE: ${mutant.name}`);
     assert.match(result.stderr, new RegExp(mutant.marker), `WRONG_PROPERTY_FAILURE: ${mutant.name}`);
     await writeFile(join(temporary, sourcePath), source);
-    assert.equal(run(temporary).status, 0, 'RESTORED_WITNESS');
+    assert.equal(createHash('sha256').update(await readFile(join(temporary, sourcePath))).digest('hex'), hashes[sourcePath], `RESTORED_SOURCE_CHANGED: ${mutant.name}`);
   }
+  const restored = run(temporary);
+  assert.equal(restored.status, 0, 'RESTORED_WITNESS');
+  assert.equal(restored.stdout, baseline.stdout, 'RESTORED_DOMAIN_CHANGED');
 } finally { await rm(temporary, { recursive: true, force: true }); }
 assert.equal(await readFile(join(root, sourcePath), 'utf8'), source, 'SOURCE_CHANGED');
 assert.deepEqual(await sourceHashes(), hashes, 'COVERED_SOURCE_CHANGED');
