@@ -1,6 +1,6 @@
 # Physical controls and song routing
 
-This contract separates physical identity, observed host input and musical binding. It describes the next multi-control implementation. The running release at `991c5d5` still uses one anonymous cue button.
+This contract separates physical identity, observed host input and musical binding. It describes the implemented version-two source boundary. Deployment receipts and physical acceptance separately establish what is running on a host.
 
 ## Ownership
 
@@ -23,7 +23,7 @@ The installation map associates physical IDs with **observed** platform selector
 
 ## Identified input protocol
 
-The helper protocol moves to an explicit version 2. Each switch observation carries `session`, globally increasing `sequence`, `controlId` and `down`. Rotation retains signed relative `deltaY` and the same ordering barrier. Neither adapter converts host keys into UI shortcuts or musical commands.
+The helper protocol uses explicit version 2. Each switch observation carries `session`, globally increasing `sequence`, `controlId` and `down`. Rotation retains signed relative `deltaY` and the same ordering barrier. Neither adapter converts host keys into UI shortcuts or musical commands.
 
 Ready describes every configured switch as released, held or unknown. An initially held or unknown switch must be released before it can produce a fresh press. Host repeats do not produce extra presses; valid ignored observations still consume sequence. A duplicate, stale, unknown or contradictory identity cannot be relabelled as the anonymous cue button.
 
@@ -43,9 +43,9 @@ Cross-row held precedence remains an operator decision. Current `Program::gate_p
 
 Bindings belong to PE's declarative performance data, with song instructions retained in canonical MusicXML. Operator authoring defaults may supply bindings, but the exported song must preserve the selected meaning. Installation files contain raw selectors and output addresses, not a second musical scheduler or parallel song source.
 
-The proposed storage field is optional `inputBindings` in canonical performance metadata, compiled data and ingestion mappings. It contains physical ID and the target union, never OS codes or SDK channels. Missing bindings mean unbound, not an inferred legacy action. Existing canonical songs need no invented assignments. Strict readers must reject unsupported binding data rather than discard it.
+The storage field is optional `inputBindings` in canonical performance metadata, compiled data and ingestion mappings. It contains physical ID and the target union, never OS codes or SDK channels. Missing bindings mean unbound, not an inferred legacy action. Existing canonical songs need no invented assignments. Strict readers must reject unsupported binding data rather than discard it.
 
-Normal song preparation installs that table atomically with the compiled song through existing host operation 9. Successful replacement advances a native input-binding generation; failure preserves the previous song and table. Stop and Start retain the table. Replacing the song, changing the table or disposing the engine invalidates its producer leases. No runtime editor override may bypass canonical export and the stopped preparation boundary. Musical binding generation and the existing device/LED-map `bindingRevision` are distinct identities.
+Host operation 9 installs that table atomically with the compiled instruction program. Separate external-WAV uploads are outside that transaction. Successful replacement advances a native input-binding generation; failure preserves the previous song and table. Stop and Start retain the table. Replacing the song, changing the table or disposing the engine invalidates its producer leases. No runtime editor override may bypass canonical export and the stopped preparation boundary. Musical binding generation and the existing device/LED-map `bindingRevision` are distinct identities.
 
 The editor may display Blue or Yellow beside the affected cue row. It must not infer that a physical colour corresponds to the existing pastel pad CSS colour. No Sheets cell notes are required beyond the operator's existing terse voice-identification convention.
 
@@ -53,11 +53,11 @@ The editor may display Blue or Yellow beside the affected cue row. It must not i
 
 Use the reserved native identified-input boundary `pf_input_event`, with a bounded binding table prepared while stopped. TypeScript validates and lowers declarative IDs; C++ owns fresh-edge admission, target selection, release ownership and all musical timing.
 
-Native execution must extend the existing resolve-all-first, commit-before-arm batch with a selected row mask. Repeated calls to `press(row)` are not equivalent. Record the admitted held owner and ownership generation per row, including software producers. A rejected press cannot acquire another producer's held ownership; late release or revocation cannot release a newer owner. Queued held launches also retain the admitted owner token; superseded launches cannot execute later or cancel another owner. Producer cleanup uses `release_owner`, and the global `release_current()` path is removed.
+Native execution extends the existing resolve-all-first, commit-before-arm batch with a selected row mask. Repeated calls to `press(row)` are not equivalent. Record the admitted held owner and ownership generation per row, including software producers. A rejected press cannot acquire another producer's held ownership; late release or revocation cannot release a newer owner. Queued held launches also retain the admitted owner token; superseded launches cannot execute later or cancel another owner. Producer cleanup uses `release_owner`, and the global `release_current()` path is removed.
 
 Two designs were considered. Bridge-only lowering can reuse today's pad press/release commands, but leaves physical held ownership and LED selection outside the engine. The native boundary keeps them together and supports the complete engine-authored output image. Reuse the existing portable 32-slot input latch and compiled cue executor rather than creating another clock or scheduler.
 
-The engine emits feedback per bound control, through opaque logical LED IDs. The installation map alone translates those IDs to confirmed SDK channels. For explicitly bound cue controls, preserve the accepted policy: held input is 100%; otherwise recording pulses with the engine beat up to 70%, ahead of steady 70% playback. Activity and warnings cover only the bound rows. Utility feedback remains unselected until specified. Absent IDs are off in the consumer's owned map.
+The engine emits identified feedback for all six physical controls, through opaque logical LED IDs. The installation map alone translates those IDs to confirmed SDK channels. For explicitly bound cue controls, preserve the accepted policy: held input is 100%; otherwise recording pulses with the engine beat up to 70%, ahead of steady 70% playback. Activity and warnings cover only the bound rows. Unbound and utility controls have an off baseline and the same full-brightness held override. Absent IDs are off in the consumer's owned map.
 
 Keep the existing engine-incarnation, run, device-session, binding-revision and publication fences. Rebinding requires a stopped engine, clear ownership of removed outputs and a fresh complete image. Helpers deliver the image; they do not synthesize beat timers or commit partially written frames. No LED writes are authorized by a contract or an SDK index calculation.
 
@@ -73,7 +73,7 @@ Native same-host activation requires that explicit client policy when operator c
 
 The integration source uses PF ABI 12. These changes are not a deployment or physical acceptance receipt. Existing `pf_control` IDs are unchanged, including 16–79 for external samples; host operation 15 remains WAV preparation.
 
-| Surface | Proposed reservation |
+| Surface | Implemented boundary |
 | --- | --- |
 | Native/WASM handshake | `PF_ABI_VERSION = 12` |
 | Binding storage | Optional compiled-packet-7 extension `PFI1` (`0x50464931`), bounded by six physical switches |
@@ -91,11 +91,11 @@ The producer table is preallocated with 32 slots. Physical producers use switch 
 
 Attach, input and revoke are one engine-thread path in browser/WASM and native hosting. Existing raw producers, keyboard and pointer callers migrate to that path; low-level legacy control callers have a distinct reserved source, not global release authority. Explicit UI Panic remains the reserved global utility through control 4, including immediate local recording and microphone cleanup when backend acknowledgement fails. The DOM policy runs before Escape, and physical Panic readback also performs that UI cleanup without a second Panic action. This utility has no held-sample release ownership. A bound physical Panic input must enter the existing reserved Stop/Panic lane after checking its current binding generation; do not trust a client-supplied priority claim.
 
-## Proposed file reservations
+## Initial file reservations
 
 Chief granted the lanes below in reservation receipt revision 2, `/private/tmp/chief-physical-control-reservations-20261115.json`. PE is the single integration owner. No active capture-deadline writer is identified: the earlier warning referred to a historical environment name, not an observed owner. Keep lane writers disjoint.
 
-| Lane | Exact proposed paths |
+| Lane | Initially granted paths |
 | --- | --- |
 | PE domain and canonical data | New `lib/performance/input-bindings.ts`; existing `lib/performance/model.ts`, `lib/performance/compiled-song.ts`, `lib/performance/compiled-native.ts`, `lib/performance/musicxml-song.ts` |
 | PE native engine and WASM | New `lib/performance/src/input_router.h`; existing `lib/performance/include/performance_engine.h`, `lib/performance/src/performance_engine.cpp`, `lib/performance/src/compiled_program.h`, `lib/performance/src/compiled_program.cpp`, `lib/performance/wasm-performance.ts`, `lib/performance/wasm-abi.ts`, `lib/performance/native-observation.ts` |
@@ -105,7 +105,7 @@ Chief granted the lanes below in reservation receipt revision 2, `/private/tmp/c
 | EliteDesk Linux adapter implementation and PE review | `lib/peripherals/host/linux_host.cpp`, `lib/peripherals/host/linux_runtime.h`, `lib/peripherals/host/linux_runtime.cpp`, `lib/peripherals/host/linux_order.h` |
 | PE focused fixtures and build registration | New `lib/performance/tests/input-routing.test.ts`, `lib/performance/tests/physical_input_tests.cpp`, `lib/performance/tests/physical-input-wasm.test.ts`, `ui/practice/tests/musical-input-policy.test.ts`; existing `lib/performance/CMakeLists.txt`, `lib/native-host/tests/service_test.py`, `lib/peripherals/tests/bridge.test.ts`, `lib/peripherals/tests/bridge-integration.test.ts`, `ui/practice/tests/browser-peripheral.test.ts`, `ui/practice/tests/peripheral-input.test.ts`, `lib/remote-performance/tests/commands.test.ts` |
 
-The header-only router avoids adding a new compilation unit to both WASM build scripts. Physical adapter fixtures, profile migration/deployment-package consumers and final formal-verification source records need a separate exact reservation before that integration milestone; this list does not grant a directory-wide edit allowance.
+The header-only router avoids adding a new compilation unit to both WASM build scripts. Chief separately reserved adapter fixtures, profile/deployment consumers and formal-verification records during integration. The initial list is historical and grants no directory-wide edit allowance; consult the current reservation receipt before adding writers.
 
 ## Common helper boundary for adapter implementation
 
@@ -126,7 +126,7 @@ Helper stdin retains fenced bind/full-image/clear/quit delivery. Bind expands th
 
 ## Migration and acceptance
 
-Migrate version-one profiles explicitly. Migration requires a confirmed physical identity, observed input selector and selected musical binding. It must not turn historical Tab/Escape into Blue/Yellow defaults. Update both adapters and all bridge/browser consumers together; incompatible protocols fail before attachment. Keep the old release available for rollback rather than adding an anonymous fallback to version 2.
+Migrate version-one profiles explicitly. Profile migration requires a confirmed physical identity and observed input selector. Musical assignments remain separate and may stay unbound. It must not turn historical Tab/Escape into Blue/Yellow defaults. Update both adapters and all bridge/browser consumers together; incompatible protocols fail before attachment. Keep the old release available for rollback rather than adding an anonymous fallback to version 2.
 
 Acceptance must cover independent Blue/Yellow edges, initial held/unknown inputs, ignored repeats, stale sequences, reconnects, mixed input sources, overlapping binding rejection and held-release isolation. Native/WASM witnesses must prove correct cue-row selection, unchanged quantization, grouped actions and missed-commit policy, plus independent complete LED feedback. Same-host browser integration must prevent a raw physical key from also triggering its DOM shortcut.
 
@@ -154,4 +154,4 @@ Spinner measurement requires signed cumulative raw counts relative to an explici
 
 Readiness requires one repeatable practice run for each current canonical Dance Yrself Clean, Drunk Girls and Tribulations document, with its actual effect metadata and explicit song input bindings, plus the validated board configuration. Each run must exercise the identified physical path, capture/commit/playback, source cleanup, four independent output levels and release-to-baseline behavior. Song changes must happen while stopped. Compilation success alone is insufficient.
 
-The audit found all three canonical songs executable with no compilation diagnostics, but without physical input bindings. The current remote desk has one installed song package. Full-hardware formal coverage, spinner measurement, stopped-only song selection and installed physical acceptance remain open. Existing Capture and NativeAudio models do not claim these properties. The six-control input and four-output witnesses must be checked against the actual native engine and helper, with assertion-specific broken variants, before calling this setup ready.
+The audit found all three canonical songs executable with no compilation diagnostics, but without physical input bindings. The current remote desk has one installed song package. The [bounded actual-source physical-control check](../../verification/physical-controls/README.md) now covers all 4,096 two-source held combinations and 12,288 four-output images with eight deliberate source mutations. The canonical MusicXML proof separately covers its declared three-to-six-binding domain. These checks do not establish spinner measurement, stopped-only song selection or installed physical acceptance, which remain open. Existing Capture and NativeAudio models retain their separate lifecycle/capture claims. Full practice readiness still requires the three-song and physical acceptance above.
