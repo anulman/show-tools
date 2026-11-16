@@ -158,6 +158,15 @@ class StagingTests(unittest.TestCase):
     def test_valid_staging_and_idempotent_retry(self):
         self.execute(archive(), twice=True)
 
+    def test_all_bench_helpers_are_required_and_match_reviewed_source(self):
+        for name in ("raw_keys.py", "publish_marker.py", "raw_motion.py"):
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                self.execute(archive(package(omit="bench/" + name)))
+            files = package()
+            files["bench/" + name] = b"changed helper"
+            with self.subTest(changed=name), self.assertRaisesRegex(RuntimeError, "reviewed source"):
+                self.execute(archive(reseal(files)))
+
     def test_catalog_identity_path_digest_and_exact_members_fail_closed(self):
         for mutation in ("duplicate", "escape", "missing-effects", "bad-digest", "extra"):
             files = package()

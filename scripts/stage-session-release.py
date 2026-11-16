@@ -22,6 +22,10 @@ REQUIRED = {
     "gateway/prepare.mjs", "gateway/session-cli.mjs", "bin/show-tools-session",
     "static/ui/practice/index.html",
     "catalog/catalog.json",
+    "bench/raw_keys.py", "bench/publish_marker.py", "bench/raw_motion.py",
+    "provenance/source/lib/peripherals/bench/raw_keys.py",
+    "provenance/source/lib/peripherals/bench/publish_marker.py",
+    "provenance/source/lib/peripherals/bench/raw_motion.py",
     "provenance/source.json", "provenance/package-lock.json",
     "provenance/source/lib/remote-performance/controller.ts",
     "provenance/source/lib/remote-performance/session-service.ts",
@@ -293,6 +297,9 @@ def validate_release(extracted, expected_source):
         if len(header) != 20 or header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\x3e\x00":
             raise RuntimeError("Expected a Linux x86-64 executable")
     validate_catalog(extracted, files)
+    for name in ("raw_keys.py", "publish_marker.py", "raw_motion.py"):
+        if files["bench/" + name] != files["provenance/source/lib/peripherals/bench/" + name]:
+            raise RuntimeError("Bench helper differs from reviewed source")
     checksums = {}
     for line in small_bytes(extracted / "SHA256SUMS", MAX_CHECKSUMS).decode("utf-8").splitlines():
         match = re.fullmatch(r"([a-f0-9]{64})  (.+)", line)

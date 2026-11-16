@@ -22,6 +22,8 @@ const peripheral = await readPeripheralArtifact(root, resolve(options['periphera
 const runtime = resolve(options['node-runtime']);
 const catalog = await readSongCatalog(resolve(options['song-catalog']));
 const output = resolve(options.out);
+const benchFiles = ['raw_keys.py', 'publish_marker.py', 'raw_motion.py'];
+const bench = new Map(await Promise.all(benchFiles.map(async name => [name, await readFile(join(root, 'lib/peripherals/bench', name))] as const)));
 const sha256 = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
 const assertCommittedSource = () => {
   if (execFileSync('git', ['status', '--porcelain'], { cwd: root, encoding: 'utf8' }).trim()) throw new Error('Commit or remove source changes before building a release');
@@ -55,7 +57,7 @@ assertCommittedSource();
 await Promise.all([
   mkdir(join(output, 'native/peripheral'), { recursive: true }), mkdir(join(output, 'catalog')),
   cp(join(root, 'dist'), join(output, 'static'), { recursive: true }),
-  mkdir(join(output, 'gateway')), mkdir(join(output, 'runtime')), mkdir(join(output, 'bin')),
+  mkdir(join(output, 'gateway')), mkdir(join(output, 'bench')), mkdir(join(output, 'runtime')), mkdir(join(output, 'bin')),
   mkdir(join(output, 'provenance')), mkdir(join(output, 'licenses')),
 ]);
 for (const name of [...nativeFiles, 'SHA256SUMS']) await cp(join(native, name), join(output, 'native', name));
@@ -66,6 +68,7 @@ for (const [name, bytes] of catalog.files) {
   await mkdir(dirname(destination), { recursive: true });
   await writeFile(destination, bytes);
 }
+for (const [name, bytes] of bench) await writeFile(join(output, 'bench', name), bytes);
 await writeFile(join(output, 'runtime/node'), nodeBytes, { mode: 0o755 });
 await chmod(join(output, 'native/native_alsa_host'), 0o755);
 await cp(join(runtime, 'LICENSE'), join(output, 'runtime/NODE-LICENSE'));
@@ -74,6 +77,7 @@ await cp(join(root, 'docs/implementation/session-cli.md'), join(output, 'provena
 for (const name of ['manual-clock-build.json', 'manual-clock-compiler.txt']) await cp(join(root, 'ui/practice/wasm', name), join(output, 'provenance', name));
 await buildSessionBundles(root, output);
 const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
+for (const name of benchFiles) if (!tracked.has(`lib/peripherals/bench/${name}`)) throw new Error(`Bench source is not committed: ${name}`);
 const reviewSources = new Set(git('ls-files', '-z', '--', 'lib', 'scripts/build-session-release.ts',
   'scripts/build-song-catalog.ts', 'scripts/tests/build-song-catalog.test.ts', 'scripts/session-bundles.ts', 'scripts/peripheral-artifact.ts', 'scripts/build-peripheral-artifact.ts',
   'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
