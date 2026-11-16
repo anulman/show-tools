@@ -34,7 +34,7 @@ struct Program::Cue {
 };
 struct Program::Member { int selection = 0, take = 0; double gain = 1; };
 struct Program::PlaybackCue { int bar = 1, voice = 0, selection = 0; };
-struct Program::Due { int cue = -1, result = PF_OK, bank = -1; CommitPlan commit; };
+struct Program::Due { int cue = -1, result = PF_OK, bank = -1; uint64_t owner = 0; CommitPlan commit; };
 struct Program::Pending { int cue = -1, reserved_take = -1; double position = 0; uint64_t owner = 0; };
 
 Program::~Program() = default;
@@ -1037,7 +1037,7 @@ void Program::apply_pending(double frame, double bpm) noexcept {
     const Cue& pending_cue = cues_[pending_[button].cue];
     if (pending_cue.kind == PF_PLAY && (pending_cue.mode == PF_HELD_MODE || pending_cue.mode == PF_GATED_MODE)
       && pending_[button].owner != input_owner_[pending_cue.button]) { pending_[button] = {}; continue; }
-    Due& action = due[button]; action.cue = pending_[button].cue;
+    Due& action = due[button]; action.cue = pending_[button].cue; action.owner = pending_[button].owner;
     const Cue& cue = cues_[action.cue];
     if (cue.kind != PF_COMMIT && cue.kind != PF_COMMIT_ARM) continue;
     action.result = preflight_commit(cue, action.commit);
@@ -1088,6 +1088,8 @@ void Program::apply_pending(double frame, double bpm) noexcept {
       bool commits = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
       if (commits != (pass == 0)) continue;
       pending_[button] = {};
+      if (cue.kind == PF_PLAY && (cue.mode == PF_HELD_MODE || cue.mode == PF_GATED_MODE)
+        && (!action.owner || action.owner != input_owner_[cue.button])) continue;
       int result = action.result;
       if (cue.kind == PF_ARM && failed_commit) result = PF_CAPTURE_BUSY;
       if (result == PF_OK) result = execute(action.cue, frame);

@@ -130,3 +130,57 @@ test('native input readback rejects invalid bounds, contradictory masks and nonz
     assert.throws(() => decodeNativeInputRouting(unknown), /record/);
   } finally { native.dispose(); }
 });
+
+
+function stagedHeldProgram(mode: number) {
+  const data = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 6, 120, 6, 25, 25, 2, 8, 2, 0, 0, 1, 2, 3,
+    0, 1, 0, 2, 0, 1, 2, 0, 0, 1, 2, 0, 3, 0, 1, 3, 0, 1];
+  const cue = (button: number, voice: number, bar: number, kind: number, timing: number, take: number, commit: number, selection: number, playbackMode: number = PF.LOOP_MODE) => {
+    data.push(button, voice, bar, -1, kind, timing, 0, take, commit, selection, 0,
+      kind === PF.COMMIT ? PF.STORE_ONLY : PF.AUTOPLAY, playbackMode, 0, -1, 0);
+  };
+  cue(0, 0, 0, PF.ARM, 1, 0, -1, -1);
+  cue(0, 0, 1, PF.COMMIT, 1, -1, 0, 0);
+  cue(0, 0, 3, PF.PLAY, 0, -1, -1, 0, PF.HELD_MODE);
+  cue(1, 1, 3, PF.PLAY, 0, -1, -1, 1, PF.GATED_MODE);
+  cue(1, 1, 1, PF.ARM, 1, 1, -1, -1);
+  cue(1, 1, 2, PF.COMMIT, 1, -1, 1, 1);
+  cue(0, 0, 4, PF.PLAY, 1, -1, -1, 0, PF.HELD_MODE);
+  cue(1, 1, 4, PF.PLAY, 1, -1, -1, 1, mode);
+  data.push(0, 0, 1, 1, 1, 1, PF.INPUT_MAGIC, 2, 0, PF.INPUT_CUES, 1, 1, PF.INPUT_CUES, 2);
+  return data;
+}
+for (const mode of [PF.HELD_MODE, PF.GATED_MODE]) for (const revoke of [false, true]) {
+  test(`WASM staged mode ${mode} rechecks ownership after an earlier due launch before ${revoke ? 'revocation' : 'release'}`, () => {
+    const native = engine(stagedHeldProgram(mode));
+    try {
+      native.setMicrophone(true);
+      native.start({ runId: 'staged-owner', bpm: 120, countInBars: 1, startBar: 1, endBar: 6, loop: false });
+      native.control({ id: 'L1' });
+      until(native, 1);
+      native.control({ id: 'L1' }); native.control({ id: 'L2' });
+      until(native, 2);
+      native.control({ id: 'L2' });
+      until(native, 3);
+      const bindingGeneration = native.inputRouting().bindingGeneration;
+      native.inputAttach({ producer: 0, session: 1, bindingGeneration, kind: 'physical', releasedMask: 3, heldMask: 0 });
+      native.inputAttach({ producer: 1, session: 2, bindingGeneration, kind: 'pointer', releasedMask: 223, heldMask: 0 });
+      const physical = (sequence: number, input: number, value: number) => native.inputEvent({ producer: 0, session: 1, bindingGeneration, sequence, input, value });
+      const pointer = (sequence: number, input: number, value: number) => native.inputEvent({ producer: 1, session: 2, bindingGeneration, sequence, input, value });
+      physical(1, 1, 1);
+      assert.equal(native.compiledTake(1).playbackState, 1);
+      until(native, 4);
+      physical(2, 0, 1); pointer(1, 1, 1);
+      until(native, 5);
+      assert(native.compiledTake(0).playbackState === 1 || native.compiledTake(1).playbackState === 1);
+      if (revoke) {
+        native.inputRevoke({ producer: 1, session: 2 });
+        native.inputRevoke({ producer: 0, session: 1 });
+      } else {
+        pointer(2, 1, 0); physical(3, 1, 0); physical(4, 0, 0);
+      }
+      assert.notEqual(native.compiledTake(0).playbackState, 1);
+      assert.notEqual(native.compiledTake(1).playbackState, 1, 'a staged launch invalidated by earlier execution must not outlive every input owner');
+    } finally { native.dispose(); }
+  });
+}

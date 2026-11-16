@@ -292,6 +292,43 @@ void superseded_pending_checks(bool revoke_before_boundary) {
   event(engine, 1, 2, 3, 0, 1);
   require(playing(engine, 0), "superseded pending launch cannot replace the current gated instrument");
 }
+void staged_owner_invalidation_checks(int mode, bool revoke) {
+  Engine engine;
+  auto data = held_program(false);
+  const double added[]{
+    0, 0, 4, -1, PF_PLAY, 1, 0, -1, -1, 0, 0, PF_AUTOPLAY, PF_HELD_MODE, 0, -1, 0,
+    1, 1, 4, -1, PF_PLAY, 1, 0, -1, -1, 1, 0, PF_AUTOPLAY, double(mode), 0, -1, 0
+  };
+  data.insert(data.begin() + PF_COMPILED_HEADER_FIELDS + 2 * PF_COMPILED_TAKE_FIELDS + 6 * PF_COMPILED_CUE_FIELDS,
+              std::begin(added), std::end(added));
+  data[9] = 8;
+  load(engine, data);
+  start(engine);
+  ok(engine, pf_control(engine, 0, 0, nullptr, 0));
+  until(engine, 1);
+  ok(engine, pf_control(engine, 0, 0, nullptr, 0));
+  ok(engine, pf_control(engine, 1, 0, nullptr, 0));
+  until(engine, 2);
+  ok(engine, pf_control(engine, 1, 0, nullptr, 0));
+  until(engine, 3);
+  attach(engine, 0, 1, PF_INPUT_PHYSICAL, 3);
+  attach(engine, 1, 2, PF_INPUT_POINTER, 223);
+  event(engine, 0, 1, 1, 1, 1);
+  require(playing(engine, 1), "earlier Yellow held playback admitted");
+  until(engine, 4);
+  event(engine, 0, 1, 2, 0, 1);
+  event(engine, 1, 2, 1, 1, 1);
+  until(engine, 5);
+  if (revoke) {
+    ok(engine, pf_input_revoke(engine, 1, 2));
+    ok(engine, pf_input_revoke(engine, 0, 1));
+  } else {
+    event(engine, 1, 2, 2, 1, 0);
+    event(engine, 0, 1, 3, 1, 0);
+    event(engine, 0, 1, 4, 0, 0);
+  }
+  require(!playing(engine, 0) && !playing(engine, 1), "staged launches cannot survive every admitted owner's release");
+}
 void ordered_batch_checks() {
   Engine engine;
   auto data = held_program(false);
@@ -338,6 +375,10 @@ int main() {
   superseded_owner_checks();
   superseded_pending_checks(false);
   superseded_pending_checks(true);
+  staged_owner_invalidation_checks(PF_HELD_MODE, false);
+  staged_owner_invalidation_checks(PF_HELD_MODE, true);
+  staged_owner_invalidation_checks(PF_GATED_MODE, false);
+  staged_owner_invalidation_checks(PF_GATED_MODE, true);
   ordered_batch_checks();
   std::cout << "Physical input checks passed.\n";
 }
