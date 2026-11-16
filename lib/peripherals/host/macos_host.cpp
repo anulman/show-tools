@@ -2,6 +2,7 @@
 #include "peripheral_controls.h"
 #include <CoreFoundation/CoreFoundation.h>
 #include <IOKit/hid/IOHIDManager.h>
+#include <IOKit/IOKitLib.h>
 #include <IOKit/hidsystem/IOHIDLib.h>
 #include <mach/mach_error.h>
 #include <algorithm>
@@ -40,7 +41,32 @@ bool output_supported(IOHIDDeviceRef device) {
   auto data = static_cast<CFDataRef>(value);
   return pp_ipac_led_descriptor(CFDataGetBytePtr(data), uint32_t(CFDataGetLength(data))) == 1;
 }
-IOHIDElementRef find_element(IOHIDDeviceRef device, uint32_t page, uint32_t usage, bool relative) {
+std::optional<uint32_t> interface_number(IOHIDDeviceRef device) {
+  auto service = IOHIDDeviceGetService(device);
+  if (!service) return std::nullopt;
+  auto value = IORegistryEntrySearchCFProperty(service, kIOServicePlane, CFSTR("bInterfaceNumber"),
+    kCFAllocatorDefault, kIORegistryIterateRecursively | kIORegistryIterateParents);
+  int number = -1;
+  if (value && CFGetTypeID(value) == CFNumberGetTypeID())
+    CFNumberGetValue(static_cast<CFNumberRef>(value), kCFNumberIntType, &number);
+  if (value) CFRelease(value);
+  if (number < 0 || number > 255) return std::nullopt;
+  return uint32_t(number);
+}
+IOHIDElementRef find_collection(IOHIDDeviceRef device, const peripheral_host::HidSelector& selector) {
+  auto elements = IOHIDDeviceCopyMatchingElements(device, nullptr, kIOHIDOptionsTypeNone);
+  IOHIDElementRef found = nullptr;
+  for (CFIndex index = 0; elements && index < CFArrayGetCount(elements); ++index) {
+    auto element = static_cast<IOHIDElementRef>(const_cast<void*>(CFArrayGetValueAtIndex(elements, index)));
+    if (IOHIDElementGetType(element) != kIOHIDElementTypeCollection || IOHIDElementGetParent(element)
+      || IOHIDElementGetUsagePage(element) != selector.usage_page || IOHIDElementGetUsage(element) != selector.usage) continue;
+    if (found) { CFRelease(found); found = nullptr; break; }
+    found = element; CFRetain(found);
+  }
+  if (elements) CFRelease(elements);
+  return found;
+}
+IOHIDElementRef find_element(IOHIDDeviceRef device, IOHIDElementRef collection, uint32_t page, uint32_t usage, bool relative) {
   auto elements = IOHIDDeviceCopyMatchingElements(device, nullptr, kIOHIDOptionsTypeNone);
   IOHIDElementRef found = nullptr;
   for (CFIndex index = 0; elements && index < CFArrayGetCount(elements); ++index) {
@@ -49,26 +75,28 @@ IOHIDElementRef find_element(IOHIDDeviceRef device, uint32_t page, uint32_t usag
     if (type < kIOHIDElementTypeInput_Misc || type > kIOHIDElementTypeInput_ScanCodes
       || IOHIDElementGetUsagePage(element) != page || IOHIDElementGetUsage(element) != usage
       || bool(IOHIDElementIsRelative(element)) != relative) continue;
+    auto parent = IOHIDElementGetParent(element);
+    while (parent && parent != collection) parent = IOHIDElementGetParent(parent);
+    if (parent != collection) continue;
     if (found) { CFRelease(found); found = nullptr; break; }
     found = element; CFRetain(found);
   }
   if (elements) CFRelease(elements);
   return found;
 }
-bool number(const char* input, uint64_t maximum, uint64_t& out) {
-  std::string text(input);
-  auto parsed = std::from_chars(text.data(), text.data() + text.size(), out);
-  return parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() && out <= maximum;
-}
+struct SelectedInput {
+  IOHIDDeviceRef device;
+  IOHIDElementRef element;
+  std::optional<peripheral_host::PhysicalControl> control;
+};
 struct Host {
-  IOHIDDeviceRef keyboard = nullptr, mouse = nullptr, output = nullptr;
-  IOHIDElementRef button = nullptr, axis = nullptr;
+  IOHIDDeviceRef output = nullptr;
+  std::vector<SelectedInput> selected;
+  peripheral_host::InputMap map;
   std::unique_ptr<pp_inputs, decltype(&pp_destroy)> inputs{pp_create(), pp_destroy};
   std::unique_ptr<pp_light_delivery, decltype(&pp_light_delivery_destroy)> delivery{pp_light_delivery_create(), pp_light_delivery_destroy};
   double session = 0, sequence = 0;
-  uint32_t channel = 0;
-  bool disconnected = false, failed = false;
-  bool bound = false, bench_held = false;
+  bool disconnected = false, failed = false, bound = false;
 
   bool write(const uint8_t* report) {
     auto status = IOHIDDeviceSetReport(output, kIOHIDReportTypeOutput, report[0], report, PP_LED_REPORT_BYTES);
@@ -78,20 +106,22 @@ struct Host {
     }
     return true;
   }
-  bool brightness(uint32_t level) {
-    uint8_t report[PP_LED_REPORT_BYTES];
-    return pp_ipac_led_report(channel, level, report) == PP_LED_REPORT_BYTES && write(report);
+  bool clear() {
+    for (const auto& led : map.leds) {
+      uint8_t report[PP_LED_REPORT_BYTES];
+      if (pp_ipac_led_report(led.sdk_channel, 0, report) != PP_LED_REPORT_BYTES || !write(report)) return false;
+    }
+    return true;
   }
-  bool clear() { return brightness(0); }
   bool command(const peripheral_host::Command& command) {
     using peripheral_host::Operation;
     if (command.operation == Operation::Clear) { bound = false; return clear(); }
     if (command.operation == Operation::Quit) { running = 0; return true; }
     if (command.connection.device_session != session) return false;
     if (command.operation == Operation::Bind) {
-      pp_light_binding binding{1, channel};
+      const auto bindings = peripheral_host::light_bindings(map);
       bound = false;
-      if (!clear() || pp_light_delivery_bind(delivery.get(), &command.connection, &binding, 1) != 0) return false;
+      if (!clear() || pp_light_delivery_bind(delivery.get(), &command.connection, bindings.data(), uint32_t(bindings.size())) != 0) return false;
       bound = true; return true;
     }
     if (!bound) return false;
@@ -110,59 +140,52 @@ void input(void* context, IOReturn status, void*, IOHIDValueRef value) {
   auto& host = *static_cast<Host*>(context);
   if (status != kIOReturnSuccess || !value) { host.failed = true; running = 0; return; }
   auto element = IOHIDValueGetElement(value);
-  if (element != host.button && element != host.axis) return;
-  if (IOHIDValueGetLength(value) > CFIndex(sizeof(CFIndex))) { host.failed = true; running = 0; return; }
-  double raw = double(IOHIDValueGetIntegerValue(value));
-  if (host.sequence >= 9007199254740991.) { host.failed = true; running = 0; return; }
-  double sequence = ++host.sequence;
-  if (element == host.button) {
-    if (raw != 0 && raw != 1) { host.failed = true; running = 0; return; }
-    int result = pp_key(host.inputs.get(), host.session, sequence, 0, int(raw));
-    if (result == PP_PRESS || result == PP_RELEASE) {
-      if (host.bench_held && !host.brightness(result == PP_PRESS ? 255 : 0)) return;
-      std::cout << "{\"type\":\"button\",\"session\":" << host.session << ",\"sequence\":" << sequence
-        << ",\"down\":" << (result == PP_PRESS ? "true" : "false") << "}" << std::endl;
-    }
-  } else if (pp_rotate(host.inputs.get(), host.session, sequence, raw) == PP_MOVEMENT) {
-    std::cout << "{\"type\":\"motion\",\"session\":" << host.session << ",\"sequence\":" << sequence
-      << ",\"deltaY\":" << raw << "}" << std::endl;
+  auto selected = std::find_if(host.selected.begin(), host.selected.end(), [&](const SelectedInput& input) { return input.element == element; });
+  if (selected == host.selected.end()) return;
+  if (IOHIDValueGetLength(value) > CFIndex(sizeof(CFIndex)) || host.sequence >= 9007199254740991.) {
+    host.failed = true; running = 0; return;
   }
+  const double raw = double(IOHIDValueGetIntegerValue(value)), sequence = ++host.sequence;
+  int result = PP_INVALID;
+  bool emitted = true;
+  if (selected->control) {
+    if (raw == 2) result = pp_rotate(host.inputs.get(), host.session, sequence, 0);
+    else if (raw == 0 || raw == 1) result = pp_key(host.inputs.get(), host.session, sequence, uint32_t(*selected->control), int(raw));
+    if (result == PP_PRESS || result == PP_RELEASE)
+      emitted = peripheral_host::emit_button(std::cout, host.session, sequence, *selected->control, result == PP_PRESS);
+  } else {
+    result = pp_rotate(host.inputs.get(), host.session, sequence, raw);
+    if (result == PP_MOVEMENT) emitted = peripheral_host::emit_motion(std::cout, host.session, sequence, raw);
+  }
+  if (result < 0 || !emitted) { host.failed = true; running = 0; }
 }
 void removed(void* context, IOReturn, void*) {
   auto& host = *static_cast<Host*>(context);
   host.disconnected = true; running = 0;
-  std::cout << "{\"type\":\"detached\",\"session\":" << host.session << "}" << std::endl;
+  if (!peripheral_host::emit_detached(std::cout, host.session)) host.failed = true;
 }
 }
 
 int main(int argc, char** argv) {
-  auto button_key = peripheral_host::ButtonKey::Tab;
-  if (!peripheral_host::parse_button_key_option(argc, argv, button_key)) {
-    std::cerr << "Use --button-key tab|escape. Nothing opened.\n"; return 2;
-  }
   if (argc == 2 && std::string(argv[1]) == "--help") {
-    std::cout << "peripheral-host SESSION SDK_CHANNEL --confirm-wiring [--button-key tab|escape]\n"
-      "peripheral-host --bench-held SDK_CHANNEL --confirm-wiring [--button-key tab|escape] (hold-to-light wiring test, no audio)\n"
-      "peripheral-host --inspect [--button-key tab|escape] (qualifies interfaces without opening them)\n"
+    std::cout << "peripheral-host SESSION --map-version 2 --hid-source ID INTERFACE USAGE_PAGE USAGE\n"
+      "  --switch blue|yellow|red|green|pedal|mushroom SOURCE USAGE_PAGE USAGE\n"
+      "  [--axis knob SOURCE USAGE_PAGE USAGE] [--led CONTROL SDK_CHANNEL --confirm-wiring]\n"
+      "peripheral-host --inspect (read-only interface and element inventory)\n"
       "peripheral-host --access-status (checks Input Monitoring without prompting)\n"
-      "Reads the sole d209:0410 I-PAC selected button (default Tab) and relative Y interfaces without seizure.\n"
-      "Reads native light publications on stdin; brightness-only writes, no enable-mask changes.\n"
-      "Bench mode tests held feedback only, never practice cue completion.\n";
+      "Sources and controls are explicit installation data. No default key or musical assignment.\n";
     return 0;
   }
   if (argc == 2 && std::string(argv[1]) == "--access-status") {
     std::cout << "{\"type\":\"input-access\",\"state\":\"" << input_access() << "\",\"pid\":" << getpid() << "}\n";
     return 0;
   }
-  uint64_t session = 0, channel = 0;
-  bool bench = argc == 4 && std::string(argv[1]) == "--bench-held";
-  if (bench) session = 1;
-  bool inspect = argc == 2 && std::string(argv[1]) == "--inspect";
-  if (!inspect && (argc != 4 || (!bench && !number(argv[1], 9007199254740991ULL, session)) || !session
-    || !number(argv[2], 95, channel) || std::string(argv[3]) != "--confirm-wiring")) {
-    std::cerr << "Use peripheral-host SESSION SDK_CHANNEL --confirm-wiring (or --help).\n"; return 2;
+  peripheral_host::HostConfig config;
+  std::string error;
+  if (!peripheral_host::parse_host_config(argc, argv, peripheral_host::Platform::MacOS, config, error)) {
+    std::cerr << error << " Nothing opened.\n"; return 2;
   }
-  Host host; host.session = double(session); host.channel = uint32_t(channel); host.bench_held = bench;
+  Host host; host.session = config.session; host.map = config.map;
   if (!host.inputs || !host.delivery) return 1;
   std::cout.precision(17);
   auto manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
@@ -178,92 +201,145 @@ int main(int argc, char** argv) {
   std::vector<const void*> entries(devices ? CFSetGetCount(devices) : 0);
   if (devices) CFSetGetValues(devices, entries.data());
   std::set<int> locations;
-  unsigned keyboards = 0, mice = 0, outputs = 0;
   for (auto entry : entries) {
     auto device = static_cast<IOHIDDeviceRef>(const_cast<void*>(entry));
     locations.insert(property(device, CFSTR(kIOHIDLocationIDKey)));
-    if (auto element = find_element(device, 7, peripheral_host::button_usage(button_key), false)) {
-      ++keyboards;
-      if (host.button) CFRelease(host.button);
-      host.keyboard = device; host.button = element;
-    }
-    if (auto element = find_element(device, 1, 49, true)) {
-      ++mice;
-      if (host.axis) CFRelease(host.axis);
-      host.mouse = device; host.axis = element;
-    }
-    if (output_supported(device)) { ++outputs; host.output = device; }
   }
   int result = 1;
+  std::vector<IOHIDDeviceRef> sources;
+  std::vector<IOHIDElementRef> collections;
+  std::set<IOHIDDeviceRef> required;
   std::vector<IOHIDDeviceRef> opened;
-  if (locations.size() != 1 || keyboards != 1 || mice != 1 || outputs != 1 || host.keyboard == host.mouse
-    || host.output == host.keyboard || host.output == host.mouse) {
-    std::cerr << "Require one I-PAC with unique selected-button, relative-Y and validated LED interfaces. Observed "
-      << locations.size() << " physical locations, " << keyboards << " selected-button, " << mice << " relative-Y and "
-      << outputs << " LED interfaces. No interfaces opened.\n";
-  } else if (inspect) {
-    std::cout << "{\"type\":\"qualified\",\"vendor\":53769,\"product\":1040,\"buttonKey\":\"" << peripheral_host::button_name(button_key) << "\",\"buttonUsage\":" << peripheral_host::button_usage(button_key) << ",\"relativeYUsage\":49,\"inputAccess\":\""
-      << input_access() << "\",\"opened\":false}" << std::endl;
-    result = 0;
-  } else {
-    for (auto device : {host.keyboard, host.mouse, host.output}) {
-      auto status = IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone);
-      if (status != kIOReturnSuccess) {
-        std::cerr << "I-PAC open failed (" << status << ": " << mach_error_string(status)
-          << "). Input Monitoring is " << input_access() << ".\n";
-        break;
+  bool qualified = locations.size() == 1 && *locations.begin() != 0;
+  if (config.inspect) {
+    for (auto entry : entries) {
+      auto device = static_cast<IOHIDDeviceRef>(const_cast<void*>(entry));
+      const auto interface = interface_number(device);
+      auto elements = IOHIDDeviceCopyMatchingElements(device, nullptr, kIOHIDOptionsTypeNone);
+      std::cout << "{\"type\":\"interface\",\"platform\":\"macos\",\"interface\":";
+      if (interface) std::cout << *interface; else std::cout << "null";
+      std::cout << ",\"usagePage\":" << property(device, CFSTR(kIOHIDPrimaryUsagePageKey))
+        << ",\"usage\":" << property(device, CFSTR(kIOHIDPrimaryUsageKey))
+        << ",\"ledDescriptorSupported\":" << (output_supported(device) ? "true" : "false") << ",\"opened\":false,\"elements\":[";
+      for (CFIndex index = 0; elements && index < CFArrayGetCount(elements); ++index) {
+        if (index) std::cout << ',';
+        auto element = static_cast<IOHIDElementRef>(const_cast<void*>(CFArrayGetValueAtIndex(elements, index)));
+        std::cout << "{\"type\":" << IOHIDElementGetType(element)
+          << ",\"usagePage\":" << IOHIDElementGetUsagePage(element) << ",\"usage\":" << IOHIDElementGetUsage(element)
+          << ",\"relative\":" << (IOHIDElementIsRelative(element) ? "true" : "false")
+          << ",\"topLevel\":" << (IOHIDElementGetParent(element) ? "false" : "true") << '}';
       }
-      opened.push_back(device);
+      std::cout << "]}" << std::endl;
+      if (elements) CFRelease(elements);
     }
-    if (opened.size() == 3) {
-      IOHIDValueRef initial = nullptr;
-      bool known = IOHIDDeviceGetValue(host.keyboard, host.button, &initial) == kIOReturnSuccess && initial;
-      bool held = known && IOHIDValueGetIntegerValue(initial) != 0;
-      pp_begin(host.inputs.get(), host.session, known && !held ? 1 : 0, held ? 1 : 0);
-      for (auto device : opened) {
-        IOHIDDeviceRegisterRemovalCallback(device, removed, &host);
-        if (device != host.output) IOHIDDeviceRegisterInputValueCallback(device, input, &host);
-        IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
-      }
-      int flags = fcntl(STDIN_FILENO, F_GETFL);
-      int output_flags = fcntl(STDOUT_FILENO, F_GETFL);
-      if (!bench && (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0)) host.failed = true;
-      if (output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) host.failed = true;
-      std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGHUP, stop); std::signal(SIGPIPE, SIG_IGN);
-      if (!host.failed && host.clear()) {
-        std::cout << "{\"type\":\"ready\",\"version\":1,\"session\":" << host.session
-          << ",\"released\":" << (known && !held ? "true" : "false") << "}" << std::endl;
-        std::string pending;
-        while (running && !host.failed && std::cout.good()) {
-          CFRunLoopRunInMode(kCFRunLoopDefaultMode, .005, false);
-          if (bench) continue;
-          char bytes[4096];
-          ssize_t count = read(STDIN_FILENO, bytes, sizeof(bytes));
-          if (count == 0) break;
-          if (count < 0) { if (errno == EAGAIN || errno == EINTR) continue; host.failed = true; break; }
-          pending.append(bytes, size_t(count));
-          size_t end = 0;
-          while ((end = pending.find('\n')) != std::string::npos) {
-            peripheral_host::Command command;
-            if (!peripheral_host::parse_command(pending.substr(0, end), command) || !host.command(command)) {
-              std::cerr << "Rejected peripheral command; clearing owned LED.\n";
-              host.failed = true; break;
-            }
-            pending.erase(0, end + 1);
-          }
-          if (pending.size() > 16384) host.failed = true;
+    result = !entries.empty() && std::cout.good() ? 0 : 1;
+  } else {
+    for (const auto& source : config.map.sources) {
+      const auto& selector = std::get<peripheral_host::HidSelector>(source.selector);
+      IOHIDDeviceRef selected = nullptr;
+      IOHIDElementRef collection = nullptr;
+      unsigned matches = 0;
+      for (auto entry : entries) {
+        auto device = static_cast<IOHIDDeviceRef>(const_cast<void*>(entry));
+        if (interface_number(device) != std::optional<uint32_t>(selector.interface_number)) continue;
+        if (auto found = find_collection(device, selector)) {
+          ++matches; selected = device;
+          if (collection) CFRelease(collection);
+          collection = found;
         }
-        if (!host.disconnected) host.clear();
-        result = host.failed ? 1 : 0;
       }
-      if (flags >= 0) fcntl(STDIN_FILENO, F_SETFL, flags);
-      if (output_flags >= 0) fcntl(STDOUT_FILENO, F_SETFL, output_flags);
-      for (auto device : opened) IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+      if (matches != 1) qualified = false;
+      sources.push_back(selected); collections.push_back(collection);
+      if (selected) required.insert(selected);
+    }
+    for (const auto& binding : config.map.switches) {
+      auto device = sources[binding.source];
+      auto element = device ? find_element(device, collections[binding.source], binding.type, binding.code, false) : nullptr;
+      if (!element) qualified = false;
+      else host.selected.push_back({device, element, binding.control});
+    }
+    if (config.map.axis) {
+      const auto& binding = *config.map.axis;
+      auto device = sources[binding.source];
+      auto element = device ? find_element(device, collections[binding.source], binding.type, binding.code, true) : nullptr;
+      if (!element) qualified = false;
+      else host.selected.push_back({device, element, std::nullopt});
+    }
+    if (!config.map.leds.empty()) {
+      unsigned outputs = 0;
+      for (auto entry : entries) {
+        auto device = static_cast<IOHIDDeviceRef>(const_cast<void*>(entry));
+        if (output_supported(device)) { ++outputs; host.output = device; }
+      }
+      if (outputs != 1) qualified = false;
+      if (host.output) required.insert(host.output);
+    }
+    if (!qualified) std::cerr << "Require one I-PAC with unique configured collections, elements and accepted LED descriptor when mapped. Nothing opened.\n";
+    else {
+      for (auto device : required) {
+        auto status = IOHIDDeviceOpen(device, kIOHIDOptionsTypeNone);
+        if (status != kIOReturnSuccess) {
+          std::cerr << "I-PAC open failed (" << status << ": " << mach_error_string(status)
+            << "). Input Monitoring is " << input_access() << ".\n";
+          break;
+        }
+        opened.push_back(device);
+      }
+      if (opened.size() == required.size()) {
+        peripheral_host::InitialStates states{};
+        uint32_t released = 0, held = 0;
+        for (const auto& input : host.selected) {
+          if (!input.control) continue;
+          IOHIDValueRef initial = nullptr;
+          if (IOHIDDeviceGetValue(input.device, input.element, &initial) != kIOReturnSuccess || !initial) continue;
+          const auto raw = IOHIDValueGetIntegerValue(initial);
+          const auto id = uint32_t(*input.control);
+          if (raw == 0) { states[id] = peripheral_host::InitialState::Released; released |= 1u << id; }
+          else if (raw == 1) { states[id] = peripheral_host::InitialState::Held; held |= 1u << id; }
+        }
+        if (pp_begin(host.inputs.get(), host.session, released, held) != 0) host.failed = true;
+        for (auto device : opened) {
+          IOHIDDeviceRegisterRemovalCallback(device, removed, &host);
+          if (sources.end() != std::find(sources.begin(), sources.end(), device))
+            IOHIDDeviceRegisterInputValueCallback(device, input, &host);
+          IOHIDDeviceScheduleWithRunLoop(device, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+        }
+        int flags = fcntl(STDIN_FILENO, F_GETFL), output_flags = fcntl(STDOUT_FILENO, F_GETFL);
+        if (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) host.failed = true;
+        if (output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) host.failed = true;
+        std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGHUP, stop); std::signal(SIGPIPE, SIG_IGN);
+        if (!host.failed && host.clear() && peripheral_host::emit_ready(std::cout, host.session, host.map, states)) {
+          std::string pending;
+          while (running && !host.failed && std::cout.good()) {
+            CFRunLoopRunInMode(kCFRunLoopDefaultMode, .005, false);
+            char bytes[4096];
+            ssize_t count = read(STDIN_FILENO, bytes, sizeof(bytes));
+            if (count == 0) break;
+            if (count < 0) { if (errno == EAGAIN || errno == EINTR) continue; host.failed = true; break; }
+            pending.append(bytes, size_t(count));
+            size_t end = 0;
+            while ((end = pending.find('\n')) != std::string::npos) {
+              peripheral_host::Command command;
+              if (!peripheral_host::parse_command(pending.substr(0, end), command) || !host.command(command)) {
+                std::cerr << "Rejected peripheral command; clearing owned LEDs.\n";
+                host.failed = true; break;
+              }
+              pending.erase(0, end + 1);
+            }
+            if (pending.size() > 16384) host.failed = true;
+          }
+          if (!host.disconnected && !host.clear()) host.failed = true;
+          result = host.failed || !std::cout.good() ? 1 : 0;
+        }
+        if (flags >= 0) fcntl(STDIN_FILENO, F_SETFL, flags);
+        if (output_flags >= 0) fcntl(STDOUT_FILENO, F_SETFL, output_flags);
+        for (auto device : opened) IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);
+      }
     }
   }
   for (auto device : opened) IOHIDDeviceClose(device, kIOHIDOptionsTypeNone);
-  if (host.button) CFRelease(host.button);
-  if (host.axis) CFRelease(host.axis);
+  for (const auto& input : host.selected) CFRelease(input.element);
+  for (auto collection : collections) if (collection) CFRelease(collection);
   if (devices) CFRelease(devices);
   CFRelease(manager);
   return result;
