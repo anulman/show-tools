@@ -79,3 +79,90 @@ try:
  s.close()
 finally:
  host.terminate(); host.wait(timeout=15); p.cleanup()
+
+def fragmented_input_priority(invalidation, panic, saturated=False):
+ with tempfile.TemporaryDirectory(prefix='native-input-priority-') as directory:
+  socket_path=directory+'/sock'
+  process=subprocess.Popen([sys.argv[1],socket_path,'8000','4000','32','30','.25','--step'],stdout=subprocess.DEVNULL)
+  client=socket.socket(socket.AF_UNIX); client.settimeout(15)
+  try:
+   for _ in range(200):
+    if os.path.exists(socket_path): break
+    time.sleep(.01)
+   client.connect(socket_path)
+   def read_exact(length):
+    data=b''
+    while len(data)<length:
+     chunk=client.recv(length-len(data)); assert chunk; data+=chunk
+    return data
+   def receive_frame():
+    magic,version,tag,length,sequence=struct.unpack('<IHHII',read_exact(16))
+    assert (magic,version)==(0x31544853,1)
+    return tag,sequence,read_exact(length)
+   def frame(tag,sequence,payload=b''):
+    return struct.pack('<IHHII',0x31544853,1,tag,len(payload),sequence)+payload
+   tag,sequence,hello=receive_frame(); assert tag==1
+   identity=hello[:32]; client.sendall(frame(2,0))
+   def result(sequence):
+    while True:
+     tag,observed,payload=receive_frame()
+     if tag==4 and observed==sequence: return struct.unpack('<IiQ',payload)[0]
+   def state():
+    while True:
+     tag,sequence,payload=receive_frame()
+     if tag==5: return payload
+   def command(sequence,operation,values=(),raw=None):
+    return frame(3,sequence,identity+struct.pack('<H',operation)+(struct.pack('<%sd'%len(values),*values) if raw is None else raw))
+   state()
+   client.sendall(command(1,9,raw=setup)); assert result(1)==0
+   generation=inputs(state())[0]
+   client.sendall(command(2,14,[3,5000000,generation,0,3,0])); assert result(2)==0
+   assert inputs(state())[1]==1
+   first=3
+   if invalidation in ('held','replay'):
+    client.sendall(command(3,16,[3,5000000,generation,1,1,1])); assert result(3)==0
+    assert inputs(state())[8]==2
+    first=4
+    if invalidation=='replay':
+     client.sendall(command(4,16,[3,5000000,generation,2,1,0])); assert result(4)==0
+     assert inputs(state())[9]==2
+     first=5
+   count=256 if saturated else 17
+   packets=[]
+   if invalidation=='revoke': packets.append(command(first,17,[3,5000000]))
+   elif invalidation=='prepare': packets.append(command(first,9,raw=setup))
+   for sequence in range(first+len(packets),first+count-1): packets.append(command(sequence,7,[0]))
+   start=first+count-1
+   packets.append(command(start,1,[120,1,1,4,0,0]))
+   observation=start+1
+   candidate=command(observation,16,[3,5000000,generation,2 if invalidation=='held' else 1,1 if panic else 0,1])
+   # Keep the IO copy at the admitted lease while the owner consumes revocation/preparation.
+   client.sendall(b''.join(packets)+candidate[:-1]); time.sleep(.65); client.sendall(candidate[-1:])
+   outcomes={}
+   while len(outcomes)<count+1:
+    tag,sequence,payload=receive_frame()
+    if tag==4 and first<=sequence<=observation: outcomes[sequence]=struct.unpack('<IiQ',payload)[0]
+   client.sendall(command(observation+1,7,[0])); assert result(observation+1)==0
+   latest=state()
+   run=struct.unpack_from('<Q',latest,8)[0]
+   canceled=sum(value==2 for value in outcomes.values())
+   evidence=(invalidation,panic,saturated,outcomes[start],outcomes[observation],run,canceled)
+   if invalidation in ('revoke','prepare'):
+    assert outcomes[first]==0, evidence
+    assert outcomes[start]==0 and run==1 and canceled==0, evidence
+    assert outcomes[observation]==(3 if saturated and not panic else 1), evidence
+   elif invalidation in ('held','replay'):
+    assert outcomes[start]==0 and run==1 and canceled==0, evidence
+    assert outcomes[observation]==(0 if invalidation=='held' else 1), evidence
+   else:
+    assert panic and outcomes[observation]==0 and outcomes[start]==2 and run==0 and canceled>0, evidence
+   print('fragmented priority',evidence)
+  finally:
+   client.close(); process.terminate(); process.wait(timeout=15)
+
+for invalidation in ('revoke','prepare'):
+ for panic in (False,True): fragmented_input_priority(invalidation,panic)
+for panic in (False,True): fragmented_input_priority('revoke',panic,True)
+fragmented_input_priority(None,True,True)
+fragmented_input_priority('held',True)
+fragmented_input_priority('replay',True)

@@ -182,6 +182,11 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
       Event event{run,data}; if(!shared.events.push(event))shared.dropped.fetch_add(1,std::memory_order_relaxed);
     }
   };
+  auto identified_panic=[&](const Request* request) {
+    const auto& a=request->args;
+    return request->op==16 && instrument.engine() &&
+      pf_input_is_panic(instrument.engine(),uint32_t(a[0]),a[1],a[2],a[3],uint32_t(a[4]),a[5])==1;
+  };
   auto process=[&](Request* r,bool canceled) {
     int rc=-1;
     if(canceled) { r->status=2; }
@@ -220,7 +225,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
         case 14: rc=instrument.input_attach(uint32_t(a[0]),a[1],a[2],uint32_t(a[3]),uint32_t(a[4]),uint32_t(a[5])); break;
         case 16: {
 #ifdef NATIVE_ALSA_HOST
-          const bool panic=instrument.engine() && pf_input_is_panic(instrument.engine(),uint32_t(a[0]),a[1],a[2],a[3],uint32_t(a[4]),a[5])==1;
+          const bool panic=identified_panic(r);
 #endif
           rc=instrument.input_event(uint32_t(a[0]),a[1],a[2],a[3],uint32_t(a[4]),a[5]);
 #ifdef NATIVE_ALSA_HOST
@@ -287,9 +292,10 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
   while(!shared.done.load(std::memory_order_relaxed)) {
     Request* stop=nullptr;
     if(shared.stops.pop(stop)) {
+      const bool cancel_older=stop->op==2 || (stop->op==3 && stop->args[0]==4) || identified_panic(stop);
       process(stop,false); shared.stop_results.push(stop);
       Request* pending=nullptr;
-      while(shared.commands.pop(pending)) { process(pending,pending->order<stop->order); shared.results.push(pending); }
+      while(shared.commands.pop(pending)) { process(pending,cancel_older && pending->order<stop->order); shared.results.push(pending); }
     }
     Request* request=nullptr;
     for(unsigned i=0;i<16 && shared.commands.pop(request);++i) { process(request,false); shared.results.push(request); }
