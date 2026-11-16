@@ -31,6 +31,7 @@ MAX_RECORDS = 4096
 MAX_RAW_RECORDS = 32768
 MAX_BYTES = 524288
 MAX_SIGNATURES = 16
+CONTROL_IDS = ('blue', 'yellow', 'red', 'green', 'pedal', 'mushroom')
 UID = GID = 1000
 STAGING_ROOT = Path('/home/anulman/.local/share/show-tools/staging')
 
@@ -310,11 +311,11 @@ def drain(records, gate, evidence):
                 evidence.emit({**event, 'receivedMonotonicNs': now})
 
 
-def run(directory, trial, colour):
+def run(directory, trial, control_id):
     global RUNNING
     RUNNING = True
     require(re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', trial), 'Invalid trial identity')
-    require(colour in ('blue', 'yellow'), 'Choose one explicitly named trial colour')
+    require(control_id in CONTROL_IDS, 'Choose one explicitly named physical control')
     require(directory.is_absolute() and directory.resolve(strict=True) == directory
             and STAGING_ROOT in directory.parents,
             'Trial directory must be canonical in app-private staging')
@@ -355,7 +356,7 @@ def run(directory, trial, colour):
         require_released(initial)
         gate = TrialGate(time.monotonic_ns())
         drain(records, gate, evidence)
-        evidence.emit({'type': 'ready', 'trialId': trial, 'colour': colour, 'nonce': nonce,
+        evidence.emit({'type': 'ready', 'trialId': trial, 'schemaVersion': 2, 'controlId': control_id, 'nonce': nonce,
                        'usbParent': str(parent), 'instance': instance, 'readyExpiresMonotonicNs': gate.ready_deadline,
                        'evidence': str(directory / 'trial.ndjson'), 'captureStarted': False})
         while RUNNING:
@@ -378,7 +379,7 @@ def run(directory, trial, colour):
                 for row in armed_snapshot:
                     evidence.emit({'type': 'snapshot', 'phase': 'arm', **row})
                 gate.arm(time.monotonic_ns())
-                evidence.emit({'type': 'armed', 'trialId': trial, 'colour': colour, 'nonce': nonce,
+                evidence.emit({'type': 'armed', 'trialId': trial, 'schemaVersion': 2, 'controlId': control_id, 'nonce': nonce,
                                'armedMonotonicNs': gate.armed_at, 'captureExpiresMonotonicNs': gate.deadline})
         require(RUNNING and gate.armed_at is not None, 'Trial interrupted or never armed')
         require(snapshot(parent) == instance, 'USB instance changed at trial end')
@@ -419,7 +420,7 @@ def run(directory, trial, colour):
             if not RUNNING or signal.sigpending() & watched:
                 error = error or 'Interrupted before durable completion'
                 result['complete'] = False
-            terminal = {'type': 'terminal', 'trialId': trial, 'colour': colour, **result,
+            terminal = {'type': 'terminal', 'trialId': trial, 'schemaVersion': 2, 'controlId': control_id, **result,
                         'error': error, 'rawReadRecords': evidence.raw_records if evidence else 0,
                         'inputsClosed': inputs_closed, 'requiresSuccessfulExit': True,
                         'deviceWrites': False, 'processChildren': False}
@@ -443,13 +444,13 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--directory', type=Path, required=True)
     parser.add_argument('--trial', required=True)
-    parser.add_argument('--colour', choices=('blue', 'yellow'), required=True)
+    parser.add_argument('--control-id', choices=CONTROL_IDS, required=True)
     args = parser.parse_args()
     require(sys.platform == 'linux' and EVENT.size == 24 and struct.calcsize('P') == 8, 'Need Linux64-bit input_event layout')
     require((os.getuid(), os.geteuid(), os.getgid(), os.getegid()) == (UID, UID, GID, GID), 'Run as anulman UID/GID1000, never root')
     for value in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(value, stop)
-    return run(args.directory, args.trial, args.colour)
+    return run(args.directory, args.trial, args.control_id)
 
 
 if __name__ == '__main__':

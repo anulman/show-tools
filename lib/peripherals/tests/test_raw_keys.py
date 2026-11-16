@@ -326,7 +326,7 @@ sys.exit(2)
 
 
 class RunTests(unittest.TestCase):
-    def exercise(self, premature=False, held=False, unknown=False, final_held=False, ready_timeout=False, final_drop=False, final_interrupt=False, close_interrupt=False):
+    def exercise(self, control_id='blue', premature=False, held=False, unknown=False, final_held=False, ready_timeout=False, final_drop=False, final_interrupt=False, close_interrupt=False):
         with tempfile.TemporaryDirectory() as folder:
             staging = Path(folder).resolve(); directory = staging / 'trial'; directory.mkdir(mode=0o700)
             read_fd, write_fd = os.pipe(); os.set_blocking(read_fd, False)
@@ -391,7 +391,7 @@ class RunTests(unittest.TestCase):
             try:
                 for item in patches: item.start()
                 thread.start()
-                code = raw.run(directory, 'trial1', 'blue')
+                code = raw.run(directory, 'trial1', control_id)
                 thread.join(timeout=4)
                 self.assertFalse(thread.is_alive())
                 self.assertEqual(failures, [])
@@ -407,6 +407,11 @@ class RunTests(unittest.TestCase):
                     self.assertTrue(rows[-1]['complete'])
                     self.assertEqual([row['type'] for row in rows].count('key'), 6)
                     self.assertEqual(rows[-1]['keySignatures'][0]['presses'], 3)
+                for row in rows:
+                    if row['type'] in ('ready', 'armed', 'terminal'):
+                        self.assertEqual(row['schemaVersion'], 2)
+                        self.assertEqual(row['controlId'], control_id)
+                        self.assertNotIn('colour', row)
                 self.assertTrue(rows[-1]['inputsClosed'])
                 with self.assertRaises(OSError): os.fstat(read_fd)
             finally:
@@ -414,6 +419,24 @@ class RunTests(unittest.TestCase):
                 thread.join(timeout=4)
                 for item in reversed(patches): item.stop()
                 os.close(write_fd)
+
+    def test_each_named_control_has_versioned_ready_armed_terminal_receipts(self):
+        for control_id in ('blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'):
+            with self.subTest(control_id=control_id):
+                self.exercise(control_id=control_id)
+
+    def test_invalid_control_is_rejected_before_opening_trial(self):
+        for control_id in ('', 'orange', 'Blue', 'cueButton'):
+            with self.subTest(control_id=control_id), self.assertRaisesRegex(RuntimeError, 'physical control'):
+                raw.run(Path('/not-a-trial'), 'trial1', control_id)
+
+    def test_cli_requires_explicit_control_id_without_legacy_alias(self):
+        help_result = subprocess.run([sys.executable, '-I', str(SOURCE), '--help'], capture_output=True, text=True, timeout=3)
+        self.assertEqual(help_result.returncode, 0)
+        self.assertIn('--control-id {blue,yellow,red,green,pedal,mushroom}', help_result.stdout)
+        self.assertNotIn('--colour', help_result.stdout)
+        legacy = subprocess.run([sys.executable, '-I', str(SOURCE), '--directory', '/not-a-trial', '--trial', 'trial1', '--colour', 'blue'], capture_output=True, text=True, timeout=3)
+        self.assertEqual(legacy.returncode, 2)
 
     def test_real_run_files_pipes_ready_arm_stop(self): self.exercise()
     def test_premature_input_cannot_arm(self): self.exercise(premature=True)
