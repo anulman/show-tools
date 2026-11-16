@@ -1,4 +1,5 @@
 import hashlib
+from contextlib import contextmanager, ExitStack
 import importlib.util
 import io
 import json
@@ -10,6 +11,7 @@ import threading
 import subprocess
 import time
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -103,6 +105,130 @@ class AnchoredStagingTests(unittest.TestCase):
 
     def release(self):
         return self.target / 'releases' / fixtures.LEAF
+
+    @contextmanager
+    def qualified_share(self):
+        home = self.root / 'assigned-home'
+        share = home / '.local' / 'share'
+        home.mkdir(mode=0o700)
+        share.parent.mkdir(mode=0o755)
+        share.mkdir(mode=0o775)
+        share.chmod(0o775)
+        app = share / 'show-tools'
+        app.mkdir(mode=0o700)
+        uid, gid = os.getuid(), os.getgid()
+        account = SimpleNamespace(pw_name='anulman', pw_uid=uid, pw_gid=gid, pw_dir=str(home))
+        other = SimpleNamespace(pw_name='other', pw_uid=uid + 1, pw_gid=gid + 1, pw_dir='/other')
+        group = SimpleNamespace(gr_name='anulman', gr_gid=gid, gr_mem=[])
+        with ExitStack() as stack:
+            for name, value in [('ASSIGNED_UID', uid), ('ASSIGNED_GID', gid), ('ASSIGNED_HOME', home), ('QUALIFIED_SHARE', share)]:
+                stack.enter_context(patch.object(anchored, name, value))
+            stack.enter_context(patch.object(anchored.pwd, 'getpwuid', return_value=account))
+            stack.enter_context(patch.object(anchored.pwd, 'getpwall', return_value=[account, other]))
+            stack.enter_context(patch.object(anchored.grp, 'getgrgid', return_value=group))
+            stack.enter_context(patch.object(anchored.os, 'getgrouplist', side_effect=lambda _name, primary: [primary]))
+            if not hasattr(os, 'listxattr'):
+                stack.enter_context(patch.object(anchored.os, 'listxattr', return_value=[], create=True))
+            yield home, share, app, account, other, group
+
+    def test_only_named_private_group_share0775_is_qualified_without_chmod(self):
+        with self.qualified_share() as (_home, share, app, _account, _other, group):
+            with patch.object(anchored.os, 'chmod', side_effect=AssertionError('No directory repair')):
+                anchor = anchored.RootAnchor(app, (os.getuid(), os.getgid()))
+                try:
+                    anchor.check()
+                    group.gr_mem.append('other')
+                    with self.assertRaisesRegex(RuntimeError, 'group is not private'):
+                        anchor.check()
+                finally:
+                    anchor.close()
+            self.assertEqual(share.stat().st_mode & 0o777, 0o775)
+            self.assertEqual(app.stat().st_mode & 0o777, 0o700)
+
+    def test_share0775_refuses_primary_supplementary_and_named_other_members(self):
+        with self.qualified_share() as (_home, _share, app, _account, other, group):
+            owner = os.getuid(), os.getgid()
+            group.gr_mem.append('other')
+            with self.assertRaises(RuntimeError): anchored.RootAnchor(app, owner)
+            group.gr_mem.clear()
+            previous = other.pw_gid
+            other.pw_gid = owner[1]
+            with self.assertRaises(RuntimeError): anchored.RootAnchor(app, owner)
+            other.pw_gid = previous
+            with patch.object(anchored.os, 'getgrouplist', side_effect=lambda name, primary: [primary, owner[1]] if name == 'other' else [primary]):
+                with self.assertRaises(RuntimeError): anchored.RootAnchor(app, owner)
+
+    def test_share0775_requires_private_home_barrier_and_exact_path(self):
+        with self.qualified_share() as (home, share, app, _account, _other, _group):
+            owner = os.getuid(), os.getgid()
+            home.chmod(0o755)
+            with self.assertRaises(RuntimeError): anchored.RootAnchor(app, owner)
+            home.chmod(0o700)
+            share.parent.chmod(0o775)
+            with self.assertRaisesRegex(RuntimeError, 'Unprotected root ancestor'): anchored.RootAnchor(app, owner)
+            share.parent.chmod(0o755)
+            app.chmod(0o775)
+            with self.assertRaises(RuntimeError): anchored.RootAnchor(app, owner)
+
+    def test_share0775_refuses_foreign_owner_and_acl(self):
+        with self.qualified_share() as (_home, share, app, _account, _other, _group):
+            owner = os.getuid(), os.getgid()
+            fstat = os.fstat
+            def foreign(fd):
+                info = fstat(fd)
+                if (info.st_dev, info.st_ino) == (share.stat().st_dev, share.stat().st_ino):
+                    values = list(info); values[4] += 1
+                    return os.stat_result(values)
+                return info
+            with patch.object(anchored.os, 'fstat', side_effect=foreign), self.assertRaises(RuntimeError):
+                anchored.RootAnchor(app, owner)
+            for acl in ('system.posix_acl_access', 'system.posix_acl_default'):
+                with patch.object(anchored.os, 'listxattr', return_value=[acl]), self.assertRaisesRegex(RuntimeError, 'ACL'):
+                    anchored.RootAnchor(app, owner)
+            with patch.object(anchored.os, 'listxattr', None), self.assertRaisesRegex(RuntimeError, 'unavailable'):
+                anchored.RootAnchor(app, owner)
+
+    def test_archive_image_returns_captured_metadata_and_revalidates_same_leaf(self):
+        pins = self.pins()
+        image = anchored.archive_image(self.archive_path, pins, (os.getuid(), os.getgid()), anchored.Budget())
+        self.assertIs(type(image), anchored.ArchiveImage)
+        self.assertEqual(len(tuple(image)), 4)
+        self.assertEqual(image.archive_metadata, anchored.archive_metadata(self.archive_path.stat()))
+        self.assertEqual(image.revalidate_archive(), image.archive_metadata)
+        self.archive_path.rename(self.root / 'retained-archive')
+        self.archive_path.write_bytes((self.root / 'retained-archive').read_bytes())
+        self.archive_path.chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, 'identity or ancestor changed'):
+            image.revalidate_archive()
+
+    def test_archive_parent_replacement_before_claim_is_refused(self):
+        pins = self.pins()
+        parent = self.root / 'source-root'
+        parent.mkdir(mode=0o700)
+        archive = parent / 'release.tar.gz'
+        archive.write_bytes(self.archive_path.read_bytes()); archive.chmod(0o600)
+        image = anchored.archive_image(archive, pins, (os.getuid(), os.getgid()), anchored.Budget())
+        parent.rename(self.root / 'retained-source-root')
+        parent.mkdir(mode=0o700)
+        archive.write_bytes(self.archive_path.read_bytes()); archive.chmod(0o600)
+        with self.assertRaisesRegex(RuntimeError, 'identity or ancestor changed'):
+            image.revalidate_archive()
+
+    def test_archive_leaf_swap_during_capture_cannot_return_an_image(self):
+        pins = self.pins()
+        original = anchored.CapturedArchiveReader.read
+        replaced = False
+        def swapped(reader, count):
+            nonlocal replaced
+            data = original(reader, count)
+            if not replaced:
+                replaced = True
+                self.archive_path.rename(self.root / 'retained-input')
+                self.archive_path.write_bytes((self.root / 'retained-input').read_bytes())
+                self.archive_path.chmod(0o600)
+            return data
+        with patch.object(anchored.CapturedArchiveReader, 'read', new=swapped), self.assertRaisesRegex(RuntimeError, 'changed'):
+            anchored.archive_image(self.archive_path, pins, (os.getuid(), os.getgid()), anchored.Budget())
 
     def test_actual_owned_tree_and_idempotent_no_replace(self):
         pins = self.pins()

@@ -4,11 +4,13 @@ import argparse
 import base64
 from dataclasses import dataclass
 from enum import IntEnum
+import grp
 import hashlib
 import json
 import math
 import os
 from pathlib import Path
+import pwd
 import re
 import selectors
 import signal
@@ -19,7 +21,13 @@ import sys
 import time
 
 EXECUTION_APPROVED = True
-EXECUTOR_SHA256 = '91b2a881420f33183dec48c7499470a84e3641d5091a9e82ea3260f2b6a89b90'
+EXECUTOR_SHA256 = '54df057e8a17b671273900047afb3e885e648d326b62cc38b86da6331a89a78e'
+ASSIGNED_UID = ASSIGNED_GID = 1000
+ASSIGNED_USER = 'anulman'
+ASSIGNED_HOME = Path('/home/anulman')
+QUALIFIED_SHARE = ASSIGNED_HOME / '.local/share'
+ACL_ATTRIBUTES = {'system.posix_acl_access', 'system.posix_acl_default',
+                  'com.apple.system.Security', 'com.apple.acl.text'}
 CHECKER = Path('/usr/local/libexec/show-tools-delegation-check.py')
 GRANT = Path('/etc/homelab/delegations/show-tools.json')
 SIGNERS = Path('/etc/homelab/delegations/show-tools.allowed_signers')
@@ -69,16 +77,83 @@ def metadata(info):
     return info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns
 
 
+def no_acl(fd):
+    inspect = getattr(os, 'listxattr', None)
+    require(callable(inspect), 'Directory ACL inspection is unavailable')
+    require(not ACL_ATTRIBUTES.intersection(inspect(fd)), 'Unexpected directory ACL requires separate review')
+
+
+def private_group():
+    account, group = pwd.getpwuid(ASSIGNED_UID), grp.getgrgid(ASSIGNED_GID)
+    require((account.pw_name, account.pw_uid, account.pw_gid, account.pw_dir)
+            == (ASSIGNED_USER, ASSIGNED_UID, ASSIGNED_GID, str(ASSIGNED_HOME)), 'Assigned account identity differs')
+    require((group.gr_name, group.gr_gid) == (ASSIGNED_USER, ASSIGNED_GID)
+            and set(group.gr_mem) <= {ASSIGNED_USER}, 'Assigned group is not private')
+    accounts = pwd.getpwall()
+    assigned = [row for row in accounts if row.pw_uid == ASSIGNED_UID or row.pw_name == ASSIGNED_USER]
+    require(0 < len(accounts) <= 4096 and len(assigned) == 1
+            and (assigned[0].pw_name, assigned[0].pw_uid, assigned[0].pw_gid, assigned[0].pw_dir)
+            == (ASSIGNED_USER, ASSIGNED_UID, ASSIGNED_GID, str(ASSIGNED_HOME)), 'Assigned account enumeration differs')
+    for row in accounts:
+        member = ASSIGNED_GID in os.getgrouplist(row.pw_name, row.pw_gid)
+        require(not (member or row.pw_gid == ASSIGNED_GID)
+                or (row.pw_name, row.pw_uid, row.pw_gid) == (ASSIGNED_USER, ASSIGNED_UID, ASSIGNED_GID),
+                'Assigned group has another primary or supplementary member')
+
+
+def private_share(fd, home_fd, current, owner):
+    require(current == QUALIFIED_SHARE and owner == (ASSIGNED_UID, ASSIGNED_GID) and home_fd is not None,
+            'Group-writable ancestry is outside the fixed private-share exception')
+    info, home = os.fstat(fd), os.fstat(home_fd)
+    require((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (ASSIGNED_UID, ASSIGNED_GID, 0o775),
+            'Private-share metadata differs')
+    require((home.st_uid, home.st_gid, stat.S_IMODE(home.st_mode)) == (ASSIGNED_UID, ASSIGNED_GID, 0o700),
+            'Assigned home must be the private mode0700 barrier')
+    linked = ASSIGNED_HOME.lstat()
+    require((home.st_dev, home.st_ino, home.st_mode, home.st_uid, home.st_gid)
+            == (linked.st_dev, linked.st_ino, linked.st_mode, linked.st_uid, linked.st_gid), 'Assigned home pathname changed')
+    no_acl(home_fd)
+    no_acl(fd)
+    private_group()
+
+
+def check_parent_paths(path, descriptors, owner):
+    current, home_fd = Path('/'), None
+    for index, (name, fd) in enumerate(zip(path.parent.parts[1:], descriptors[1:]), 1):
+        current /= name
+        info = os.fstat(fd)
+        linked = os.stat(name, dir_fd=descriptors[index - 1], follow_symlinks=False)
+        require((info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid)
+                == (linked.st_dev, linked.st_ino, linked.st_mode, linked.st_uid, linked.st_gid), 'File ancestor pathname changed')
+        no_acl(fd)
+        if current == ASSIGNED_HOME:
+            home_fd = fd
+        sticky = owner[0] != 0 and info.st_uid == 0 and info.st_mode & stat.S_ISVTX
+        require(info.st_uid in (0, owner[0]), 'Unqualified file ancestor owner')
+        if info.st_mode & 0o022 and not sticky:
+            require(path != LEDGER, 'Ledger ancestry retains the frozen strict mode rule')
+            private_share(fd, home_fd, current, owner)
+
+
 def open_parent(path, owner):
     require(path.parent.is_absolute() and path.parent.resolve(strict=True) == path.parent, 'Need canonical parent')
     descriptors = [os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)]
+    current, home_fd = Path('/'), None
     try:
+        no_acl(descriptors[0])
         for name in path.parent.parts[1:]:
             child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=descriptors[-1])
             descriptors.append(child)
+            current /= name
             info = os.fstat(child)
+            no_acl(child)
+            if current == ASSIGNED_HOME:
+                home_fd = child
             sticky = owner[0] != 0 and info.st_uid == 0 and info.st_mode & stat.S_ISVTX
-            require(info.st_uid in (0, owner[0]) and (not info.st_mode & 0o022 or sticky), 'Unqualified file ancestry')
+            require(info.st_uid in (0, owner[0]), 'Unqualified file ancestor owner')
+            if info.st_mode & 0o022 and not sticky:
+                require(path != LEDGER, 'Ledger ancestry retains the frozen strict mode rule')
+                private_share(child, home_fd, current, owner)
         return descriptors
     except BaseException:
         for fd in reversed(descriptors):
@@ -105,6 +180,7 @@ def capture(path, limit, owner, modes):
             data.extend(chunk)
         require(len(data) == before.st_size and metadata(before) == metadata(os.fstat(fd))
                 == metadata(os.stat(path.name, dir_fd=parent, follow_symlinks=False)), 'File changed during capture')
+        check_parent_paths(path, descriptors[:-1], owner)
         return bytes(data), metadata(before)
     finally:
         for fd in reversed(descriptors):
@@ -239,13 +315,13 @@ class FixedChecker:
 
 
 class HostPreflight:
-    def __init__(self, archive_observation):
-        self.archive_observation = archive_observation
+    def __init__(self, archive_image):
+        self.archive_image = archive_image
 
     def snapshot(self):
         result = {}
-        archive_path, archive_metadata = self.archive_observation
-        require(metadata(archive_path.lstat()) == archive_metadata, 'Reviewed archive snapshot changed')
+        archive_metadata = self.archive_image.revalidate_archive()
+        require(archive_metadata == self.archive_image.archive_metadata, 'Reviewed archive snapshot changed')
         result['archiveMetadata'] = archive_metadata
         for path, digest in ((CHECKER, CHECKER_SHA256), (GRANT, GRANT_SHA256), (SIGNERS, SIGNERS_SHA256)):
             data, info = capture(path, 65536, (0, 0), (0o644,))
@@ -474,14 +550,14 @@ def main():
     exec(compile(source, str(args.executor), 'exec'), executor)
     pins = executor['ReleasePins'](request.pins['sourceRevision'], request.pins['archive']['sha256'],
                                    request.pins['archive']['bytes'], request.plan['artifactManifestSha256'])
-    files, _directories, headers, expanded = executor['archive_image'](args.archive, pins, (1000, 1000), executor['Budget']())
+    image = executor['archive_image'](args.archive, pins, (1000, 1000), executor['Budget']())
+    files, _directories, headers, expanded = image
     accounting = request.plan['expectedAccounting']
     require(len(files) == accounting['files'] and headers == accounting['rawHeaders']
             and expanded == accounting['expandedBytes'], 'Reviewed archive accounting differs')
-    archive_observation = args.archive, metadata(args.archive.lstat())
     evidence = Evidence(STAGING / (request.pins['requestId'] + '-admission'))
     try:
-        result = stage(request, args.archive, args.validator, executor, FixedChecker(request), HostPreflight(archive_observation), evidence)
+        result = stage(request, args.archive, args.validator, executor, FixedChecker(request), HostPreflight(image), evidence)
         print(json.dumps(result, separators=(',', ':')), flush=True)
         return 0 if result['outcome'] == 'completed' else 1
     finally:

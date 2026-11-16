@@ -5,10 +5,12 @@ import ctypes
 from dataclasses import dataclass
 import fcntl
 import gzip
+import grp
 import hashlib
 import json
 import os
 from pathlib import Path, PurePosixPath
+import pwd
 import re
 import secrets
 import stat
@@ -27,6 +29,10 @@ LEGACY_VALIDATOR_SHA256 = 'eef5759425f47f0128ded96918603ab9b0fd06c9e695b42e7ae26
 CHECKER_SHA256 = 'ff28dab2fc95eb4b4e7937a547529d4edd110874f87fd5e7de19d47f6d654d7d'
 PRODUCTION_APPROVED = False
 TARGET_ROOT = Path('/home/anulman/.local/share/show-tools')
+ASSIGNED_UID = ASSIGNED_GID = 1000
+ASSIGNED_USER = 'anulman'
+ASSIGNED_HOME = Path('/home/anulman')
+QUALIFIED_SHARE = ASSIGNED_HOME / '.local/share'
 
 
 def require(condition, message):
@@ -40,6 +46,37 @@ def identity(info):
 
 def metadata(info):
     return identity(info), info.st_mode, info.st_uid, info.st_gid, info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+def archive_metadata(info):
+    return info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid, info.st_nlink, info.st_size, info.st_mtime_ns, info.st_ctime_ns
+
+
+def no_posix_acl(fd):
+    inspect = getattr(os, 'listxattr', None)
+    require(callable(inspect), 'FD ACL inspection is unavailable')
+    require(not {'system.posix_acl_access', 'system.posix_acl_default', 'com.apple.system.Security'} & set(inspect(fd)),
+            'Unexpected directory ACL')
+
+
+def private_group():
+    account, group = pwd.getpwuid(ASSIGNED_UID), grp.getgrgid(ASSIGNED_GID)
+    require((account.pw_name, account.pw_uid, account.pw_gid, account.pw_dir)
+            == (ASSIGNED_USER, ASSIGNED_UID, ASSIGNED_GID, str(ASSIGNED_HOME)), 'Assigned account identity differs')
+    require(group.gr_name == ASSIGNED_USER and group.gr_gid == ASSIGNED_GID
+            and set(group.gr_mem) <= {ASSIGNED_USER}, 'Assigned group is not private')
+    accounts = pwd.getpwall()
+    require(0 < len(accounts) <= 65536 and sum(row.pw_name == ASSIGNED_USER for row in accounts) == 1,
+            'Assigned account enumeration differs')
+    for row in accounts:
+        memberships = os.getgrouplist(row.pw_name, row.pw_gid)
+        require(len(memberships) <= 4096, 'Supplementary group enumeration exceeded its bound')
+        if row.pw_name == ASSIGNED_USER:
+            require((row.pw_uid, row.pw_gid, row.pw_dir) == (ASSIGNED_UID, ASSIGNED_GID, str(ASSIGNED_HOME))
+                    and ASSIGNED_GID in memberships, 'Assigned primary group differs')
+        else:
+            require(row.pw_uid != ASSIGNED_UID and row.pw_gid != ASSIGNED_GID and ASSIGNED_GID not in memberships,
+                    'Assigned group has another primary or supplementary member')
 
 
 def parts(value):
@@ -183,6 +220,8 @@ class Budget:
 class RootAnchor:
     def __init__(self, path, owner):
         self.path, self.owner, self.chain = Path(path), owner, []
+        self.home_fd = None
+        self.share_fd = None
         require(self.path.is_absolute() and self.path.resolve(strict=True) == self.path, 'Need canonical existing root')
         parent = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
         self.chain.append((parent, None, None, metadata(os.fstat(parent))))
@@ -191,6 +230,9 @@ class RootAnchor:
                 child = os.open(name, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
                 info = os.fstat(child)
                 self.chain.append((child, parent, name, metadata(info)))
+                current = Path(*self.path.parts[:index + 2])
+                if current == ASSIGNED_HOME:
+                    self.home_fd = child
                 final = index == len(self.path.parts) - 2
                 if final:
                     private(info, owner, directory=True)
@@ -198,15 +240,23 @@ class RootAnchor:
                     owned = (info.st_uid, info.st_gid) in ((0, 0), owner)
                     protected = not info.st_mode & 0o022
                     sticky_root = info.st_uid == 0 and info.st_mode & stat.S_ISVTX
+                    qualified = current == QUALIFIED_SHARE and (info.st_uid, info.st_gid) == (ASSIGNED_UID, ASSIGNED_GID)
+                    if qualified and stat.S_IMODE(info.st_mode) == 0o775:
+                        self.share_fd = child
+                        self.qualify_share(child)
+                        protected = True
                     require(owned and (protected or sticky_root), 'Unprotected root ancestor')
                 parent = child
             self.fd = parent
+            private(os.fstat(self.fd), owner, directory=True)
             self.check()
         except BaseException:
             self.close()
             raise
 
     def check(self):
+        if self.share_fd is not None:
+            self.qualify_share(self.share_fd)
         for fd, parent, name, before in self.chain:
             now = os.fstat(fd)
             # Child creation changes directory times and link counts.
@@ -214,6 +264,21 @@ class RootAnchor:
             require(stable(now) == (before[0], before[1], before[2], before[3]), 'Root ancestor metadata changed')
             if parent is not None:
                 require(stable(os.stat(name, dir_fd=parent, follow_symlinks=False)) == stable(now), 'Root ancestor path changed')
+
+    def qualify_share(self, fd):
+        require(self.owner == (ASSIGNED_UID, ASSIGNED_GID) and self.home_fd is not None,
+                'Shared ancestor is outside the assigned account')
+        info = os.fstat(fd)
+        require(fd == self.share_fd and stat.S_ISDIR(info.st_mode)
+                and (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) == (ASSIGNED_UID, ASSIGNED_GID, 0o775),
+                'Qualified share identity or mode differs')
+        private(os.fstat(self.home_fd), self.owner, directory=True)
+        no_posix_acl(self.home_fd)
+        no_posix_acl(fd)
+        private_group()
+
+    def snapshot(self):
+        return tuple((before[0], before[1], before[2], before[3]) for _fd, _parent, _name, before in self.chain)
 
     def close(self):
         for fd, _parent, _name, _before in reversed(self.chain):
@@ -250,6 +315,26 @@ class VerifiedReader:
             require(metadata(os.fstat(self.fd)) == metadata(self.before), 'File changed during read')
         finally:
             os.close(self.fd)
+
+
+class CapturedArchiveReader(VerifiedReader):
+    def __init__(self, fd, owner, budget, anchor, path):
+        super().__init__(fd, owner, budget)
+        self.anchor, self.path = anchor, path
+
+    def check_binding(self):
+        self.anchor.check()
+        require(metadata(os.stat(self.path.name, dir_fd=self.anchor.fd, follow_symlinks=False)) == metadata(self.before)
+                and metadata(os.fstat(self.fd)) == metadata(self.before), 'Captured archive pathname or descriptor changed')
+
+    def __exit__(self, kind, value, trace):
+        try:
+            self.check_binding()
+        finally:
+            try:
+                super().__exit__(kind, value, trace)
+            finally:
+                self.anchor.close()
 
 
 class OwnedTree:
@@ -458,16 +543,47 @@ class ArchiveFile:
     sha256: str
 
 
+@dataclass(frozen=True)
+class ArchiveImage:
+    files: dict
+    directories: set
+    raw_headers: int
+    expanded_bytes: int
+    archive_path: Path
+    archive_owner: tuple
+    archive_metadata: tuple
+    parent_snapshot: tuple
+    pins: ReleasePins
+
+    def __iter__(self):
+        return iter((self.files, self.directories, self.raw_headers, self.expanded_bytes))
+
+    def revalidate_archive(self, path=None):
+        selected = self.archive_path if path is None else Path(path)
+        require(selected == self.archive_path, 'Archive revalidation path differs')
+        with captured_archive(selected, self.pins, self.archive_owner, Budget()) as source:
+            require(source.anchor.snapshot() == self.parent_snapshot
+                    and archive_metadata(source.before) == self.archive_metadata, 'Captured archive identity or ancestor changed')
+        return self.archive_metadata
+
+
 def captured_archive(path, pins, owner, budget):
     path = Path(path)
     require(path.is_absolute() and path.resolve(strict=True) == path, 'Need canonical archive file')
-    fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC)
+    anchor = RootAnchor(path.parent, owner)
+    fd = None
     try:
-        reader = VerifiedReader(fd, owner, budget)
+        before = os.stat(path.name, dir_fd=anchor.fd, follow_symlinks=False)
+        fd = os.open(path.name, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=anchor.fd)
+        reader = CapturedArchiveReader(fd, owner, budget, anchor, path)
+        require(metadata(before) == metadata(reader.before), 'Archive leaf changed during open')
         require(reader.before.st_size == pins.archive_bytes, 'Reviewed archive size mismatch')
+        reader.check_binding()
         return reader
     except BaseException:
-        os.close(fd)
+        if fd is not None:
+            os.close(fd)
+        anchor.close()
         raise
 
 
@@ -545,7 +661,9 @@ def archive_image(archive_path, pins, owner, budget):
                 files[relative] = ArchiveFile(received, 0o700 if member.mode & 0o100 else 0o600, digest.hexdigest())
         require(('release.json',) in files and files[('release.json',)].sha256 == pins.manifest_sha256,
                 'Reviewed manifest digest mismatch')
-        return files, directories, raw_headers, expanded
+        source.check_binding()
+        return ArchiveImage(files, directories, raw_headers, expanded, Path(archive_path), owner,
+                            archive_metadata(source.before), source.anchor.snapshot(), pins)
 
 
 def compare_image(tree, files, directories):
