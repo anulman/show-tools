@@ -433,6 +433,52 @@ class PrivateShareTests(OwnedFileTests):
         self.assertEqual(self.share.stat().st_mode & 0o7777, 0o775)
         self.assertEqual(self.home.stat().st_mode & 0o7777, 0o700)
 
+    def test_observed_managed_0775_ancestors_are_captured_without_permission_changes(self):
+        targets = [('.config/systemd/user', 'show-tools-web.service'), ('.local/bin', 'show-tools-session')]
+        for parent, name in targets:
+            with self.subTest(parent=parent):
+                directory = self.home / parent
+                directory.mkdir(parents=True, exist_ok=True)
+                for ancestor in [self.home / '.config/systemd', self.home / '.config/systemd/user', self.home / '.local/bin']:
+                    if ancestor.exists(): ancestor.chmod(0o775)
+                target = directory / name
+                target.write_bytes(b'qualified managed data'); target.chmod(0o600)
+                with self.assigned_group(), patch.object(runner.os, 'chmod', side_effect=AssertionError('no permission repair')):
+                    self.assertEqual(self.read(target), b'qualified managed data')
+                self.assertEqual(directory.stat().st_mode & 0o7777, 0o775)
+
+    def test_managed_writable_paths_keep_owner_mode_acl_membership_and_ledger_checks(self):
+        parent = self.home / '.local/bin'
+        parent.mkdir(); parent.chmod(0o775)
+        target = parent / 'show-tools-session'
+        target.write_bytes(b'qualified managed data'); target.chmod(0o600)
+        for settings in ({'other_primary': True}, {'other_supplementary': True}, {'group_members': ('other',)}):
+            with self.subTest(settings=settings), self.assigned_group(**settings), self.assertRaisesRegex(RuntimeError, 'private|member'):
+                self.read(target)
+        for mode in (0o770, 0o777):
+            parent.chmod(mode)
+            with self.subTest(mode=mode), self.assigned_group(), self.assertRaises(RuntimeError): self.read(target)
+        parent.chmod(0o775)
+        with self.assigned_group(), patch.object(runner, 'LEDGER', target), self.assertRaisesRegex(RuntimeError, 'Ledger ancestry'):
+            self.read(target)
+        real_fstat = runner.os.fstat
+        identity = parent.stat().st_dev, parent.stat().st_ino
+        for field in ('st_uid', 'st_gid'):
+            def foreign(fd):
+                info = real_fstat(fd)
+                if (info.st_dev, info.st_ino) != identity: return info
+                values = {key: getattr(info, key) for key in ('st_uid', 'st_gid', 'st_mode', 'st_dev', 'st_ino')}
+                values[field] += 1
+                return SimpleNamespace(**values)
+            with self.subTest(field=field), self.assigned_group(), patch.object(runner.os, 'fstat', side_effect=foreign), self.assertRaisesRegex(RuntimeError, 'owner|metadata'):
+                self.read(target)
+        original = runner.os.listxattr
+        def acl(fd):
+            info = os.fstat(fd)
+            return ['system.posix_acl_access'] if (info.st_dev, info.st_ino) == identity else original(fd)
+        with self.assigned_group(), patch.object(runner.os, 'listxattr', side_effect=acl), self.assertRaisesRegex(RuntimeError, 'ACL'):
+            self.read(target)
+
     def test_shared_primary_supplementary_or_group_members_are_refused(self):
         for settings in ({'group_members': ('other',)}, {'other_primary': True}, {'other_supplementary': True}):
             with self.subTest(settings=settings), self.assigned_group(**settings), self.assertRaisesRegex(RuntimeError, 'private|member'):
@@ -448,7 +494,7 @@ class PrivateShareTests(OwnedFileTests):
         sibling = self.home / '.local/other'
         sibling.mkdir(mode=0o775); sibling.chmod(0o775)
         other_file = sibling / 'data.json'; other_file.write_bytes(b'outside exception'); other_file.chmod(0o600)
-        with self.assigned_group(), self.assertRaisesRegex(RuntimeError, 'fixed private-share'):
+        with self.assigned_group(), self.assertRaisesRegex(RuntimeError, 'fixed private-group'):
             self.read(other_file)
         for mode in (0o770, 0o777):
             self.share.chmod(mode)
