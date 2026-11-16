@@ -264,6 +264,34 @@ void superseded_owner_checks() {
   event(engine, 1, 2, 2, 0, 0);
   require(!playing(engine, 0), "superseding owner can release its sample");
 }
+void superseded_pending_checks(bool revoke_before_boundary) {
+  Engine engine;
+  auto data = held_program(false);
+  data[PF_COMPILED_HEADER_FIELDS + 2 * PF_COMPILED_TAKE_FIELDS + 2 * PF_COMPILED_CUE_FIELDS + 12] = PF_GATED_MODE;
+  const double pending[]{0, 0, 4, 0, PF_PLAY, 1, 0, -1, -1, 0, 0, PF_AUTOPLAY, PF_HELD_MODE, 0, -1, 0};
+  data.insert(data.begin() + PF_COMPILED_HEADER_FIELDS + 2 * PF_COMPILED_TAKE_FIELDS + 6 * PF_COMPILED_CUE_FIELDS,
+              std::begin(pending), std::end(pending));
+  data[9] = 7;
+  load(engine, data);
+  prepare_first_take(engine);
+  attach(engine, 0, 1, PF_INPUT_PHYSICAL, 1);
+  attach(engine, 1, 2, PF_INPUT_POINTER, 223);
+  event(engine, 0, 1, 1, 0, 1);
+  event(engine, 0, 1, 2, 0, 0);
+  until(engine, 4);
+  event(engine, 0, 1, 3, 0, 1);
+  until(engine, 4, 2);
+  event(engine, 1, 2, 1, 0, 1);
+  require(playing(engine, 0), "current gated owner admitted over another source's pending held launch");
+  if (revoke_before_boundary) {
+    ok(engine, pf_input_revoke(engine, 0, 1));
+    require(playing(engine, 0), "revoking superseded pending owner preserves current gated playback");
+  }
+  until(engine, 5);
+  event(engine, 1, 2, 2, 0, 0);
+  event(engine, 1, 2, 3, 0, 1);
+  require(playing(engine, 0), "superseded pending launch cannot replace the current gated instrument");
+}
 void ordered_batch_checks() {
   Engine engine;
   auto data = held_program(false);
@@ -308,6 +336,8 @@ int main() {
   ownership_checks(true);
   partial_batch_checks();
   superseded_owner_checks();
+  superseded_pending_checks(false);
+  superseded_pending_checks(true);
   ordered_batch_checks();
   std::cout << "Physical input checks passed.\n";
 }

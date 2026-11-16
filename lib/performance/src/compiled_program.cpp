@@ -35,7 +35,7 @@ struct Program::Cue {
 struct Program::Member { int selection = 0, take = 0; double gain = 1; };
 struct Program::PlaybackCue { int bar = 1, voice = 0, selection = 0; };
 struct Program::Due { int cue = -1, result = PF_OK, bank = -1; CommitPlan commit; };
-struct Program::Pending { int cue = -1, reserved_take = -1; double position = 0; };
+struct Program::Pending { int cue = -1, reserved_take = -1; double position = 0; uint64_t owner = 0; };
 
 Program::~Program() = default;
 std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, double rate, const patches::Rack& definition, uint32_t revision) noexcept {
@@ -591,8 +591,9 @@ int Program::resolve(int button, double frame, double bpm) noexcept {
   return found < 0 ? -PF_CUE_LATE : found;
 }
 int Program::press(int button, double frame, double bpm, bool microphone) noexcept {
-  auto admit = [&] {
+  auto admit = [&](int cue = -1) {
     input_owner_[button] = uint64_t(button + 1); button_down_[button] = true;
+    if (cue >= 0 && pending_[cue].cue >= 0) pending_[cue].owner = input_owner_[button];
     bend_baseline_[button] = last_motion_frame_ >= 0 && frame - last_motion_frame_ <= rate_ * bend_stale_ms_ / 1000 ? motion_velocity_ : 0;
   };
   int selected = resolve(button, frame, bpm);
@@ -618,7 +619,7 @@ int Program::press(int button, double frame, double bpm, bool microphone) noexce
     if ((cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM) != (pass == 0)) continue;
     const bool fresh = !cue.used && pending_[id].cue != id;
     int code = press_selected(id, frame, bpm, microphone);
-    if (fresh && code == PF_OK && cue.kind == PF_PLAY && (cue.mode == PF_HELD_MODE || cue.mode == PF_GATED_MODE)) admit();
+    if (fresh && code == PF_OK && cue.kind == PF_PLAY && (cue.mode == PF_HELD_MODE || cue.mode == PF_GATED_MODE)) admit(id);
     if (result == PF_OK) result = code;
   }
   return result;
@@ -629,8 +630,9 @@ int Program::press_current(double frame, double bpm, bool microphone) noexcept {
 int Program::press_rows(uint32_t rows, uint64_t owner, double frame, double bpm, bool microphone) noexcept {
   if (!rows || (rows & ~15u) || !owner) return PF_INVALID_INPUT;
   int selected[PF_CHANNELS]{-1, -1, -1, -1}, result = PF_OK;
-  auto admit = [&](int button) {
+  auto admit = [&](int button, int cue = -1) {
     input_owner_[button] = owner; button_down_[button] = true;
+    if (cue >= 0 && pending_[cue].cue >= 0) pending_[cue].owner = owner;
     bend_baseline_[button] = last_motion_frame_ >= 0 && frame - last_motion_frame_ <= rate_ * bend_stale_ms_ / 1000 ? motion_velocity_ : 0;
   };
   for (int button = 0; button < PF_CHANNELS; ++button)
@@ -642,7 +644,7 @@ int Program::press_rows(uint32_t rows, uint64_t owner, double frame, double bpm,
     if (commits != (pass == 0)) continue;
     const bool fresh = !cue.used && pending_[id].cue != id;
     int code = press_selected(id, frame, bpm, microphone);
-    if (fresh && code == PF_OK && cue.kind == PF_PLAY && (cue.mode == PF_HELD_MODE || cue.mode == PF_GATED_MODE)) admit(cue.button);
+    if (fresh && code == PF_OK && cue.kind == PF_PLAY && (cue.mode == PF_HELD_MODE || cue.mode == PF_GATED_MODE)) admit(cue.button, id);
     if (outcome_) outcome_(outcome_context_, frame, cue.button, id, code);
     if (code != PF_OK && result == PF_OK) result = code;
   }
@@ -662,6 +664,7 @@ int Program::press_rows(uint32_t rows, uint64_t owner, double frame, double bpm,
 }
 void Program::release_owner(uint64_t owner) noexcept {
   if (!owner) return;
+  for (int id = 0; id < cue_count_; ++id) if (pending_[id].cue >= 0 && pending_[id].owner == owner) pending_[id] = {};
   for (int button = 0; button < PF_CHANNELS; ++button) if (input_owner_[button] == owner) release(button);
 }
 void Program::stop_selection(int selection, bool hard) noexcept {
@@ -1031,6 +1034,9 @@ void Program::apply_pending(double frame, double bpm) noexcept {
   const Cue* staged_commit = nullptr; uint32_t staged_period = 0; bool failed_commit = false;
   for (int button = 0; button < cue_count_; ++button) {
     if (pending_[button].cue < 0 || frame < std::ceil(anchor_frame_ + (pending_[button].position - anchor_position_) * rate_ * 60 / bpm)) continue;
+    const Cue& pending_cue = cues_[pending_[button].cue];
+    if (pending_cue.kind == PF_PLAY && (pending_cue.mode == PF_HELD_MODE || pending_cue.mode == PF_GATED_MODE)
+      && pending_[button].owner != input_owner_[pending_cue.button]) { pending_[button] = {}; continue; }
     Due& action = due[button]; action.cue = pending_[button].cue;
     const Cue& cue = cues_[action.cue];
     if (cue.kind != PF_COMMIT && cue.kind != PF_COMMIT_ARM) continue;
