@@ -129,7 +129,9 @@ await runPeripheralCli(['serve', '--config', ${JSON.stringify(missing)}]);`;
     await writeFile(missing, 'invalid profile');
     assert.throws(() => execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', driver], { stdio: 'pipe' }), error => {
       assert.ok(error instanceof Error);
-      assert.doesNotMatch(error.message, /Unexpected helper spawn/);
+      assert.ok('stderr' in error);
+      assert.match(String(error.stderr), /SyntaxError/);
+      assert.doesNotMatch(String(error.stderr), /Unexpected helper spawn/);
       return true;
     });
   } finally {
