@@ -34,6 +34,7 @@ REQUIRED = {
 PERIPHERAL_INPUTS = {
     "lib/peripherals/host/linux_host.cpp", "lib/peripherals/host/linux_runtime.cpp",
     "lib/peripherals/host/linux_runtime.h", "lib/peripherals/host/linux_order.h",
+    "lib/peripherals/host/linux_input_map.h",
     "lib/peripherals/host/control_stream.cpp", "lib/peripherals/host/control_stream.h",
     "lib/peripherals/src/peripheral_controls.cpp", "lib/peripherals/src/peripheral_lights.cpp",
     "lib/peripherals/src/peripheral_light_delivery.cpp", "lib/peripherals/include/peripheral_controls.h",

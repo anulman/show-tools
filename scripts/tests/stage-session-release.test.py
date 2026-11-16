@@ -5,6 +5,9 @@ import json
 import multiprocessing
 import os
 from pathlib import Path
+import re
+import subprocess
+import sys
 import tarfile
 import tempfile
 import unittest
@@ -95,6 +98,22 @@ def promote_worker(extracted, target, barrier, results):
 
 
 class StagingTests(unittest.TestCase):
+    def test_compiler_dependencies_match_both_peripheral_source_manifests(self):
+        root = Path(__file__).resolve().parents[2]
+        sources = sorted(path for path in stage.PERIPHERAL_INPUTS if path.endswith('.cpp'))
+        command = ['c++', '-std=c++17', '-static', '-O2', '-DNDEBUG',
+                   '-Ilib/peripherals/include', '-Ilib/peripherals/host', '-Ilib/performance/include', '-MM']
+        if sys.platform != 'linux':
+            command.append('-MG')
+        dependencies = subprocess.check_output(command + sources, cwd=root, text=True, timeout=30)
+        project = set(re.findall(r'lib/(?:peripherals|performance)/[A-Za-z0-9_./-]+', dependencies.replace('\\\n', ' ')))
+        self.assertEqual(project, stage.PERIPHERAL_INPUTS,
+                         'Peripheral stage provenance omits compiled project dependencies')
+        artifact = (root / 'scripts/peripheral-artifact.ts').read_text().split('export const PERIPHERAL_LICENSES')[0]
+        declared = set(re.findall(r"'([^']+\.(?:h|cpp))'", artifact))
+        self.assertEqual(project, declared,
+                         'Peripheral artifact provenance omits compiled project dependencies')
+
     def setUp(self):
         pin = patch.object(stage, "NODE_SHA256", hashlib.sha256(ELF).hexdigest())
         pin.start()
@@ -149,7 +168,8 @@ class StagingTests(unittest.TestCase):
 
     def test_peripheral_provenance_and_inner_checksums_are_verified(self):
         for scenario, message in [("revision", "Peripheral build provenance"), ("manifest-revision", "Peripheral source provenance"),
-                                  ("inputs", "Peripheral compiled source input"), ("input-hash", "Peripheral compiled source input"),
+                                  ("inputs", "Peripheral compiled source input"), ("input-map-header", "Peripheral compiled source input"),
+                                  ("input-hash", "Peripheral compiled source input"),
                                   ("checksum", "Peripheral artifact checksum")]:
             with self.subTest(scenario=scenario):
                 files = peripheral_package()
@@ -162,6 +182,8 @@ class StagingTests(unittest.TestCase):
                     files["release.json"] = json.dumps(manifest).encode()
                 elif scenario == "inputs":
                     build["sourceFiles"].pop(next(iter(build["sourceFiles"])))
+                elif scenario == "input-map-header":
+                    build["sourceFiles"].pop("lib/peripherals/host/linux_input_map.h")
                 elif scenario == "input-hash":
                     build["sourceFiles"][next(iter(build["sourceFiles"]))] = "0" * 64
                 else:

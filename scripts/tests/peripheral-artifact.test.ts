@@ -39,12 +39,13 @@ test('peripheral artifact verifies hashes, architecture and complete committed s
 });
 
 test('tampered bytes, resealed foreign architecture, incomplete inputs and false provenance are rejected', async () => {
-  for (const scenario of ['bytes', 'architecture', 'inputs', 'source', 'flags', 'input-hash']) {
+  for (const scenario of ['bytes', 'architecture', 'inputs', 'input-map-header', 'source', 'flags', 'input-hash']) {
     const fixture = await artifact();
     try {
       if (scenario === 'bytes') await writeFile(join(fixture.directory, 'peripheral-host'), 'tampered');
       if (scenario === 'architecture') { await writeFile(join(fixture.directory, 'peripheral-host'), Buffer.alloc(20)); await fixture.seal(); }
       if (scenario === 'inputs') delete fixture.build.sourceFiles[PERIPHERAL_INPUTS[0]];
+      if (scenario === 'input-map-header') delete fixture.build.sourceFiles['lib/peripherals/host/linux_input_map.h'];
       if (scenario === 'input-hash') fixture.build.sourceFiles[PERIPHERAL_INPUTS[0]] = '0'.repeat(64);
       if (scenario === 'source') fixture.build.sourceRevision = '0'.repeat(40);
       if (scenario === 'flags') fixture.build.flags = [];
