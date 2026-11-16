@@ -360,17 +360,18 @@ export class PracticeAudio {
     this.tracker.node.disconnect();
     this.recordDestination.disconnect();
     this.liveMonitor?.disconnect();
-    void this.tracker.stopListening().catch(() => {});
+    const microphoneCleanup = this.tracker.stopListening().catch(error => { this.fail(error); throw error; });
+    void microphoneCleanup.catch(() => {});
     const localCleanup = this.sampler.dispose();
     void localCleanup.catch(() => {});
     this.listeners.clear();
     this.tunerListeners.clear();
     this.eventListeners.clear();
-    try { await peripheralCleanup; }
-    finally {
-      this.peripheralEngineDisposed = true;
-      this.endpoint.dispose();
-      await Promise.all([localCleanup, this.tracker.dispose()]);
-    }
+    const released = await Promise.allSettled([peripheralCleanup, microphoneCleanup, localCleanup]);
+    this.peripheralEngineDisposed = true;
+    const ended = await Promise.allSettled([Promise.resolve().then(() => this.endpoint.dispose()), this.tracker.dispose()]);
+    const failures = [...released, ...ended].filter(result => result.status === 'rejected').map(result => result.reason);
+    if (failures.length === 1) throw failures[0];
+    if (failures.length) throw new AggregateError(failures, 'Practice audio cleanup unconfirmed');
   }
 }

@@ -16,6 +16,7 @@ function prepareUIContext(context) {
 }
 import { loadSong } from '../../../songs/index.ts';
 import { PracticeAudio } from '../audio.js';
+import { BeatTracker } from '../runtime/beat-tracker.js';
 import { NativePerformance } from '../../../lib/performance/wasm-performance.ts';
 import { createMusicalInputProducer } from '../peripheral-input.ts';
 import { createMusicalInputPolicy } from '../musical-input-policy.ts';
@@ -671,7 +672,7 @@ test('Drunk Girls loads the complete executable pickup and numbered timeline', a
   assert.equal(song.practice.endBar, 137);
 });
 
-for (const cleanup of ['normal', 'delayed', 'rejected', 'hung']) test(`actual physical source disposal ${cleanup}`, async () => {
+for (const cleanup of ['normal', 'delayed', 'rejected', 'hung', 'clear-rejected', 'clear-lost', 'clear-hung', 'lights-rejected']) test(`actual physical source disposal ${cleanup}`, async () => {
   const saved = new Map(['window', 'document', 'location', 'history', 'sessionStorage', 'fetch'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const storage = new Map([['show-tools-musical-input-policy', 'native-controls']]);
   const status = { textContent: '', setAttribute() {} };
@@ -702,18 +703,30 @@ for (const cleanup of ['normal', 'delayed', 'rejected', 'hung']) test(`actual ph
     destroyNative = () => context.processor.native.dispose();
   }
   const calls = [];
-  const waiting = cleanup === 'hung' ? { promise: new Promise(() => {}) } : deferred();
+  const waiting = (cleanup === 'hung' || cleanup === 'clear-hung') ? { promise: new Promise(() => {}) } : deferred();
   let closed = false;
+  let eventsSignal;
   const values = {
     window: events, document: { getElementById: () => status },
     location: { hash: `#peripheral=${token}`, pathname: '/', search: '' }, history: { replaceState() {} },
     sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
     fetch: async (url, options) => {
-      if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+      if (String(url).endsWith('/events')) {
+        eventsSignal = options.signal;
+        return new Response(new ReadableStream({ start(controller) {
         options.signal.addEventListener('abort', () => controller.close(), { once: true });
         controller.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'connected', lease: 'helper-lease', ready: { type: 'ready', version: 2, session: 1, switches: [{ controlId: 'blue', state: 'released' }] } }) + '\n'));
       } }));
-      calls.push(String(url)); return Response.json({});
+      }
+      calls.push(String(url));
+      if (String(url).endsWith('/clear')) {
+        assert.equal(eventsSignal.aborted, false, 'exact publisher retirement is requested before aborting its stream');
+        assert.deepEqual(JSON.parse(options.body), { lease: 'helper-lease' });
+        if (cleanup === 'clear-rejected') return new Response(null, { status: 409 });
+        if (cleanup === 'clear-lost') throw new Error('Publisher acknowledgement lost');
+        if (cleanup === 'clear-hung') await waiting.promise;
+      }
+      return Response.json({});
     },
   };
   for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
@@ -728,7 +741,8 @@ for (const cleanup of ['normal', 'delayed', 'rejected', 'hung']) test(`actual ph
       if (closed) throw new Error('Endpoint already destroyed');
       calls.push([command, payload]);
       if (nativeCommands) assert.equal(nativeCommands(command, payload).ok, true, command);
-      if (command === 'practice.input-revoke' && cleanup !== 'normal') {
+      if (command === 'practice.peripheral-lights' && payload.enabled === false && cleanup === 'lights-rejected') throw new Error('Light disable unconfirmed');
+      if (command === 'practice.input-revoke' && ['delayed', 'rejected', 'hung'].includes(cleanup)) {
         await waiting.promise;
         if (cleanup === 'rejected') throw new Error('Physical revoke unconfirmed');
       }
@@ -750,7 +764,10 @@ for (const cleanup of ['normal', 'delayed', 'rejected', 'hung']) test(`actual ph
     await assert.rejects(audio.inputEvent({ kind: 'physical', bindingGeneration: 1, sequence: 1, input: 0, value: 1 }), /disposed/);
     assert(calls.some(call => Array.isArray(call) && call[0] === 'practice.peripheral-lights' && call[1].enabled === false), 'physical light disable must actually execute');
     assert(calls.some(call => Array.isArray(call) && call[0] === 'practice.input-revoke'), 'exact physical revoke must actually execute');
-    if (cleanup === 'normal') {
+    if (['clear-rejected', 'clear-lost', 'lights-rejected'].includes(cleanup)) {
+      await assert.rejects(disposed, /retirement unconfirmed|acknowledgement lost|Light disable unconfirmed/);
+      assert.equal(closed, true);
+    } else if (cleanup === 'normal') {
       await disposed; assert.equal(closed, true);
       assert.equal(nativeRouting().producers.length, 0, 'real worklet physical lease was revoked before engine destruction');
     }
@@ -768,4 +785,42 @@ for (const cleanup of ['normal', 'delayed', 'rejected', 'hung']) test(`actual ph
     waiting.resolve?.(); destroyNative();
     for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
   }
+});
+
+for (const failure of ['context-close', 'microphone-notification', 'track-stop']) test(`actual tracker disposal retains ${failure} failure`, async () => {
+  const calls = [];
+  const problem = new Error(`${failure} failed`);
+  const waiting = deferred();
+  const tracker = new BeatTracker({ state: 'running', removeEventListener() {}, async close() {
+    calls.push('context-close'); if (failure === 'context-close') throw problem;
+  } }, true);
+  tracker.lifecycle = 'running';
+  tracker.node = { disconnect() { calls.push('all-output'); }, port: { postMessage() { calls.push('engine-dispose'); } } };
+  tracker.source = { kind: 'microphone', node: { disconnect() { calls.push('microphone-node'); } }, stream: { getTracks: () => [
+    { stop() { calls.push('first-track'); if (failure === 'track-stop') throw problem; } },
+    { stop() { calls.push('second-track'); } },
+  ] } };
+  tracker.command = async () => { if (failure === 'microphone-notification') throw problem; };
+  const audio = Object.assign(Object.create(PracticeAudio.prototype), {
+    startGeneration: 0, microphoneGeneration: 0, disposed: false, peripheralTransition: Promise.resolve(),
+    detachPeripheral: () => waiting.promise, detachState() {}, detachTracker() {},
+    liveMonitor: { gain: { value: 1 }, disconnect() { calls.push('monitor'); } },
+    endpoint: { port: new EventTarget(), dispose() { calls.push('endpoint'); } },
+    recordDestination: { stream: { getTracks: () => [{ stop() { calls.push('recording-track'); } }] }, disconnect() { calls.push('recording-node'); } },
+    tracker, sampler: { async dispose() { calls.push('sampler'); } },
+    listeners: new Set(), eventListeners: new Set(), tunerListeners: new Set(),
+  });
+  let settled = false;
+  const disposed = audio.dispose().finally(() => { settled = true; }); void disposed.catch(() => {});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(audio.liveMonitor.gain.value, 0);
+  assert(calls.includes('recording-track')); assert(calls.includes('all-output')); assert(calls.includes('monitor'));
+  assert(calls.includes('first-track'));
+  assert.equal(calls.includes('second-track'), failure !== 'track-stop', 'a throwing track.stop leaves remaining capture retirement unconfirmed');
+  if (failure !== 'context-close') assert.equal(audio.error, problem.message, 'microphone cleanup failure remains visible while peripheral cleanup hangs');
+  assert.equal(settled, false);
+  waiting.resolve();
+  await assert.rejects(disposed, error => error === problem || error instanceof AggregateError && error.errors.includes(problem));
+  assert(calls.includes('endpoint'));
+  assert.equal(calls.includes('context-close'), failure !== 'track-stop');
 });

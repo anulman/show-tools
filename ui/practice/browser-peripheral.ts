@@ -62,31 +62,43 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     return response;
   };
   let cleanup = Promise.resolve();
-  const shutdown = (intentional: boolean): Promise<void> => {
+  const shutdown = (): Promise<void> => {
     if (stopped) return cleanup;
     stopped = true; active = false; pending = undefined;
     clearInterval(heartbeat);
     failedReady(new Error('Local peripheral connection closed'));
     audio.endpoint.port.removeEventListener('message', light);
     window.removeEventListener(musicalInputPolicyEvent, policyChanged);
-    window.removeEventListener('pagehide', stop);
-    abort.abort();
-    if (lease) void fetch('/api/peripheral/clear', { method: 'POST', headers, body: JSON.stringify({ lease }), keepalive: true }).catch(() => {});
+    window.removeEventListener('pagehide', pagehide);
+    const publisherCleanup = lease ? fetch('/api/peripheral/clear', { method: 'POST', headers, body: JSON.stringify({ lease }), keepalive: true })
+      .then(response => { if (!response.ok) throw new Error(`Local peripheral publisher retirement unconfirmed (${response.status})`); }) : Promise.reject(new Error('Local peripheral publisher retirement unconfirmed: lease receipt unavailable'));
     const release = async () => {
       if (audio.disposed) return;
-      let lightError: unknown;
+      const failures: unknown[] = [];
       try { await audio.endpoint.request('practice.peripheral-lights', { enabled: false }); }
-      catch (error) { lightError = error; }
-      if (!audio.disposed && sourceAttached) await audio.inputRevoke({ kind: 'physical' });
-      if (lightError && !intentional) globalThis.reportError?.(lightError);
+      catch (error) { failures.push(error); }
+      if (!audio.disposed && sourceAttached) {
+        try { await audio.inputRevoke({ kind: 'physical' }); }
+        catch (error) { failures.push(error); }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length) throw new AggregateError(failures, 'Native peripheral cleanup unconfirmed');
     };
-    cleanup = controls.then(release, release);
-    void cleanup.catch(error => { if (!audio.disposed) globalThis.reportError?.(error); });
+    cleanup = Promise.allSettled([publisherCleanup, controls, controls.then(release, release)]).then(results => {
+      const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+      if (failures.length === 1) throw failures[0];
+      if (failures.length) throw new AggregateError(failures, 'Local peripheral cleanup unconfirmed');
+    }).finally(() => abort.abort());
+    void cleanup.catch(error => {
+      status('Controller cleanup unconfirmed. Reconnect is blocked.');
+      if (!audio.disposed) globalThis.reportError?.(error);
+    });
     status('Controller disconnected. Reconnect the local controller session to resume.');
     return cleanup;
   };
-  const stop = () => shutdown(true);
-  const fail = (error: unknown) => { if (!stopped) { shutdown(false); globalThis.reportError?.(error); } };
+  const stop = () => shutdown();
+  const pagehide = () => { void stop(); };
+  const fail = (error: unknown) => { if (!stopped) { shutdown(); globalThis.reportError?.(error); } };
   async function pump() {
     if (sending || !active || !lease) return;
     sending = true;
@@ -148,7 +160,7 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
   }
   audio.endpoint.port.addEventListener('message', light);
   window.addEventListener(musicalInputPolicyEvent, policyChanged);
-  window.addEventListener('pagehide', stop);
+  window.addEventListener('pagehide', pagehide);
   status('Connecting local controller…');
   void (async () => {
     const response = await post('events');

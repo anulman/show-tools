@@ -205,9 +205,10 @@ test('shutdown releases a held button when disabling light publications times ou
       assert.deepEqual(controls.at(-1), { kind: 'revoke', args: { kind: 'physical' } }, 'release must be attempted even if light disable acknowledgement fails');
       assert.equal(held, false);
       await until(() => writes.at(-1) === 'clear');
-      assert.deepEqual(errors, []);
+      await assert.rejects(client.stop(), /Synthetic AudioEndpoint acknowledgement timeout/);
+      assert.equal(errors.length, 1);
     } finally {
-      await client.stop(); await server.close(); globalThis.fetch = originalFetch;
+      await client.stop().catch(() => {}); await server.close(); globalThis.fetch = originalFetch;
       for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
       await rm(directory, { recursive: true, force: true });
     }
