@@ -51,7 +51,7 @@ The editor may display Blue or Yellow beside the affected cue row. It must not i
 
 ## Native routing and feedback
 
-Choose a native identified-switch boundary, conceptually `pf_input_switch(engine, input, down, commandId)`, with a bounded binding table prepared while stopped. The numeric ABI and host operation number must be reserved during implementation. TypeScript validates and lowers declarative IDs; C++ owns fresh-edge admission, target selection, release ownership and all musical timing.
+Use the reserved native identified-input boundary `pf_input_event`, with a bounded binding table prepared while stopped. TypeScript validates and lowers declarative IDs; C++ owns fresh-edge admission, target selection, release ownership and all musical timing.
 
 Native execution must extend the existing resolve-all-first, commit-before-arm batch with a selected row mask. Repeated calls to `press(row)` are not equivalent. Record the admitted held owner and ownership generation per row, including software producers. A rejected press cannot acquire another producer's held ownership; late release or revocation cannot release a newer owner. Do not use `release_current()` for producer cleanup.
 
@@ -89,7 +89,7 @@ Attach, input and revoke are one engine-thread path in browser/WASM and native h
 
 ## Proposed file reservations
 
-Chief has not granted these reservations yet. No active capture-deadline writer is identified: the earlier warning referred to a historical environment name, not an observed owner. EliteDesk reports no current adapter edits. Reserve each lane once, then keep its writers disjoint.
+Chief granted the lanes below in reservation receipt revision 2, `/private/tmp/chief-physical-control-reservations-20261115.json`. PE is the single integration owner. No active capture-deadline writer is identified: the earlier warning referred to a historical environment name, not an observed owner. Keep lane writers disjoint.
 
 | Lane | Exact proposed paths |
 | --- | --- |
@@ -102,6 +102,23 @@ Chief has not granted these reservations yet. No active capture-deadline writer 
 | PE focused fixtures and build registration | New `lib/performance/tests/input-routing.test.ts`, `lib/performance/tests/physical_input_tests.cpp`, `lib/performance/tests/physical-input-wasm.test.ts`, `ui/practice/tests/musical-input-policy.test.ts`; existing `lib/performance/CMakeLists.txt`, `lib/native-host/tests/service_test.py`, `lib/peripherals/tests/bridge.test.ts`, `lib/peripherals/tests/bridge-integration.test.ts`, `ui/practice/tests/browser-peripheral.test.ts`, `ui/practice/tests/peripheral-input.test.ts`, `lib/remote-performance/tests/commands.test.ts` |
 
 The header-only router avoids adding a new compilation unit to both WASM build scripts. Physical adapter fixtures, profile migration/deployment-package consumers and final formal-verification source records need a separate exact reservation before that integration milestone; this list does not grant a directory-wide edit allowance.
+
+## Common helper boundary for adapter implementation
+
+PE owns the `control_stream.h/.cpp` parser and these shared records. The installation map contains sources, switches, at most one relative axis and independently accepted LED bindings. Linux and HID selectors are different variants, not interchangeable codes.
+
+- A Linux source selector contains a USB interface number and exact supported event-type, key-code and relative-axis sets. Match within the qualified board; zero or multiple matches fail. Transient paths, ports and `phys` values are evidence, not selectors.
+- A HID source selector contains the observed interface number and top-level usage page/usage. Its selected control additionally names the element's usage page/usage. Nonunique collections fail rather than selecting by enumeration order.
+- Each switch contains physical ID, source ID and raw type/code in its source's namespace. Each axis contains `knob`, source ID and raw type/code. No selector values are supplied by this document.
+- Each LED binding contains physical ID and confirmed SDK channel. Empty LED bindings permit input-only operation without opening or writing an output interface. Nonempty LED bindings also require explicit electrical/wiring confirmation.
+
+The version-2 production CLI is `peripheral-host SESSION --map-version 2`, followed by fixed-arity repeated arguments: `--linux-source ID INTERFACE EVENT_TYPES KEY_CODES RELATIVE_AXES` or `--hid-source ID INTERFACE USAGE_PAGE USAGE`; `--switch CONTROL SOURCE TYPE CODE`; optional `--axis knob SOURCE TYPE CODE`; and `--led CONTROL SDK_CHANNEL` only with `--confirm-wiring`. Capability sets use sorted unique decimal comma-separated values, with `-` for an empty set. Source IDs are bounded ASCII identifiers. Validate the whole map before opening any device. No shell interpretation occurs: the bridge uses `spawn()` argument arrays.
+
+`Ready(version=2)` lists each configured switch's physical ID and released/held/unknown state. Button records carry `controlId` and `down`; motion remains signed `deltaY`. All observations share one increasing session sequence. Repeat value 2 advances observation order without emitting another semantic press. Explicit loss emits a detached/loss diagnostic and revokes the stream; sequence jumps do not.
+
+The Linux runtime receives a qualified collection of source handles, that immutable map and initial switch states, replacing `LinuxHandles`' one keyboard, one mouse, one selected `ButtonKey` and one held Boolean. It owns polling, stable per-interface order, fresh snapshots and explicit loss. It never selects a song target, allocates an engine producer slot or produces musical LED timing.
+
+Helper stdin retains fenced bind/full-image/clear/quit delivery. Bind expands the complete configured physical-ID-to-SDK map, including removed-output clearing; no single-channel constructor remains in the production path. Shared PE logical LED IDs 257–262 correspond to the physical registry order, not SDK channels. Existing descriptor validation and complete-frame prepare/deliver/commit remain mandatory.
 
 ## Migration and acceptance
 
