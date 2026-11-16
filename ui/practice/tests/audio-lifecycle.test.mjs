@@ -415,7 +415,7 @@ test('disposing failed audio disconnects every output without waiting for a work
     detachState() {}, detachTracker() {}, detachPeripheral() {},
     endpoint: { port: { removeEventListener() {} }, dispose() { released.push('endpoint'); }, request() { throw new Error('Must not wait for an acknowledgment'); } },
     recordDestination: { stream: { getTracks: () => [{ stop() { released.push('recording-track'); } }] }, disconnect() { released.push('recording-node'); } },
-    tracker: { node: { disconnect(...targets) { assert.equal(targets.length, 0); released.push('all-output'); } }, async dispose() { released.push('microphone'); } },
+    tracker: { node: { disconnect(...targets) { assert.equal(targets.length, 0); released.push('all-output'); } }, async stopListening() { released.push('microphone'); }, async dispose() { released.push('tracker'); } },
     sampler: { async dispose() { released.push('sampler'); } },
     listeners: new Set(), eventListeners: new Set(), tunerListeners: new Set(),
   });
@@ -438,7 +438,7 @@ for (const stage of ['transition', 'detach']) for (const acknowledgement of ['de
       liveMonitor: { gain: { value: 1 }, disconnect() { calls.push('monitor'); } },
       endpoint: { port: { removeEventListener() {} }, dispose() { calls.push('endpoint'); } },
       recordDestination: { stream: { getTracks: () => [{ stop() { calls.push('recording-track'); } }] }, disconnect() { calls.push('recording-node'); } },
-      tracker: { node: { disconnect() { calls.push('all-output'); } }, async dispose() { calls.push('microphone'); } },
+      tracker: { node: { disconnect() { calls.push('all-output'); } }, async stopListening() { calls.push('microphone'); }, async dispose() { calls.push('tracker'); } },
       sampler: { async dispose() { calls.push('sampler'); } },
       listeners: new Set(), eventListeners: new Set(), tunerListeners: new Set(),
     });
@@ -449,7 +449,7 @@ for (const stage of ['transition', 'detach']) for (const acknowledgement of ['de
       await new Promise(resolve => setImmediate(resolve));
       assert.equal(audio.liveMonitor.gain.value, 0, 'a physical acknowledgement cannot keep live monitoring audible');
       assert.equal(audio.disposed, true);
-      for (const resource of ['recording-track', 'all-output', 'recording-node', 'monitor', 'endpoint', 'sampler', 'microphone'])
+      for (const resource of ['recording-track', 'all-output', 'recording-node', 'monitor', 'sampler', 'microphone'])
         assert(calls.includes(resource), `${resource} must be released before the peripheral acknowledges`);
       assert.equal(settled, false, 'source cleanup uncertainty is retained after local silence');
     } finally {
@@ -457,6 +457,8 @@ for (const stage of ['transition', 'detach']) for (const acknowledgement of ['de
         waiting.resolve(acknowledgement === 'rejected' ? Promise.reject(failure) : undefined);
         if (acknowledgement === 'rejected') await assert.rejects(result, error => error === failure);
         else await result;
+        assert(calls.includes('endpoint'));
+        assert(calls.includes('tracker'));
       }
     }
   });
@@ -667,4 +669,103 @@ test('Drunk Girls loads the complete executable pickup and numbered timeline', a
   assert.equal(song.chart.bars[0].label, 'Pickup 0');
   assert.equal(song.chart.bars[9].label, '1');
   assert.equal(song.practice.endBar, 137);
+});
+
+for (const cleanup of ['normal', 'delayed', 'rejected', 'hung']) test(`actual physical source disposal ${cleanup}`, async () => {
+  const saved = new Map(['window', 'document', 'location', 'history', 'sessionStorage', 'fetch'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
+  const storage = new Map([['show-tools-musical-input-policy', 'native-controls']]);
+  const status = { textContent: '', setAttribute() {} };
+  const events = new EventTarget();
+  const token = 'a'.repeat(64);
+  let nativeCommands;
+  let nativeRouting;
+  let destroyNative = () => {};
+  if (cleanup === 'normal') {
+    const module = await WebAssembly.compile(await readFile(new URL('../wasm/manual-clock.wasm', import.meta.url)));
+    const sources = await Promise.all(['../runtime/beat-worklet.js', '../runtime/performance-worklet.js', '../practice-worklet.ts']
+      .map(async path => (await sourceForVM(new URL(path, import.meta.url))).replace(/^import .*;\n/gm, '').replace(/export class /g, 'class ')));
+    const context = vm.createContext({ NativePerformance, CONTROL_IDS: ['L1', 'L2', 'R1', 'R2'], WebAssembly, module, sampleRate: 8000, currentFrame: 0,
+      Float32Array, Float64Array, DataView, AudioWorkletProcessor: class { port = { postMessage() {} }; }, registerProcessor() {} });
+    vm.runInContext(sources.join('\n') + `
+      globalThis.processor = new PracticeProcessor({ processorOptions: { module, clickGain: 0, practice: { barCount: 4, endBar: 4,
+        program: { lengthBeats: 4, events: [], controls: { leadIn: Object.fromEntries(CONTROL_IDS.map(id => [id, { kind: 'none' }])),
+          bars: Array.from({ length: 4 }, () => Object.fromEntries(CONTROL_IDS.map(id => [id, { kind: 'none' }]))) } } } } });
+      const messages = []; let request = 0;
+      processor.receive({ type: 'performance-connect', port: { start() {}, close() {}, postMessage: value => messages.push(value) } });
+      globalThis.command = (command, payload) => {
+        processor.command({ id: ++request, command, payload });
+        return messages.at(-1);
+      };
+    `, context);
+    nativeCommands = context.command;
+    nativeRouting = () => context.processor.native.inputRouting();
+    destroyNative = () => context.processor.native.dispose();
+  }
+  const calls = [];
+  const waiting = cleanup === 'hung' ? { promise: new Promise(() => {}) } : deferred();
+  let closed = false;
+  const values = {
+    window: events, document: { getElementById: () => status },
+    location: { hash: `#peripheral=${token}`, pathname: '/', search: '' }, history: { replaceState() {} },
+    sessionStorage: { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) },
+    fetch: async (url, options) => {
+      if (String(url).endsWith('/events')) return new Response(new ReadableStream({ start(controller) {
+        options.signal.addEventListener('abort', () => controller.close(), { once: true });
+        controller.enqueue(new TextEncoder().encode(JSON.stringify({ type: 'connected', lease: 'helper-lease', ready: { type: 'ready', version: 2, session: 1, switches: [{ controlId: 'blue', state: 'released' }] } }) + '\n'));
+      } }));
+      calls.push(String(url)); return Response.json({});
+    },
+  };
+  for (const [key, value] of Object.entries(values)) Object.defineProperty(globalThis, key, { configurable: true, value });
+  createMusicalInputPolicy().select('native-controls');
+  const audio = Object.assign(Object.create(PracticeAudio.prototype), {
+    startGeneration: 0, microphoneGeneration: 0, disposed: false, peripheralTransition: Promise.resolve(),
+    detachPeripheral() {}, fail(error) { throw error; },
+    latest: { inputRouting: nativeRouting ? nativeRouting() : { bindingGeneration: 1, sessionHighWatermark: 0, panicMask: 0, producers: [] } },
+    detachState() {}, detachTracker() {},
+    liveMonitor: { gain: { value: 1 }, disconnect() { calls.push('monitor'); } },
+    endpoint: { port: new EventTarget(), async request(command, payload) {
+      if (closed) throw new Error('Endpoint already destroyed');
+      calls.push([command, payload]);
+      if (nativeCommands) assert.equal(nativeCommands(command, payload).ok, true, command);
+      if (command === 'practice.input-revoke' && cleanup !== 'normal') {
+        await waiting.promise;
+        if (cleanup === 'rejected') throw new Error('Physical revoke unconfirmed');
+      }
+    }, dispose() { closed = true; calls.push('endpoint'); } },
+    recordDestination: { stream: { getTracks: () => [{ stop() { calls.push('recording-track'); } }] }, disconnect() { calls.push('recording-node'); } },
+    tracker: { node: { disconnect() { calls.push('all-output'); } }, async stopListening() { calls.push('microphone'); }, async dispose() { calls.push('microphone', 'tracker'); } },
+    sampler: { async dispose() { calls.push('sampler'); } },
+    listeners: new Set(), eventListeners: new Set(), tunerListeners: new Set(),
+  });
+  try {
+    audio.attachPeripheral(); await audio.peripheralReady;
+    assert(calls.some(call => Array.isArray(call) && call[0] === 'practice.input-attach'));
+    if (nativeRouting) assert.equal(nativeRouting().producers.find(producer => producer.kind === 'physical')?.kind, 'physical');
+    let settled = false;
+    const disposed = audio.dispose().finally(() => { settled = true; }); void disposed.catch(() => {});
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(audio.liveMonitor.gain.value, 0);
+    assert(calls.includes('microphone'));
+    await assert.rejects(audio.inputEvent({ kind: 'physical', bindingGeneration: 1, sequence: 1, input: 0, value: 1 }), /disposed/);
+    assert(calls.some(call => Array.isArray(call) && call[0] === 'practice.peripheral-lights' && call[1].enabled === false), 'physical light disable must actually execute');
+    assert(calls.some(call => Array.isArray(call) && call[0] === 'practice.input-revoke'), 'exact physical revoke must actually execute');
+    if (cleanup === 'normal') {
+      await disposed; assert.equal(closed, true);
+      assert.equal(nativeRouting().producers.length, 0, 'real worklet physical lease was revoked before engine destruction');
+    }
+    else {
+      assert.equal(closed, false, 'control endpoint survives until physical cleanup settles');
+      assert.equal(settled, false, 'physical cleanup uncertainty stays pending');
+      if (waiting.resolve) {
+        waiting.resolve();
+        if (cleanup === 'rejected') await assert.rejects(disposed, /Physical revoke unconfirmed/);
+        else await disposed;
+        assert.equal(closed, true);
+      }
+    }
+  } finally {
+    waiting.resolve?.(); destroyNative();
+    for (const [key, descriptor] of saved) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
+  }
 });

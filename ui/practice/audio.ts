@@ -57,6 +57,7 @@ export class PracticeAudio {
   peripheralReady: Promise<void> = Promise.resolve();
   private peripheralTransition: Promise<void> = Promise.resolve();
   private peripheralClosing = false;
+  private peripheralEngineDisposed = false;
   private disposal: Promise<void> | undefined;
   private readonly onInputPolicy = () => { if (!this.disposed && !this.peripheralClosing) this.attachPeripheral(); };
   readonly detachTracker: () => void;
@@ -239,7 +240,15 @@ export class PracticeAudio {
     const transition = this.peripheralTransition.then(async () => {
       await this.detachPeripheral();
       if (this.disposed || this.peripheralClosing) return;
-      const peripheral = connectBrowserPeripheral(this);
+      const audio = this;
+      const peripheral = connectBrowserPeripheral({
+        get disposed() { return audio.peripheralEngineDisposed; },
+        snapshot: () => this.snapshot(),
+        inputAttach: args => this.inputAttach(args),
+        inputEvent: args => this.inputEvent(args),
+        inputRevoke: args => this.endpoint.request('practice.input-revoke', args),
+        endpoint: this.endpoint,
+      });
       this.detachPeripheral = () => peripheral.stop();
       connected = peripheral.ready;
     });
@@ -351,11 +360,17 @@ export class PracticeAudio {
     this.tracker.node.disconnect();
     this.recordDestination.disconnect();
     this.liveMonitor?.disconnect();
-    this.endpoint.dispose();
-    const localCleanup = Promise.all([this.sampler.dispose(), this.tracker.dispose()]);
+    void this.tracker.stopListening().catch(() => {});
+    const localCleanup = this.sampler.dispose();
+    void localCleanup.catch(() => {});
     this.listeners.clear();
     this.tunerListeners.clear();
     this.eventListeners.clear();
-    await Promise.all([localCleanup, peripheralCleanup]);
+    try { await peripheralCleanup; }
+    finally {
+      this.peripheralEngineDisposed = true;
+      this.endpoint.dispose();
+      await Promise.all([localCleanup, this.tracker.dispose()]);
+    }
   }
 }
