@@ -2,7 +2,7 @@
 
 Use this procedure on the EliteDesk as `anulman`. It covers Dance Yrself Clean, Drunk Girls, and Tribulations with two through six physical buttons and the dial.
 
-The web service keeps the desk available. The peripheral service reads the I-PAC and lights held buttons, including when audio is off. **Enable audio** prepares the sampler. **Start** starts the song. These are separate actions.
+The web service keeps the desk available. The peripheral service reads the I-PAC and lights held buttons, including when audio is off. **Enable audio** prepares the sampler. **Start practice** starts the count-in and song. These are separate actions.
 
 ## Find the installed commands
 
@@ -150,10 +150,10 @@ Start with Dance Yrself Clean:
 
 1. Select the song with audio off. Check its saved button assignments and practice range.
 2. Click **Enable audio**. Wait for the ready state. This does not start transport.
-3. Start at a low output level. Check the microphone, processed live sound, click, and playback outputs.
-4. Click **Start**. Perform the first written recording cue with its assigned physical button.
+3. Set a low output level. Ready audio with stopped transport is silent.
+4. Click **Start practice**. During the count-in, check the click and processed microphone sound. Perform the first written recording cue with its assigned physical button. If routing or levels are wrong, click **Stop** before continuing.
 5. Check that the recording button pulses with the beat. Hold it briefly to check that full brightness overrides the pulse.
-6. Release it. Check that the recording pulse resumes. After commit, check playback and its steady LED level.
+6. Release it. Check that the recording pulse resumes. After commit, check playback. The LED becomes steady when its assigned rows are playing and none are recording; a continuing recording keeps the pulse.
 7. Click **Stop**. Check that the takes remain available.
 
 If the short test passes, start the full practice range. Then repeat the short test and full practice for Drunk Girls and Tribulations. To change songs, use **Terminate audio**, select the next song, and enable audio again. Terminate discards the previous song's in-memory takes.
