@@ -1,5 +1,6 @@
 """Protocol fixtures and owned files/children only. No installed checker or host action."""
 import base64
+from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass
 import hashlib
 import importlib.util
@@ -10,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -194,8 +196,17 @@ class FakePreflight:
         return {'target': 'changed' if self.count == self.changed_at else 'unchanged'}
 
 
-class RunnerTests(unittest.TestCase):
+class OwnedFileTests(unittest.TestCase):
     def setUp(self):
+        if not hasattr(os, 'listxattr'):
+            adapter = patch.object(runner.os, 'listxattr', return_value=[], create=True)
+            adapter.start()
+            self.addCleanup(adapter.stop)
+
+
+class RunnerTests(OwnedFileTests):
+    def setUp(self):
+        super().setUp()
         self.request, self.plan_bytes = fixture_request()
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name).resolve()
@@ -375,6 +386,132 @@ class RunnerTests(unittest.TestCase):
             runner.strict_json(b'{"field":1e999}')
         with self.assertRaises((UnicodeError, ValueError)):
             runner.strict_json('{"field":1}'.encode('utf-16'))
+
+
+class PrivateShareTests(OwnedFileTests):
+    def setUp(self):
+        super().setUp()
+        self.temp = tempfile.TemporaryDirectory()
+        self.base = Path(self.temp.name).resolve()
+        self.home = self.base / 'assigned-home'
+        self.home.mkdir(mode=0o700)
+        (self.home / '.local').mkdir(mode=0o755)
+        self.share = self.home / '.local/share'
+        self.share.mkdir(mode=0o775)
+        self.share.chmod(0o775)
+        self.path = self.share / 'data.json'
+        self.path.write_bytes(b'exact reviewed data')
+        self.path.chmod(0o600)
+        self.owner = os.getuid(), os.getgid()
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    @contextmanager
+    def assigned_group(self, *, group_members=(), other_primary=False, other_supplementary=False):
+        uid, gid = self.owner
+        assigned = SimpleNamespace(pw_name='anulman', pw_uid=uid, pw_gid=gid, pw_dir=str(self.home))
+        other = SimpleNamespace(pw_name='other', pw_uid=uid + 1, pw_gid=gid if other_primary else gid + 1, pw_dir='/unrelated')
+        group = SimpleNamespace(gr_name='anulman', gr_gid=gid, gr_mem=group_members)
+        with ExitStack() as stack:
+            stack.enter_context(patch.multiple(runner, ASSIGNED_UID=uid, ASSIGNED_GID=gid,
+                                              ASSIGNED_HOME=self.home, QUALIFIED_SHARE=self.share))
+            stack.enter_context(patch.object(runner.pwd, 'getpwuid', return_value=assigned))
+            stack.enter_context(patch.object(runner.pwd, 'getpwall', return_value=[assigned, other]))
+            stack.enter_context(patch.object(runner.grp, 'getgrgid', return_value=group))
+            groups = stack.enter_context(patch.object(runner.os, 'getgrouplist', side_effect=lambda name, primary:
+                                                      [primary, gid] if name == 'other' and other_supplementary else [primary]))
+            yield groups
+
+    def read(self, path=None):
+        return runner.capture(path or self.path, 1000, self.owner, (0o600,))[0]
+
+    def test_exact_0775_share_with_private_home_and_group_is_read_without_chmod(self):
+        with self.assigned_group() as groups, patch.object(runner.os, 'chmod', side_effect=AssertionError('no chmod')):
+            self.assertEqual(self.read(), b'exact reviewed data')
+            self.assertGreaterEqual(groups.call_count, 4)
+        self.assertEqual(self.share.stat().st_mode & 0o7777, 0o775)
+        self.assertEqual(self.home.stat().st_mode & 0o7777, 0o700)
+
+    def test_shared_primary_supplementary_or_group_members_are_refused(self):
+        for settings in ({'group_members': ('other',)}, {'other_primary': True}, {'other_supplementary': True}):
+            with self.subTest(settings=settings), self.assigned_group(**settings), self.assertRaisesRegex(RuntimeError, 'private|member'):
+                self.read()
+
+    def test_private_group_is_requalified_on_each_capture(self):
+        with self.assigned_group():
+            self.assertEqual(self.read(), b'exact reviewed data')
+        with self.assigned_group(other_supplementary=True), self.assertRaisesRegex(RuntimeError, 'member'):
+            self.read()
+
+    def test_only_literal_share_and_exact_home_and_share_modes_qualify(self):
+        sibling = self.home / '.local/other'
+        sibling.mkdir(mode=0o775); sibling.chmod(0o775)
+        other_file = sibling / 'data.json'; other_file.write_bytes(b'outside exception'); other_file.chmod(0o600)
+        with self.assigned_group(), self.assertRaisesRegex(RuntimeError, 'fixed private-share'):
+            self.read(other_file)
+        for mode in (0o770, 0o777):
+            self.share.chmod(mode)
+            with self.subTest(mode=mode), self.assigned_group(), self.assertRaisesRegex(RuntimeError, 'metadata'):
+                self.read()
+        self.share.chmod(0o775)
+        self.home.chmod(0o755)
+        with self.assigned_group(), self.assertRaisesRegex(RuntimeError, 'private mode0700 barrier'):
+            self.read()
+
+    def test_ledger_keeps_its_frozen_strict_ancestry_rule(self):
+        with self.assigned_group(), patch.object(runner, 'LEDGER', self.path), self.assertRaisesRegex(RuntimeError, 'Ledger ancestry'):
+            self.read()
+
+    def test_home_and_share_acl_or_unavailable_inspection_are_refused(self):
+        inspect = runner.os.listxattr
+        for target in (self.home, self.share):
+            key = target.stat().st_dev, target.stat().st_ino
+            def acl(fd):
+                info = os.fstat(fd)
+                return ['system.posix_acl_access'] if (info.st_dev, info.st_ino) == key else inspect(fd)
+            with self.subTest(target=target), self.assigned_group(), patch.object(runner.os, 'listxattr', side_effect=acl), self.assertRaisesRegex(RuntimeError, 'ACL'):
+                self.read()
+        with self.assigned_group(), patch.object(runner.os, 'listxattr', None), self.assertRaisesRegex(RuntimeError, 'unavailable'):
+            self.read()
+
+    def test_parent_replacement_during_capture_is_not_accepted(self):
+        original_read = os.read
+        moved = self.home / '.local/moved-share'
+        changed = False
+        def replaced(fd, count):
+            nonlocal changed
+            data = original_read(fd, count)
+            if data and not changed:
+                changed = True
+                self.share.rename(moved)
+                self.share.mkdir(mode=0o775); self.share.chmod(0o775)
+            return data
+        with self.assigned_group(), patch.object(runner.os, 'read', side_effect=replaced), self.assertRaisesRegex(RuntimeError, 'ancestor pathname'):
+            self.read()
+
+    def test_archive_revalidation_failure_holds_before_any_checker_call(self):
+        request, _plan = fixture_request()
+        image = SimpleNamespace(archive_metadata=('verified descriptor',),
+                                revalidate_archive=lambda: (_ for _ in ()).throw(RuntimeError('captured archive parent replaced')))
+        evidence = runner.Evidence(self.base / 'admission')
+        checker, executor = FakeChecker(request), FakeExecutor()
+        try:
+            result = runner.stage(request, self.base / 'archive', self.base / 'validator', executor.namespace(), checker,
+                                  runner.HostPreflight(image), evidence)
+        finally:
+            evidence.close()
+        self.assertEqual(result['outcome'], 'blocked-preclaim')
+        self.assertEqual(checker.calls, [])
+        self.assertFalse(executor.published)
+
+    def test_archive_preflight_uses_bound_image_metadata_before_protected_reads(self):
+        called = []
+        image = SimpleNamespace(archive_metadata=('verified descriptor',),
+                                revalidate_archive=lambda: called.append('revalidated') or ('verified descriptor',))
+        with patch.object(runner, 'capture', side_effect=RuntimeError('protected reads reached')), self.assertRaisesRegex(RuntimeError, 'protected reads'):
+            runner.HostPreflight(image).snapshot()
+        self.assertEqual(called, ['revalidated'])
 
 
 class FixedProtocolTests(unittest.TestCase):
