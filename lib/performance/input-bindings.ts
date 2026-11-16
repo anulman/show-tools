@@ -1,13 +1,11 @@
 import { Schema } from 'effect';
-import { CONTROL_IDS } from './model.js';
+import { CONTROL_IDS, PHYSICAL_SWITCH_IDS, INPUT_PRODUCER_KINDS, INPUT_PRODUCER_LIMIT } from './model.js';
+import type { PhysicalSwitchId } from './model.js';
+export { PHYSICAL_SWITCH_IDS, INPUT_PRODUCER_KINDS, INPUT_PRODUCER_LIMIT, INPUT_LIGHT_ID_BASE,
+  INPUT_PACKET_MAGIC, INPUT_BINDING_FIELDS, inputBindingRows, physicalControlLightId } from './model.js';
+export type { PhysicalSwitchId } from './model.js';
 
-export const PhysicalSwitchIdSchema = Schema.Literals(['blue', 'yellow', 'red', 'green', 'pedal', 'mushroom']);
-export type PhysicalSwitchId = typeof PhysicalSwitchIdSchema.Type;
-export const PHYSICAL_SWITCH_IDS = PhysicalSwitchIdSchema.literals;
-export const INPUT_PRODUCER_LIMIT = 32;
-export const INPUT_LIGHT_ID_BASE = 257;
-export const INPUT_PACKET_MAGIC = 0x50464931;
-export const INPUT_BINDING_FIELDS = 3;
+export const PhysicalSwitchIdSchema = Schema.Literals(PHYSICAL_SWITCH_IDS);
 
 const rows = Schema.NonEmptyArray(Schema.Literals(CONTROL_IDS)).check(Schema.isMaxLength(4),
   Schema.makeFilter(values => new Set(values).size === values.length || 'Duplicate cue row'));
@@ -35,25 +33,10 @@ export type InputBinding = typeof InputBindingSchema.Type;
 export type InputBindings = typeof InputBindingsSchema.Type;
 export const decodeInputBindings = Schema.decodeUnknownSync(InputBindingsSchema, { onExcessProperty: 'error' });
 
-export function inputBindingRows(bindings: InputBindings): readonly (readonly [number, number, number])[] {
-  return bindings.map(binding => {
-    const id = PHYSICAL_SWITCH_IDS.indexOf(binding.controlId);
-    switch (binding.target.kind) {
-      case 'cue-rows': return [id, 0, binding.target.rows.reduce((mask, row) => mask | 1 << CONTROL_IDS.indexOf(row), 0)];
-      case 'tempo': return [id, 1, 0];
-      case 'panic': return [id, 2, 0];
-    }
-  });
-}
-export function physicalControlLightId(id: PhysicalSwitchId): number {
-  return INPUT_LIGHT_ID_BASE + PHYSICAL_SWITCH_IDS.indexOf(id);
-}
-
 const identity = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }));
 const producer = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: INPUT_PRODUCER_LIMIT - 1 }));
 const mask = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 255 }));
-export const InputProducerKindSchema = Schema.Literals(['physical', 'keyboard', 'pointer']);
-export const INPUT_PRODUCER_KINDS = InputProducerKindSchema.literals;
+export const InputProducerKindSchema = Schema.Literals(INPUT_PRODUCER_KINDS);
 export const InputAttachSchema = Schema.Struct({ producer, session: identity, bindingGeneration: identity,
   kind: InputProducerKindSchema, releasedMask: mask, heldMask: mask }).check(Schema.makeFilter(value => {
   const allowed = value.kind === 'physical' ? 63 : 223;

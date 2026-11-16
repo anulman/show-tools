@@ -1,4 +1,4 @@
-import { CONTROL_IDS } from './model.js';
+import { CONTROL_IDS, INPUT_PACKET_MAGIC, inputBindingRows } from './model.js';
 import { decodeCompiledSong } from './compiled-song.js';
 import type { CompiledSong } from './compiled-song.js';
 import { PF } from './wasm-abi.js';
@@ -27,7 +27,7 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
   const kinds: Record<CompiledSong['cues'][number]['kind'], number> = { arm: PF.ARM, commit: PF.COMMIT, 'commit-arm': PF.COMMIT_ARM, stop: PF.STOP, play: PF.PLAY };
   const profileRows = song.takes.flatMap((take, index) => take.profile === undefined || take.profile === indexOf(voices, take.voiceId) ? [] : [index, take.profile]);
   const profiles = profileRows.length ? [PF.COMPILED_PROFILES_MAGIC, profileRows.length / PF.COMPILED_PROFILES_FIELDS, ...profileRows] : [];
-  const legacy = !profileRows.length && song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && song.cues.every(cue =>
+  const legacy = song.inputBindings === undefined && !profileRows.length && song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && song.cues.every(cue =>
     !cue.captureReplacement && cue.launchPolicy === 'autoplay' && cue.playbackMode === 'loop' && cue.groupId === null && cue.sourceName === null
     && (cue.execution.kind !== 'beat' || !cue.execution.barOffset));
   const cueFields = legacy ? PF.COMPILED_LEGACY_CUE_FIELDS : PF.COMPILED_CUE_FIELDS;
@@ -63,7 +63,9 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
     ...song.noteBanks.flatMap(bank => bank.notes.flatMap(note => [CONTROL_IDS.indexOf(bank.buttonId), note.slot, note.at.bar, note.at.beat, bank.toleranceMs]))] : [];
   const sustains = song.selections.flatMap((selection, index) => selection.window.kind === 'sustain' ? [index] : []);
   const autoSustains = sustains.length ? [PF.COMPILED_SUSTAIN_MAGIC, sustains.length, ...sustains] : [];
-  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes, ...profiles, ...autoSustains];
+  const inputRows = inputBindingRows(song.inputBindings ?? []);
+  const inputs = song.inputBindings === undefined ? [] : [INPUT_PACKET_MAGIC, inputRows.length, ...inputRows.flat()];
+  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes, ...profiles, ...autoSustains, ...inputs];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
     || cueRows.length !== song.cues.length * cueFields || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
   if (song.meter.denominator !== (song.meter.numerator === 6 ? 8 : 4)) throw new Error('This native build supports 4/4 and 6/8 compiled programs.');
