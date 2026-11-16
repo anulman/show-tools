@@ -7,6 +7,8 @@ on:
       - 'lib/sequencer/**'
       - 'lib/sampler/**'
       - 'lib/beat-tracker/**'
+      - 'lib/patches/**'
+      - 'lib/tuner/**'
       - '.github/workflows/peripherals.yml'
   workflow_dispatch:
 permissions:

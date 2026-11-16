@@ -205,18 +205,26 @@ sys.exit(4 if mode=='nonzero' else 1 if mode=='failed' else 0)
     def test_cancellation_after_pipe_eof_is_promptly_reaped(self):
         cancelled = threading.Event()
         read = os.read
-        eof = []
+        popen = supervisor.subprocess.Popen
+        output_pipes = set()
+        eof = set()
+        def observe_child(*args, **kwargs):
+            child = popen(*args, **kwargs)
+            output_pipes.update((child.stdout.fileno(), child.stderr.fileno()))
+            return child
         def cancel_at_eof(fd, count):
             data = read(fd, count)
-            if not data and stat.S_ISFIFO(os.fstat(fd).st_mode):
-                eof.append(fd)
-                if len(eof) == 2:
+            if not data and fd in output_pipes:
+                eof.add(fd)
+                if eof == output_pipes:
                     cancelled.set()
             return data
         started = time.monotonic()
-        with patch.object(supervisor.os, 'read', side_effect=cancel_at_eof):
+        with patch.object(supervisor.subprocess, 'Popen', side_effect=observe_child), \
+                patch.object(supervisor.os, 'read', side_effect=cancel_at_eof):
             result = self.run_fake('closed-pipes', seconds=10, cancelled=cancelled.is_set)
-        self.assertEqual(len(eof), 2)
+        self.assertEqual(len(output_pipes), 2)
+        self.assertEqual(eof, output_pipes)
         self.assertFalse(result['complete'])
         self.assertIn('cancelled', result['error'])
         self.assertTrue(result['exitConfirmed'])

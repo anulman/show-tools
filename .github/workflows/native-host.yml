@@ -11,6 +11,7 @@ on:
       - 'lib/sampler/**'
       - 'lib/beat-tracker/**'
       - 'lib/patches/**'
+      - 'lib/tuner/**'
       - 'ui/practice/**'
       - 'package.json'
       - 'package-lock.json'
@@ -18,6 +19,8 @@ on:
       - 'scripts/tests/stage-session-release.test.py'
       - 'scripts/build-session-release.ts'
       - 'scripts/session-bundles.ts'
+      - 'scripts/check-focused.ts'
+      - 'scripts/tests/check-focused.test.ts'
       - '.github/workflows/native-host.yml'
   workflow_dispatch:
 
@@ -38,16 +41,26 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes libasound2-dev
-      - name: Build and test the audio device boundary
-        run: |
-          cmake -S lib/native-alsa -B build/native-alsa -DCMAKE_BUILD_TYPE=Release
-          cmake --build build/native-alsa --parallel
-          ctest --test-dir build/native-alsa --output-on-failure
+      - name: Check standalone audio boundary configuration
+        run: cmake -S lib/native-alsa -B build/native-alsa -DCMAKE_BUILD_TYPE=Release
       - name: Build and test the native performance host
         run: |
           cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-host --parallel
           ctest --test-dir build/native-host --output-on-failure
+      - name: Verify parent includes standalone audio tests
+        run: |
+          ctest --test-dir build/native-alsa --show-only=json-v1 > build/alsa-tests.json
+          ctest --test-dir build/native-host --show-only=json-v1 > build/host-tests.json
+          python3 - <<'PYTHON'
+          import json
+          from pathlib import Path
+          def names(path):
+              return {test['name'] for test in json.loads(Path(path).read_text())['tests']}
+          standalone = names('build/alsa-tests.json')
+          assert standalone, 'Standalone audio boundary must register tests'
+          assert standalone <= names('build/host-tests.json'), 'Parent lost standalone audio tests'
+          PYTHON
       - name: Stage Linux host with provenance
         if: runner.os == 'Linux'
         run: |
@@ -84,6 +97,8 @@ jobs:
           cmake -S lib/native-host -B build/native-host -DCMAKE_BUILD_TYPE=Release
           cmake --build build/native-host --target native_fake_host --parallel
       - run: npm run typecheck
+      - name: Test focused check selection
+        run: node --import tsx --test scripts/tests/check-focused.test.ts
       - name: Test release staging without executing release code
         run: python3 scripts/tests/stage-session-release.test.py
       - name: Test remote controls without hardware
