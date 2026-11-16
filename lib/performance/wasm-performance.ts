@@ -4,7 +4,8 @@ import { CONTROL_IDS } from './model.js';
 import type { ChannelId, ChartControls, CompiledTakeState, Control, CueAction, LiveEffectDefinition, LiveEffectsState, VoiceEffectConfiguration, VoiceEffectsState, PracticeEvent, PracticeState, Program, StartOptions, TempoHitState } from './model.js';
 import { PF } from './wasm-abi.js';
 import { PF as LIGHT } from './light-abi.js';
-import { decodeNativeState, decodeNativeTempo, decodeNativeVoices, decodeNativeLiveEffects, decodeNativeEvent, decodeNativeTake } from './native-observation.js';
+import { decodeNativeState, decodeNativeTempo, decodeNativeVoices, decodeNativeLiveEffects, decodeNativeEvent, decodeNativeTake, decodeNativeInputRouting } from './native-observation.js';
+import type { InputAttach, InputEvent, InputRevoke } from './input-bindings.js';
 import { ST } from '../sampler/wasm-abi.js';
 import { decodeTunerState, tunerCommandValues } from '../tuner/observation.js';
 import type { TunerCommand, TuningBankOptions, TuningBankState } from '../tuner/model.js';
@@ -57,7 +58,7 @@ export class NativePerformance {
       this.sampler = sampler = new SampleEngine({ api, sampleRate, maxVoices, maxSeconds, handle: this.call('pf_sampler', this.handle) });
       this.recorder = new SampleRecorder({ sampler, sampleRate, maxSeconds });
       this.sequencer = sequencer = new AudioSequenceEngine({ sampler, beatsPerBar: song.beatsPerBar ?? 4, handle: this.call('pf_sequencer', this.handle) });
-      this.scratch = this.allocate(128 * 8);
+      this.scratch = this.allocate(PF.INPUT_INFO_FIELDS * 8);
       this.trackerPointer = this.allocate(22 * 8);
       this.trackerEventPointer = this.allocate(512 * 12 * 8);
       this.eventPointer = this.allocate(PF.EVENT_CAPACITY * PF.EVENT_FIELDS * 8);
@@ -106,7 +107,7 @@ export class NativePerformance {
   error() { return this.text(this.invoke('pf_error', this.handle)); }
   message(code: number) { return this.text(this.invoke('pf_message', code)); }
   allocate(bytes: number) { const pointer = this.call('malloc', bytes); if (!pointer) throw new Error('Performance WASM memory limit reached'); this.allocations.push(pointer); return pointer; }
-  query(name: string, ...args: number[]) { this.invoke(name, this.handle, ...args, this.scratch); return new Float64Array(this.memory.buffer, this.scratch, 128); }
+  query(name: string, ...args: number[]) { this.invoke(name, this.handle, ...args, this.scratch); return new Float64Array(this.memory.buffer, this.scratch, PF.INPUT_INFO_FIELDS); }
   boolean(value: boolean, name: string) { if (typeof value !== 'boolean') throw new Error(`${name} must be boolean`); return Number(value); }
   channel(id: ChannelId) { const index = CONTROL_IDS.indexOf(id); if (index < 0) throw new Error('Unknown channel'); return index; }
 
@@ -295,6 +296,15 @@ export class NativePerformance {
     this.call('pf_trigger_external', this.handle, slot);
   }
   releaseChannel(id: ChannelId) { this.call('pf_control', this.handle, this.channel(id) + 8, 0, 0, 0); }
+  inputAttach(input: InputAttach) {
+    const kind = input.kind === 'physical' ? PF.INPUT_PHYSICAL : input.kind === 'keyboard' ? PF.INPUT_KEYBOARD : PF.INPUT_POINTER;
+    this.call('pf_input_attach', this.handle, input.producer, input.session, input.bindingGeneration, kind, input.releasedMask, input.heldMask);
+  }
+  inputEvent(input: InputEvent) {
+    this.call('pf_input_event', this.handle, input.producer, input.session, input.bindingGeneration, input.sequence, input.input, input.value);
+  }
+  inputRevoke(input: InputRevoke) { this.call('pf_input_revoke', this.handle, input.producer, input.session); }
+  inputRouting() { return decodeNativeInputRouting(this.query('pf_input_info')); }
 
   selectChannel(id: ChannelId) { this.call('pf_select', this.handle, this.channel(id)); }
   setAutomatic(value: boolean) { this.call('pf_set_automatic', this.handle, this.boolean(value, 'Automatic')); }
@@ -328,7 +338,7 @@ export class NativePerformance {
     return decodeNativeState(data, channels, this.runId, code => this.message(code));
   }
   state(): PracticeState {
-    const state = { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), voiceEffects: this.voiceEffects(), tempoHits: this.tempoHitInfo() };
+    const state = { ...this.decode(Array.from(this.query('pf_snapshot'))), liveEffects: this.liveEffects(), voiceEffects: this.voiceEffects(), tempoHits: this.tempoHitInfo(), inputRouting: this.inputRouting() };
     if (!this.compiledTakeCount) return state;
     const compiledTakes = Array.from({ length: this.compiledTakeCount }, (_, index): CompiledTakeState => {
       return decodeNativeTake(this.query('pf_compiled_take_info', index), index);

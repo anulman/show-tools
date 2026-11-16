@@ -2,6 +2,7 @@
 #define SHOW_TOOLS_COMPILED_PROGRAM_H
 #include "performance_engine.h"
 #include "patch_engine.h"
+#include "input_router.h"
 #include <memory>
 
 namespace compiled {
@@ -27,8 +28,10 @@ class Program {
   void microphone_lost() noexcept;
   int press(int button, double frame, double bpm, bool microphone) noexcept;
   void release(int button) noexcept;
-  void release_current() noexcept;
   int press_current(double frame, double bpm, bool microphone) noexcept;
+  int press_rows(uint32_t rows, uint64_t owner, double frame, double bpm, bool microphone) noexcept;
+  void release_owner(uint64_t owner) noexcept;
+  const performance_input::Binding* input_bindings() const noexcept { return input_bindings_; }
   void beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm) noexcept;
   void render(const float* input, float* left, float* right, float* live_left, float* live_right,
     uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack, patches::Rack& backup_rack) noexcept;
@@ -56,7 +59,8 @@ class Program {
   void clear_error() noexcept { error_ = PF_OK; }
   bool has_capture() const noexcept;
   bool recording() const noexcept { return active_capture_.take >= 0; }
-  bool cue_warning(int end_bar) const noexcept;
+  bool recording_rows(uint32_t rows) const noexcept;
+  bool cue_warning(int end_bar, uint32_t rows = 15) const noexcept;
   const double* table() const noexcept { return table_.get(); }
   uint32_t table_fields() const noexcept { return fields_; }
  private:
@@ -142,6 +146,8 @@ class Program {
   int beats_ = 4, bars_ = 1, end_ = 1, start_ = 1, phase_ = PF_IDLE, bar_ = 0;
   int binding_[PF_CHANNELS]{0, 1, 2, 3}, selection_[PF_CHANNELS]{-1, -1, -1, -1};
   int gated_[PF_CHANNELS]{-1, -1, -1, -1}, held_[PF_CHANNELS]{-1, -1, -1, -1};
+  uint64_t input_owner_[PF_CHANNELS]{};
+  performance_input::Binding input_bindings_[PF_INPUT_SWITCHES];
   bool button_down_[PF_CHANNELS]{};
   bool muted_[PF_CHANNELS]{}, suppressed_[PF_VOICE_PROFILES]{};
   double gain_[PF_CHANNELS]{1, 1, 1, 1};

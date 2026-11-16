@@ -1,6 +1,7 @@
 #include "performance_engine.h"
 #include "patch_engine.h"
 #include "compiled_program.h"
+#include "input_router.h"
 #include "tuner.h"
 #include <cstddef>
 #include <limits>
@@ -60,6 +61,7 @@ struct EffectProfile {
   uint32_t count = 0, revision = 0;
 };
 struct pf_engine {
+  performance_input::Router inputs;
   std::unique_ptr<tuner::Engine> tuning;
   bt_tracker* tracker = nullptr;
   st_engine* sampler = nullptr;
@@ -405,6 +407,8 @@ const char* pf_message(int code) {
     case PF_CAPTURE_EFFECTS_UNAVAILABLE: return "Sample capture with effects is not available in this build. Bypass effects to record samples.";
     case PF_CAPTURE_BUSY: return "Another capture is armed or recording. Finish it before arming this voice.";
     case PF_TAKE_UNAVAILABLE: return "No reusable take bank is available. Wait for playback tails, or stop and prepare effects before recapturing after a venue edit.";
+    case PF_INVALID_INPUT: return "Invalid identified input or producer state";
+    case PF_STALE_INPUT: return "Identified input lease, generation or sequence is stale";
     case PF_CUE_AMBIGUOUS: return "Two cues are equally near this press; no action was applied.";
     case PF_LOOP_MISMATCH: return "The captured period or phase does not match its declared phrase; the previous take is preserved.";
     case PF_TEMPO_REJECTED: return "Tempo hits require active practice and a valid tap interval; playback was not changed.";
@@ -436,7 +440,7 @@ pf_engine* pf_create(double rate, int mode, int voices, double seconds, int beat
     }
     engine->clicks[accent][engine->click_length - 1] = 0;
   }
-  if (!engine->tuning || !engine->tracker || !engine->sampler || !engine->sequencer || !engine->song || !engine->song->cues || !engine->clicks[0] || !engine->clicks[1]) { pf_destroy(engine); return nullptr; }
+  if (!engine->inputs.ready() || !engine->tuning || !engine->tracker || !engine->sampler || !engine->sequencer || !engine->song || !engine->song->cues || !engine->clicks[0] || !engine->clicks[1]) { pf_destroy(engine); return nullptr; }
   return engine;
 }
 void pf_destroy(pf_engine* engine) {
@@ -453,6 +457,7 @@ int pf_configure(pf_engine* engine, double bpm, int beats, int bars, int end, in
   const double* events, int event_count, const double* cues, int cue_count, const double* playback, int playback_count) {
   if (!engine) return -1;
   if (engine->phase == PF_PLAYING || engine->phase == PF_COUNT_IN) return fail(engine, PF_INVALID_PROGRAM, "Stop before configuring a song");
+  if (!engine->inputs.replaceable()) return fail(engine, PF_INVALID_INPUT, "Input generation exhausted; recreate engine");
   if (!std::isfinite(bpm) || bpm < 40 || bpm > 240 || beats != 4 || bars < 1 || bars > PF_MAX_BARS || end < 1 || end > bars || length < 1 || event_count < 0 || event_count > PF_MAX_EVENTS || cue_count < 0 || cue_count > (bars + 1) * 4 || playback_count < 0 || playback_count > PF_MAX_EVENTS || (event_count && !events) || (cue_count && !cues) || (playback_count && !playback)) return fail(engine, PF_INVALID_PROGRAM);
   for (int index = 0; index < event_count; ++index) {
     const double* item = events + index * 3;
@@ -487,12 +492,14 @@ int pf_configure(pf_engine* engine, double bpm, int beats, int bars, int end, in
     std::copy(item + PF_CUE_POSITIONS, item + PF_CUE_POSITIONS + cue.hits, cue.positions);
   }
   engine->compiled.reset();
+  performance_input::Binding unbound[PF_INPUT_SWITCHES]; engine->inputs.replace(unbound);
   delete engine->song; engine->song = song; engine->bpm = bpm; engine->end = end; engine->beats_per_bar = beats;
   engine->error_code = PF_OK; engine->error = "";
   return 0;
 }
 int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields) {
   if (!engine || engine->mode != PF_PRACTICE || running(engine)) return fail(engine, PF_INVALID_PROGRAM, "Stop before loading a compiled song");
+  if (!engine->inputs.replaceable()) return fail(engine, PF_INVALID_INPUT, "Input generation exhausted; recreate engine");
   auto identity = engine->profiles[PF_DEFAULT_PROFILE].rack ? nullptr : patches::Rack::create(nullptr, 0);
   const patches::Rack* definition = engine->profiles[PF_DEFAULT_PROFILE].rack ? engine->profiles[PF_DEFAULT_PROFILE].rack.get() : identity.get();
   if (!definition) return fail(engine, PF_ALLOCATION_FAILED);
@@ -516,6 +523,7 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   prepared->tempo_handler(engine, chart_tempo_hit);
   prepared->jiggle_thresholds(engine->jiggle_travel, engine->jiggle_reversal);
   engine->beats_per_bar = prepared->beats_per_bar(); engine->bpm = prepared->initial_bpm(); engine->end = prepared->end_bar();
+  engine->inputs.replace(prepared->input_bindings());
   delete engine->song; engine->song = song.release(); engine->compiled = std::move(prepared);
   engine->compiled->observe(engine, [](void* context, double when) {
     auto* owner = static_cast<pf_engine*>(context);
@@ -866,7 +874,7 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
     else {
       bool rising = value == 1 && !engine->cue_button_held;
       engine->cue_button_held = value == 1;
-      if (value == 0 && engine->compiled) engine->compiled->release_current();
+      if (value == 0 && engine->compiled) engine->compiled->release_owner(5);
       if (rising && running(engine)) {
         if (engine->compiled) {
           int code = engine->compiled->press_current(engine->processed, engine->bpm, engine->microphone);
@@ -887,7 +895,7 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
   } else if (control >= 16 && control < 80) {
     int code = engine->compiled ? engine->compiled->trigger_external(uint32_t(control - 16)) : PF_INVALID_PROGRAM;
     if (code != PF_OK && code != PF_CUE_LATE) result = fail(engine, code);
-  } else if (control >= 8 && control < 8 + PF_CHANNELS) { if (engine->compiled) engine->compiled->release(control - 8); } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
+  } else if (control >= 8 && control < 8 + PF_CHANNELS) { if (engine->compiled) engine->compiled->release_owner(uint64_t(control - 8 + 1)); } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
   else result = fail(engine, PF_INVALID_CHANNEL);
   if (result >= 0 && command_id) {
     Dedup& item = engine->dedup[engine->dedup_cursor++ % dedup_capacity];
@@ -895,6 +903,80 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
   }
   emit(engine, PF_CONTROL, (control == 5 || control == 7 || control >= 8) ? engine->processed : -1, result >= 0, control, value);
   return result;
+}
+int pf_input_attach(pf_engine* engine, uint32_t slot, double session, double generation,
+  uint32_t kind, uint32_t released, uint32_t held) {
+  if (!engine) return -1;
+  uint64_t previous[8]{};
+  if (auto* producer = engine->inputs.producer(slot)) std::copy(std::begin(producer->ownership), std::end(producer->ownership), previous);
+  const int code = engine->inputs.attach(slot, session, generation, kind, released, held);
+  if (code != PF_OK) return fail(engine, code);
+  if (engine->compiled) for (auto owner : previous) engine->compiled->release_owner(owner);
+  emit(engine, PF_STATE, engine->processed); return accepted(engine);
+}
+int pf_input_is_panic(const pf_engine* engine, uint32_t slot, double session, double generation,
+  double sequence, uint32_t input, double value) {
+  if (!engine || value != 1 || engine->inputs.check(slot, session, generation, sequence, input, value) != PF_OK) return 0;
+  const auto* producer = engine->inputs.producer(slot);
+  if (!(producer->released & (1u << input)) || (producer->held & (1u << input))) return 0;
+  if (producer->kind == PF_INPUT_PHYSICAL) return input < PF_INPUT_SWITCHES && engine->inputs.binding(input).kind == PF_INPUT_PANIC;
+  return input == 4;
+}
+int pf_input_event(pf_engine* engine, uint32_t slot, double session, double generation,
+  double sequence, uint32_t input, double value) {
+  if (!engine) return -1;
+  const int checked = engine->inputs.check(slot, session, generation, sequence, input, value);
+  if (checked != PF_OK) return fail(engine, checked);
+  auto* producer = engine->inputs.producer(slot);
+  const int edge = engine->inputs.observe(slot, session, sequence, input, value);
+  if (edge < 0) return fail(engine, edge == PP_STALE ? PF_STALE_INPUT : PF_INVALID_INPUT);
+  if (edge == PP_RELEASE) {
+    if (engine->compiled) engine->compiled->release_owner(producer->ownership[input]);
+    producer->ownership[input] = 0;
+  } else if (edge == PP_MOVEMENT) return pf_control(engine, 5, value, nullptr, 0);
+  else if (edge == PP_PRESS) {
+    auto target = producer->kind == PF_INPUT_PHYSICAL ? engine->inputs.binding(input)
+      : performance_input::Binding{input < 4 || input == 7 ? PF_INPUT_CUES : input == 4 ? PF_INPUT_PANIC : PF_INPUT_TEMPO,
+        input < 4 ? 1u << input : input == 7 ? 15u : 0u};
+    producer->ownership[input] = engine->inputs.ownership();
+    if (target.kind == PF_INPUT_PANIC) return pf_control(engine, 4, 0, nullptr, 0);
+    if (target.kind == PF_INPUT_TEMPO) return pf_control(engine, 6, 0, nullptr, 0);
+    if (target.kind == PF_INPUT_CUES && running(engine)) {
+      if (engine->compiled) {
+        const int code = engine->compiled->press_rows(target.rows, producer->ownership[input], engine->processed, engine->bpm, engine->microphone);
+        if (code != PF_OK) return fail(engine, code);
+      } else {
+        int first_error = PF_OK;
+        for (int pass = 0; pass < 2; ++pass) for (int button = 0; button < PF_CHANNELS; ++button) {
+          const int kind = current_cue(engine, button).kind;
+          if (!(target.rows & (1u << button)) || kind == PF_NONE || ((kind == PF_COMMIT || kind == PF_COMMIT_ARM) != (pass == 0))) continue;
+          const int result = press(engine, button);
+          emit(engine, PF_CONTROL, engine->processed, result >= 0, button, 0);
+          if (result < 0 && first_error == PF_OK) first_error = engine->error_code;
+        }
+        if (first_error != PF_OK) return fail(engine, first_error);
+      }
+    }
+  }
+  emit(engine, PF_STATE, engine->processed); return accepted(engine);
+}
+int pf_input_revoke(pf_engine* engine, uint32_t slot, double session) {
+  if (!engine) return -1;
+  auto* producer = engine->inputs.producer(slot);
+  if (!producer || !performance_input::identity(session)) return fail(engine, PF_INVALID_INPUT);
+  if (producer->session != session) return fail(engine, PF_STALE_INPUT);
+  if (producer->active && engine->compiled) for (auto owner : producer->ownership) engine->compiled->release_owner(owner);
+  producer->active = false; std::fill(std::begin(producer->ownership), std::end(producer->ownership), 0);
+  emit(engine, PF_STATE, engine->processed); return accepted(engine);
+}
+void pf_input_info(const pf_engine* engine, double* out) {
+  if (!out) return;
+  if (engine) engine->inputs.info(out); else std::fill(out, out + PF_INPUT_INFO_FIELDS, 0);
+}
+int pf_input_inherit(pf_engine* replacement, const pf_engine* previous) {
+  if (!replacement || !previous || replacement == previous || running(replacement)
+    || !replacement->inputs.inherit(previous->inputs)) return fail(replacement, PF_INVALID_INPUT, "Cannot inherit input routing epoch");
+  return accepted(replacement);
 }
 int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
   if (!engine || !integer(id) || id < 0 || !frame(when) || !integer(epoch) || epoch < 0) return fail(engine, PF_ACTION_FAILED, "Invalid clock crossing");
@@ -1079,6 +1161,25 @@ void pf_light_output(pf_engine* engine, double* out) {
     level = .7 * (1 + std::cos(tau * clock[BT_S_PHASE])) / 2;
   } else if (playing) level = .7;
   image[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_LEVEL] = level;
+  uint32_t light_count = 1;
+  for (uint32_t input = 0; input < PF_INPUT_SWITCHES; ++input) {
+    const auto& binding = engine->inputs.binding(input);
+    if (binding.kind != PF_INPUT_CUES) continue;
+    bool recording_rows = engine->compiled && engine->compiled->recording_rows(binding.rows), playing_rows = false;
+    for (int row = 0; row < PF_CHANNELS; ++row) if (binding.rows & (1u << row)) {
+      double channel[PF_CHANNEL_FIELDS]; pf_channel_info(engine, row, channel);
+      recording_rows = recording_rows || (!engine->compiled && recording(engine, row));
+      playing_rows = playing_rows || channel[PF_CHANNEL_LOOPING] != 0;
+    }
+    double physical_level = 0;
+    if (engine->inputs.physical_held(input)) physical_level = 1;
+    else if (recording_rows || (engine->compiled && engine->compiled->cue_warning(engine->end, binding.rows)))
+      physical_level = .7 * (1 + std::cos(6.2831853071795864769 * clock[BT_S_PHASE])) / 2;
+    else if (playing_rows) physical_level = .7;
+    auto* sample = image + PF_LIGHT_SAMPLES + light_count++ * PF_LIGHT_SAMPLE_FIELDS;
+    sample[PF_LIGHT_SAMPLE_ID] = PF_INPUT_LIGHT_BASE + input; sample[PF_LIGHT_SAMPLE_LEVEL] = physical_level;
+  }
+  image[PF_LIGHT_COUNT] = light_count;
   if (engine->light_sequence == 0 || std::memcmp(image, engine->light_image, sizeof(image))) {
     if (engine->light_sequence < safe_frame - 1) ++engine->light_sequence;
     else { engine->light_sequence = safe_frame; std::fill(image + PF_LIGHT_COUNT, image + PF_LIGHT_FIELDS, 0); }
