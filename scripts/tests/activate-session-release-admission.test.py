@@ -361,6 +361,73 @@ class FilesystemTests(unittest.TestCase):
         self.assertIn('profile-retained.json', evidence.items)
         self.assertIn('unit-retained.json', evidence.items)
 
+    def test_terminal_during_prepublication_service_check_leaves_both_targets_old(self):
+        unit, _ = self.configure_fixture()
+        self.runtime.preflight = lambda: {'stablePreclaim': True}
+        self.runtime.failure_snapshot = lambda: {'profile': self.path.read_bytes().decode(), 'unit': unit.read_bytes().decode()}
+        checker = FakeChecker(self.runtime.request)
+        queries = 0
+        def service(active):
+            nonlocal queries
+            queries += 1
+            if queries == 2: checker.call('record', 'uncertain', 'f' * 64)
+            return {'inactive': True}
+        self.runtime.service = service
+        result = runner.execute(self.runtime.request, self.runtime, checker, Evidence(), STATUS, common)
+        self.assertEqual(result['outcome'], 'uncertain')
+        self.assertEqual(self.path.read_bytes(), b'old exact bytes')
+        self.assertEqual(unit.read_bytes(), b'old unit')
+        self.assertIn('terminalRecordWithheld', result)
+        self.assertEqual([value for op, value in checker.calls if op == 'record'], ['running', 'uncertain'])
+
+    def test_terminal_during_last_reload_precheck_prevents_daemon_reload(self):
+        unit, candidate_unit = self.configure_fixture()
+        self.runtime.preflight = lambda: {'stablePreclaim': True}
+        self.runtime.failure_snapshot = lambda: {'observed': True}
+        checker, commands = FakeChecker(self.runtime.request), []
+        queries = 0
+        def service(active):
+            nonlocal queries
+            queries += 1
+            if queries == 5: checker.call('record', 'uncertain', 'f' * 64)
+            return {'inactive': True}
+        self.runtime.service = service
+        self.runtime.command = lambda argv: commands.append(argv) or ''
+        result = runner.execute(self.runtime.request, self.runtime, checker, Evidence(), STATUS, common)
+        self.assertEqual(result['outcome'], 'uncertain')
+        self.assertEqual(self.path.read_bytes(), self.candidate.read_bytes())
+        self.assertEqual(unit.read_bytes(), candidate_unit.read_bytes())
+        self.assertEqual(commands, [])
+
+    def test_terminal_during_last_stop_precheck_prevents_stop_command(self):
+        self.configure_fixture()
+        req, _ = request('stop-old-web')
+        self.runtime.request, self.runtime.kind = req, 'stop-old-web'
+        self.runtime.preflight = lambda: {'stablePreclaim': True}
+        self.runtime.failure_snapshot = lambda: {'observed': True}
+        self.runtime.ensure_off = lambda: {'audio': {'kind': 'off'}}
+        checker, commands = FakeChecker(req), []
+        queries = 0
+        def service(active):
+            nonlocal queries
+            queries += 1
+            if queries == 2: checker.call('record', 'uncertain', 'f' * 64)
+            return {'active': True}
+        self.runtime.service = service
+        self.runtime.command = lambda argv, seconds=15: commands.append(argv) or ''
+        result = runner.execute(req, self.runtime, checker, Evidence(), STATUS, common)
+        self.assertEqual(result['outcome'], 'uncertain')
+        self.assertEqual(commands, [])
+        self.assertEqual(self.path.read_bytes(), b'old exact bytes')
+
+    def test_stale_final_inspection_prevents_temporary_creation(self):
+        with patch.object(runner.time, 'monotonic', side_effect=[0, 6]):
+            with self.assertRaisesRegex(RuntimeError, 'freshness'):
+                self.runtime.replace(self.path, runner.sha(self.path.read_bytes()), self.candidate,
+                                     runner.sha(self.candidate.read_bytes()), 'profile', lambda: None, Evidence())
+        self.assertEqual(self.path.read_bytes(), b'old exact bytes')
+        self.assertFalse((self.root / '.show-tools-activation-fixture-001-profile').exists())
+
     def test_initialization_refuses_existing_database_or_sidecar(self):
         database = self.root / 'bindings.sqlite'
         with patch.object(runner, 'DATABASE', database):

@@ -128,9 +128,11 @@ class Request:
 
 
 def claim_barrier(request, checker, owned_claim, running, status_module, common):
+    started = time.monotonic()
     inspected = checker.call('inspect')
     rows = checker.request_rows()
     status_module['active_request'](request, rows, inspected, owned_claim, running, common)
+    require(time.monotonic() - started <= 5, 'Latest request inspection exceeded its freshness budget')
     return inspected
 
 
@@ -217,7 +219,7 @@ class Runtime:
         return data, info
 
     def command(self, argv, seconds=15):
-        if self.effect_barrier is not None and argv[0] == CLI_PREFIX[0]: self.effect_barrier()
+        if self.effect_barrier is not None and argv[0] == CLI_PREFIX[0]: self.latest_inspection(self.effect_barrier)
         return self.common['bounded_process'](argv, seconds=seconds, cap=1048576).decode('utf-8')
 
     def service(self, active):
@@ -359,8 +361,8 @@ class Runtime:
         return result
 
     def ensure_off(self):
-        if self.effect_barrier is not None: self.effect_barrier()
         profile, _ = self.capture(PROFILE, self.pending_profile)
+        if self.effect_barrier is not None: self.latest_inspection(self.effect_barrier)
         status = self.status['read_status'](self.common, profile)
         audio = status.get('audio', {})
         require((audio.get('kind') if isinstance(audio, dict) else None) == 'off'
@@ -371,6 +373,14 @@ class Runtime:
         return {'profile': self.capture(PROFILE, self.pending_profile)[1],
                 'unit': self.capture(UNIT, self.pending_unit)[1]}
 
+    def latest_inspection(self, barrier, managed=None):
+        started = time.monotonic()
+        barrier()
+        if managed is not None:
+            for label, path in (('profile', PROFILE), ('unit', UNIT)):
+                require(self.common['metadata'](path.lstat()) == managed[label], 'Managed state changed after prechecks')
+        require(time.monotonic() - started <= 5, 'Effect inspection exceeded its freshness budget')
+
     def replace(self, path, old_digest, candidate, new_digest, label, barrier, evidence):
         old, before = self.capture(path, old_digest)
         new, _ = self.capture(candidate, new_digest)
@@ -379,9 +389,9 @@ class Runtime:
         name = '.show-tools-' + self.request.pins['requestId'] + '-' + label
         try:
             parent = fds[-1]
-            barrier()
-            self.managed_state()
             self.service(False)
+            managed = self.managed_state()
+            self.latest_inspection(barrier, managed)
             fd = os.open(name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600, dir_fd=parent)
             try:
                 remaining = memoryview(new)
@@ -390,12 +400,13 @@ class Runtime:
                 os.fsync(fd)
                 temporary_info = self.common['metadata'](os.fstat(fd))
             finally: os.close(fd)
-            barrier()
             require(self.capture(path.parent / name, new_digest)[1] == temporary_info, 'Publication temporary changed')
             self.managed_state()
             self.service(False)
             require(self.capture(path, old_digest)[1] == before, 'Managed target changed before replacement')
             self.common['check_parent_paths'](path, fds, OWNER)
+            managed = self.managed_state()
+            self.latest_inspection(barrier, managed)
             os.rename(name, path.name, src_dir_fd=parent, dst_dir_fd=parent)
             os.fsync(parent)
             require(self.capture(path, new_digest)[0] == new, 'Replacement readback differs')
@@ -405,11 +416,12 @@ class Runtime:
             for fd in reversed(fds): os.close(fd)
 
     def sync(self, path, *, directory=False):
-        if self.effect_barrier is not None: self.effect_barrier()
         before = self.metadata(path, directory=directory)
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC | (os.O_DIRECTORY if directory else 0))
         try:
-            require(self.common['metadata'](os.fstat(fd)) == before, 'Durability object changed'); os.fsync(fd)
+            require(self.common['metadata'](os.fstat(fd)) == before, 'Durability object changed')
+            if self.effect_barrier is not None: self.latest_inspection(self.effect_barrier)
+            os.fsync(fd)
         finally: os.close(fd)
         require(self.metadata(path, directory=directory) == before, 'Durability pathname changed')
 
@@ -432,8 +444,10 @@ class Runtime:
         self.effect_barrier = barrier
         self.preserved = {'protected': self.protected(), 'persistence': self.persistence(), 'credentials': self.credential_metadata()}
         if self.kind == 'stop-old-web':
-            before = self.service(True); view = self.ensure_off(); barrier()
+            before = self.service(True); view = self.ensure_off()
             require(self.service(True) == before, 'Named server changed before stop')
+            managed = self.managed_state()
+            self.latest_inspection(barrier, managed)
             self.command(['/usr/bin/systemctl', '--user', 'stop', 'show-tools-web.service'], seconds=30)
             self.service(False)
             self.result = {'authenticatedBeforeStop': view, 'stopped': True}
@@ -442,7 +456,9 @@ class Runtime:
             self.pending_profile = NEW_PROFILE
             second = self.replace(UNIT, OLD_UNIT, self.candidate_unit, NEW_UNIT, 'unit', barrier, evidence)
             self.pending_unit = NEW_UNIT
-            barrier(); self.managed_state(); self.service(False)
+            self.service(False)
+            managed = self.managed_state()
+            self.latest_inspection(barrier, managed)
             self.command(['/usr/bin/systemctl', '--user', 'daemon-reload'])
             self.result = {'replaced': [first, second], 'daemonReloaded': True}
         elif self.kind == 'start-v2-web':
@@ -457,9 +473,10 @@ class Runtime:
                            'runtimeVersions': self.common['strict_json'](versions), 'sqliteSidecarsAfterCommit': 'absent'}
         else:
             self.service(True); self.ensure_off(); self.verify_db(DATABASE)
-            barrier()
             fds = self.common['open_parent'](BACKUPS, OWNER)
             try:
+                managed = self.managed_state()
+                self.latest_inspection(barrier, managed)
                 try: os.mkdir(BACKUPS.name, 0o700, dir_fd=fds[-1]); os.fsync(fds[-1])
                 except FileExistsError: pass
             finally:
