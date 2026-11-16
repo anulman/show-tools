@@ -416,6 +416,8 @@ For the full Drunk Girls pickup/capture regression, run `node --import tsx scrip
 
 ### Verify identified hardware and browser inputs
 
+Run `node --import tsx verification/physical-controls/verify.ts` for the source-fenced six-control and four-output finite domain, actual recording/playback feedback witnesses and eight actual-source mutation checks. See [its bounds](../verification/physical-controls/README.md) before interpreting the result. This command opens no hardware and does not establish installed readiness or spinner telemetry.
+
 Run `node --import tsx --test lib/performance/tests/input-routing.test.ts` for canonical MusicXML bindings, strict installation/music separation and exact native routing readback. Build fresh WASM, then run `lib/performance/tests/physical-input-wasm.test.ts` and `ui/practice/tests/musical-input-policy.test.ts` through the same test command. The native `physical_input` target covers admitted and queued held ownership, failed admission, source-specific release, atomic replacement and producer fences.
 
 Build the current fake host and set `NATIVE_FAKE_HOST` to its absolute executable before running `lib/peripherals/tests/bridge-integration.test.ts` and `lib/peripherals/tests/managed-runtime.test.ts`. Run `ui/practice/tests/browser-peripheral.test.ts` for stop, pagehide and policy changes during every attachment stage. These use owned synthetic processes and loopback sockets. They leave live services and devices untouched.
