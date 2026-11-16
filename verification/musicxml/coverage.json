@@ -15,7 +15,9 @@
     "lib/performance/sheet-cues.ts": "cfa9be2836e483a24aa42becfbe6a92cedd445475b91a9c2373a05425d0c8574",
     "lib/performance/external-assets.ts": "80910da673940d5cc43e2ad3b84674278334487cbd37f23b89ceb754232b7141",
     "lib/performance/input-bindings.ts": "c2e46f4b821efa766c29415921aba0072394880c1567ebef573dabed84dd69ac",
-    "lib/performance/model.ts": "53bc8d0cf433ea2f51e144375f6a4ee6d07c44b3d8380d042c1e8457f7d36371"
+    "lib/performance/model.ts": "53bc8d0cf433ea2f51e144375f6a4ee6d07c44b3d8380d042c1e8457f7d36371",
+    "lib/performance/compiled-native.ts": "bae65ea9f609d2f922738df9672e199cbdca36d338424b57d94aa0d44ec2a5f0",
+    "lib/performance/wasm-abi.ts": "13c22c8e005b40138ca196759f7ae5f9642a3e14534d203fdb97c7d211e486d3"
   },
-  "scope": "Finite grammar actual TypeScript MusicXML semantic verification; source changes require review and rerun before advancing this record."
+  "scope": "Finite grammar actual TypeScript MusicXML semantic and explicit native binding-table verification; source changes require review and rerun before advancing this record."
 }

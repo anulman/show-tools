@@ -38,6 +38,40 @@ export function* bindingCases(): Generator<{ id: string; bindings: InputBindings
   }
 }
 
+export const fullSetupBindingGrammar = {
+  controls: bindingGrammar.controls,
+  lengths: [3, 4, 5, 6],
+  targets: [
+    { kind: 'cue-rows', rows: ['L1'] },
+    { kind: 'cue-rows', rows: ['L2'] },
+    { kind: 'cue-rows', rows: ['R1'] },
+    { kind: 'cue-rows', rows: ['R2'] },
+    { kind: 'tempo' },
+    { kind: 'panic' },
+  ] satisfies InputBinding['target'][],
+};
+function* permutations<T>(values: readonly T[]): Generator<T[]> {
+  if (!values.length) { yield []; return; }
+  for (const [index, value] of values.entries()) {
+    for (const rest of permutations(values.filter((_, other) => other !== index))) yield [value, ...rest];
+  }
+}
+export function* fullSetupBindingCases(): Generator<{ id: string; bindings: InputBindings }> {
+  const seen = new Set<string>();
+  for (const controls of permutations(fullSetupBindingGrammar.controls)) {
+    const full = controls.map((controlId, index) => ({ controlId, target: fullSetupBindingGrammar.targets[index] }));
+    for (const length of fullSetupBindingGrammar.lengths) {
+      const bindings = full.slice(0, length), id = JSON.stringify(bindings);
+      if (!seen.has(id)) { seen.add(id); yield { id, bindings }; }
+    }
+  }
+  const representative = fullSetupBindingGrammar.controls.map((controlId, index) => ({ controlId, target: fullSetupBindingGrammar.targets[index] }));
+  for (const length of fullSetupBindingGrammar.lengths) for (const bindings of permutations(representative.slice(0, length))) {
+    const id = JSON.stringify(bindings);
+    if (!seen.has(id)) { seen.add(id); yield { id, bindings }; }
+  }
+}
+
 export const grammar = {
   meters: [{ numerator: 4, denominator: 4 }, { numerator: 6, denominator: 8 }],
   barCounts: [1, 2, 3],

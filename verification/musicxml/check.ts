@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict';
+import { compiledProgramBytes } from '../../lib/performance/compiled-native.js';
+import { CONTROL_IDS, PHYSICAL_SWITCH_IDS } from '../../lib/performance/model.js';
+import { PF } from '../../lib/performance/wasm-abi.js';
 import { createHash } from 'node:crypto';
 import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
 import { compileMusicXmlSong, readMusicXmlSong, writeMusicXmlSong, type MusicXmlSong } from '../../lib/performance/musicxml-song.js';
-import { bindingCases, bindingGrammar, grammar, scoreCases, scoreInput, voiceCatalog, type ScoreCase } from './domain.js';
+import { bindingCases, bindingGrammar, fullSetupBindingCases, fullSetupBindingGrammar, grammar, scoreCases, scoreInput, voiceCatalog, type ScoreCase } from './domain.js';
 
 function withoutArchive(xml: string, field: string): string {
   const pattern = new RegExp(`<miscellaneous-field name="show-tools:${field}">[^]*?<\\/miscellaneous-field>`);
@@ -114,6 +117,44 @@ async function inputBindingWitness() {
   return { grammar: bindingGrammar, cases: ids.size, accepted, rejected, archiveChecks };
 }
 
+async function fullSetupBindingWitness() {
+  const example = scoreCases().next().value;
+  assert(example, 'NONEMPTY_GRAMMAR');
+  const input = scoreInput(example), ids = new Set<string>(), digests = new Set<string>();
+  const counts = new Map<number, number>();
+  for (const candidate of fullSetupBindingCases()) {
+    assert(!ids.has(candidate.id), 'DUPLICATE_FULL_SETUP_BINDING_CASE'); ids.add(candidate.id);
+    counts.set(candidate.bindings.length, (counts.get(candidate.bindings.length) ?? 0) + 1);
+    const imported = await importSheetMusicXml({ source: input.source, mapping: { ...input.mapping, inputBindings: candidate.bindings } });
+    const standalone = await readMusicXmlSong(archives(imported.xml, 'neither'));
+    assert.deepEqual(standalone.song.inputBindings, candidate.bindings, 'INPUT_BINDING_MEANING');
+    assert.equal(standalone.source, null, 'FULL_SETUP_SOURCE_ARCHIVE_ABSENT');
+    assert.equal(standalone.mapping, null, 'FULL_SETUP_MAPPING_ARCHIVE_ABSENT');
+    const rewrittenXml = await writeMusicXmlSong(writeInput(standalone));
+    assert.equal(await writeMusicXmlSong(writeInput(standalone)), rewrittenXml, 'FULL_SETUP_DETERMINISTIC_WRITE');
+    const rewritten = await readMusicXmlSong(rewrittenXml);
+    assert.deepEqual(meaning(rewritten), meaning(standalone), 'FULL_SETUP_ROUNDTRIP');
+    assert.deepEqual(await compileMusicXmlSong(rewrittenXml), standalone.song, 'FULL_SETUP_COMPILER_ENTRYPOINT');
+    assert(!digests.has(standalone.song.source.digest), 'INPUT_BINDING_SEMANTIC_IDENTITY'); digests.add(standalone.song.source.digest);
+    const expected = [PF.INPUT_MAGIC, candidate.bindings.length, ...candidate.bindings.flatMap(binding => [
+      PHYSICAL_SWITCH_IDS.indexOf(binding.controlId),
+      binding.target.kind === 'cue-rows' ? PF.INPUT_CUES : binding.target.kind === 'tempo' ? PF.INPUT_TEMPO : PF.INPUT_PANIC,
+      binding.target.kind === 'cue-rows' ? binding.target.rows.reduce((mask, row) => mask | 1 << CONTROL_IDS.indexOf(row), 0) : 0,
+    ])];
+    const bytes = compiledProgramBytes(standalone.song), view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    const emptyBytes = compiledProgramBytes({ ...standalone.song, inputBindings: [] });
+    const begin = emptyBytes.length - 2 * Float64Array.BYTES_PER_ELEMENT;
+    assert.equal(bytes.length, begin + expected.length * Float64Array.BYTES_PER_ELEMENT, 'NATIVE_BINDING_TABLE');
+    assert.deepEqual(bytes.slice(0, begin), emptyBytes.slice(0, begin), 'NATIVE_BINDING_PREFIX_UNCHANGED');
+    assert.deepEqual(expected.map((_, index) => view.getFloat64(begin + index * Float64Array.BYTES_PER_ELEMENT, true)), expected, 'NATIVE_BINDING_TABLE');
+    assert.deepEqual(compiledProgramBytes(rewritten.song), bytes, 'FULL_SETUP_NATIVE_ROUNDTRIP');
+  }
+  assert.equal(ids.size, 2786, 'FULL_SETUP_BINDING_CARDINALITY');
+  assert.deepEqual([...counts], [[3, 125], [4, 383], [5, 839], [6, 1439]], 'FULL_SETUP_LENGTH_CARDINALITY');
+  return { grammar: fullSetupBindingGrammar, cases: ids.size, casesByLength: Object.fromEntries(counts), archiveFreeRoundtrips: ids.size,
+    distinctDigests: digests.size, nativeBindingTables: ids.size };
+}
+
 async function witness(property: string): Promise<void> {
   const example = scoreCases().next().value;
   assert(example, 'NONEMPTY_GRAMMAR');
@@ -122,6 +163,7 @@ async function witness(property: string): Promise<void> {
   else if (property === 'voices') await voiceDigests(await readMusicXmlSong(imported.xml));
   else if (property === 'labels') await pickupTimelineWitness();
   else if (property === 'bindings' || property === 'binding-identity') await inputBindingWitness();
+  else if (property === 'full-bindings') await fullSetupBindingWitness();
   else throw new Error('Unknown witness property');
 }
 
@@ -184,14 +226,15 @@ async function verifyDomain() {
   assert.equal(roundtrips, canonicalCount); assert.equal(displayRejections, canonicalCount); assert.equal(archiveChecks, canonicalCount);
   await pickupTimelineWitness();
   const inputBindings = await inputBindingWitness();
+  const fullSetupInputBindings = await fullSetupBindingWitness();
   return { status: 'PASS-bounded-exhaustive-musicxml', grammar, scoreCases: scoreCount, canonicalCases: canonicalCount, supplementalTimelineWitnesses: 1,
-    roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks, inputBindings,
+    roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks, inputBindings, fullSetupInputBindings,
     caseFingerprint: fingerprint.digest('hex'), scope: 'Finite grammar through actual TypeScript implementation, not arbitrary XML or an unbounded proof.' };
 }
 
 if (process.argv[2] === '--witness') {
   const property = process.argv[3];
-  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : property === 'bindings' ? 'INPUT_BINDING_MEANING' : property === 'binding-identity' ? 'INPUT_BINDING_SEMANTIC_IDENTITY' : null;
+  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : property === 'bindings' ? 'INPUT_BINDING_MEANING' : property === 'binding-identity' ? 'INPUT_BINDING_SEMANTIC_IDENTITY' : property === 'full-bindings' ? 'NATIVE_BINDING_TABLE' : null;
   try {
     await witness(property);
     process.stdout.write(JSON.stringify({ status: 'PASS-witness', property }) + '\n');
@@ -201,6 +244,6 @@ if (process.argv[2] === '--witness') {
     process.exitCode = 1;
   }
 } else {
-  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels|bindings|binding-identity');
+  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels|bindings|binding-identity|full-bindings');
   process.stdout.write(JSON.stringify(await verifyDomain()) + '\n');
 }
