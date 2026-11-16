@@ -6,11 +6,16 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
-import { liveEventLines, PeripheralRetry } from '../bridge.js';
+import { decodePeripheralInputMap, liveEventLines, PeripheralRetry } from '../bridge.js';
 import { peripheralFingerprint, peripheralPresent, servePeripheral } from '../managed-runtime.js';
 import { renderPeripheralUnit } from '../service-unit.js';
 import { PersistentDesk } from '../../remote-performance/controller.js';
 import { installedPackage, sessionProfile, until } from '../../remote-performance/tests/session-fixture.js';
+
+const inputMap = decodePeripheralInputMap({
+  sources: [{ kind: 'linux', id: 'synthetic', interfaceNumber: 2, eventTypes: [0, 1], keyCodes: [41], relativeAxes: [] }],
+  switches: [{ controlId: 'blue', sourceId: 'synthetic', type: 1, code: 41 }], leds: [], confirmWiring: false,
+});
 
 test('identity presence follows fresh paths and holds on ambiguous devices', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'peripheral-presence-'));
@@ -46,7 +51,7 @@ test('normal off/device waits use only status; cancellation leaves no child or a
 		await writeFile(join(directory, 'token'), 'a'.repeat(32), { mode: 0o600 });
 		server.listen(0, '127.0.0.1'); await once(server, 'listening');
 		const address = server.address(); assert.ok(address && typeof address !== 'string');
-		const running = servePeripheral({ version: 1, origin: `http://127.0.0.1:${address.port}`, tokenFile: join(directory, 'token'), helperExecutable: '/nonexistent-helper', sdkChannel: 0, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal, { retryMs: 5, present: async () => { presenceChecks++; return false; }, report: () => {} });
+		const running = servePeripheral({ version: 2, origin: `http://127.0.0.1:${address.port}`, tokenFile: join(directory, 'token'), helperExecutable: '/nonexistent-helper', inputMap, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal, { retryMs: 5, present: async () => { presenceChecks++; return false; }, report: () => {} });
 		await until(() => paths.length >= 3 || undefined);
 		abort.abort(); await running;
 		assert.ok(paths.every(path => path === '/api/status'));
@@ -62,7 +67,7 @@ test('auth faults hold instead of reconnecting or starting a helper', async () =
 		await writeFile(join(directory, 'token'), 'a'.repeat(32), { mode: 0o600 });
 		server.listen(0, '127.0.0.1'); await once(server, 'listening');
 		const address = server.address(); assert.ok(address && typeof address !== 'string');
-		await assert.rejects(servePeripheral({ version: 1, origin: `http://127.0.0.1:${address.port}`, tokenFile: join(directory, 'token'), helperExecutable: '/nonexistent-helper', sdkChannel: 0, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, new AbortController().signal), /401/);
+		await assert.rejects(servePeripheral({ version: 2, origin: `http://127.0.0.1:${address.port}`, tokenFile: join(directory, 'token'), helperExecutable: '/nonexistent-helper', inputMap, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, new AbortController().signal), /401/);
 	} finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -86,7 +91,7 @@ const record = value => fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify
 record({type:'start'});
 process.on('exit', () => record({type:'exit'}));
 if (fs.readFileSync(${JSON.stringify(stageFile)}, 'utf8') !== '3') process.exit(1);
-process.stdout.write(JSON.stringify({type:'ready',version:1,session,released:true}) + '\\n');
+process.stdout.write(JSON.stringify({type:'ready',version:2,session,switches:[{controlId:'blue',state:'released'}]}) + '\\n');
 record({type:'ready'});
 const timer = setInterval(() => { if (fs.existsSync(${JSON.stringify(disconnect)})) { fs.unlinkSync(${JSON.stringify(disconnect)}); process.stdout.write(JSON.stringify({type:'detached',session})+'\\n'); clearInterval(timer); } }, 5);
 rl.createInterface({input:process.stdin}).on('line', line => { record({type:'command',line}); if (line === 'quit') process.exit(0); });
@@ -108,7 +113,7 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		server.listen(0, '127.0.0.1'); await once(server, 'listening');
 		const address = server.address(); assert.ok(address && typeof address !== 'string'); config.origin = `http://127.0.0.1:${address.port}`;
 		let present = false;
-		running = servePeripheral({ version: 1, origin: config.origin, tokenFile, helperExecutable: helper, sdkChannel: 0, bindingRevision: 1, jiggle: null }, abort.signal, { present: async () => present, fingerprint: () => readFile(stageFile, 'utf8'), retryMs: 10, report: () => {} });
+		running = servePeripheral({ version: 2, origin: config.origin, tokenFile, helperExecutable: helper, inputMap, bindingRevision: 1, jiggle: null }, abort.signal, { present: async () => present, fingerprint: () => readFile(stageFile, 'utf8'), retryMs: 10, report: () => {} });
 		await new Promise(resolve => setTimeout(resolve, 50)); assert.equal((await records()).length, 0, 'absent hardware never starts a child');
 		present = true;
 		for (let stage = 0; stage < 3; stage++) {

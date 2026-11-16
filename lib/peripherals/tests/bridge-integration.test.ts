@@ -4,20 +4,32 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
-import { runPeripheralBridge } from '../bridge.js';
+import { decodePeripheralInputMap, peripheralHelperArgs, runPeripheralBridge } from '../bridge.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
 import { PersistentDesk } from '../../remote-performance/controller.js';
 import { createGateway } from '../../remote-performance/gateway.js';
 import type { DeskController, DeskPublication } from '../../remote-performance/session-schema.js';
 import { installedPackage, sessionProfile, until } from '../../remote-performance/tests/session-fixture.js';
 
-const level = (image: readonly number[]) => image[LIGHT.LIGHT_SAMPLES + LIGHT.LIGHT_SAMPLE_LEVEL];
+const level = (image: readonly number[]) => {
+  for (let index = 0; index < image[LIGHT.LIGHT_COUNT]; index++) {
+    const offset = LIGHT.LIGHT_SAMPLES + index * LIGHT.LIGHT_SAMPLE_FIELDS;
+    if (image[offset + LIGHT.LIGHT_SAMPLE_ID] === 257) return image[offset + LIGHT.LIGHT_SAMPLE_LEVEL];
+  }
+  return 0;
+};
+const inputMap = decodePeripheralInputMap({
+  sources: [{ kind: 'linux', id: 'keys', interfaceNumber: 2, eventTypes: [0, 1], keyCodes: [41], relativeAxes: [] },
+    { kind: 'linux', id: 'motion', interfaceNumber: 3, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] }],
+  switches: [{ controlId: 'blue', sourceId: 'keys', type: 1, code: 41 }],
+  axis: { sourceId: 'motion', type: 2, code: 1 }, leds: [], confirmWiring: false,
+});
 
-const attachments: readonly { playing: boolean; buttonKey?: 'tab' | 'escape'; disabled?: boolean; gap?: boolean }[] = [
-  { playing: false }, { playing: false, buttonKey: 'tab' }, { playing: true, buttonKey: 'escape' },
-  { playing: true, buttonKey: 'escape', disabled: true }, { playing: true, buttonKey: 'escape', disabled: true, gap: true },
+const attachments: readonly { playing: boolean; disabled?: boolean; gap?: boolean }[] = [
+  { playing: false }, { playing: true },
+  { playing: true, disabled: true }, { playing: true, disabled: true, gap: true },
 ];
-for (const { playing, buttonKey, disabled = false, gap = false } of attachments) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with ${buttonKey ?? 'default'} key${disabled ? ' and musical knob disabled' : ''} and ${gap ? 'publication gap' : 'abort'} clears native held state and helper output`, { timeout: 20000 }, async () => {
+for (const { playing, disabled = false, gap = false } of attachments) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with an explicit Blue map${disabled ? ' and musical knob disabled' : ''} and ${gap ? 'publication gap' : 'abort'} clears native held state and helper output`, { timeout: 20000 }, async () => {
   await stat(resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'));
   const directory = await mkdtemp(join(tmpdir(), 'pb-'));
   const tokenFile = join(directory, 'token');
@@ -32,10 +44,10 @@ const log = ${JSON.stringify(log)};
 const record = value => fs.appendFileSync(log, JSON.stringify(value) + String.fromCharCode(10));
 const session = Number(process.argv[2]);
 record({ type: 'ready', args: process.argv.slice(3) });
-process.stdout.write(JSON.stringify({ type: 'ready', version: 1, session, released: true }) + String.fromCharCode(10));
+process.stdout.write(JSON.stringify({ type: 'ready', version: 2, session, switches: [{ controlId: 'blue', state: 'released' }] }) + String.fromCharCode(10));
 process.stdout.write(JSON.stringify({ type: 'motion', session, sequence: 1, deltaY: 8 }) + String.fromCharCode(10));
 process.stdout.write(JSON.stringify({ type: 'motion', session, sequence: 2, deltaY: -5 }) + String.fromCharCode(10));
-process.stdout.write(JSON.stringify({ type: 'button', session, sequence: 3, down: true }) + String.fromCharCode(10));
+process.stdout.write(JSON.stringify({ type: 'button', controlId: 'blue', session, sequence: 3, down: true }) + String.fromCharCode(10));
 readline.createInterface({ input: process.stdin }).on('line', line => {
   record({ type: 'command', line });
   if (line === 'quit') process.exit(0);
@@ -43,7 +55,10 @@ readline.createInterface({ input: process.stdin }).on('line', line => {
 process.on('exit', code => record({ type: 'exit', code }));
 `);
   await chmod(helper, 0o700);
-  const controller = new PersistentDesk(sessionProfile(directory), installedPackage().installed);
+  const canonical = installedPackage().installed.song.compiled;
+  assert.ok(canonical);
+  const controller = new PersistentDesk(sessionProfile(directory), installedPackage({ ...canonical,
+    inputBindings: [{ controlId: 'blue', target: { kind: 'cue-rows', rows: ['L1', 'L2', 'R1', 'R2'] } }] }).installed);
   const abort = new AbortController();
   const commands: unknown[] = [];
   let lifecycleChanges = 0;
@@ -82,8 +97,8 @@ process.on('exit', code => record({ type: 'exit', code }));
     assert.ok(address && typeof address !== 'string');
     const base = `http://127.0.0.1:${address.port}`;
     gatewayConfig.origin = base;
-    running = runPeripheralBridge({ version: 1, origin: base, tokenFile, helperExecutable: helper,
-      sdkChannel: 0, bindingRevision: 1, ...(buttonKey ? { buttonKey } : {}), jiggle: disabled ? null : { minimumTravel: 4, minimumReversal: 2 } }, abort.signal);
+    running = runPeripheralBridge({ version: 2, origin: base, tokenFile, helperExecutable: helper,
+      inputMap, bindingRevision: 1, jiggle: disabled ? null : { minimumTravel: 4, minimumReversal: 2 } }, abort.signal);
     let bridgeFailure: unknown;
     const settled = running.then(() => ({ ok: true }), error => { bridgeFailure = error; return { ok: false, error }; });
     await until(() => {
@@ -99,16 +114,20 @@ process.on('exit', code => record({ type: 'exit', code }));
       await new Promise(resolve => setTimeout(resolve, 10));
     }
     assert.equal(helperSawFull, true, 'the helper receives the engine-authored full brightness image');
+    const generation = initial.performance.state.inputRouting?.bindingGeneration;
+    assert.ok(generation);
+    const source = { producer: 0, session: 1, bindingGeneration: generation };
     const expected = [
       ...(!disabled ? [{ command: 'configureJiggle', args: { minimumTravel: 4, minimumReversal: 2 } }] : []),
-      { command: 'control', args: { control: { id: 'cueButton', value: 0 } } },
-      ...(!disabled ? [{ command: 'control', args: { control: { id: 'knob', value: 8 } } }, { command: 'control', args: { control: { id: 'knob', value: -5 } } }] : []),
-      { command: 'control', args: { control: { id: 'cueButton', value: 1 } } },
+      { command: 'inputAttach', args: { ...source, kind: 'physical', releasedMask: 1, heldMask: 0 } },
+      ...(!disabled ? [{ command: 'inputEvent', args: { ...source, sequence: 1, input: 6, value: 8 } },
+        { command: 'inputEvent', args: { ...source, sequence: 2, input: 6, value: -5 } }] : []),
+      { command: 'inputEvent', args: { ...source, sequence: 3, input: 0, value: 1 } },
     ];
-    assert.deepEqual(commands, expected, 'disabled motion sends neither jiggle configuration nor knob commands; object configuration retains ordered motion');
+    assert.deepEqual(commands, expected, 'physical identities retain ordered observations while the gateway assigns the lease');
     const firstRecord = (await records())[0];
     assert.equal(firstRecord.type, 'ready');
-    assert.deepEqual(firstRecord.args, ['0', '--confirm-wiring', ...(buttonKey ? ['--button-key', buttonKey] : [])], 'omitted key preserves helper argv; explicit key uses the reviewed trailing flag');
+    assert.deepEqual(firstRecord.args, peripheralHelperArgs(1, inputMap).slice(1), 'the helper receives only explicit installation facts');
     if (gap) {
       for (let count = 0; count < 100 && (await records()).filter(entry => entry.line?.startsWith('light ')).length < 2; count++) await new Promise(resolve => setTimeout(resolve, 10));
       assert.ok((await records()).filter(entry => entry.line?.startsWith('light ')).length >= 2, 'event stream attached before gap');
@@ -123,10 +142,11 @@ process.on('exit', code => record({ type: 'exit', code }));
     assert.equal(final.attempt, initial.attempt);
     assert.equal(final.performance.state.runId, beforeBridge.performance.state.runId);
     assert.equal(final.performance.state.phase, playing ? 'playing' : 'idle');
-    assert.equal(level(final.performance.lights), 0, 'fresh cleanup request releases native held state after the main signal aborts');
+    assert.ok(level(final.performance.lights) < 1, 'source revocation removes held brightness without stopping the transport');
+    assert.equal(final.performance.state.inputRouting?.producers.length, 0);
     assert.equal(lifecycleChanges, 0, 'attaching and aborting never change the audio lifecycle');
     assert.equal(commands.length, expected.length + 1);
-    assert.deepEqual(commands.at(-1), { command: 'control', args: { control: { id: 'cueButton', value: 0 } } });
+    assert.deepEqual(commands.at(-1), { command: 'inputRevoke', args: { producer: 0, session: 1 } });
     const history = await records();
     assert.ok(history.some(entry => entry.line === 'clear'));
     assert.ok(history.some(entry => entry.line === 'quit'));

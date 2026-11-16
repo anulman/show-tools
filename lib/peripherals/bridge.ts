@@ -6,33 +6,84 @@ import { request as httpsRequest } from 'node:https';
 import type { Readable } from 'node:stream';
 import { Schema } from 'effect';
 import { decodeDeskBootstrap, decodeDeskPublication, decodeNativeOutcome, DeskViewSchema, type NativePerformance, type NativeTarget } from '../remote-performance/session-schema.js';
-import type { Control } from '../performance/model.js';
+import { PHYSICAL_SWITCH_IDS } from '../performance/model.js';
+import { decodeBrowserInput, physicalReadyMasks, type HelperInput, type HelperReady } from './browser-protocol.js';
 import { DESK_HEARTBEAT_MS, DESK_STREAM_IDLE_MS } from '../remote-performance/event-liveness.js';
 import { ConnectAddressSchema, connectionOptions } from '../remote-performance/connection-options.js';
 
 const integer = (minimum: number, maximum = Number.MAX_SAFE_INTEGER) => Schema.Int.check(Schema.isBetween({ minimum, maximum }));
 const path = Schema.NonEmptyString.check(Schema.isPattern(/^\//));
+const physical = Schema.Literals(PHYSICAL_SWITCH_IDS);
+const sourceId = Schema.NonEmptyString.check(Schema.isMaxLength(32), Schema.isPattern(/^[A-Za-z0-9_-]+$/));
+const capabilities = Schema.Array(integer(0, 65535)).check(Schema.isMaxLength(1024),
+	Schema.makeFilter(values => values.every((value, index) => index === 0 || value > values[index - 1]) || 'Capabilities must be sorted and unique'));
+const selector = Schema.Union([
+	Schema.Struct({ kind: Schema.Literal('linux'), id: sourceId, interfaceNumber: integer(0, 255), eventTypes: capabilities, keyCodes: capabilities, relativeAxes: capabilities }),
+	Schema.Struct({ kind: Schema.Literal('hid'), id: sourceId, interfaceNumber: integer(0, 255), usagePage: integer(1, 65535), usage: integer(1, 65535) }),
+]);
+const rawInput = { sourceId, type: integer(0, 65535), code: integer(0, 65535) };
+export const PeripheralInputMapSchema = Schema.Struct({
+	sources: Schema.NonEmptyArray(selector).check(Schema.isMaxLength(8)),
+	switches: Schema.Array(Schema.Struct({ controlId: physical, ...rawInput })).check(Schema.isMaxLength(6)),
+	axis: Schema.optionalKey(Schema.Struct(rawInput)),
+	leds: Schema.Array(Schema.Struct({ controlId: physical, sdkChannel: integer(0, 95) })).check(Schema.isMaxLength(6)),
+	confirmWiring: Schema.Boolean,
+}).check(Schema.makeFilter(map => {
+	if ((!map.switches.length && !map.axis) || (map.leds.length && !map.confirmWiring)) return 'Require explicit inputs and confirmed LED wiring when mapped';
+	if (new Set(map.sources.map(value => value.id)).size !== map.sources.length) return 'Duplicate source ID';
+	if (new Set(map.sources.map(value => value.kind)).size !== 1) return 'A map belongs to one host platform';
+	const signatures = map.sources.map(value => value.kind === 'linux'
+		? JSON.stringify([value.interfaceNumber, value.eventTypes, value.keyCodes, value.relativeAxes])
+		: JSON.stringify([value.interfaceNumber, value.usagePage, value.usage]));
+	if (new Set(signatures).size !== signatures.length) return 'Duplicate source selector';
+	if (new Set(map.switches.map(value => value.controlId)).size !== map.switches.length) return 'Duplicate physical switch';
+	if (new Set(map.leds.map(value => value.controlId)).size !== map.leds.length || new Set(map.leds.map(value => value.sdkChannel)).size !== map.leds.length) return 'Duplicate LED identity or SDK channel';
+	const inputs = [...map.switches.map(value => ({ ...value, axis: false })), ...(map.axis ? [{ ...map.axis, axis: true }] : [])];
+	if (new Set(inputs.map(value => JSON.stringify([value.sourceId, value.type, value.code]))).size !== inputs.length) return 'Raw inputs cannot alias physical controls';
+	const used = new Set<string>();
+	for (const input of inputs) {
+		const source = map.sources.find(value => value.id === input.sourceId);
+		if (!source) return 'Input source is not declared';
+		used.add(source.id);
+		if (source.kind === 'linux') {
+			if (input.type !== (input.axis ? 2 : 1) || !source.eventTypes.includes(input.type)
+				|| !(input.axis ? source.relativeAxes : source.keyCodes).includes(input.code)) return 'Input is absent from Linux capabilities';
+		} else if (!input.type || !input.code) return 'HID element usages must be positive';
+	}
+	return used.size === map.sources.length || 'Every source must supply an input';
+}));
+export type PeripheralInputMap = typeof PeripheralInputMapSchema.Type;
+export const decodePeripheralInputMap = Schema.decodeUnknownSync(PeripheralInputMapSchema, { onExcessProperty: 'error' });
 export const PeripheralBridgeConfigSchema = Schema.Struct({
-	version: Schema.Literal(1), origin: Schema.NonEmptyString,
+	version: Schema.Literal(2), origin: Schema.NonEmptyString,
 	connectAddress: Schema.optionalKey(ConnectAddressSchema),
 	tokenFile: path, caFile: Schema.optionalKey(path), helperExecutable: path,
-	sdkChannel: integer(0, 95), bindingRevision: integer(1),
-	buttonKey: Schema.optionalKey(Schema.Literals(['tab', 'escape'])),
+	inputMap: PeripheralInputMapSchema, bindingRevision: integer(1),
 	jiggle: Schema.Union([Schema.Null, Schema.Struct({ minimumTravel: integer(1, 32767), minimumReversal: integer(1, 32767) })
 		.check(Schema.makeFilter(value => value.minimumReversal <= value.minimumTravel || 'Reversal threshold exceeds travel threshold'))]),
 });
 export type PeripheralBridgeConfig = typeof PeripheralBridgeConfigSchema.Type;
 export const decodePeripheralBridgeConfig = Schema.decodeUnknownSync(PeripheralBridgeConfigSchema, { onExcessProperty: 'error' });
-const helperInput = Schema.Union([
-	Schema.Struct({ type: Schema.Literal('ready'), version: Schema.Literal(1), session: integer(1), released: Schema.Boolean }),
-	Schema.Struct({ type: Schema.Literal('button'), session: integer(1), sequence: integer(1), down: Schema.Boolean }),
-	Schema.Struct({ type: Schema.Literal('motion'), session: integer(1), sequence: integer(1), deltaY: Schema.Int.check(Schema.isBetween({ minimum: -32768, maximum: 32767 })) }),
-	Schema.Struct({ type: Schema.Literal('detached'), session: integer(1) }),
-	Schema.Struct({ type: Schema.Literal('delivered'), publication: integer(1) }),
-]);
-const decodeInput = Schema.decodeUnknownSync(helperInput, { onExcessProperty: 'error' });
-type HelperInput = typeof helperInput.Type;
+const decodeInput = decodeBrowserInput;
 const decodeView = Schema.decodeUnknownSync(DeskViewSchema);
+
+export function peripheralHelperArgs(session: number, map: PeripheralInputMap): string[] {
+	const args = [String(session), '--map-version', '2'];
+	const list = (values: readonly number[]) => values.length ? values.join(',') : '-';
+	for (const source of map.sources) args.push(...(source.kind === 'linux'
+		? ['--linux-source', source.id, String(source.interfaceNumber), list(source.eventTypes), list(source.keyCodes), list(source.relativeAxes)]
+		: ['--hid-source', source.id, String(source.interfaceNumber), String(source.usagePage), String(source.usage)]));
+	for (const input of map.switches) args.push('--switch', input.controlId, input.sourceId, String(input.type), String(input.code));
+	if (map.axis) args.push('--axis', 'knob', map.axis.sourceId, String(map.axis.type), String(map.axis.code));
+	for (const led of map.leds) args.push('--led', led.controlId, String(led.sdkChannel));
+	if (map.confirmWiring) args.push('--confirm-wiring');
+	return args;
+}
+export function validateHelperReady(ready: HelperReady, map: PeripheralInputMap): void {
+	const expected = new Set(map.switches.map(value => value.controlId));
+	if (expected.size !== ready.switches.length || ready.switches.some(value => !expected.has(value.controlId)))
+		throw new Error('Helper ready switches differ from the configured physical map');
+}
 
 export async function* boundedLines(input: Readable, maximum: number) {
 	let pending = Buffer.alloc(0);
@@ -49,15 +100,17 @@ export async function* boundedLines(input: Readable, maximum: number) {
 	if (pending.length) throw new Error('Peripheral stream ended with an incomplete line');
 }
 
+export interface PhysicalInputEvent { readonly sequence: number; readonly input: number; readonly value: number }
 export class PeripheralRelay {
 	private ready = false;
 	private lastSequence = 0;
-	private pending: Control[] = [];
+	private pending: PhysicalInputEvent[] = [];
+	private switches = new Set<string>();
 	private pumping = false;
 	private closed = false;
 	private idle: Promise<void> = Promise.resolve();
 	private enabled = false;
-	constructor(private readonly session: number, private readonly send: (control: Control) => Promise<void>, private readonly failed: (error: unknown) => void, private readonly knobEnabled = true) {}
+	constructor(private readonly session: number, private readonly send: (event: PhysicalInputEvent) => Promise<void>, private readonly failed: (error: unknown) => void, private readonly knobEnabled = true) {}
 	input(value: unknown) {
 		if (this.closed) return;
 		const input = decodeInput(value);
@@ -66,17 +119,21 @@ export class PeripheralRelay {
 		if (input.type === 'detached') throw new PeripheralRetry('I-PAC disconnected');
 		if (input.type === 'ready') {
 			if (this.ready) throw new Error('Duplicate peripheral attachment');
+			this.switches = new Set(input.switches.map(value => value.controlId));
 			this.ready = true; return;
 		}
 		if (!this.ready || input.sequence <= this.lastSequence) throw new Error('Peripheral input sequence is stale');
 		this.lastSequence = input.sequence;
 		if (input.type === 'motion' && (input.deltaY === 0 || !this.knobEnabled)) return;
-		const control: Control = input.type === 'button' ? { id: 'cueButton', value: input.down ? 1 : 0 } : { id: 'knob', value: input.deltaY };
+		if (input.type === 'button' && !this.switches.has(input.controlId)) throw new Error('Unconfigured physical switch');
+		const control: PhysicalInputEvent = { sequence: input.sequence,
+			input: input.type === 'button' ? PHYSICAL_SWITCH_IDS.indexOf(input.controlId) : 6,
+			value: input.type === 'button' ? Number(input.down) : input.deltaY };
 		const previous = this.pending.at(-1);
-		if (control.id === 'knob' && previous?.id === 'knob' && Math.sign(control.value) === Math.sign(previous.value)) {
+		if (control.input === 6 && previous?.input === 6 && Math.sign(control.value) === Math.sign(previous.value)) {
 			const distance = previous.value + control.value;
 			if (Math.abs(distance) > 1_000_000) throw new Error('Peripheral motion backlog overflow');
-			this.pending[this.pending.length - 1] = { id: 'knob', value: distance };
+			this.pending[this.pending.length - 1] = { ...control, value: distance };
 		}
 		else this.pending.push(control);
 		if (this.pending.length > 16) throw new Error('Peripheral input queue overflow; reconnect after releasing the button');
@@ -159,50 +216,64 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	signal.throwIfAborted();
 	const abort = new AbortController();
 	const combined = AbortSignal.any([signal, abort.signal]);
-	const link = await connection(config, combined);
+	const link = await connection(config, abort.signal);
 	const bootstrap = decodeDeskBootstrap(await link.json('/api/session'));
+	signal.throwIfAborted();
 	const audio = bootstrap.view.audio;
 	if (audio.kind !== 'ready') throw new PeripheralRetry('Enable hardware audio in the desk before connecting the I-PAC');
 	const target: NativeTarget = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
+	const bindingGeneration = audio.performance.state.inputRouting?.bindingGeneration;
+	if (bindingGeneration === undefined) throw new Error('Native input routing is unavailable; update the engine before connecting');
 	const session = randomBytes(6).readUIntBE(0, 6) + 1;
 	const incarnation = randomBytes(6).readUIntBE(0, 6) + 1;
 	const fence = 1;
 	const tuple = `${incarnation} ${session} ${config.bindingRevision} ${fence}`;
-	const child = spawn(config.helperExecutable, [String(session), String(config.sdkChannel), '--confirm-wiring', ...(config.buttonKey ? ['--button-key', config.buttonKey] : [])], { stdio: ['pipe', 'pipe', 'inherit'] });
+	const child = spawn(config.helperExecutable, peripheralHelperArgs(session, config.inputMap), { stdio: ['pipe', 'pipe', 'inherit'] });
 	let commandSequence = 0, stopped = false, attached = false, releaseRequired = false;
 	let failure: unknown;
 	let finishing = false;
 	let finish: () => void = () => {};
 	const done = new Promise<void>(resolve => { finish = resolve; });
-	let ready: (attached: boolean) => void = () => {};
-	const attachment = new Promise<boolean>(resolve => { ready = resolve; });
+	let ready: (initial: HelperReady | undefined) => void = () => {};
+	const attachment = new Promise<HelperReady | undefined>(resolve => { ready = resolve; });
 	const fail = (error: unknown) => { if (!stopped && !finishing) { finishing = true; failure = error; finish(); } };
 	const write = (line: string) => {
 		if (!child.stdin.writable || child.stdin.writableLength > 32768) throw new Error('Peripheral output queue is blocked');
 		child.stdin.write(`${line}\n`);
 	};
-	const send = async (control: Control) => {
+	const send = async (event: PhysicalInputEvent) => {
 		const result = decodeNativeOutcome(await link.json('/api/command', {
-			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'control', args: { control },
+			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputEvent', args: { kind: 'physical', bindingGeneration, ...event },
 		}));
 		if (result.outcome !== 'applied') {
 			if (result.outcome === 'unknown') throw new PeripheralRetry('Peripheral control outcome unknown; this input will not be replayed');
-			if (control.id === 'cueButton' && control.value === 0) throw new Error('Native button release rejected');
-			process.stderr.write(`${JSON.stringify({ type: 'control-rejected', control, error: result.error })}\n`);
+			if (event.input !== 6 && event.value === 0) throw new Error('Native button release rejected');
+			process.stderr.write(`${JSON.stringify({ type: 'input-rejected', event, error: result.error })}\n`);
 			return;
 		}
 		if (result.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed');
 	};
 	const relay = new PeripheralRelay(session, send, fail, config.jiggle !== null);
+	let revocation: Promise<void> | undefined;
+	const revokeInput = () => revocation ??= (async () => {
+		const cleanup = await connection(config, AbortSignal.timeout(3000));
+		const result = decodeNativeOutcome(await cleanup.json('/api/command', {
+			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputRevoke', args: { kind: 'physical' },
+		}));
+		if (result.outcome !== 'applied') throw new Error('Native source revocation was not acknowledged');
+		releaseRequired = false;
+	})();
 	const light = (performance: NativePerformance) => {
+		if (performance.state.inputRouting?.bindingGeneration !== bindingGeneration) throw new PeripheralRetry('Song input bindings changed; reconnect the physical source');
 		if (attached) write(`light ${tuple} ${performance.lights.join(' ')}`);
 	};
 	const startupTimeout = setTimeout(() => fail(new Error('Peripheral helper did not qualify within 3 seconds; inspect device access')), 3000);
 	const helper = (async () => {
 		for await (const line of boundedLines(child.stdout, 8192)) {
 			const input: HelperInput = decodeInput(JSON.parse(line));
+			if (input.type === 'motion' && !config.inputMap.axis) throw new Error('Unconfigured physical axis');
 			relay.input(input);
-			if (input.type === 'ready') { clearTimeout(startupTimeout); attached = true; write(`bind ${tuple}`); ready(true); }
+			if (input.type === 'ready') { validateHelperReady(input, config.inputMap); clearTimeout(startupTimeout); attached = true; write(`bind ${tuple}`); ready(input); }
 		}
 	})().catch(fail);
 	child.once('error', fail);
@@ -211,7 +282,8 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	combined.addEventListener('abort', finish, { once: true });
 	if (combined.aborted) finish();
 	const stream = (async () => {
-		if (!await attachment || stopped) return;
+		const initial = await attachment;
+		if (!initial || stopped) return;
 		if (config.jiggle !== null) {
 			const configured = decodeNativeOutcome(await link.json('/api/command', {
 				sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'configureJiggle', args: config.jiggle,
@@ -220,7 +292,11 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 			if (configured.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed during jiggle setup');
 		}
 		releaseRequired = true;
-		await send({ id: 'cueButton', value: 0 });
+		const admission = decodeNativeOutcome(await link.json('/api/command', {
+			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputAttach',
+			args: { kind: 'physical', bindingGeneration, ...physicalReadyMasks(initial) },
+		}));
+		if (admission.outcome !== 'applied' || admission.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Physical input admission was not acknowledged');
 		relay.start();
 		const fresh = decodeView(await link.json('/api/status'));
 		if (fresh.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted during I-PAC attachment');
@@ -232,7 +308,11 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 			if (!line.startsWith('data: ')) continue;
 			if (line.length > 8 * 1024 * 1024) throw new Error('Peripheral publication is oversized');
 			const event = decodeDeskPublication(JSON.parse(line.slice(6)));
-			if (event.type === 'gap') throw new PeripheralRetry('Native publication gap');
+			if (event.type === 'gap') {
+				await relay.close();
+				await revokeInput();
+				throw new PeripheralRetry('Native publication gap');
+			}
 			if (event.type === 'event') continue;
 			if (event.type === 'desk') {
 				if (event.view.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted');
@@ -249,20 +329,13 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	})().catch(fail);
 	try { await done; }
 	finally {
-		stopped = true; clearTimeout(startupTimeout); ready(false); const drained = relay.close();
+		stopped = true; clearTimeout(startupTimeout); ready(undefined); const drained = relay.close();
 		if (attached && child.stdin.writable) child.stdin.end('clear\nquit\n');
 		else child.stdin.end();
 		await drained;
 		try {
-			if (releaseRequired) {
-				const cleanup = await connection(config, AbortSignal.timeout(3000));
-				const session = decodeDeskBootstrap(await cleanup.json('/api/session'));
-				const result = decodeNativeOutcome(await cleanup.json('/api/command', {
-					sessionId: session.sessionId, sequence: 1, target, command: 'control', args: { control: { id: 'cueButton', value: 0 } },
-			}));
-			if (result.outcome !== 'applied') throw new Error('Native release was not acknowledged');
-			}
-		} catch (error) { process.stderr.write(`I-PAC disconnected; native release unconfirmed: ${error instanceof Error ? error.message : String(error)}\n`); }
+			if (releaseRequired) await revokeInput();
+		} catch (error) { process.stderr.write(`I-PAC disconnected; source revocation unconfirmed: ${error instanceof Error ? error.message : String(error)}\n`); }
 		abort.abort();
 		const terminate = setTimeout(() => child.kill('SIGTERM'), 1000);
 		const kill = setTimeout(() => child.kill('SIGKILL'), 2000);
