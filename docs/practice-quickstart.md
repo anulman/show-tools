@@ -37,6 +37,26 @@ hardware() { test -n "$PRACTICE_RELEASE" || return 1; "$PRACTICE_RELEASE/bin/sho
 
 If discovery reports an error, stop here. The commands below require the matched V2 release and its installed user services. An older global `show-tools` command does not identify this release.
 
+## Install the peripheral service once
+
+Skip this step after the peripheral service has been installed. Its initial installation must run locally as `anulman`, without `sudo`. The existing remote web-deployment grant does not enable this separate service.
+
+The deployment supplies a reviewed installation packet for the exact installed release. Run:
+
+```sh
+PRACTICE_BOOTSTRAP=$(python3 - "$PRACTICE_RELEASE/release.json" <<'PY'
+import json, pathlib, re, sys
+p = json.loads(pathlib.Path(sys.argv[1]).read_text())
+r = p.get('sourceRevision', '')
+if p.get('schemaVersion') != 2 or not re.fullmatch('[0-9a-f]{40}', r):
+    raise SystemExit('A reviewed V2 release is required.')
+print('/home/anulman/.local/share/show-tools/staging/peripheral-service-' + r[:7] + '-' + r[:7])
+PY
+) && /bin/sh "$PRACTICE_BOOTSTRAP/OPERATOR-COMMAND.txt"
+```
+
+The command verifies the pinned installer and packet, then installs, enables, and starts only `show-tools-peripheral.service`. It writes no input map and opens no USB or audio device. The service waits for the capture step below. If the packet is missing, deployment is incomplete. If a peripheral profile already exists, preserve it and skip this initial-install path.
+
 ## Check the services before touching the controls
 
 ```sh
@@ -59,7 +79,7 @@ If a song is running, click **Stop** first. Terminating audio discards all recor
 
 ```sh
 practice audio off
-hardware --start
+hardware --start --stop-performance
 ```
 
 Follow the foreground prompts:
@@ -71,9 +91,11 @@ Follow the foreground prompts:
 5. Enter each button's actual LED output number, or `none` for a button without an LED. The confirmed current wiring is Blue on output `1` and Yellow on output `2`.
 6. Confirm the listed wiring only after checking the actual connections and polarity.
 
-The setup tool captures actual input codes. It does not derive codes from header labels such as `2SW7`. It stops only the named peripheral service, saves the complete validated map, and starts the service after a successful save. Wait for the terminal to report completion before starting another command.
+The setup tool captures actual input codes. It does not derive codes from header labels such as `2SW7`. `--stop-performance` explicitly authorizes stopping the web service and discarding any remaining takes. The tool verifies that its owned processes have exited before capture. This also prevents a browser from enabling audio during the save.
 
-To add buttons later, rerun `hardware --start` and include every connected identity you want to retain. Two buttons are enough to complete setup. Do not enter six until six separate identities are connected.
+Setup stops the named peripheral service, saves the complete validated map, and starts it after a successful save. It restores a previously active web service after cleanup. On cancellation or failure, read the diagnostic before restarting services. Wait for the terminal to report completion before starting another command.
+
+To add buttons later, rerun `hardware --start --stop-performance` and include every connected identity you want to retain. Two buttons are enough to complete setup. Do not enter six until six separate identities are connected.
 
 ## Check the LEDs with audio off
 
@@ -90,7 +112,7 @@ The test asks you to observe real LEDs. A successful capture or active service d
 Keep audio off. Run:
 
 ```sh
-hardware --dial --direction clockwise --capture-seconds 5 \
+hardware --dial --stop-performance --direction clockwise --capture-seconds 5 \
     --jiggle-travel 4 --jiggle-reversal 2
 ```
 
@@ -137,6 +159,8 @@ Start with Dance Yrself Clean:
 If the short test passes, start the full practice range. Then repeat the short test and full practice for Drunk Girls and Tribulations. To change songs, use **Terminate audio**, select the next song, and enable audio again. Terminate discards the previous song's in-memory takes.
 
 For Drunk Girls, check the eight-bar pickup loop before the later sustained-sample passages. For Tribulations, check replacement guitar layers and the prepared tambourine sample. Musical cues come from the canonical chart. A missed play or stop remains missed. Only authored commit operations auto-complete.
+
+To use Tribulations' phone tambourine, open the same hardware desk on the phone, select **Enable shake** for its displayed voice, and grant motion permission. Test during that voice's written playing window. Stop disables shake input; enable it again before the next run. Phone motion and audible playback require a physical check on that phone.
 
 During a song, any configured button with an LED still reaches full brightness while held, including an unassigned musical button. Release restores the sequenced level. Recording pulses take priority over the playing level, which is at most 70%.
 
@@ -201,6 +225,7 @@ This backup contains per-song button bindings and chart source hashes. It exclud
 | V2 profile or installed command is missing | Complete the matched release deployment. Do not substitute the old global CLI. |
 | `songs list` lacks a practice song | Check the deployed catalog. Do not substitute an unapproved effects file to make a package load. |
 | Setup rejects the service unit | Install the reviewed unit for this release and profile. Do not run a second USB reader. |
+| Setup was cancelled and the web service is stopped | Run `practice start`, then inspect `hardware --status`. Rerun capture if no configuration was saved. |
 | Capture reports no complete pairs | Release every button. Rerun capture and wait for `ARMED` before pressing the named button three times. |
 | Two buttons produce the same identity | Capture and configure distinct board key assignments before mapping them to different song actions. |
 | Capture works, but an LED stays dark | Check the saved output association, LED supply, wiring, and peripheral journal. Do not infer an enable-mask or firmware change. |
@@ -211,3 +236,32 @@ This backup contains per-song button bindings and chart source hashes. It exclud
 | The browser disconnects | Reconnect to the same desk. A disconnected browser does not stop native audio. Check status before starting or restarting anything. |
 
 Physical readiness requires observed button pairs, visible held and released LEDs, dial capture, microphone capture, and audible playback on the EliteDesk. Synthetic tests alone do not establish those results.
+
+## How a press reaches the instrument
+
+The peripheral service reads the physical button:
+
+```mermaid
+flowchart LR
+    button[Button] --> peripheral[Peripheral service]
+```
+
+That service also owns held-button lighting. This path works with audio off:
+
+```mermaid
+flowchart LR
+    button[Button] --> peripheral[Peripheral service]
+    peripheral --> led[LED]
+```
+
+When audio is enabled, the service also forwards the press to the C++ engine. The engine decides which chart cues are eligible and supplies the recording or playback light level:
+
+```mermaid
+flowchart LR
+    button[Button] --> peripheral[Peripheral service]
+    peripheral --> led[LED]
+    peripheral -->|Audio enabled| engine[C++ engine]
+    engine -->|Sequenced light level| peripheral
+```
+
+The held press overrides that level at full brightness. Release reveals the engine's current level again. The web page sends controls and displays state; closing the page does not stop the native performance.
