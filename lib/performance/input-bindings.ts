@@ -45,7 +45,7 @@ export const InputAttachSchema = Schema.Struct({ producer, session: identity, bi
 }));
 export const InputEventSchema = Schema.Struct({ producer, session: identity, bindingGeneration: identity,
   sequence: identity, input: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 7 })),
-  value: Schema.Number.check(Schema.isFinite()) });
+  value: Schema.Number.check(Schema.isFinite(), Schema.isBetween({ minimum: -Number.MAX_SAFE_INTEGER, maximum: Number.MAX_SAFE_INTEGER })) });
 export const InputRevokeSchema = Schema.Struct({ producer, session: identity });
 export type InputAttach = typeof InputAttachSchema.Type;
 export type InputEvent = typeof InputEventSchema.Type;
