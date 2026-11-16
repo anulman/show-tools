@@ -1,0 +1,2 @@
+timestamp	phase	decision	reason	evidence	result
+2026-11-16T04:24:23.354947+00:00	physical-input-maintenance	Preserve the complete actual cue-parser domain across optional binding metadata	Source fences must describe the reviewed compiler and canonical metadata	dfd9c1fc61dd6273b08026f8f2da29516e8f58d8;/private/tmp/routing-cues-final.json	32390 parser cases;6 real-source mutants and pristine/restored witnesses pass

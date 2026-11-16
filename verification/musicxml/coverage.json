@@ -1,9 +1,9 @@
 {
-  "syncCommit": "cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4",
+  "syncCommit": "dfd9c1fc61dd6273b08026f8f2da29516e8f58d8",
   "files": {
-    "lib/performance/musicxml-song.ts": "3a201e63df82dad8eab31cb021482a17100490c9c8d86312acf65f861e31574c",
+    "lib/performance/musicxml-song.ts": "4abbd69a3345f83d586ff3a1b9c8f90939449a7e4204e974ac30111418736d4b",
     "lib/performance/sheet-musicxml.ts": "e20668333a28bcf746e98eabac54fa8158e099dc53b965b6892cea4b4d9295d9",
-    "lib/performance/compiled-song.ts": "9b979eadce01865c0311c427ebfb35976b5b89dbfa84a717b4a8bb7e599dad8d",
+    "lib/performance/compiled-song.ts": "8d1fb1ad7cf4143d505f6c8e422a739a7df20af71b86d7d11a19b04e80dc1549",
     "lib/performance/song-source.ts": "a68139ca0d84af478a8d536b9ffa530ad620cefd2358ab4b06b9a5404b36c0ee",
     "lib/performance/sheet-musical-annotations.ts": "06b45c504611bddfb79f239ff20f95722fdf9184d43ced03bec2570ff8a51e1d",
     "lib/performance/sheet-stage-notation.ts": "27c4274a77175324c103756d3dbc833eeb3248fa42a508d8d17db61683f232ab",
@@ -13,7 +13,9 @@
     "lib/voice-catalog/model.ts": "c7021f9b57780e8fde33e50aa6fbdcfc1759b2fd8474a01376ab8863af0ecf41",
     "package-lock.json": "a094cbe140ca5384c42eff39345bc4d4346fe11ade3296bec534bb44943f1be6",
     "lib/performance/sheet-cues.ts": "cfa9be2836e483a24aa42becfbe6a92cedd445475b91a9c2373a05425d0c8574",
-    "lib/performance/external-assets.ts": "80910da673940d5cc43e2ad3b84674278334487cbd37f23b89ceb754232b7141"
+    "lib/performance/external-assets.ts": "80910da673940d5cc43e2ad3b84674278334487cbd37f23b89ceb754232b7141",
+    "lib/performance/input-bindings.ts": "c2e46f4b821efa766c29415921aba0072394880c1567ebef573dabed84dd69ac",
+    "lib/performance/model.ts": "53bc8d0cf433ea2f51e144375f6a4ee6d07c44b3d8380d042c1e8457f7d36371"
   },
   "scope": "Finite grammar actual TypeScript MusicXML semantic verification; source changes require review and rerun before advancing this record."
 }

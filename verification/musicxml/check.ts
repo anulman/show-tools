@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
 import { compileMusicXmlSong, readMusicXmlSong, writeMusicXmlSong, type MusicXmlSong } from '../../lib/performance/musicxml-song.js';
-import { grammar, scoreCases, scoreInput, voiceCatalog, type ScoreCase } from './domain.js';
+import { bindingCases, bindingGrammar, grammar, scoreCases, scoreInput, voiceCatalog, type ScoreCase } from './domain.js';
 
 function withoutArchive(xml: string, field: string): string {
   const pattern = new RegExp(`<miscellaneous-field name="show-tools:${field}">[^]*?<\\/miscellaneous-field>`);
@@ -81,6 +81,39 @@ async function pickupTimelineWitness(): Promise<void> {
   await assert.rejects(readMusicXmlSong(inconsistent), /chronological and contiguous/, 'MEASURE_LABEL_AGREEMENT');
 }
 
+async function inputBindingWitness() {
+  const example = scoreCases().next().value;
+  assert(example, 'NONEMPTY_GRAMMAR');
+  const input = scoreInput(example), ids = new Set<string>(), digests = new Set<string>();
+  let accepted = 0, rejected = 0, archiveChecks = 0;
+  for (const candidate of bindingCases()) {
+    assert(!ids.has(candidate.id), 'DUPLICATE_BINDING_CASE'); ids.add(candidate.id);
+    const mapping = { ...input.mapping, ...(candidate.bindings === undefined ? {} : { inputBindings: candidate.bindings }) };
+    if (!candidate.valid) {
+      await assert.rejects(importSheetMusicXml({ source: input.source, mapping }), 'INPUT_BINDING_OWNERSHIP');
+      rejected++; continue;
+    }
+    const imported = await importSheetMusicXml({ source: input.source, mapping });
+    const parsed = await readMusicXmlSong(imported.xml);
+    assert.deepEqual(parsed.song.inputBindings, candidate.bindings, 'INPUT_BINDING_MEANING');
+    assert.equal(await writeMusicXmlSong(writeInput(parsed)), await writeMusicXmlSong(writeInput(parsed)), 'INPUT_BINDING_DETERMINISTIC_WRITE');
+    const rewritten = await readMusicXmlSong(await writeMusicXmlSong(writeInput(parsed)));
+    assert.deepEqual(meaning(rewritten), meaning(parsed), 'INPUT_BINDING_ROUNDTRIP');
+    assert(!digests.has(parsed.song.source.digest), 'INPUT_BINDING_SEMANTIC_IDENTITY'); digests.add(parsed.song.source.digest);
+    for (const archive of grammar.archives) {
+      const xml = archives(imported.xml, archive), standalone = await readMusicXmlSong(xml);
+      assert.deepEqual(meaning(standalone), meaning(parsed), 'INPUT_BINDING_ARCHIVE_INDEPENDENCE');
+      assert.deepEqual(await compileMusicXmlSong(xml), parsed.song, 'INPUT_BINDING_COMPILER_ENTRYPOINT'); archiveChecks++;
+    }
+    accepted++;
+  }
+  assert.equal(ids.size, 6173, 'EXHAUSTIVE_BINDING_CARDINALITY');
+  assert.equal(accepted, 1814, 'VALID_BINDING_CARDINALITY');
+  assert.equal(rejected, 4359, 'REJECTED_BINDING_CARDINALITY');
+  assert.equal(archiveChecks, accepted * grammar.archives.length, 'BINDING_ARCHIVE_CARDINALITY');
+  return { grammar: bindingGrammar, cases: ids.size, accepted, rejected, archiveChecks };
+}
+
 async function witness(property: string): Promise<void> {
   const example = scoreCases().next().value;
   assert(example, 'NONEMPTY_GRAMMAR');
@@ -88,6 +121,7 @@ async function witness(property: string): Promise<void> {
   if (property === 'display') await displayAgreement(imported.xml);
   else if (property === 'voices') await voiceDigests(await readMusicXmlSong(imported.xml));
   else if (property === 'labels') await pickupTimelineWitness();
+  else if (property === 'bindings' || property === 'binding-identity') await inputBindingWitness();
   else throw new Error('Unknown witness property');
 }
 
@@ -149,14 +183,15 @@ async function verifyDomain() {
   assert.equal(caseIds.size, canonicalCount, 'EXHAUSTIVE_CANONICAL_CARDINALITY');
   assert.equal(roundtrips, canonicalCount); assert.equal(displayRejections, canonicalCount); assert.equal(archiveChecks, canonicalCount);
   await pickupTimelineWitness();
+  const inputBindings = await inputBindingWitness();
   return { status: 'PASS-bounded-exhaustive-musicxml', grammar, scoreCases: scoreCount, canonicalCases: canonicalCount, supplementalTimelineWitnesses: 1,
-    roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks,
+    roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks, inputBindings,
     caseFingerprint: fingerprint.digest('hex'), scope: 'Finite grammar through actual TypeScript implementation, not arbitrary XML or an unbounded proof.' };
 }
 
 if (process.argv[2] === '--witness') {
   const property = process.argv[3];
-  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : null;
+  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : property === 'bindings' ? 'INPUT_BINDING_MEANING' : property === 'binding-identity' ? 'INPUT_BINDING_SEMANTIC_IDENTITY' : null;
   try {
     await witness(property);
     process.stdout.write(JSON.stringify({ status: 'PASS-witness', property }) + '\n');
@@ -166,6 +201,6 @@ if (process.argv[2] === '--witness') {
     process.exitCode = 1;
   }
 } else {
-  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels');
+  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels|bindings|binding-identity');
   process.stdout.write(JSON.stringify(await verifyDomain()) + '\n');
 }

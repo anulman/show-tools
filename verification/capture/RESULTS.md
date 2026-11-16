@@ -1,5 +1,11 @@
 # Capture verification result
 
+## Identified input routing maintenance
+
+Outcome: **updated** at `dfd9c1fc61dd6273b08026f8f2da29516e8f58d8`. The complete run passes 201,097 generated and 11,894 distinct main states with an empty queue, all eleven invariants, six model mutants, twelve pristine/restored native scenarios and seven assertion-specific real-source mutants. The separate display and overview checks finish at 782 and 102 states. Receipt: `/private/tmp/routing-capture-final-restored/receipt.json`.
+
+All nine current statechart interpretations finish with no unchecked rules. The 102-state overview retains six labels, thirteen arrows and 156 hidden same-label transitions. Source-fence drift and the standalone/mutant compiler dependencies were verification maintenance; no capture-policy product defect was found. [SOURCE-SYNC.md](SOURCE-SYNC.md) maps the reviewed dispatch and ownership changes. Producer leases and held-playback isolation remain outside this capture proof.
+
 ## Consolidated practice release
 
 The source-fenced run at `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4` passes: 201,097 generated and 11,894 distinct main-model states with an empty final queue, all eleven invariants, six model mutants, twelve actual-native scenarios and seven assertion-specific source mutants. The 782-state display and 102-state overview models also finish. The twelve-scenario pristine rerun and production-source hashes pass after all mutations. Receipt: `/private/tmp/practice-tonight-capture-final-cd3ae7e/receipt.json`.

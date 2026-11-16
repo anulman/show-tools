@@ -1,6 +1,42 @@
 import type { SongMapping } from '../../lib/performance/compiled-song.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
+import type { InputBinding, InputBindings } from '../../lib/performance/input-bindings.js';
+import type { ChannelId, PhysicalSwitchId } from '../../lib/performance/model.js';
+
+export const bindingGrammar = {
+  controls: ['blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'] satisfies PhysicalSwitchId[],
+  rows: ['L1', 'L2', 'R1', 'R2'] satisfies ChannelId[],
+  maximumBindings: 2,
+};
+function bindingTargets(): InputBinding['target'][] {
+  const targets: InputBinding['target'][] = [{ kind: 'tempo' }, { kind: 'panic' }];
+  for (let mask = 1; mask < 16; mask++) {
+    let rows: [ChannelId, ...ChannelId[]] | undefined;
+    for (const [index, row] of bindingGrammar.rows.entries()) if (mask & 1 << index) {
+      if (rows) rows.push(row); else rows = [row];
+    }
+    if (!rows) throw new Error('Nonzero binding mask requires a row');
+    targets.push({ kind: 'cue-rows', rows });
+  }
+  return targets;
+}
+function sharedRows(left: InputBinding['target'], right: InputBinding['target']): boolean {
+  return left.kind === 'cue-rows' && right.kind === 'cue-rows' && left.rows.some(row => right.rows.includes(row));
+}
+export function* bindingCases(): Generator<{ id: string; bindings: InputBindings | undefined; valid: boolean }> {
+  yield { id: 'absent', bindings: undefined, valid: true };
+  yield { id: 'empty', bindings: [], valid: true };
+  const targets = bindingTargets();
+  for (const [index, controlId] of bindingGrammar.controls.entries()) for (const target of targets) {
+    const bindings = [{ controlId, target }];
+    yield { id: JSON.stringify(bindings), bindings, valid: true };
+    for (let second = index; second < bindingGrammar.controls.length; second++) for (const other of targets) {
+      const pair = [...bindings, { controlId: bindingGrammar.controls[second], target: other }];
+      yield { id: JSON.stringify(pair), bindings: pair, valid: second !== index && !sharedRows(target, other) };
+    }
+  }
+}
 
 export const grammar = {
   meters: [{ numerator: 4, denominator: 4 }, { numerator: 6, denominator: 8 }],

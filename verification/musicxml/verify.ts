@@ -49,6 +49,11 @@ const mutants = [
       'chartBinding: { ...data.chartBinding, controlNames } }, voices: null };') },
   { name: 'measure-label-agreement-removed', witness: 'labels', marker: 'MEASURE_LABEL_AGREEMENT',
     source: replaceExactlyOnce(original, labelLine, '      void measure.number;') },
+  { name: 'input-bindings-omitted-from-writer', witness: 'bindings', marker: 'INPUT_BINDING_MEANING',
+    source: replaceExactlyOnce(original, '    ...(song.inputBindings === undefined ? {} : { inputBindings: song.inputBindings }),', '') },
+  { name: 'input-bindings-omitted-from-semantic-digest', witness: 'binding-identity', marker: 'INPUT_BINDING_SEMANTIC_IDENTITY',
+    source: replaceExactlyOnce(original, 'const { source, mappingDigest, selectedLabelCells, conventions, ...data } = performance;',
+      'const { source, mappingDigest, selectedLabelCells, conventions, inputBindings, ...data } = performance;') },
 ];
 const temporary = await mkdtemp(join(tmpdir(), 'musicxml-verification-'));
 const outcomes: { name: string; witness: string; status: string; expectedFailure: string }[] = [];

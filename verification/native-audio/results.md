@@ -59,3 +59,9 @@ Outcome: updated at `894915fd154c07529d08c79182cafe46cc9191ef`. The source fence
 The fresh full verifier exhausts the same 1,761-state graph with all seven invariants. All six actual-controller source mutants are rejected at their named assertions, including both pending-ownership paths. The model, configuration, replay implementation and bounds remain unchanged; the prior complete statechart interpretation therefore still describes these identical model bytes. Scoped TypeScript and diff checks pass. The final receipt is `/private/tmp/native-cues-lifecycle-final-894915f/receipt.json`.
 
 The controller replay substitutes package preparation. This proof does not establish native sample decoding, per-asset upload cancellation, old-engine sample ownership, note preparation, physical phone input or musical triggering. Those remain separate integration and native playback claims.
+
+## Identified input observations
+
+Updated at `dfd9c1fc61dd6273b08026f8f2da29516e8f58d8` after the old native-schema source fence rejected optional input-routing metadata. The lifecycle controller and all modeled boundaries are byte-identical to `cd3ae7e`; the added observation validator and registry are pinned without changing the finite model. The complete run passes the 1,761-state pristine graph and all six real-source mutants, including both pending-ownership paths. All pristine replay schedules pass. All nine statechart interpretations have no unchecked rules; the separate illustration has 86 states, seven labels and twelve arrows. Receipt: `/private/tmp/routing-native-audio-final/receipt.json`.
+
+The source-fence failure was verification drift. No lifecycle product bug was found. This result does not prove the new gateway/native producer state machine or hardware behavior.

@@ -88,3 +88,11 @@ The source record at `894915f` also includes the typed external-sample control w
 All five covered source files are byte-identical between `894915f` and `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. The current release therefore remains **in sync** with this model and its replay. The coverage revision records that inspection. A baseline run and a fresh source-fenced rerun both exhaust the same 1,761 states, preserve all seven invariants and reject all six actual-controller source mutants, including both pending-ownership paths. The controller, model, replay, dependencies, properties and bounds are unchanged.
 
 DG's periodic sustain preparation, pickup labeling, and the static UI manager are outside the covered lifecycle controller. Neither their quality nor their process behavior is established by this proof. The final receipt is `/private/tmp/practice-tonight-lifecycle-final-cd3ae7e/receipt.json`.
+
+## Identified input observation maintenance
+
+Outcome: **updated** at `dfd9c1fc61dd6273b08026f8f2da29516e8f58d8`. The old source fence rejected `native-schema.ts`. Review against `cd3ae7e` found that the lifecycle controller, its session schema, light ABI, tuner schema and Effect versions are unchanged. The native state schema gains optional validated input-routing observations. Its new schema and pure registry dependencies are now pinned. No ownership action, await, attempt identity, cleanup condition or command fence changed; the two-attempt, one-command model and all seven safety invariants remain unchanged.
+
+The complete verifier passes the 1,761-state pristine graph, six actual-controller source mutants and both pending-ownership counterexample paths, with all pristine schedules passing. Receipt: `/private/tmp/routing-native-audio-final/receipt.json`. The current statechart tool interpreted the baseline, all six variants, the additional live-child ownership variant and the 86-state illustration. Every rule was checked; the illustration still has seven labels and twelve arrows.
+
+This is lifecycle source-fence drift, not a product failure. The generic old-attempt command/observation fences still hold. The proof does not establish gateway producer allocation, native source ownership, reconnect release barriers, Panic classification or physical acceptance.
