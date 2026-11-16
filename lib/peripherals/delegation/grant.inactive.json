@@ -32,20 +32,15 @@
       "caFile": null
     },
     "peripheralAssignment": {
+      "mapVersion": 2,
       "usbVendor": "d209",
       "usbProduct": "0410",
       "reportedSerial": "4",
       "serialIsAuthenticatedUnique": false,
-      "buttonKey": "escape",
-      "linuxKeyCode": 1,
-      "hidUsagePage": 7,
-      "hidButtonUsage": 41,
-      "relativeYUsage": 49,
-      "logicalLed": 1,
-      "sdkChannel": 0,
       "inputAccess": "evdev-read-only",
       "outputAccess": "validated-brightness-only-hidraw",
-      "preserveEnableMasks": true
+      "preserveEnableMasks": true,
+      "inputMap": null
     }
   },
   "allowedActions": [
@@ -98,13 +93,10 @@
     "stopScope": "named-peripheral-service-only-with-owned-output-release",
     "runtimeAuthority": "fresh-physical-inputs-and-explicit-non-triggering-housekeeping-only",
     "attachmentHousekeeping": {
-      "releaseControl": {
-        "id": "cueButton",
-        "value": 0
-      },
       "releaseWhen": "initial-attachment-or-cleanup-only",
       "jiggleConfiguration": "validated-profile-while-prepared-stopped-or-authoritative-identical-running-noop",
-      "requiredFences": "reviewed-native-epoch-session-sequence-held"
+      "requiredFences": "reviewed-native-epoch-session-sequence-held",
+      "inputProtocol": "explicit-source-attach-and-exact-owner-revoke-v2"
     },
     "ownerEvidence": "cooperating-controller-and-known-owner-checks-not-global-exclusion"
   },
@@ -119,6 +111,6 @@
     "maxBytes": 8388608,
     "onFailure": "deny"
   },
-  "checkerSha256": "206d7526ce7bf3d31c09e4fc0c30ac44903e4281630689f1d70e979bc0f48d62",
+  "checkerSha256": "8f86481991f1bf577ad9623e07888d7cd35434377fb433b4c8f1b09ffb5572c0",
   "signersSha256": "367f4cd6685d962f7fac2e4e406f691e6c3c4da92a40b36c1170d95c1df5adc7"
 }

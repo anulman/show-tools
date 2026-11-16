@@ -4,6 +4,8 @@ import json
 import os
 from pathlib import Path
 import stat
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -35,11 +37,25 @@ class Bootstrap(unittest.TestCase):
             self.addCleanup(os.close, fd)
             self.directories.append(fd)
         self.checker, self.policy, self.ledger, self.packet = self.directories
+        map_path = self.root / 'synthetic-map.json'
+        map_path.write_text(json.dumps({'sources': [
+            {'kind': 'linux', 'id': 'synthetic', 'interfaceNumber': 0, 'eventTypes': [0, 1],
+             'keyCodes': [30, 31, 32, 33, 34, 35], 'relativeAxes': []},
+            {'kind': 'linux', 'id': 'motion', 'interfaceNumber': 2, 'eventTypes': [0, 2],
+             'keyCodes': [], 'relativeAxes': [1]}],
+            'switches': [{'controlId': control, 'sourceId': 'synthetic', 'type': 1, 'code': 30 + index}
+                         for index, control in enumerate(('blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'))],
+            'axis': {'sourceId': 'motion', 'type': 2, 'code': 1},
+            'leds': [{'controlId': control, 'sdkChannel': index}
+                     for index, control in enumerate(('blue', 'yellow', 'red', 'green'))], 'confirmWiring': True}))
+        frozen = self.root / 'frozen'
+        subprocess.run([sys.executable, '-I', str(ROOT / 'freeze.py'), '--input-map', str(map_path),
+                        '--out', str(frozen)], check=True, stdout=subprocess.PIPE)
         for name in (*bootstrap.FILES, 'manifest.json'):
             destination = self.root / 'packet' / name
-            destination.write_bytes((ROOT / name).read_bytes())
+            destination.write_bytes((frozen / name).read_bytes())
             destination.chmod(0o600)
-        self.manifest = (ROOT / 'manifest.json').read_bytes()
+        self.manifest = (frozen / 'manifest.json').read_bytes()
         self.active_sha = json.loads(self.manifest)['activeGrantSha256']
         self.content, self.active = bootstrap.load_bundle(self.packet, bootstrap.digest(self.manifest), self.active_sha)
         old = self.content['allowed_signers'].replace(b'show-tools-peripheral-deploy-v1', b'show-tools-deploy-v1')
@@ -50,6 +66,38 @@ class Bootstrap(unittest.TestCase):
             path.write_bytes(content)
             path.chmod(0o644)
             self.old_paths.append((path, content, path.stat().st_ino))
+
+    def test_unconfigured_legacy_and_incomplete_packets_cannot_activate(self):
+        grant = json.loads((ROOT / 'grant.inactive.json').read_bytes())
+        with self.assertRaisesRegex(ValueError, 'version-two installation map'):
+            bootstrap.active_grant(json.dumps(grant).encode())
+        legacy = json.loads(self.content['grant.inactive.json'])
+        legacy['target']['peripheralAssignment'] = {'buttonKey': 'escape', 'sdkChannel': 0}
+        with self.assertRaisesRegex(ValueError, 'version-two installation map'):
+            bootstrap.active_grant(json.dumps(legacy).encode())
+        incomplete = json.loads(self.content['grant.inactive.json'])
+        incomplete['target']['peripheralAssignment']['inputMap']['switches'].pop()
+        with self.assertRaisesRegex(ValueError, 'Complete six-switch'):
+            bootstrap.active_grant(json.dumps(incomplete).encode())
+        self.assertFalse((self.root / 'policy' / bootstrap.GRANT.name).exists())
+
+    def test_freeze_preserves_source_and_refuses_invalid_or_existing_output(self):
+        before = {name: (ROOT / name).read_bytes() for name in (*bootstrap.FILES, 'manifest.json')}
+        failed = self.root / 'invalid-packet'
+        bad_map = self.root / 'bad-map.json'
+        bad_map.write_text('{"sources":[],"switches":[],"leds":[],"confirmWiring":false}')
+        result = subprocess.run([sys.executable, '-I', str(ROOT / 'freeze.py'),
+            '--input-map', str(bad_map), '--out', str(failed)], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(failed.exists())
+        result = subprocess.run([sys.executable, '-I', str(ROOT / 'freeze.py'),
+            '--input-map', str(self.root / 'synthetic-map.json'), '--out', str(self.root / 'frozen')],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(before, {name: (ROOT / name).read_bytes() for name in before})
+        for name in (*bootstrap.FILES, 'manifest.json'):
+            self.assertEqual(stat.S_IMODE((self.root / 'frozen' / name).stat().st_mode), 0o600)
+        self.assertEqual(stat.S_IMODE((self.root / 'frozen').stat().st_mode), 0o700)
 
     def install(self):
         bootstrap.install(self.content, self.active, self.checker, self.policy, self.ledger)

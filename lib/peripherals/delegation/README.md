@@ -17,13 +17,15 @@ The application files are exactly `/home/anulman/.config/show-tools/peripheral.j
 
 Only `configure`, `peripheral-start`, `peripheral-stop`, `status`, and `rollback` are allowed. The existing web stage action supplies shared immutable releases; the peripheral checker cannot stage or fetch an archive. A completed web-stage receipt must be pinned and independently reconciled by the host steward.
 
-The assignment is the sole qualified USB d209:0410 with reported serial 4, Escape Linux code 1 / HID page 7 usage 41, relative-Y usage 49, and logical LED 1 mapped to SDK channel 0. Serial 4 is not authenticated globally unique identity. The native helper performs actual qualification; the grant does not replace it. Numeric jiggle thresholds are not invented by the grant and must come from the separately reviewed operator-confirmed profile.
+The assignment names USB d209:0410 with reported serial 4 and pins one complete observed Linux input map: six physical switch IDs, the spinner's relative axis, and four arcade LED associations. Serial 4 is not authenticated globally unique identity. Each source specifies its interface and complete sorted event/key/relative capability sets; raw event type/code pairs and SDK channels are explicit. The native helper still qualifies the actual device. There are no factory-key defaults, musical roles, wildcard selectors or implicit LED channels.
+
+The repository's inactive grant has `inputMap:null` and cannot activate. `freeze.py --input-map FILE --out NEW_DIRECTORY` validates the complete map and produces a separate private review packet. Only an operator-controlled installation of that exact protected grant admits the map. A different map requires another reviewed root-policy assignment and new signed request; an application profile update cannot expand it. Jiggle thresholds remain a separate reviewed profile choice.
 
 The new policy explicitly admits **`Restart=on-abnormal` for this peripheral service only**. It does not change the web policy's `restartAutomatically=false`. Normal configuration/authentication failures hold; reviewed source-level reconnect uses fresh native/helper identities and held/repeat/stale-input fences. Neither manager restart nor reconnect may start audio, synthesize a musical gesture, or replay an earlier gesture. The fixed runtime only reads evdev and sends validated brightness-only hidraw output, preserving enable masks.
 
 No remote unit enable/disable, linger, ALSA/native-engine spawn, audio on/off, synthetic musical Start/Stop, firmware, device permissions, udev, group, sudo, SSH, network, credential, package-install, other-service, or release-deletion authority is added. Disruptive actions require fresh audio-off/idle and known ownership evidence. The named service's stop releases its owned output; it must not call engine Stop or audio-off. Cooperating-controller and known-owner checks are not global owner exclusion or protection from a malicious same-UID process.
 
-The only synthetic attachment housekeeping admitted is non-triggering `cueButton=0` at initial attachment or cleanup, and validated profile jiggle setup while prepared/stopped or as an authoritative identical-values no-op while running. Both require the reviewed native epoch/session/sequence/held fences. This does not permit a synthetic press, arbitrary controls, or changing jiggle settings during playback.
+Attachment housekeeping uses explicit physical-source admission and exact-owner revocation under native epoch/session/sequence/held fences. It may also configure validated jiggle thresholds while prepared/stopped or as an authoritative identical-values no-op while running. This does not permit a synthetic press, arbitrary controls, or changing jiggle settings during playback.
 
 ## Signed candidate schema
 
@@ -49,7 +51,7 @@ The checker accepts only `inspect ID`, `claim ID`, or `record ID running|complet
 
 ## Host semantic admission and execution
 
-After authentication, the host steward must verify the completed web-stage receipt, all immutable release files and pinned manifest, source review, runner/helper hashes, exact old and new profile/unit, and the fixed `serve --config` argv. Validate the profile's gateway/credential paths, Escape/SDK0 assignment, operator-confirmed jiggle thresholds, and exact unit policy before mutation. Also verify trusted runtime/interpreter resolution and the effective service environment; authentication does not attest inherited user-manager environment or provide same-UID isolation. A payload hash alone does not perform these checks.
+After authentication, the host steward must verify the completed web-stage receipt, all immutable release files and pinned manifest, source review, runner/helper hashes, exact old and new profile/unit, and the fixed `serve --config` argv. Validate the profile's gateway/credential paths, version-two `inputMap` exactly against the protected grant's entire assignment, operator-confirmed jiggle selection, and exact unit policy before mutation. Admission pins the full assignment hash and profile bytes; the host steward must compare their actual contents, not merely their supplied digests. Also verify trusted runtime/interpreter resolution and the effective service environment; authentication does not attest inherited user-manager environment or provide same-UID isolation. A payload hash alone does not perform these checks.
 
 For each disruptive operation, obtain fresh audio-off/idle and service/ownership state. Unknown state holds. Obtain a unique durable claim, record running evidence before mutation, perform a second fresh policy inspection immediately before the exact action, and verify the outcome. Record completed only with its actual postcondition evidence, or blocked/uncertain with retained evidence. Never replay a consumed request to repair an uncertain outcome. Configuration writes use expected-old hashes, no-follow regular files, private byte-copy backups, same-directory atomic replacements, and a stopped-service compatibility boundary; per-file replacement is not a multi-file transaction. Initial absent files use exclusive create-only publication. Do not alter operator-created enablement links.
 
@@ -60,11 +62,11 @@ Starting this service is distinct from audio activation. Check the actual waitin
 Prepare the reviewed local packet with:
 
 ```sh
-python3 -I lib/peripherals/delegation/freeze.py
+python3 -I lib/peripherals/delegation/freeze.py --input-map /absolute/path/observed-input-map.json --out /absolute/path/new-review-packet
 python3 -I -m unittest discover -s lib/peripherals/delegation/tests -v
 ```
 
-Freeze emits the manifest and active-grant hashes; it changes only this local inactive review packet. Data-only staging places `manifest.json`, `check.py`, `grant.inactive.json`, `allowed_signers`, and `bootstrap.py` into one canonical UID/GID 1000 mode 0700 directory below the existing app staging root, with each source file mode 0600. Review exact hashes and readbacks before preparing the operator command.
+Freeze emits the manifest and active-grant hashes without changing the source template. It refuses an existing output directory or an incomplete, legacy, unconfirmed or invalid map. The no-argument command refreshes source-template hashes only and reports `ready:false` with no active-grant hash. Synthetic test maps are not installation evidence. Data-only staging places `manifest.json`, `check.py`, `grant.inactive.json`, `allowed_signers`, and `bootstrap.py` into one canonical UID/GID 1000 mode 0700 directory below the existing app staging root, with each source file mode 0600. Review exact hashes and readbacks before preparing the operator command.
 
 The final operator command must hash and execute the **same captured initializer bytes**, using a clean environment and Python `-I`, and set its arguments to:
 
