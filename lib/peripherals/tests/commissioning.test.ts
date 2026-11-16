@@ -27,6 +27,16 @@ test('a successful observer receipt identifies the actual source and three edges
   assert.throws(() => switchFromEvidence({ values: missingPair, controlId: 'blue', trialId: 'synthetic', evidencePath: '/tmp/evidence', exitCode: 0 }), /three fresh/);
 });
 
+test('terminal switch claims must match the actual event device, code and repeat count', () => {
+  for (const field of ['code', 'device', 'repeats']) {
+    const values = evidence().map(value => value.type !== 'terminal' ? value : { ...value, keySignatures: [{
+      device: field === 'device' ? '/dev/input/event99' : '/dev/input/event23',
+      code: field === 'code' ? 31 : 30, presses: 3, releases: 3, repeats: field === 'repeats' ? 1 : 0,
+    }] });
+    assert.throws(() => switchFromEvidence({ values, controlId: 'blue', trialId: 'synthetic', evidencePath: '/tmp/evidence', exitCode: 0 }), /contradicts/);
+  }
+});
+
 test('two observed controls share an exact selector; no axis or future controls are invented', () => {
   const inputMap = assembleInstallationMap({ switches: [captured('blue', 30), captured('yellow', 31)], leds: [{ controlId: 'blue', sdkChannel: 0 }, { controlId: 'yellow', sdkChannel: 1 }], confirmWiring: true });
   assert.equal(inputMap.sources.length, 1);
@@ -177,5 +187,40 @@ test('a schema-valid profile larger than the installed runtime limit is never pu
   try {
     await assert.rejects(saveCommissionedProfile(path, null, { ...base, inputMap }), /16 KiB/);
     assert.equal(await profileSnapshot(path), null);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+for (const stage of ['before-save', 'after-save']) test(`button commissioning cancellation ${stage} reports publication truthfully and does not start the service`, async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-cancel-')));
+  const path = join(directory, 'peripheral.json');
+  const old = Buffer.from('original private operator profile');
+  await writeFile(path, old, { mode: 0o600 });
+  const controller = new AbortController();
+  const answers = ['blue,yellow', '', '', 'none', 'none'];
+  let checks = 0, started = false;
+  try {
+    await assert.rejects(commissionHardware({ profilePath: path, baseProfile: base, signal: controller.signal,
+      service: { inspect: async () => ({ active: true }), stop: async () => {}, start: async () => { started = true; } },
+      audioOff: async () => { if (++checks === 4 && stage === 'before-save') controller.abort(new Error('cancel before save')); },
+      io: { question: async () => answers.shift() ?? '', write: message => { if (stage === 'after-save' && message.startsWith('Saved')) controller.abort(new Error('cancel after save')); } },
+      capture: async controlId => captured(controlId, controlId === 'blue' ? 30 : 31), includeAxis: false }),
+    stage === 'before-save' ? /cancel before save/ : /Configuration saved.*left stopped/);
+    assert.equal(started, false);
+    if (stage === 'before-save') assert.deepEqual(await readFile(path), old);
+    else assert.equal(JSON.parse(await readFile(path, 'utf8')).inputMap.switches.length, 2);
+    await assert.rejects(readFile(path + '.commissioning.lock'), /ENOENT/);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('an already cancelled publication preserves the old profile', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-save-cancel-')));
+  const path = join(directory, 'peripheral.json');
+  const profile = { ...base, inputMap: assembleInstallationMap({ switches: [captured('blue', 30)], leds: [], confirmWiring: false }) };
+  try {
+    await saveCommissionedProfile(path, null, profile);
+    const old = await profileSnapshot(path);
+    const controller = new AbortController(); controller.abort(new Error('cancel publication'));
+    await assert.rejects(saveCommissionedProfile(path, old, { ...profile, bindingRevision: 2 }, controller.signal), /cancel publication/);
+    assert.deepEqual(await profileSnapshot(path), old);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

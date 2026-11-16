@@ -153,6 +153,10 @@ export function switchFromEvidence({ values, controlId, trialId, evidencePath, e
   const signature = terminal.keySignatures[0];
   if (terminal.keySignatures.length !== 1 || !signature || signature.presses !== 3 || signature.releases !== 3 || !threePairs(values))
     throw new Error('Need exactly three fresh press/release pairs from one unambiguous switch.');
+  const keys = values.filter(value => decodeTag(value).type === 'key').map(value => decodeKey(value));
+  if (keys.some(key => key.device !== signature.device || key.code !== signature.code)
+    || keys.filter(key => key.value === 2).length !== signature.repeats)
+    throw new Error('Terminal switch signature contradicts the recorded key events.');
   const matching = sources.filter(source => source.device === signature.device);
   if (matching.length !== 1) throw new Error('Captured switch has no unique observed source capabilities.');
   const source = matching[0];
@@ -351,7 +355,8 @@ export async function profileSnapshot(path: string): Promise<Buffer | null> {
   catch (error) { if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null; throw error; }
 }
 
-export async function saveCommissionedProfile(path: string, expected: Buffer | null, profile: PeripheralBridgeConfig) {
+export async function saveCommissionedProfile(path: string, expected: Buffer | null, profile: PeripheralBridgeConfig, signal?: AbortSignal) {
+  signal?.throwIfAborted();
   const valid = decodePeripheralBridgeConfig(profile);
   const encoded = Buffer.from(JSON.stringify(valid, null, 2) + '\n');
   if (encoded.length > 16384) throw new Error('The installation profile exceeds the runtime 16 KiB limit. Reduce the configured source set before saving.');
@@ -368,6 +373,7 @@ export async function saveCommissionedProfile(path: string, expected: Buffer | n
     await file.close();
     const latest = await profileSnapshot(path);
     if ((expected === null) !== (latest === null) || (expected && latest && hash(expected) !== hash(latest))) throw new Error('Peripheral profile changed before publication.');
+    signal?.throwIfAborted();
     if (expected === null) { await link(temporary, path); published = true; await unlink(temporary); temporaryPresent = false; }
     else { await rename(temporary, path); published = true; temporaryPresent = false; }
     const directory = await open(parent, constants.O_RDONLY | constants.O_DIRECTORY);
@@ -385,58 +391,81 @@ export async function saveCommissionedProfile(path: string, expected: Buffer | n
 export interface HardwareCommissioningOptions {
   profilePath: string; baseProfile: PeripheralBaseProfile; service: CommissioningService; audioOff(): Promise<void>; io: CommissioningIo;
   capture(control: PhysicalControlId): Promise<CapturedSwitch>; captureAxis?: () => Promise<CapturedAxis>;
-  includeAxis: boolean; retainedAxis?: CapturedAxis; startAfterSave?: boolean;
+  includeAxis: boolean; retainedAxis?: CapturedAxis; startAfterSave?: boolean; signal?: AbortSignal;
 }
 export async function commissionHardware(options: HardwareCommissioningOptions) {
   return withCommissioningLock(options.profilePath, () => commissionHardwareUnderLock(options));
 }
-async function commissionHardwareUnderLock({ profilePath, baseProfile, service, audioOff, io, capture, captureAxis, includeAxis, retainedAxis, startAfterSave = false }: HardwareCommissioningOptions) {
+async function commissionHardwareUnderLock({ profilePath, baseProfile, service, audioOff, io, capture, captureAxis, includeAxis, retainedAxis, startAfterSave = false, signal }: HardwareCommissioningOptions) {
+  signal?.throwIfAborted();
   const expected = await profileSnapshot(profilePath);
+  signal?.throwIfAborted();
   const answer = await io.question(`Switch identities (${PHYSICAL_SWITCH_IDS.join(', ')}). Enter the connected names separated by commas: `);
+  signal?.throwIfAborted();
   const selected = answer.split(',').map(value => value.trim());
   if (selected.length < 2 || selected.length > 6 || new Set(selected).size !== selected.length) throw new Error('Choose two to six distinct connected switch identities.');
   const identities = selected.map(value => Schema.decodeUnknownSync(control)(value));
+  signal?.throwIfAborted();
   const state = await service.inspect();
+  signal?.throwIfAborted();
   await audioOff();
+  signal?.throwIfAborted();
   if (state.active) await service.stop();
   let saved = false, restore = state.active;
   try {
+    signal?.throwIfAborted();
     const captured: CapturedSwitch[] = [];
     for (const identity of identities) {
       await io.question(`Release every control. Press Enter when ready to capture ${identity}. `);
+      signal?.throwIfAborted();
       await audioOff();
+      signal?.throwIfAborted();
       captured.push(await capture(identity));
+      signal?.throwIfAborted();
       io.write(`Captured ${identity}.\n`);
     }
     let axis: CapturedAxis | undefined = retainedAxis;
     if (includeAxis) {
       if (!captureAxis) throw new Error('Dial capture is unavailable in this installation. Install the reviewed motion reader before using setup with the dial.');
       await audioOff();
+      signal?.throwIfAborted();
       await io.question('Leave the dial still. Press Enter when ready for dial capture. ');
+      signal?.throwIfAborted();
       axis = await captureAxis();
+      signal?.throwIfAborted();
     }
     const leds: LedAssignment[] = [];
     for (const identity of identities) {
+      signal?.throwIfAborted();
       const output = (await io.question(`LED output for ${identity} (none, or the board output number 1–96): `)).trim();
+      signal?.throwIfAborted();
       if (output === 'none') continue;
       if (!/^(?:[1-9]|[1-8][0-9]|9[0-6])$/.test(output)) throw new Error('Use none or a physical LED output number from 1 through 96.');
       leds.push({ controlId: identity, sdkChannel: Number(output) - 1 });
     }
     const confirmWiring = leds.length > 0 && (await io.question('Confirm these exact LED connections and polarity are checked (yes/no): ')).trim() === 'yes';
+    signal?.throwIfAborted();
     const inputMap = assembleInstallationMap({ switches: captured, leds, ...(axis ? { axis } : {}), confirmWiring });
     const profile = decodePeripheralBridgeConfig({ ...baseProfile, inputMap });
     await audioOff();
-    await saveCommissionedProfile(profilePath, expected, profile);
+    signal?.throwIfAborted();
+    await saveCommissionedProfile(profilePath, expected, profile, signal);
     saved = true;
+    if (signal?.aborted) throw new Error('Configuration saved. Commissioning was cancelled after publication; the peripheral service is left stopped.');
     restore = restore || startAfterSave;
     io.write(`Saved ${identities.length} switch identities${axis ? ' and the dial' : ''} to ${profilePath}.\n`);
     return profile;
   } catch (error) {
-    if (error instanceof CommissioningSaveUncertain) restore = false;
+    if (error instanceof CommissioningSaveUncertain || signal?.aborted) restore = false;
     throw error;
   } finally {
     if (restore) {
-      try { await audioOff(); await service.start(); }
+      try {
+        signal?.throwIfAborted();
+        await audioOff();
+        signal?.throwIfAborted();
+        await service.start();
+      }
       catch (error) { throw new Error(`${saved ? 'Configuration saved.' : 'Previous configuration preserved.'} The peripheral service was left stopped. Turn audio off, then start show-tools-peripheral.service. ${error instanceof Error ? error.message : String(error)}`); }
     }
   }
@@ -444,13 +473,15 @@ async function commissionHardwareUnderLock({ profilePath, baseProfile, service, 
 
 export interface DialCommissioningOptions {
   profilePath: string; service: CommissioningService; audioOff(): Promise<void>; io: CommissioningIo; captureAxis(): Promise<CapturedAxis>;
-  jiggle?: PeripheralBridgeConfig['jiggle'];
+  jiggle?: PeripheralBridgeConfig['jiggle']; signal?: AbortSignal;
 }
 export async function commissionDial(options: DialCommissioningOptions) {
   return withCommissioningLock(options.profilePath, () => commissionDialUnderLock(options));
 }
-async function commissionDialUnderLock({ profilePath, service, audioOff, io, captureAxis, jiggle }: DialCommissioningOptions) {
+async function commissionDialUnderLock({ profilePath, service, audioOff, io, captureAxis, jiggle, signal }: DialCommissioningOptions) {
+  signal?.throwIfAborted();
   const expected = await profileSnapshot(profilePath);
+  signal?.throwIfAborted();
   if (!expected) throw new Error('Capture and save the button map before adding the dial.');
   const original = decodePeripheralBridgeConfig(JSON.parse(expected.toString('utf8')));
   const switches = original.inputMap.switches.map(value => {
@@ -459,28 +490,42 @@ async function commissionDialUnderLock({ profilePath, service, audioOff, io, cap
     return { controlId: value.controlId, source: { interfaceNumber: source.interfaceNumber, eventTypes: source.eventTypes,
       keyCodes: source.keyCodes, relativeAxes: source.relativeAxes }, type: 1, code: value.code, evidencePath: profilePath } satisfies CapturedSwitch;
   });
+  signal?.throwIfAborted();
   const state = await service.inspect();
+  signal?.throwIfAborted();
   await audioOff();
+  signal?.throwIfAborted();
   if (state.active) await service.stop();
   let saved = false, restore = state.active;
   try {
+    signal?.throwIfAborted();
     await io.question('Leave the dial still. Press Enter when ready to capture signed relative-Y motion. ');
+    signal?.throwIfAborted();
     await audioOff();
+    signal?.throwIfAborted();
     const axis = await captureAxis();
+    signal?.throwIfAborted();
     const inputMap = assembleInstallationMap({ switches, leds: original.inputMap.leds, axis, confirmWiring: original.inputMap.confirmWiring });
     const profile = decodePeripheralBridgeConfig({ ...original, inputMap, bindingRevision: original.bindingRevision + 1,
       ...(jiggle !== undefined ? { jiggle } : {}) });
     await audioOff();
-    await saveCommissionedProfile(profilePath, expected, profile);
+    signal?.throwIfAborted();
+    await saveCommissionedProfile(profilePath, expected, profile, signal);
     saved = true;
+    if (signal?.aborted) throw new Error('Configuration saved. Commissioning was cancelled after publication; the peripheral service is left stopped.');
     io.write(`Saved the observed dial source to ${profilePath}. Button and LED assignments are retained.\n`);
     return profile;
   } catch (error) {
-    if (error instanceof CommissioningSaveUncertain) restore = false;
+    if (error instanceof CommissioningSaveUncertain || signal?.aborted) restore = false;
     throw error;
   } finally {
     if (restore) {
-      try { await audioOff(); await service.start(); }
+      try {
+        signal?.throwIfAborted();
+        await audioOff();
+        signal?.throwIfAborted();
+        await service.start();
+      }
       catch (error) { throw new Error(`${saved ? 'Configuration saved.' : 'Previous configuration preserved.'} The peripheral service was left stopped. Turn audio off, then start show-tools-peripheral.service. ${error instanceof Error ? error.message : String(error)}`); }
     }
   }

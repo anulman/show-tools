@@ -100,7 +100,7 @@ test('a foreign unit is refused before any service-control command', async () =>
 });
 
 
-for (const cancel of [false, true]) test(`the foreground TTY procedure ${cancel ? 'cancels and restores the service' : 'accepts real terminal answers'} without injected prompt IO`, { timeout: 20000 }, async () => {
+for (const cancel of [false, true]) test(`the foreground TTY procedure ${cancel ? 'cancels and leaves the service stopped' : 'accepts real terminal answers'} without injected prompt IO`, { timeout: 20000 }, async () => {
   const f = await fixture(cancel ? 'wait' : 'complete');
   const config = join(f.directory, 'peripheral.json');
   const session = join(f.directory, 'session.json');
@@ -154,7 +154,7 @@ finally:
     const result = JSON.parse(stdout);
     assert.equal(result.code, cancel ? 1 : 0, result.transcript); assert.equal(result.answers, cancel ? 3 : 6, result.transcript);
     assert.match(result.transcript, /ARMED: press and fully release blue/);
-    assert.equal(await readFile(actionsFile, 'utf8'), 'stop\nstart\n');
+    assert.equal(await readFile(actionsFile, 'utf8'), cancel ? 'stop\n' : 'stop\nstart\n');
     await assert.rejects(readFile(config + '.commissioning.lock'), /ENOENT/);
     if (cancel) assert.equal(await profileSnapshot(config), null);
     else { assert.match(result.transcript, /Saved 2 switch identities/); assert.equal(JSON.parse(await readFile(config, 'utf8')).inputMap.switches.length, 2); }
@@ -256,5 +256,30 @@ test('service status reports the normal unconfigured state without inventing a m
       service: { inspect: async () => ({ active: true }), stop: async () => { throw Error('must not stop'); }, start: async () => { throw Error('must not start'); } },
       io: { question: async () => { throw Error('must not ask'); }, write: value => output.push(value) } });
     assert.match(output.join(''), /active\. No input map is saved/); assert.equal(await profileSnapshot(config), null);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('CLI dial cancellation during the final audio-off check cannot publish or restart', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-cli-cancel-save-')));
+  const path = join(directory, 'peripheral.json');
+  const session = sessionProfile(directory);
+  const source = { interfaceNumber: 0, eventTypes: [0, 1], keyCodes: [30, 31], relativeAxes: [] };
+  const switches = (['blue', 'yellow'] as const).map((controlId, i) => ({ controlId, source, type: 1 as const, code: 30 + i, evidencePath: '/tmp/synthetic' }));
+  const original = { version: 2 as const, origin: session.origin, tokenFile: session.tokenFile, helperExecutable: '/release/helper', bindingRevision: 1,
+    jiggle: null, inputMap: assembleInstallationMap({ switches, leds: [], confirmWiring: false }) };
+  await saveCommissionedProfile(path, null, original);
+  const before = await readFile(path);
+  const sessionPath = join(directory, 'session.json'); await writeFile(sessionPath, JSON.stringify(session));
+  const controller = new AbortController(); let checks = 0, started = false;
+  try {
+    await assert.rejects(runCommissioningCli(['--dial', '--config', path, '--session-profile', sessionPath, '--runner', '/release/runner', '--helper', '/release/helper', '--bench-dir', directory], {
+      stagingRoot: directory, signal: controller.signal,
+      service: { inspect: async () => ({ active: true }), stop: async () => {}, start: async () => { started = true; } },
+      audioOff: async () => { if (++checks === 3) controller.abort(new Error('operator Ctrl-C before publication')); },
+      io: { question: async () => '', write: () => {} },
+      captureAxis: async () => ({ source: { interfaceNumber: 2, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] }, type: 2, code: 1, evidencePath: '/tmp/synthetic' }),
+    }), /operator Ctrl-C before publication/);
+    assert.deepEqual(await readFile(path), before); assert.equal(started, false); assert.equal(checks, 3);
+    await assert.rejects(readFile(path + '.commissioning.lock'), /ENOENT/);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

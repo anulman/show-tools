@@ -171,7 +171,7 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
         for (const axis of captured.observations) io.write(`Observed relative axis ${axis.code} on interface ${axis.interfaceNumber}: ${axis.samples} nonzero samples, signed delta ${axis.delta}, positive counts ${axis.positiveCounts}, negative counts ${axis.negativeCounts}.\n`);
         return captured;
       };
-      return await commissionDial({ profilePath, service, audioOff, io, captureAxis: axisCapture, ...(jiggle !== undefined ? { jiggle } : {}) });
+      return await commissionDial({ profilePath, service, audioOff, io, signal, captureAxis: axisCapture, ...(jiggle !== undefined ? { jiggle } : {}) });
     }
     const baseProfile: PeripheralBaseProfile = { version: 2, origin: session.origin, tokenFile: session.tokenFile,
       ...(session.connectAddress ? { connectAddress: session.connectAddress } : {}), ...(session.caFile ? { caFile: session.caFile } : {}),
@@ -181,7 +181,7 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
     const retainedAxis = previousAxis && previousSource?.kind === 'linux' ? { source: { interfaceNumber: previousSource.interfaceNumber,
       eventTypes: previousSource.eventTypes, keyCodes: previousSource.keyCodes, relativeAxes: previousSource.relativeAxes },
       type: 2, code: previousAxis.code, evidencePath: profilePath } satisfies CapturedAxis : undefined;
-    return await commissionHardware({ profilePath, baseProfile, service, audioOff, io, includeAxis: false, retainedAxis,
+    return await commissionHardware({ profilePath, baseProfile, service, audioOff, io, signal, includeAxis: false, retainedAxis,
       startAfterSave: values.start === true,
       capture: controlId => captureSwitch({ controlId, observerPath: join(benchDirectory, 'raw_keys.py'), publisherPath: join(benchDirectory, 'publish_marker.py'),
         stagingRoot, signal, onArmed: identity => io.write(`ARMED: press and fully release ${identity} three times. Leave it released.\n`) }) });
