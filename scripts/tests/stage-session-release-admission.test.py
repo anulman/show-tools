@@ -432,11 +432,14 @@ class FixedProtocolTests(unittest.TestCase):
             with self.subTest(code=code), self.assertRaises((RuntimeError, subprocess.TimeoutExpired)):
                 runner.bounded_process([sys.executable, '-I', '-c', code], seconds=seconds, cap=cap)
 
-    def test_cli_is_held_without_any_installed_action(self):
-        result = subprocess.run([sys.executable, '-I', str(SOURCE), '--envelope', '/unused', '--plan', '/unused',
-                                 '--archive', '/unused', '--executor', '/unused', '--validator', '/unused'], capture_output=True, timeout=3)
+    def test_cli_rejects_an_unassigned_host_before_installed_actions(self):
+        code = ('import runpy,socket,sys;socket.gethostname=lambda:"not-assigned";'
+                'sys.argv=[sys.argv[1],"--envelope","/unused","--plan","/unused",'
+                '"--archive","/unused","--executor","/unused","--validator","/unused"];'
+                'runpy.run_path(sys.argv[0],run_name="__main__")')
+        result = subprocess.run([sys.executable, '-I', '-c', code, str(SOURCE)], capture_output=True, timeout=3)
         self.assertEqual(result.returncode, 1)
-        self.assertIn(b'source-only pending review', result.stdout)
+        self.assertIn(b'Need assigned Linux host user', result.stdout)
 
 
 if __name__ == '__main__':

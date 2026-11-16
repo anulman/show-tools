@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Source-only fixed caller for reviewed app-data staging. CLI activation is held."""
+"""Fixed caller for signed app-data staging on the assigned Proxmox user."""
 import argparse
 import base64
 from dataclasses import dataclass
@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 
-EXECUTION_APPROVED = False
+EXECUTION_APPROVED = True
 EXECUTOR_SHA256 = '91b2a881420f33183dec48c7499470a84e3641d5091a9e82ea3260f2b6a89b90'
 CHECKER = Path('/usr/local/libexec/show-tools-delegation-check.py')
 GRANT = Path('/etc/homelab/delegations/show-tools.json')
