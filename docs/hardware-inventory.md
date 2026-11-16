@@ -99,6 +99,50 @@ raw key capture
 `cf64ce545a8df43d9823871ddbd157ec6cdd0eed8ae98473612d68eaa96ec0d5`.
 The concise findings are retained here; raw process logs remain temporary evidence.
 
+## November 15 button wiring map
+
+The operator reported two connected arcade buttons after remapping the first
+button. These physical reports do not establish their current Linux keycodes.
+The earlier anonymous Escape observation does not identify either colour.
+
+| Physical control identity | Reported controller switch label | Reported ordinary-header LED output | Current Linux input observation | Verification state |
+| --- | --- | --- | --- | --- |
+| Blue | `2SW7` | `1` | Not captured after remapping | Operator-reported wiring |
+| Yellow | `1A` | `2` | Not captured after remapping | Operator-reported wiring |
+| Red | Not assigned | Not assigned | Not captured | Planned |
+| Green | Not assigned | Not assigned | Not captured | Planned |
+| Pedal | Not assigned | Not applicable | Not captured | Planned |
+| Mushroom | Not assigned | Not applicable | Not captured | Planned |
+
+Blue and Yellow name physical controls. They do not assign a voice, capture,
+playback, tempo, or Panic action. Songs and the Performance Engine own those
+bindings. The same distinction applies to the remaining controls.
+
+The operator confirmed that LED pins 1 and 2 are on the ordinary 96-channel
+header. Moving them to the MOSFET screw-terminal outputs is planned for later
+and is not the current wiring. The current supply and LED module rating still
+need confirmation before LED writes. No new LED polarity or visible-output test
+is recorded.
+
+The wiring record distinguishes each controller header, row, and pin from its
+peripheral terminal. Switch COM and NO, LED anode and cathode, switch ground,
+and LED-positive common are separate connections. Unknown positions and terminal
+markings remain unverified rather than inferred from harness colours.
+
+Each new Linux observation records its named trial, physical control, confirmed
+connection, host, time, USB selector, and interface role. Input evidence includes
+the actual event type, code, numeric values, press and release counts, repeats,
+initial held state, gaps, errors, and capture hash. HID usage data is separate
+when available. Device-node paths describe the trial, not a permanent identity.
+LED evidence separately records physical output number, SDK channel, requested
+brightness, and the operator's visible result. Raw captures remain temporary.
+
+The Wiring Assistant owns physical correlation and this inventory. Hardware -
+EliteDesk owns host discovery, serialized input captures, LED tests, and service
+coordination. Tests use one named control at a time. A raw capture can identify
+keys outside the runtime helper's current Tab and Escape selection. Mapping
+these controls does not claim that multi-button runtime routing is installed.
+
 ## Confirmed intended behavior
 
 - The operator expects controller inputs to appear as keyboard events, with direction and distance updates for the knob. Verify the actual SpinTrak/controller configuration and host reports before choosing an adapter. Intended behavior is not a measured USB report format.
