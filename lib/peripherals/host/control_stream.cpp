@@ -73,14 +73,14 @@ bool parse_host_config(int argc, const char* const* argv, Platform platform, Hos
       if (parsed.confirm_wiring) return fail("Duplicate wiring confirmation.");
       parsed.confirm_wiring = true;
     } else if (option == "--linux-source" || option == "--hid-source") {
-      const bool linux = option == "--linux-source";
-      if ((platform == Platform::Linux) != linux || !available(linux ? 5 : 4)) return fail("Invalid source selector for this platform.");
+      const bool linux_source = option == "--linux-source";
+      if ((platform == Platform::Linux) != linux_source || !available(linux_source ? 5 : 4)) return fail("Invalid source selector for this platform.");
       SourceSelector source; source.id = argv[index++];
       uint32_t interface_number = 0;
       if (!source_id(source.id) || parsed.map.sources.size() >= 8
         || !natural(argv[index++], 255, interface_number)) return fail("Invalid source ID or USB interface number.");
       for (const auto& prior : parsed.map.sources) if (source.id == prior.id) return fail("Duplicate source ID.");
-      if (linux) {
+      if (linux_source) {
         LinuxSelector selector; selector.interface_number = interface_number;
         if (!capabilities(argv[index++], selector.event_types) || !capabilities(argv[index++], selector.key_codes)
           || !capabilities(argv[index++], selector.relative_axes)) return fail("Capability sets must be sorted unique decimal lists or '-'.");
@@ -131,10 +131,10 @@ bool parse_host_config(int argc, const char* const* argv, Platform platform, Hos
     if (source == parsed.map.sources.end()) return fail("Input refers to an undeclared source.");
     const uint32_t source_index = uint32_t(source - parsed.map.sources.begin());
     if (!raw.emplace(source_index, input.type, input.code).second) return fail("A raw input can identify only one physical control.");
-    if (auto linux = std::get_if<LinuxSelector>(&source->selector)) {
-      const auto& codes = input.control ? linux->key_codes : linux->relative_axes;
+    if (auto linux_selector = std::get_if<LinuxSelector>(&source->selector)) {
+      const auto& codes = input.control ? linux_selector->key_codes : linux_selector->relative_axes;
       if (input.type != (input.control ? 1u : 2u)
-        || !std::binary_search(linux->event_types.begin(), linux->event_types.end(), input.type)
+        || !std::binary_search(linux_selector->event_types.begin(), linux_selector->event_types.end(), input.type)
         || !std::binary_search(codes.begin(), codes.end(), input.code)) return fail("Input is absent from the declared Linux capabilities.");
     } else if (!input.type || !input.code) return fail("HID element usage page and usage must be positive.");
     used_sources.insert(source_index);

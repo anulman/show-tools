@@ -93,6 +93,7 @@ struct Host {
   IOHIDDeviceRef output = nullptr;
   std::vector<SelectedInput> selected;
   peripheral_host::InputMap map;
+  peripheral_host::InitialStates states{};
   std::unique_ptr<pp_inputs, decltype(&pp_destroy)> inputs{pp_create(), pp_destroy};
   std::unique_ptr<pp_light_delivery, decltype(&pp_light_delivery_destroy)> delivery{pp_light_delivery_create(), pp_light_delivery_destroy};
   double session = 0, sequence = 0;
@@ -149,10 +150,15 @@ void input(void* context, IOReturn status, void*, IOHIDValueRef value) {
   int result = PP_INVALID;
   bool emitted = true;
   if (selected->control) {
+    const auto slot = uint32_t(*selected->control);
+    const bool initial_release = raw == 0 && host.states[slot] != peripheral_host::InitialState::Released;
     if (raw == 2) result = pp_rotate(host.inputs.get(), host.session, sequence, 0);
-    else if (raw == 0 || raw == 1) result = pp_key(host.inputs.get(), host.session, sequence, uint32_t(*selected->control), int(raw));
-    if (result == PP_PRESS || result == PP_RELEASE)
-      emitted = peripheral_host::emit_button(std::cout, host.session, sequence, *selected->control, result == PP_PRESS);
+    else if (raw == 0 || raw == 1) {
+      result = pp_key(host.inputs.get(), host.session, sequence, slot, int(raw));
+      host.states[slot] = raw == 0 ? peripheral_host::InitialState::Released : peripheral_host::InitialState::Held;
+    }
+    if (result == PP_PRESS || result == PP_RELEASE || (result == PP_IGNORED && initial_release))
+      emitted = peripheral_host::emit_button(std::cout, host.session, sequence, *selected->control, raw == 1);
   } else {
     result = pp_rotate(host.inputs.get(), host.session, sequence, raw);
     if (result == PP_MOVEMENT) emitted = peripheral_host::emit_motion(std::cout, host.session, sequence, raw);
@@ -286,7 +292,6 @@ int main(int argc, char** argv) {
         opened.push_back(device);
       }
       if (opened.size() == required.size()) {
-        peripheral_host::InitialStates states{};
         uint32_t released = 0, held = 0;
         for (const auto& input : host.selected) {
           if (!input.control) continue;
@@ -294,8 +299,8 @@ int main(int argc, char** argv) {
           if (IOHIDDeviceGetValue(input.device, input.element, &initial) != kIOReturnSuccess || !initial) continue;
           const auto raw = IOHIDValueGetIntegerValue(initial);
           const auto id = uint32_t(*input.control);
-          if (raw == 0) { states[id] = peripheral_host::InitialState::Released; released |= 1u << id; }
-          else if (raw == 1) { states[id] = peripheral_host::InitialState::Held; held |= 1u << id; }
+          if (raw == 0) { host.states[id] = peripheral_host::InitialState::Released; released |= 1u << id; }
+          else if (raw == 1) { host.states[id] = peripheral_host::InitialState::Held; held |= 1u << id; }
         }
         if (pp_begin(host.inputs.get(), host.session, released, held) != 0) host.failed = true;
         for (auto device : opened) {
@@ -308,7 +313,7 @@ int main(int argc, char** argv) {
         if (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) host.failed = true;
         if (output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) host.failed = true;
         std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGHUP, stop); std::signal(SIGPIPE, SIG_IGN);
-        if (!host.failed && host.clear() && peripheral_host::emit_ready(std::cout, host.session, host.map, states)) {
+        if (!host.failed && host.clear() && peripheral_host::emit_ready(std::cout, host.session, host.map, host.states)) {
           std::string pending;
           while (running && !host.failed && std::cout.good()) {
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, .005, false);
