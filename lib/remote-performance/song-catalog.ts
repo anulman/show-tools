@@ -6,11 +6,11 @@ import { validateInstalledPackage } from './prepare.js';
 
 const id = Schema.NonEmptyString.check(Schema.isMaxLength(256), Schema.isPattern(/^[^\x00-\x1f\x7f]+$/));
 const path = Schema.NonEmptyString.check(Schema.isMaxLength(4096), Schema.isPattern(/^\/[^\x00]*$/));
-const Options = Schema.Struct({
+export const SongCatalogOptionsSchema = Schema.Struct({
   entries: Schema.NonEmptyArray(Schema.Struct({ id, path })),
   initialSongId: id,
 });
-export type SongCatalogOptions = typeof Options.Type;
+export type SongCatalogOptions = typeof SongCatalogOptionsSchema.Type;
 export type InstalledSong = Readonly<{
   id: string;
   title: string;
@@ -34,7 +34,7 @@ const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('h
 
 export const loadInstalledSongCatalog = (input: unknown) => Effect.tryPromise({
   try: async (): Promise<InstalledSongCatalog> => {
-    const options = Schema.decodeUnknownSync(Options, { onExcessProperty: 'error' })(input);
+    const options = Schema.decodeUnknownSync(SongCatalogOptionsSchema, { onExcessProperty: 'error' })(input);
     const ids = new Set<string>();
     for (const entry of options.entries) {
       if (ids.has(entry.id)) throw new Error(`Duplicate installed song ID: ${entry.id}`);

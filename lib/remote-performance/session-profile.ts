@@ -1,5 +1,6 @@
 import { Schema } from 'effect';
 import { ConnectAddressSchema } from './connection-options.js';
+import { SongCatalogOptionsSchema } from './song-catalog.js';
 
 const path = Schema.NonEmptyString.check(Schema.isPattern(/^\//), Schema.isMaxLength(4096));
 const integer = (minimum: number, maximum: number) => Schema.Int.check(Schema.isBetween({ minimum, maximum }));
@@ -18,8 +19,7 @@ const AlsaSchema = Schema.Struct({
   periodFrames: integer(1, 16384), bufferFrames: integer(1, 1048576),
   format: Schema.Literals(['s32', 'float']),
 }).check(Schema.makeFilter(value => (value.inputChannel < value.captureChannels && value.bufferFrames >= value.periodFrames) || 'Invalid ALSA channel or buffer relationship'));
-export const SessionProfileSchema = Schema.Struct({
-  schemaVersion: Schema.Literal(1),
+const common = {
   serviceName: Schema.String.check(Schema.isPattern(/^show-tools-[a-z0-9-]+\.service$/)),
   server: Schema.Struct({ nodeExecutable: path, entrypoint: path }),
   host: Schema.NonEmptyString.check(Schema.isMaxLength(256)),
@@ -33,7 +33,16 @@ export const SessionProfileSchema = Schema.Struct({
     maxVoices: integer(1, 128), maxSeconds: Schema.Number.check(Schema.isFinite(), Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(30)),
     driver: Schema.Union([AlsaSchema, Schema.Struct({ kind: Schema.Literal('fake'), inputLevel: Schema.Number.check(Schema.isFinite(), Schema.isBetween({ minimum: -1, maximum: 1 })) })]),
   }),
+};
+export const SessionProfileSchema = Schema.Struct({ schemaVersion: Schema.Literal(2), ...common,
+  restartPolicy: Schema.Literals(['no', 'on-failure']), catalog: SongCatalogOptionsSchema, authoringDatabase: path,
+});
+const SessionProfileV1Schema = Schema.Struct({ schemaVersion: Schema.Literal(1), ...common,
   package: Schema.Struct({ manifest: path, packet: path, effects: path }),
 });
+export function migrateSessionProfileV1(input: unknown, options: Pick<SessionProfile, 'catalog' | 'authoringDatabase' | 'restartPolicy'>): SessionProfile {
+  const { schemaVersion: _version, package: _package, ...settings } = Schema.decodeUnknownSync(SessionProfileV1Schema, { onExcessProperty: 'error' })(input);
+  return decodeSessionProfile({ ...settings, schemaVersion: 2, ...options });
+}
 export type SessionProfile = typeof SessionProfileSchema.Type;
-export const decodeSessionProfile = Schema.decodeUnknownSync(SessionProfileSchema);
+export const decodeSessionProfile = Schema.decodeUnknownSync(SessionProfileSchema, { onExcessProperty: 'error' });

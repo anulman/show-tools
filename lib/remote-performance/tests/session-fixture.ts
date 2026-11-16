@@ -18,11 +18,11 @@ export function installedPackage(compiled = song.compiled) {
   return { manifest, packet, configurations, installed: validateInstalledPackage(manifest, packet, configurations) };
 }
 export function sessionProfile(directory: string) {
-  return decodeSessionProfile({ schemaVersion: 1, serviceName: 'show-tools-test.service', host: '127.0.0.1', port: 9999,
+  return decodeSessionProfile({ schemaVersion: 2, restartPolicy: 'on-failure', serviceName: 'show-tools-test.service', host: '127.0.0.1', port: 9999,
     origin: 'http://127.0.0.1:9999', tokenFile: `${directory}/token`, staticRoot: `${directory}/static`, runtimeRoot: `${directory}/runtime`,
     server: { nodeExecutable: process.execPath, entrypoint: resolve('scripts/serve-hardware-desk.ts') },
     native: { executable: resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'), sampleRate: 8000, blockFrames: 127, maxVoices: 32, maxSeconds: 30, driver: { kind: 'fake', inputLevel: .25 } },
-    package: { manifest: `${directory}/manifest`, packet: `${directory}/packet`, effects: `${directory}/effects` } });
+    catalog: { entries: [{ id: 'dance-yrself-clean', path: `${directory}/song` }], initialSongId: 'dance-yrself-clean' }, authoringDatabase: `${directory}/authoring.sqlite` });
 }
 export const target = Schema.decodeUnknownSync(NativeTargetSchema)({ attempt: 'test-attempt', hostEpoch: 'test-native' });
 export function deskFixture(overrides: Partial<DeskController> = {}): DeskController {

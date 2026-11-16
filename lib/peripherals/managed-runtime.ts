@@ -1,7 +1,7 @@
 import { readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { connection, PeripheralHelperUnavailable, PeripheralHttpError, PeripheralRetry, runPeripheralBridge, type PeripheralBridgeConfig } from './bridge.js';
+import { connection, openPeripheralDevice, PeripheralHelperUnavailable, PeripheralHttpError, PeripheralOwnershipUnconfirmed, PeripheralRetry, runPeripheralBridge, type PeripheralBridgeConfig } from './bridge.js';
 import { DeskViewSchema } from '../remote-performance/session-schema.js';
 import { Schema } from 'effect';
 
@@ -60,6 +60,7 @@ function retryable(error: unknown): boolean {
 export type PeripheralServiceState =
 	| { readonly kind: 'waiting'; readonly reason: 'audio' | 'device' }
 	| { readonly kind: 'connecting' }
+	| { readonly kind: 'physical-only'; readonly reason: string }
 	| { readonly kind: 'blocked'; readonly error: string }
 	| { readonly kind: 'retrying'; readonly error: string };
 
@@ -71,41 +72,55 @@ export async function servePeripheral(config: PeripheralBridgeConfig, signal: Ab
 }: { present?: () => Promise<boolean>; fingerprint?: () => Promise<string>; report?: (state: PeripheralServiceState) => void; retryMs?: number } = {}) {
 	let previous = '';
 	let blocked: { fingerprint: string; error: string } | undefined;
+	let retirement: PeripheralOwnershipUnconfirmed | undefined;
+	let musicalFailure: string | undefined;
 	const publish = (state: PeripheralServiceState) => {
 		const encoded = JSON.stringify(state);
 		if (encoded !== previous) { report(state); previous = encoded; }
 	};
 	try {
 		while (!signal.aborted) {
+			if (!await present()) { publish({ kind: 'waiting', reason: 'device' }); await delay(retryMs, undefined, { signal }); continue; }
+			const before = await fingerprint();
+			if (blocked?.fingerprint === before) {
+				publish({ kind: 'blocked', error: blocked.error }); await delay(retryMs, undefined, { signal }); continue;
+			}
+			blocked = undefined; publish({ kind: 'connecting' });
 			try {
-				const link = await connection(config, signal);
-				const view = decodeView(await link.json('/api/status'));
-				if (view.audio.kind !== 'ready') publish({ kind: 'waiting', reason: 'audio' });
-				else if (!await present()) publish({ kind: 'waiting', reason: 'device' });
-				else {
-					const before = await fingerprint();
-					if (blocked?.fingerprint === before) {
-						publish({ kind: 'blocked', error: blocked.error });
-						await delay(retryMs, undefined, { signal });
-						continue;
+				const device = await openPeripheralDevice(config, signal);
+				let deviceFailure: unknown;
+				const unsubscribe = device.subscribe(() => {}, error => { deviceFailure = error; });
+				try {
+					while (!signal.aborted && !deviceFailure) {
+						if (retirement) {
+							if (await retirement.retired().catch(() => false)) retirement = undefined;
+							else { publish({ kind: 'physical-only', reason: retirement.message }); await delay(retryMs, undefined, { signal }); continue; }
+						}
+						if (musicalFailure) { publish({ kind: 'physical-only', reason: musicalFailure }); await delay(retryMs, undefined, { signal }); continue; }
+						try {
+							const link = await connection(config, signal);
+							const view = decodeView(await link.json('/api/status'));
+							if (view.audio.kind !== 'ready') publish({ kind: 'physical-only', reason: 'Audio is off or unavailable. Button LEDs still follow physical holds.' });
+							else await runPeripheralBridge(config, signal, device);
+						} catch (error) {
+							if (signal.aborted) break;
+							if (error instanceof PeripheralOwnershipUnconfirmed) retirement = error;
+							else if (!deviceFailure && !retryable(error)) musicalFailure = `${error instanceof Error ? error.message : String(error)}. Correct the configuration and restart the peripheral service; physical LED feedback remains active.`;
+							else if (!deviceFailure) publish({ kind: 'physical-only', reason: error instanceof Error ? error.message : String(error) });
+						}
+						if (!signal.aborted && !deviceFailure) await delay(retryMs, undefined, { signal });
 					}
-					blocked = undefined;
-					publish({ kind: 'connecting' });
-					try { await runPeripheralBridge(config, signal); }
-					catch (error) {
-						if (!signal.aborted && error instanceof PeripheralHelperUnavailable) {
-							blocked = { fingerprint: before, error: error.message + '; waiting for USB/interface/access metadata to change, or restart after correcting the helper' };
-							publish({ kind: 'blocked', error: blocked.error });
-						} else if (!signal.aborted && !retryable(error)) throw error;
-						if (!signal.aborted && !blocked) publish({ kind: 'retrying', error: error instanceof Error ? error.message : String(error) });
-					}
-				}
+					if (deviceFailure && !signal.aborted) throw deviceFailure;
+				} finally { unsubscribe(); await device.close(); }
 			} catch (error) {
 				if (signal.aborted) break;
-				if (!retryable(error)) throw error;
-				publish({ kind: 'retrying', error: error instanceof Error ? error.message : String(error) });
+				if (error instanceof PeripheralHelperUnavailable) {
+					blocked = { fingerprint: before, error: `${error.message}; waiting for USB/interface/access metadata to change, or restart after correcting the helper` };
+					publish({ kind: 'blocked', error: blocked.error });
+				} else if (retryable(error)) publish({ kind: 'retrying', error: error instanceof Error ? error.message : String(error) });
+				else throw error;
 			}
-			await delay(retryMs, undefined, { signal });
+			if (!signal.aborted) await delay(retryMs, undefined, { signal });
 		}
 	} catch (error) { if (!signal.aborted) throw error; }
 }

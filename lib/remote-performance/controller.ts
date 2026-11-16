@@ -10,6 +10,9 @@ import type { Observation } from './gateway.js';
 import { SongSchema, NativeEventSchema } from './native-schema.js';
 import { prepareInstalledPackage, type validateInstalledPackage } from './prepare.js';
 import type { SessionProfile } from './session-profile.js';
+import type { InstalledSongCatalog } from './song-catalog.js';
+import { prepareSongBindings, type SongBindingAuthority } from './song-bindings.js';
+import { decodeInputBindings } from '../performance/input-bindings.js';
 import { requireLegacyMonitorInactive } from './legacy-monitor.js';
 import { AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
   type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome, type NativeEngineRetirementProof } from './session-schema.js';
@@ -39,9 +42,53 @@ export class PersistentDesk implements DeskController {
     return this.retirements.get(JSON.stringify([target.attempt, target.hostEpoch])) ?? null;
   }
 
-  constructor(private readonly profile: SessionProfile, private readonly installed: InstalledPackage) {
+  private configuration: { kind: 'idle' } | { kind: 'preparing'; done: Promise<void> } = { kind: 'idle' };
+  constructor(private readonly profile: SessionProfile, private installed: InstalledPackage,
+    private readonly songs?: { catalog: InstalledSongCatalog; bindings: SongBindingAuthority }) {
     this.view = { serverEpoch: Schema.decodeUnknownSync(ServerEpochSchema)(randomUUID()), revision: revision('0'),
       song: Schema.decodeUnknownSync(SongSchema)(installed.song), audio: { kind: 'off' } };
+  }
+  songChoices() {
+    if (!this.songs) throw new Error('No installed song catalog is configured');
+    return this.songs.catalog.choices;
+  }
+  private async configure(expectedRevision: string, prepare: () => Promise<{ installed: InstalledPackage; commit: () => void }>): Promise<AudioDecision> {
+    const rejected = (error: string): AudioDecision => ({ outcome: 'rejected', error, view: this.view });
+    if (this.closing || this.attempt || this.view.audio.kind !== 'off' || this.configuration.kind !== 'idle')
+      return rejected('Turn audio off and wait for its owned process to exit before configuring songs');
+    if (expectedRevision !== this.view.revision) return rejected('Desk changed. Reload its current state before saving');
+    let finish!: () => void;
+    const done = new Promise<void>(resolve => { finish = resolve; });
+    this.configuration = { kind: 'preparing', done };
+    try {
+      const candidate = await prepare();
+      const song = Schema.decodeUnknownSync(SongSchema)(candidate.installed.song);
+      if (this.closing) return rejected('Desk is shutting down; configuration was not committed');
+      candidate.commit();
+      this.installed = candidate.installed;
+      this.view = { ...this.view, song, revision: revision((BigInt(this.view.revision) + 1n).toString()) };
+      this.publish({ type: 'desk', view: this.view });
+      return { outcome: 'accepted', view: this.view };
+    } catch (error) { return rejected(errorText(error)); }
+    finally { this.configuration = { kind: 'idle' }; finish(); }
+  }
+  selectSong(songId: string, expectedRevision: string): Promise<AudioDecision> {
+    return this.configure(expectedRevision, async () => {
+      if (!this.songs) throw new Error('No installed song catalog is configured');
+      const entry = this.songs.catalog.get(songId), authored = this.songs.bindings.read(entry);
+      const installed = authored.revision ? (await prepareSongBindings(entry, authored.bindings)).installed : entry.installed;
+      return { installed, commit: () => {} };
+    });
+  }
+  configureSongBindings(songId: string, expectedRevision: string, input: unknown): Promise<AudioDecision> {
+    return this.configure(expectedRevision, async () => {
+      const context = this.songs;
+      if (!context) throw new Error('No installed song catalog is configured');
+      if (songId !== this.view.song.id) throw new Error('Song changed. Select the intended song before saving its buttons');
+      const entry = context.catalog.get(songId), current = context.bindings.read(entry);
+      const prepared = await prepareSongBindings(entry, decodeInputBindings(input));
+      return { installed: prepared.installed, commit: () => { context.bindings.save(prepared, current.revision); } };
+    });
   }
   snapshot() { return this.view; }
   subscribe(listener: (value: DeskPublication) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
@@ -56,6 +103,7 @@ export class PersistentDesk implements DeskController {
       if (this.attempt) this.stop(this.attempt);
       else if (this.view.audio.kind === 'fault') this.update({ kind: 'off' });
     } else {
+      if (this.configuration.kind !== 'idle') return { outcome: 'rejected', error: 'Wait for song configuration to finish before enabling audio', view: this.view };
       if (this.view.audio.kind === 'stopping') return { outcome: 'rejected', error: 'Audio is stopping', view: this.view };
       if (!this.attempt) this.start();
     }
@@ -187,6 +235,7 @@ export class PersistentDesk implements DeskController {
   }
   async close() {
     this.closing = true;
+    if (this.configuration.kind === 'preparing') await this.configuration.done;
     const attempt = this.attempt;
     if (attempt) { this.stop(attempt); await attempt.done; if (this.attempt) throw new Error('Native cleanup did not confirm exit'); }
     this.listeners.clear();

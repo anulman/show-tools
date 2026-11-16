@@ -38,6 +38,10 @@ export const DeskPublicationSchema = Schema.Union([
   Schema.Struct({ type: Schema.Literal('event'), attempt: AttemptSchema, event: NativeEventSchema }),
   Schema.Struct({ type: Schema.Literal('gap') }),
 ]);
+export const SongChoicesSchema = Schema.Struct({ songs: Schema.NonEmptyArray(Schema.Struct({
+  id, title: Schema.NonEmptyString, packageDigest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+})) });
+export const decodeSongChoices = Schema.decodeUnknownSync(SongChoicesSchema, { onExcessProperty: 'error' });
 export const NativeTargetSchema = Schema.Struct({ attempt: AttemptSchema, hostEpoch: NativeEpochSchema });
 export const AudioGoalSchema = Schema.Literals(['on', 'off']);
 export const AudioDecisionSchema = Schema.Union([

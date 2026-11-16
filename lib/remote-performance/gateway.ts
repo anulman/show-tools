@@ -9,7 +9,7 @@ import { extname, resolve, sep } from 'node:path';
 import { Schema } from 'effect';
 import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
 import { decodeClientInputCommand, isPriorityCommand, type ClientInputCommand } from './commands.js';
-import { decodeInputAttach, type InputAttach } from '../performance/input-bindings.js';
+import { InputBindingsSchema, decodeInputBindings, decodeInputAttach, type InputBindings, type InputAttach } from '../performance/input-bindings.js';
 
 export interface Observation {
 	type: 'session' | 'state' | 'event' | 'gap';
@@ -245,7 +245,17 @@ const contentTypes: Record<string, string> = {
 	'.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon',
 };
 
-export function createGateway(config: GatewayConfig, controller: DeskController) {
+export interface SongActions {
+  choices(): readonly { id: string; title: string; packageDigest: string }[];
+  select(id: string, expectedRevision: string): Promise<AudioDecision>;
+  bindings(id: string, expectedRevision: string, values: InputBindings): Promise<AudioDecision>;
+}
+const songFields = { ...requestFields, songId: Schema.NonEmptyString.check(Schema.isMaxLength(256)),
+  expectedRevision: Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/)) };
+const decodeSongSelection = Schema.decodeUnknownSync(Schema.Struct(songFields), { onExcessProperty: 'error' });
+const decodeSongBindings = Schema.decodeUnknownSync(Schema.Struct({ ...songFields, bindings: InputBindingsSchema }), { onExcessProperty: 'error' });
+
+export function createGateway(config: GatewayConfig, controller: DeskController, songs?: SongActions) {
 	if (config.token.length < 32) throw new Error('Token must contain at least 32 bytes');
 	const origin = new URL(config.origin);
 	if (origin.origin !== config.origin) throw new Error('Origin must be an exact origin');
@@ -312,6 +322,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
         if (original && ++original.reads > MAX_INPUT_STATUS_REQUESTS) return json(response, 429, { error: 'Input readback capacity reached' });
         return json(response, 200, original ? await inputs.readStatus(original.owner, input.intentId) : { kind: 'unknown' });
       }
+			if (request.method === 'GET' && path === '/api/songs') return songs ? json(response, 200, { songs: songs.choices() }) : json(response, 404, { error: 'Song catalog is not configured' });
 			if (request.method === 'GET' && path === '/api/status') return json(response, 200, controller.snapshot());
 			if (request.method === 'GET' && path === '/api/events') {
 				if (clients.size >= MAX_CLIENTS) return json(response, 503, { error: 'Observer capacity reached' });
@@ -327,10 +338,10 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 				if (snapshot) send(response, Buffer.from(`data: ${JSON.stringify({ type: 'desk', view: snapshot })}\n\n`));
 				return;
 			}
-			if (request.method === 'POST' && (path === '/api/command' || path === '/api/audio')) {
+			if (request.method === 'POST' && ['/api/command', '/api/audio', '/api/song', '/api/song-bindings'].includes(path)) {
 				if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
-				let body: ReturnType<typeof decodeCommand> | ReturnType<typeof decodeAudio>;
-				try { const input = await readBody(request); body = path === '/api/audio' ? decodeAudio(input) : decodeCommand(input); }
+				let body: ReturnType<typeof decodeCommand> | ReturnType<typeof decodeAudio> | ReturnType<typeof decodeSongSelection> | ReturnType<typeof decodeSongBindings>;
+				try { const input = await readBody(request); body = path === '/api/audio' ? decodeAudio(input) : path === '/api/song' ? decodeSongSelection(input) : path === '/api/song-bindings' ? decodeSongBindings(input) : decodeCommand(input); }
 				catch { return json(response, 400, { error: 'Invalid body' }); }
 				const session = sessions.get(body.sessionId);
 				if (!session) return json(response, 409, { error: 'Session expired' });
@@ -350,6 +361,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 				session.inFlight++;
 				const result: Promise<Outcome | AudioDecision | NativeOutcome> = ('goal' in body
 					? Promise.resolve(controller.setAudio(body.goal))
+          : 'songId' in body ? songs ? 'bindings' in body ? songs.bindings(body.songId, body.expectedRevision, decodeInputBindings(body.bindings)) : songs.select(body.songId, body.expectedRevision) : Promise.resolve({ outcome: 'rejected' as const, error: 'Song configuration is unavailable', view: controller.snapshot() })
 					: body.command.startsWith('input') ? inputs.command(session, body.target, { command: body.command, args: body.args })
 						: controller.command(body.target, { command: body.command, args: body.args })).catch(
 					() => ({ outcome: 'unknown' } as const),
