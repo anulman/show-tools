@@ -1,5 +1,21 @@
 # Initial checked result
 
+## Off-only song configuration maintenance
+
+Outcome: **updated** at `e9ecebb858dc580fb43717c3d3771d9c8c458858`. The initial command rejected changed controller bytes. Review of every covered delta found a new configuration lock and mutable selected package, an additive song-choice schema, and a light constant. The original ownership model, its two-attempt bound and all seven rules are byte-identical to the previous sync.
+
+The complete verifier passes 1,761 ownership states and 316 states in the new supplemental configuration model, with seven rules in each model. All six ownership source mutants and eight configuration source mutants fail their specific behavioral assertions. The ownership mutant still has both required counterexample paths. The final pristine configuration outcomes and all thirteen covered source hashes pass after mutation runs. Receipt: `/private/tmp/song-config-completed/receipt.json`.
+
+The configuration model covers two attempt reservations and two configuration requests. Token equality is abstracted as current or noncurrent, so native telemetry revision growth is not silently bounded by the number of saves. A configuration checks audio Off, no attempt, an idle lock, a current token and no closing. Close waits for pending preparation, and prepared work cannot commit after closing begins. Failure and success outcomes are explicit.
+
+All nineteen model and illustration results were interpreted by the current statechart command. Every rule was checked. The configuration chart comes from the complete 316-state model. Its separate one-attempt, one-request illustration check does not replace the full proof. The existing ownership illustration and all original model bytes are unchanged. Receipt: `/private/tmp/song-config-final-statecharts/receipt.json`.
+
+Actual-controller witnesses additionally reject configuration while Ready or while an acquired child has unresolved ownership, then admit configuration after a confirmed exit. Historical and future desk-token mismatches reject before preparation. Positive preparation, compare-and-swap rejection and lock release checks also pass. Twelve existing controller-ownership regression tests pass, and strict TypeScript checking passes.
+
+The initial source-fence rejection was expected verification drift. A restricted TLC management socket, intermediate TLA+ syntax and mutation-tag errors, and a branded-token test type error were verification-environment or verification-code issues. They were corrected before the successful final command. No current-source product counterexample was found, and no product source was edited.
+
+This remains two bounded checks with reviewed coupling assumptions and selected source witnesses. It is not a mechanical composition or implementation-refinement proof. The configuration model assumes synchronous all-or-no-change commit results and accurate owned-attempt release. SQLite durability, ambiguous commit errors, chart compilation, profile migration, backups, helper ownership, actual OS cleanup and physical audio are outside the new claim.
+
 ## Confirmed engine retirement maintenance
 
 Outcome: **updated** at `092ffbc`. The original source fence rejected controller drift. Reviewed controller and schema changes preserve the existing owned-child release condition and add an exact-target retirement record after confirmed exit, plus a post-await attempt fence. The two-attempt, one-command model and all seven invariants remain unchanged.

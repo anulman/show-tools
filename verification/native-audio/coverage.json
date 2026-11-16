@@ -1,13 +1,19 @@
 {
-  "revision": "092ffbca0b589dfd1a2e443c7d9abf333ed57c59",
+  "revision": "e9ecebb858dc580fb43717c3d3771d9c8c458858",
   "files": {
-    "lib/remote-performance/controller.ts": "eb086c27e9b3dd530f1ffbf1f9695f1515ffa2ad5265ee611587aa35dde42a95",
-    "lib/remote-performance/session-schema.ts": "2c245b2551773a9229ea867b4c8f3cf34077a285e1df18f9995082cd4db034e6",
+    "lib/remote-performance/controller.ts": "fff48a4532dbbf2d5e73563f5f522da25e4480eafaaa9b034a6cb3082ec86d88",
+    "lib/remote-performance/session-schema.ts": "2113cc100342ffc8e090ca84937abd8c47478c2d493b6128ec0abfd37e1894b8",
     "lib/remote-performance/native-schema.ts": "155f8949ef15cedc9d1f7685c46cfcba99efc92da6c9db72567550c426b2f60a",
-    "lib/performance/light-abi.ts": "b6f699c8d325315ab157dca027ea6f4ba3a77ce17dc2006a5da4447824bea09b",
+    "lib/performance/light-abi.ts": "73e58c41ff767f0db919c9cda7fdf06d82025165c27e91a864f2980cf20f9284",
     "lib/tuner/schema.ts": "6a4556c8906572f5492a84b2726f97c95a731126837ce11c3fb3d4fc36929e0c",
     "lib/performance/input-bindings.ts": "c2e46f4b821efa766c29415921aba0072394880c1567ebef573dabed84dd69ac",
-    "lib/performance/model.ts": "53bc8d0cf433ea2f51e144375f6a4ee6d07c44b3d8380d042c1e8457f7d36371"
+    "lib/performance/model.ts": "53bc8d0cf433ea2f51e144375f6a4ee6d07c44b3d8380d042c1e8457f7d36371",
+    "lib/remote-performance/session-profile.ts": "77c3a0fc1676f0bbbddc97d6c8a193bcf9dec57e2f8939540249e38fcccabc7d",
+    "lib/remote-performance/song-catalog.ts": "bc678e375f99a977c4d8d5eb88a7b8990d9734ed509e53e95b63f7c79af8c967",
+    "lib/remote-performance/song-bindings.ts": "98f4db2002480cacd5c0b706ca84a841377155407c522994a929505a4909b704",
+    "lib/remote-performance/prepare.ts": "2bbc8e0278cc417d266f1de34f93fad405f32c486ea0531aa916fa57314d8bf5",
+    "lib/remote-performance/tests/session-fixture.ts": "5a81e3c17a88b730358b118319c1257680b94ffaa517a3bab2d838009e842e1d",
+    "lib/remote-performance/tests/light-fixture.ts": "b645e77f0398a25cb882f908bbc435647a1753e9d22539c5f800c027ef29df49"
   },
   "symbols": [
     "PersistentDesk.setAudio",
@@ -18,9 +24,20 @@
     "PersistentDesk.observe",
     "PersistentDesk.command",
     "AudioStateSchema",
-    "ChildOwnership"
+    "ChildOwnership",
+    "PersistentDesk.configure",
+    "PersistentDesk.selectSong",
+    "PersistentDesk.configureSongBindings",
+    "PersistentDesk.close"
   ],
   "effectVersion": "4.0.6",
   "platformNodeVersion": "4.0.6",
-  "platformNodeSharedVersion": "4.0.6"
+  "platformNodeSharedVersion": "4.0.6",
+  "configurationModel": {
+    "attempts": 2,
+    "configurationRequests": 2,
+    "expectedRevisions": "Current versus noncurrent token equality, including old and future tokens",
+    "nativeOwnership": "Coarse owned-attempt reservation; release only on modeled confirmed exit/failure",
+    "candidateAndCAS": "Typed preparation and synchronous all-or-no-change commit outcomes; SQLite internals excluded"
+  }
 }

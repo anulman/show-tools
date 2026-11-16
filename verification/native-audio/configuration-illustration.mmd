@@ -1,0 +1,35 @@
+---
+title: "Song configuration and audio ownership"
+---
+stateDiagram-v2
+  s0: Audio off
+  s1: Preparing song or button map
+  s2: Desk closed
+  s3: Opening audio
+  s4: Audio fault
+  s5: Closing waits for configuration
+  s6: Audio ready
+  s7: Stopping audio
+  s8: Closing waits for audio exit
+  s9: Finishing close
+  [*] --> s0
+  s0 --> s1: Select song or save buttons
+  s0 --> s2: Close the desk
+  s0 --> s3: Enable audio
+  s1 --> s0: Preparation or commit rejected or Prepared configuration commits
+  s1 --> s5: Close the desk
+  s3 --> s4: Startup or child fails with exit confirmed
+  s3 --> s6: Stopped readback verified
+  s3 --> s7: Terminate audio
+  s3 --> s8: Close the desk
+  s4 --> s2: Close the desk
+  s4 --> s0: Turn audio off
+  s4 --> s3: Enable audio
+  s5 --> s9: Preparation or commit rejected
+  s6 --> s4: Startup or child fails with exit confirmed
+  s6 --> s7: Terminate audio
+  s6 --> s8: Close the desk
+  s7 --> s8: Close the desk
+  s7 --> s0: Owned child exit confirmed
+  s8 --> s9: Owned child exit confirmed
+  s9 --> s2: Owned work settled
