@@ -8,7 +8,7 @@ import { InputAttachSchema, InputEventSchema, InputRevokeSchema, type InputRouti
 import { decodeClientInputCommand } from '../commands.js';
 import { InputProducerRegistry, createGateway } from '../gateway.js';
 import { once } from 'node:events';
-import { DeskViewSchema, NativeTargetSchema, type DeskController } from '../session-schema.js';
+import { decodeInputIntentStatus, DeskViewSchema, NativeRevisionSchema, NativeTargetSchema, type DeskController } from '../session-schema.js';
 import song from '../../../songs/dance-yrself-clean.js';
 import { lightFixture } from './light-fixture.js';
 import { tunerFixture } from './tuner-fixture.js';
@@ -122,7 +122,7 @@ function inputHost(initialSessions = 0, revokeAcknowledgement: Promise<void> = P
   let unknownAttach = false, unknownRevoke = false;
   function replaceRouting(inputRouting: InputRoutingState) {
     if (view.audio.kind !== 'ready') throw new Error('Test host unavailable');
-    view = { ...view, audio: { ...view.audio, performance: { ...view.audio.performance,
+    view = { ...view, audio: { ...view.audio, performance: { ...view.audio.performance, revision: Schema.decodeUnknownSync(NativeRevisionSchema)(String(BigInt(view.audio.performance.revision) + 1n)),
       state: { ...view.audio.performance.state, inputRouting } } } };
   }
   const controller: DeskController = {
@@ -150,7 +150,8 @@ function inputHost(initialSessions = 0, revokeAcknowledgement: Promise<void> = P
   return { controller, target, calls, get view() { return view; }, replaceRouting, unknownAttach: () => { unknownAttach = true; }, unknownRevoke: () => { unknownRevoke = true; } };
 }
 
-const clientAttach = (kind = 'physical') => ({ command: 'inputAttach', args: { kind, bindingGeneration: 7, releasedMask: 3, heldMask: 0 } });
+let intentSequence = 0;
+const clientAttach = (kind = 'physical') => ({ command: 'inputAttach', args: { intentId: `intent-${++intentSequence}`, kind, bindingGeneration: 7, releasedMask: 3, heldMask: 0 } });
 const clientEvent = (kind = 'physical', input = 0) => ({ command: 'inputEvent', args: { kind, bindingGeneration: 7, sequence: 1, input, value: 1 } });
 
 test('manual revoke and disconnect share one in-flight request for the same lease', async () => {
@@ -240,7 +241,7 @@ test('HTTP input ownership survives another authenticated client disconnecting',
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const address = server.address(); assert(address && typeof address !== 'string');
   const base = `http://127.0.0.1:${address.port}`, headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
-  const session = Schema.decodeUnknownSync(Schema.Struct({ sessionId: Schema.NonEmptyString }));
+  const session = Schema.decodeUnknownSync(Schema.Struct({ sessionId: Schema.NonEmptyString, inputOwnerToken: Schema.NonEmptyString }));
   const first = session(await (await fetch(`${base}/api/session`, { headers })).json());
   const second = session(await (await fetch(`${base}/api/session`, { headers })).json());
   const a = new AbortController(), b = new AbortController();
@@ -249,9 +250,19 @@ test('HTTP input ownership survives another authenticated client disconnecting',
     assert.equal(response.status, 200);
     return Schema.decodeUnknownSync(Schema.Struct({ outcome: Schema.String }))(await response.json()).outcome;
   };
+  const keyboardAttach = clientAttach('keyboard'), physicalAttach = clientAttach();
+  const status = async (inputOwnerToken: string, intentId: string) => {
+    const response = await fetch(`${base}/api/input-intent-status`, { method: 'POST', headers, body: JSON.stringify({ inputOwnerToken, intentId }) });
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    return decodeInputIntentStatus(await response.json());
+  };
   try {
-    assert.equal(await send(first.sessionId, 1, clientAttach('keyboard')), 'applied');
-    assert.equal(await send(second.sessionId, 1, clientAttach()), 'applied');
+    assert.equal(await send(first.sessionId, 1, keyboardAttach), 'applied');
+    assert.equal(await send(second.sessionId, 1, physicalAttach), 'applied');
+    assert.notEqual(first.inputOwnerToken, second.inputOwnerToken);
+    assert.equal((await status(first.inputOwnerToken, keyboardAttach.args.intentId)).kind, 'admitted');
+    assert.deepEqual(await status(first.inputOwnerToken, physicalAttach.args.intentId), { kind: 'unknown' });
+    assert.deepEqual(await status('missing-owner-token', physicalAttach.args.intentId), { kind: 'unknown' });
     assert.equal(await send(second.sessionId, 2, { command: 'inputRevoke', args: { kind: 'physical', producer: 0, session: 1 } }), 'rejected');
     const firstStream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': first.sessionId }, signal: a.signal });
     const secondStream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': second.sessionId }, signal: b.signal });
@@ -260,8 +271,75 @@ test('HTTP input ownership survives another authenticated client disconnecting',
     for (let attempt = 0; attempt < 200 && !host.calls.some(value => value.command === 'inputRevoke'); attempt++)
       await new Promise(resolve => setTimeout(resolve, 1));
     assert.deepEqual(host.calls.filter(value => value.command === 'inputRevoke').map(value => value.args), [{ producer: 1, session: 2 }]);
+    assert.equal((await status(second.inputOwnerToken, physicalAttach.args.intentId)).kind, 'retired');
     assert.equal(await send(first.sessionId, 2, clientEvent('keyboard')), 'applied');
   } finally {
     a.abort(); b.abort(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
   }
+});
+
+test('input intents bind full meaning and never redispatch a retained admission or retirement', async () => {
+  const host = inputHost(), registry = new InputProducerRegistry(host.controller), owner = {};
+  const command = clientAttach('keyboard');
+  const first = await registry.command(owner, host.target, command);
+  assert.equal(first.outcome, 'applied');
+  const admitted = registry.status(owner, command.args.intentId);
+  assert.equal(admitted.kind, 'admitted');
+  assert.deepEqual(registry.status({}, command.args.intentId), { kind: 'unknown' });
+  assert.deepEqual(await registry.command(owner, host.target, command), first);
+  for (const args of [{ ...command.args, releasedMask: 0 }, { ...command.args, heldMask: 4 }, { ...command.args, kind: 'pointer' }, { ...command.args, bindingGeneration: 8 }])
+    assert.equal((await registry.command(owner, host.target, { ...command, args })).outcome, 'rejected');
+  assert.equal((await registry.command(owner, { ...host.target, hostEpoch: Schema.decodeUnknownSync(NativeTargetSchema)({ attempt: 'input-attempt', hostEpoch: 'other-host' }).hostEpoch }, command)).outcome, 'rejected');
+  assert.equal(host.calls.length, 1);
+  await registry.command(owner, host.target, { command: 'inputRevoke', args: { kind: 'keyboard' } });
+  const retired = registry.status(owner, command.args.intentId);
+  assert.equal(retired.kind, 'retired');
+  if (retired.kind !== 'retired' || retired.proof.kind !== 'exact-revoke-applied') throw new Error('Missing exact retirement proof');
+  assert.deepEqual(retired.proof.receipt, admitted.kind === 'admitted' ? admitted.receipt : undefined);
+  assert(BigInt(retired.proof.revocationRevision) > BigInt(retired.proof.receipt.admissionRevision));
+  await registry.command(owner, host.target, command);
+  assert.equal(host.calls.length, 2, 'historical attach result cannot redispatch a retired identity');
+  await registry.close(owner);
+  assert.equal((await registry.command(owner, host.target, command)).outcome, 'rejected');
+  assert.deepEqual(registry.status(owner, command.args.intentId), retired);
+});
+
+test('readback distinguishes pending, definitive rejection, and truly unknown native admission', async () => {
+  const host = inputHost();
+  let release!: () => void;
+  const pending = new Promise<void>(resolve => { release = resolve; });
+  const registry = new InputProducerRegistry({ ...host.controller, async command(target, input) { await pending; return host.controller.command(target, input); } });
+  const owner = {}, command = clientAttach();
+  const attach = registry.command(owner, host.target, command);
+  assert.deepEqual(registry.status(owner, command.args.intentId), { kind: 'pending' });
+  const close = registry.close(owner);
+  release(); await attach; await close;
+  assert.equal(registry.status(owner, command.args.intentId).kind, 'retired');
+  const rejected = {}, rejectedCommand = { ...clientAttach(), args: { ...clientAttach().args, bindingGeneration: 99 } };
+  await registry.command(rejected, host.target, rejectedCommand);
+  const rejection = registry.status(rejected, rejectedCommand.args.intentId);
+  assert.equal(rejection.kind, 'retired');
+  if (rejection.kind === 'retired') assert.equal(rejection.proof.kind, 'rejected-before-admission');
+  const unknownHost = inputHost(); unknownHost.unknownAttach();
+  const uncertain = new InputProducerRegistry(unknownHost.controller), unknownOwner = {}, unknownCommand = clientAttach();
+  assert.equal((await uncertain.command(unknownOwner, unknownHost.target, unknownCommand)).outcome, 'unknown');
+  await uncertain.close(unknownOwner);
+  assert.equal(unknownHost.view.audio.kind, 'ready');
+  if (unknownHost.view.audio.kind === 'ready') assert.equal(unknownHost.view.audio.performance.state.inputRouting?.producers.length, 0);
+  assert.deepEqual(uncertain.status(unknownOwner, unknownCommand.args.intentId), { kind: 'unknown' }, 'absence after a settled unknown request cannot prove native admission disposition');
+  assert.equal(unknownHost.calls.length, 2);
+  for (let index = 0; index < 3; index++) assert.deepEqual(uncertain.status(unknownOwner, unknownCommand.args.intentId), { kind: 'unknown' });
+  assert.equal(unknownHost.calls.length, 2, 'readback cannot trigger cleanup');
+});
+
+test('bounded intent ledger refuses capacity without recycling old identities', async () => {
+  const host = inputHost(), registry = new InputProducerRegistry(host.controller), owner = {};
+  const first = { ...clientAttach(), args: { ...clientAttach().args, bindingGeneration: 99 } };
+  await registry.command(owner, host.target, first);
+  for (let index = 1; index < 256; index++) await registry.command(owner, host.target, { ...clientAttach(), args: { ...clientAttach().args, bindingGeneration: 99 } });
+  const overflow = clientAttach();
+  assert.equal((await registry.command(owner, host.target, overflow)).outcome, 'rejected');
+  assert.deepEqual(registry.status(owner, overflow.args.intentId), { kind: 'unknown' });
+  await registry.command(owner, host.target, first);
+  assert.equal(host.calls.length, 0);
 });

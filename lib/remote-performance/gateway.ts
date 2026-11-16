@@ -7,7 +7,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { createServer as createHttpsServer } from 'node:https';
 import { extname, resolve, sep } from 'node:path';
 import { Schema } from 'effect';
-import { NativeTargetSchema, AudioGoalSchema, type DeskController, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
+import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
 import { decodeClientInputCommand, isPriorityCommand, type ClientInputCommand } from './commands.js';
 import { decodeInputAttach, type InputAttach } from '../performance/input-bindings.js';
 
@@ -33,9 +33,12 @@ export interface GatewayConfig {
 
 export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; tuner?: TunerState; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
 type Session = { highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
-type InputLease = InputAttach & { target: NativeTarget; status: 'pending' | 'active' | 'quarantined'; pending: Promise<NativeOutcome>; revoking?: Promise<NativeOutcome> };
+type InputIntent = { request: string; status: InputIntentStatus; result: Promise<InputAttachOutcome> };
+type InputLease = InputAttach & { intent: InputIntent; target: NativeTarget; status: 'pending' | 'active' | 'quarantined'; pending: Promise<InputAttachOutcome>; revoking?: Promise<NativeOutcome> };
 
 export class InputProducerRegistry {
+  private readonly intents = new Map<object, Map<string, InputIntent>>();
+  status(owner: object, intentId: string): InputIntentStatus { return this.intents.get(owner)?.get(intentId)?.status ?? { kind: 'unknown' }; }
   private readonly owners = new Map<object, Map<InputAttach['kind'], InputLease>>();
   private readonly slots = new Map<number, InputLease>();
   private readonly closed = new WeakSet<object>();
@@ -84,37 +87,11 @@ export class InputProducerRegistry {
     let command: ClientInputCommand;
     try { command = decodeClientInputCommand(input); }
     catch { return { outcome: 'rejected', error: 'Invalid identified input command' }; }
+    if (command.command === 'inputAttach') return this.attachIntent(owner, target, command);
     const view = this.refresh(target);
     if (!view) return { outcome: 'rejected', error: 'Native input routing is unavailable' };
     const kind = command.args.kind;
     const existing = this.owners.get(owner)?.get(kind);
-    if (command.command === 'inputAttach') {
-      if (existing) return { outcome: 'rejected', error: 'Revoke this input producer before attaching again' };
-      if (command.args.bindingGeneration !== view.routing.bindingGeneration)
-        return { outcome: 'rejected', error: 'Input binding generation changed' };
-      let producer = -1;
-      for (let slot = 0; slot < 32; slot++) if (!this.slots.has(slot) && !view.routing.producers.some(value => value.producer === slot)) { producer = slot; break; }
-      if (producer < 0) return { outcome: 'rejected', error: 'Input producer capacity reached' };
-      if (this.highWatermark >= Number.MAX_SAFE_INTEGER) return { outcome: 'rejected', error: 'Input session identity exhausted' };
-      let args: InputAttach;
-      try { args = decodeInputAttach({ ...command.args, producer, session: this.highWatermark + 1 }); }
-      catch { return { outcome: 'rejected', error: 'Invalid initial input state' }; }
-      this.highWatermark = args.session;
-      const lease: InputLease = { ...args, target, status: 'pending', pending: Promise.resolve({ outcome: 'unknown' }) };
-      let roles = this.owners.get(owner);
-      if (!roles) { roles = new Map(); this.owners.set(owner, roles); }
-      roles.set(kind, lease); this.slots.set(producer, lease);
-      lease.pending = this.controller.command(target, { command: 'inputAttach', args }).catch(() => ({ outcome: 'unknown' as const })).then(result => {
-        if (this.slots.get(producer) !== lease) return { outcome: 'unknown' as const };
-        if (result.outcome === 'rejected') { this.remove(owner, lease); return result; }
-        const routing = result.outcome === 'applied' ? result.state.inputRouting : undefined;
-        if (routing?.bindingGeneration === args.bindingGeneration && routing.producers.some(value => value.producer === producer && value.session === args.session && value.kind === kind)) {
-          lease.status = 'active'; return result;
-        }
-        lease.status = 'quarantined'; return { outcome: 'unknown' as const };
-      });
-      return lease.pending;
-    }
     if (!existing) return { outcome: 'rejected', error: 'Input producer is not attached' };
     await existing.pending;
     if (this.closed.has(owner)) return { outcome: 'rejected', error: 'Input client is closed' };
@@ -127,6 +104,57 @@ export class InputProducerRegistry {
       sequence: command.args.sequence, input: command.args.input, value: command.args.value,
     } });
   }
+  private attachIntent(owner: object, target: NativeTarget, command: Extract<ClientInputCommand, { command: 'inputAttach' }>): Promise<InputAttachOutcome> {
+    let ledger = this.intents.get(owner);
+    if (!ledger) {
+      if (this.intents.size >= MAX_SESSIONS) return Promise.resolve({ outcome: 'rejected', error: 'Input owner capacity reached' });
+      ledger = new Map(); this.intents.set(owner, ledger);
+    }
+    const request = JSON.stringify([target, command.args]);
+    const retained = ledger.get(command.args.intentId);
+    if (retained) return retained.request === request ? retained.result : Promise.resolve({ outcome: 'rejected', error: 'Input intent identity reused' });
+    if (ledger.size >= MAX_RESULTS) return Promise.resolve({ outcome: 'rejected', error: 'Input intent capacity reached' });
+    const intent: InputIntent = { request, status: { kind: 'pending' }, result: Promise.resolve({ outcome: 'unknown' }) };
+    ledger.set(command.args.intentId, intent);
+    const kind = command.args.kind;
+    intent.result = (async (): Promise<InputAttachOutcome> => {
+      const view = this.refresh(target);
+      if (!view) return { outcome: 'rejected', error: 'Native input routing is unavailable' };
+      const existing = this.owners.get(owner)?.get(kind);
+      if (existing) return { outcome: 'rejected', error: 'Revoke this input producer before attaching again' };
+      if (command.args.bindingGeneration !== view.routing.bindingGeneration)
+        return { outcome: 'rejected', error: 'Input binding generation changed' };
+      let producer = -1;
+      for (let slot = 0; slot < 32; slot++) if (!this.slots.has(slot) && !view.routing.producers.some(value => value.producer === slot)) { producer = slot; break; }
+      if (producer < 0) return { outcome: 'rejected', error: 'Input producer capacity reached' };
+      if (this.highWatermark >= Number.MAX_SAFE_INTEGER) return { outcome: 'rejected', error: 'Input session identity exhausted' };
+      let args: InputAttach;
+      try { const { intentId: _intentId, ...initial } = command.args; args = decodeInputAttach({ ...initial, producer, session: this.highWatermark + 1 }); }
+      catch { return { outcome: 'rejected', error: 'Invalid initial input state' }; }
+      this.highWatermark = args.session;
+      const lease: InputLease = { ...args, target, intent, status: 'pending', pending: Promise.resolve({ outcome: 'unknown' }) };
+      let roles = this.owners.get(owner);
+      if (!roles) { roles = new Map(); this.owners.set(owner, roles); }
+      roles.set(kind, lease); this.slots.set(producer, lease);
+      lease.pending = this.controller.command(target, { command: 'inputAttach', args }).catch(() => ({ outcome: 'unknown' as const })).then(result => {
+        if (this.slots.get(producer) !== lease) return { outcome: 'unknown' as const };
+        if (result.outcome === 'rejected') { this.remove(owner, lease); return result; }
+        const routing = result.outcome === 'applied' ? result.state.inputRouting : undefined;
+        if (result.outcome === 'applied' && result.hostEpoch === target.hostEpoch && routing?.bindingGeneration === args.bindingGeneration && routing.producers.some(value => value.producer === producer && value.session === args.session && value.kind === kind)) {
+          const receipt = { target, producer, session: args.session, kind, bindingGeneration: args.bindingGeneration, admissionRevision: result.revision };
+          intent.status = { kind: 'admitted', receipt };
+          lease.status = 'active'; return { ...result, receipt };
+        }
+        lease.status = 'quarantined'; return { outcome: 'unknown' as const };
+      });
+      return lease.pending;
+    })().catch(() => ({ outcome: 'unknown' as const })).then(result => {
+      if (result.outcome === 'rejected') intent.status = { kind: 'retired', proof: { kind: 'rejected-before-admission', target, kindOfProducer: kind, bindingGeneration: command.args.bindingGeneration } };
+      else if (result.outcome === 'unknown') intent.status = { kind: 'unknown' };
+      return result;
+    });
+    return intent.result;
+  }
   private revoke(owner: object, lease: InputLease): Promise<NativeOutcome> {
     if (lease.revoking) return lease.revoking;
     lease.status = 'quarantined';
@@ -135,6 +163,10 @@ export class InputProducerRegistry {
         const routing = result.outcome === 'applied' ? result.state.inputRouting : undefined;
         if (routing && !routing.producers.some(value => value.producer === lease.producer && value.session === lease.session))
           this.remove(owner, lease);
+        if (routing && result.outcome === 'applied' && result.hostEpoch === lease.target.hostEpoch && lease.intent.status.kind === 'admitted'
+          && BigInt(result.revision) > BigInt(lease.intent.status.receipt.admissionRevision)
+          && !routing.producers.some(value => value.producer === lease.producer && value.session === lease.session))
+          lease.intent.status = { kind: 'retired', proof: { kind: 'exact-revoke-applied', receipt: lease.intent.status.receipt, revocationRevision: result.revision } };
         return result;
       }).finally(() => { lease.revoking = undefined; });
     return lease.revoking;
@@ -154,6 +186,7 @@ export class InputProducerRegistry {
 }
 const MAX_SESSIONS = 128;
 const MAX_RESULTS = 256;
+const MAX_INPUT_STATUS_REQUESTS = 4096;
 const MAX_BODY = 64 * 1024;
 const MAX_CLIENTS = 128;
 const MAX_EVENT_BUFFER = 4 * 1024 * 1024;
@@ -197,6 +230,8 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 	if ((config.tls ? 'https:' : 'http:') !== origin.protocol) throw new Error('Origin protocol does not match listener');
 	const sessions = new Map<string, Session>();
 	const inputs = new InputProducerRegistry(controller);
+  const inputOwners = new Map<string, { owner: Session; reads: number }>();
+  const decodeIntentStatusRequest = Schema.decodeUnknownSync(InputIntentStatusRequestSchema, { onExcessProperty: 'error' });
 	const clients = new Set<ServerResponse>();
 	const send = (client: ServerResponse, data: Buffer) => {
 		if (client.destroyed || client.writableLength + data.length > MAX_EVENT_BUFFER) {
@@ -229,13 +264,24 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 			if (request.headers.origin && request.headers.origin !== config.origin) return json(response, 403, { error: 'Invalid origin' });
 			if (request.method === 'GET' && path === '/api/session') {
 				const snapshot = controller.snapshot();
-				if (sessions.size >= MAX_SESSIONS) return json(response, 503, { error: 'Session capacity reached' });
+				if (sessions.size >= MAX_SESSIONS || inputOwners.size >= MAX_SESSIONS) return json(response, 503, { error: 'Session capacity reached' });
 				const sessionId = randomBytes(32).toString('hex');
 				const session: Session = { highWater: 0, inFlight: 0, attached: false, results: new Map() };
+        const inputOwnerToken = randomBytes(32).toString('hex');
+        inputOwners.set(inputOwnerToken, { owner: session, reads: 0 });
 				sessions.set(sessionId, session);
 				setTimeout(() => { if (!session.attached) { sessions.delete(sessionId); void inputs.close(session); } }, 30_000).unref();
-				return json(response, 200, { view: snapshot, sessionId });
+				return json(response, 200, { view: snapshot, sessionId, inputOwnerToken });
 			}
+      if (request.method === 'POST' && path === '/api/input-intent-status') {
+        if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
+        let input: ReturnType<typeof decodeIntentStatusRequest>;
+        try { input = decodeIntentStatusRequest(await readBody(request)); }
+        catch { return json(response, 400, { error: 'Invalid input intent readback' }); }
+        const original = inputOwners.get(input.inputOwnerToken);
+        if (original && ++original.reads > MAX_INPUT_STATUS_REQUESTS) return json(response, 429, { error: 'Input readback capacity reached' });
+        return json(response, 200, original ? inputs.status(original.owner, input.intentId) : { kind: 'unknown' });
+      }
 			if (request.method === 'GET' && path === '/api/status') return json(response, 200, controller.snapshot());
 			if (request.method === 'GET' && path === '/api/events') {
 				if (clients.size >= MAX_CLIENTS) return json(response, 503, { error: 'Observer capacity reached' });

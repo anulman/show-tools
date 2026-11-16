@@ -111,3 +111,20 @@ test('a replaced engine retires the old source without sending stale cleanup to 
   assert.deepEqual(next.calls.map(value => value.command), ['attach', 'event']);
   assert.deepEqual(next.calls[0], { command: 'attach', args: { kind: 'keyboard', bindingGeneration: 1, releasedMask: 0, heldMask: 0 } });
 });
+
+test('an uncertain attach retains its owner and cannot redispatch attach or send input before confirmed cleanup', async () => {
+  const f = fixture();
+  const attach = f.endpoint.inputAttach;
+  let failAttach = true, failCleanup = true;
+  f.endpoint.inputAttach = async args => { await attach(args); if (failAttach) throw new Error('Native admission unknown'); return f.state; };
+  f.endpoint.inputRevoke = async args => { f.calls.push({ command: 'revoke', args }); if (failCleanup) throw new Error('Retirement unconfirmed'); return f.state; };
+  const producer = createMusicalInputProducer({ kind: 'pointer', endpoint: async () => f.endpoint, releasedMask: 223 });
+  await assert.rejects(producer.event(0, 1), /admission unknown/);
+  await assert.rejects(producer.event(0, 1), /Retirement unconfirmed/);
+  await assert.rejects(producer.reset(), /Retirement unconfirmed/);
+  assert.equal(f.calls.filter(call => call.command === 'attach').length, 1);
+  assert.equal(f.calls.filter(call => call.command === 'event').length, 0);
+  failCleanup = false; failAttach = false;
+  await producer.event(0, 0);
+  assert.deepEqual(f.calls.slice(-3).map(call => call.command), ['revoke', 'attach', 'event']);
+});

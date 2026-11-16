@@ -254,3 +254,23 @@ test('idle observers receive the documented SSE heartbeat without a controller p
 		assert.equal(commands, 0);
 	} finally { abort.abort(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+test('input intent readback requires hardware authorization, exact origin and bounded POST metadata', async () => {
+  let calls = 0;
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, deskFixture({ command: async () => { calls++; return { outcome: 'unknown' }; } }));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const url = `http://127.0.0.1:${address.port}/api/input-intent-status`;
+  const body = JSON.stringify({ inputOwnerToken: 'original-owner', intentId: 'original-intent' });
+  try {
+    assert.equal((await fetch(url, { method: 'POST', body })).status, 401);
+    assert.equal((await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body })).status, 403);
+    const headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
+    assert.equal((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ inputOwnerToken: 'original-owner', intentId: 'x'.repeat(257) }) })).status, 400);
+    assert.equal((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ inputOwnerToken: 'original-owner', intentId: 'original-intent', kind: 'keyboard' }) })).status, 400);
+    const response = await fetch(url, { method: 'POST', headers, body });
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), { kind: 'unknown' });
+    assert.equal(calls, 0, 'status readback has no native command authority');
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});

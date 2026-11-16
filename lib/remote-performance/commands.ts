@@ -1,3 +1,4 @@
+import { InputIntentIdSchema } from './session-schema.js';
 import { Schema } from 'effect';
 import { TunerCommandSchema } from '../tuner/schema.js';
 import { tunerCommandValues } from '../tuner/observation.js';
@@ -6,7 +7,7 @@ import { PF } from '../performance/wasm-abi.js';
 import { InputAttachSchema, InputEventSchema, InputProducerKindSchema, InputRevokeSchema } from '../performance/input-bindings.js';
 
 const InputClientCommandSchema = Schema.Union([
-  Schema.Struct({ command: Schema.Literal('inputAttach'), args: Schema.Struct({ kind: InputProducerKindSchema,
+  Schema.Struct({ command: Schema.Literal('inputAttach'), args: Schema.Struct({ intentId: InputIntentIdSchema, kind: InputProducerKindSchema,
     bindingGeneration: InputAttachSchema.fields.bindingGeneration, releasedMask: InputAttachSchema.fields.releasedMask, heldMask: InputAttachSchema.fields.heldMask }) }),
   Schema.Struct({ command: Schema.Literal('inputEvent'), args: Schema.Struct({ kind: InputProducerKindSchema,
     bindingGeneration: InputEventSchema.fields.bindingGeneration, sequence: InputEventSchema.fields.sequence,
