@@ -176,3 +176,13 @@ The old gate rejected the changed `input_router.h` source hash before model exec
 ## All-control held-light image
 
 Reviewed `0f178bc` against source sync `9050285`. The only covered-source change is the physical light-image loop in `pf_light_output`. It now publishes unbound and utility controls with an off baseline plus their independent held override. Cue-bound light calculations preserve recording, warning and playing precedence. Capture ownership, admission, publication, bank selection, completion and Stop are untouched. The Capture model and witnesses remain unchanged; this refresh does not claim proof of LED behavior or physical acceptance.
+
+## Independent light baselines at eb99492
+
+Outcome: **updated** against `eb994928dab680d594860152b65b677dc47d71d0`. The unchanged gate first rejected the changed engine hash. That failure was source correspondence drift. Reading every covered diff from `0f178bc` found only `pf_light_output` and its included light identity constant changed. The other eleven recorded files are byte-identical.
+
+`pf_light_output` now publishes the sequenced baseline under IDs 513 through 518 while preserving the held override under IDs 257 through 262. The new rows fit the unchanged 32-pair publication capacity. The function still reads the same capture and playback observations; no capture admission, bank selection, publication, launch policy, serialized boundary or Stop transition changes. The model, all eleven invariants, configurations, bounds, native scenarios and source mutations are unchanged. This capture package does not prove helper-local held feedback or USB delivery.
+
+The full pinned rerun at `/private/tmp/idle-light-capture-final/receipt.json` exhausts 11,894 main states, 782 display states and 102 overview states. Six model mutants and seven actual-source mutants fail their intended rules or assertions. All twelve native scenarios pass before and after mutation. All nine current statechart interpretations check every rule. Their shortest intended paths remain two steps except the three-step retained-bank violation. The overview remains six labels and thirteen arrows, hiding 156 same-label steps; the model and chart bytes are unchanged.
+
+The separate physical-control package now checks that the new baseline rows remain independent of held brightness and continue advancing while held. Its source mutation substitutes held brightness into the new baseline and must fail. Those checks do not broaden this capture model's claim.
