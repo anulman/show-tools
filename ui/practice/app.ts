@@ -14,6 +14,7 @@ import type { RemoteConnection } from './remote-session.js';
 import type { DeskView } from '../../lib/remote-performance/session-schema.js';
 import type { MonitoringRelationship } from './audio.js';
 import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
+import { CONTROL_IDS } from '../../lib/performance/model.js';
 import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
@@ -25,8 +26,8 @@ import type { CompiledSong } from '../../lib/performance/compiled-song.js';
 import { createVoiceEffectsEditor, initialVoiceEffects } from './voice-effects.js';
 import { keyboardFocusBlocksShortcut } from './keyboard-focus.js';
 import { takePresentation } from './take-presentation.js';
-import { createPeripheralInput, peripheralCommandId } from './peripheral-input.js';
-import type { PeripheralInput } from './peripheral-input.js';
+import { createMusicalInputProducer } from './peripheral-input.js';
+import { createMusicalInputPolicy } from './musical-input-policy.js';
 import { mountTuner, type TunerPanel } from '../tuner/panel.js';
 import type { TunerPort } from '../../lib/tuner/model.js';
 
@@ -38,6 +39,7 @@ function requiredElement<T extends Element>(selector: string, constructor: { new
 
 const elements = {
   'audio-mode-select': requiredElement('#audio-mode-select', HTMLSelectElement),
+  'musical-input-select': requiredElement('#musical-input-select', HTMLSelectElement),
   'practice-desk': requiredElement('#practice-desk', HTMLElement),
   'song-select': requiredElement('#song-select', HTMLSelectElement),
   'sheet-link': requiredElement('#sheet-link', HTMLButtonElement),
@@ -76,24 +78,16 @@ interface PadElements {
 }
 const pads = new Map<ChannelId, PadElements>();
 const heldKeys = new Set<string>();
-let keyboardInput: PeripheralInput | undefined;
-let keyboardSession = 0;
-let keyboardConnected = false;
-function keyboardEdge(event: KeyboardEvent, edge: 'press' | 'release') {
-  const mapping = new Map([...CONTROLS.map(control => [control.key, control.id] as const), ['Escape', 'mushroom'] as const]);
-  keyboardInput ??= createPeripheralInput({ producerId: 'practice-keyboard', mapping });
-  if (!keyboardConnected) {
-    keyboardInput.connect({ sessionId: String(keyboardSession++), releasedCodes: [...mapping.keys()] });
-    keyboardConnected = true;
-  }
-  return keyboardInput.inject({ sessionId: String(keyboardSession - 1), sourceTimeMs: event.timeStamp, kind: 'key', code: event.code,
-    edge, repeat: edge === 'press' && event.repeat });
-}
+const pointerHeld = new Set<ChannelId>();
+let keyboardEpoch = 0;
+const keyboardProducer = createMusicalInputProducer({ kind: 'keyboard', endpoint: () => ensureAudio(), releasedMask: 0 });
+const pointerProducer = createMusicalInputProducer({ kind: 'pointer', endpoint: () => ensureAudio(), releasedMask: 223 });
+const inputPolicy = createMusicalInputPolicy({ changed: () => releasePresses() });
+elements['musical-input-select'].value = inputPolicy.selection();
+elements['musical-input-select'].addEventListener('change', () => inputPolicy.select(elements['musical-input-select'].value));
 const voiceAvatars = new Map<number, { root: HTMLElement; name: string }>();
 const liveVoiceStates = new Map<number, HTMLSpanElement>();
 const rotationControls: HTMLButtonElement[] = [];
-let rotationSequence = 0;
-const rotationSession = crypto.randomUUID();
 let effectsApplying = false;
 const voiceEffects = createVoiceEffectsEditor(profile => { void act(() => applyVoiceEffects(profile)); });
 let chart: Chart | undefined;
@@ -197,7 +191,7 @@ async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[])
     audio.subscribe(render);
     audio.onEvent(event => {
       if (generation === songGeneration && audio === instance) {
-        postPerformanceEvent(event);
+        receivePerformanceEvent(event);
         if (event.type === 'control' && event.applied === false && event.error) showError(new Error(event.error));
       }
     });
@@ -270,31 +264,37 @@ function flash(id: ChannelId | 'mushroom', held = false) {
 }
 
 function releasePresses() {
-  for (const control of CONTROLS) if (heldKeys.has(control.key)) void act(() => releasePad(control.id));
+  keyboardEpoch++;
+  for (const control of CONTROLS)
+    if (heldKeys.has(control.key) && !pointerHeld.has(control.id)) pads.get(control.id)?.button.classList.remove('pressed');
+  if (heldKeys.has('Escape')) elements.mushroom.classList.remove('pressed');
   heldKeys.clear();
-  keyboardInput?.disconnect();
-  if (keyboardConnected) keyboardConnected = false;
-  document.querySelectorAll('.pressed').forEach(element => element.classList.remove('pressed'));
+  void keyboardProducer.reset().catch(error => { globalThis.reportError?.(error); });
 }
 
-const pendingPadPresses = new Map<ChannelId, Promise<void>>();
-function triggerPad(id: ChannelId, commandId?: string) {
-  const action = pressPad(id, commandId);
-  pendingPadPresses.set(id, action);
+const pendingPadPresses = new Map<string, Promise<void>>();
+function triggerPad(id: ChannelId, source: 'keyboard' | 'pointer' = 'pointer') {
+  const action = pressPad(id, source);
+  pendingPadPresses.set(`${source}/${id}`, action);
   return action;
 }
-async function releasePad(id: ChannelId, commandId?: string) {
-  try { await pendingPadPresses.get(id); }
-  finally { if (audio) await audio.control({ id, edge: 'release' }, { commandId }); }
+async function releasePad(id: ChannelId, source: 'keyboard' | 'pointer' = 'pointer') {
+  const epoch = keyboardEpoch;
+  try { await pendingPadPresses.get(`${source}/${id}`); }
+  finally {
+    if (audio && (source === 'pointer' || epoch === keyboardEpoch && inputPolicy.allowsDomInput()))
+      await (source === 'keyboard' ? keyboardProducer : pointerProducer).event(CONTROL_IDS.indexOf(id), 0);
+  }
 }
-async function pressPad(id: ChannelId, commandId?: string) {
+async function pressPad(id: ChannelId, source: 'keyboard' | 'pointer') {
   if (voiceCatalog.busy) return;
   const generation = transportGeneration;
+  const epoch = keyboardEpoch;
   const instance = await ensureAudio();
-  if (generation !== transportGeneration) return;
+  if (generation !== transportGeneration || source === 'keyboard' && (epoch !== keyboardEpoch || !inputPolicy.allowsDomInput())) return;
   await instance.selectChannel(id);
-  if (generation !== transportGeneration) return;
-  await instance.control({ id }, { commandId });
+  if (generation !== transportGeneration || source === 'keyboard' && (epoch !== keyboardEpoch || !inputPolicy.allowsDomInput())) return;
+  await (source === 'keyboard' ? keyboardProducer : pointerProducer).event(CONTROL_IDS.indexOf(id), 1);
 }
 
 async function applyVoiceEffects(profile: number) {
@@ -316,9 +316,9 @@ async function applyVoiceEffects(profile: number) {
   } finally { effectsApplying = false; render(state); }
 }
 
-async function rotate(value: number) {
+async function rotate(value: number, source: 'keyboard' | 'pointer' = 'pointer') {
   if (!audio || !isRunning()) return;
-  await audio.control({ id: 'knob', value }, { commandId: `practice-rotation/${rotationSession}/${rotationSequence++}` });
+  await (source === 'keyboard' ? keyboardProducer : pointerProducer).event(5, value);
 }
 
 function monitoringRelationship(value: string): MonitoringRelationship {
@@ -400,7 +400,17 @@ async function stopPerformance(command: 'stop' | 'panic', commandId?: string) {
 
 function stopPractice() { return stopPerformance('stop'); }
 
-function panic(commandId?: string) { return stopPerformance('panic', commandId); }
+function panic() { return stopPerformance('panic'); }
+
+function receivePerformanceEvent(event: PracticeEvent) {
+  if (event.type === 'control' && event.applied && event.control?.id === 'mushroom') {
+    preparationAbort?.abort(new Error('Audio preparation canceled'));
+    phoneMotionAbort?.abort(); transportGeneration++; chartFollower?.stop();
+    finishOutputRecording(); releasePresses();
+    if (audio && !remote) void audio.disableMicrophone().catch(showError);
+  }
+  postPerformanceEvent(event);
+}
 
 function makePads() {
   for (const control of CONTROLS) {
@@ -447,14 +457,18 @@ function makePads() {
       if (event.button !== 0 || !event.isPrimary) return;
       event.preventDefault();
       button.setPointerCapture(event.pointerId);
-      flash(control.id, true);
+      pointerHeld.add(control.id); flash(control.id, true);
       act(() => triggerPad(control.id));
     });
     for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      button.addEventListener(type, () => { button.classList.remove('pressed'); act(() => releasePad(control.id)); });
+      button.addEventListener(type, () => {
+        if (!pointerHeld.delete(control.id)) return;
+        if (!heldKeys.has(control.key)) button.classList.remove('pressed');
+        act(() => releasePad(control.id));
+      });
     }
     button.addEventListener('click', event => {
-      if (event.detail !== 0) return;
+      if (event.detail !== 0 || !inputPolicy.allowsDomInput()) return;
       flash(control.id);
       act(async () => { await triggerPad(control.id); await releasePad(control.id); });
     });
@@ -781,25 +795,25 @@ elements['start-section'].addEventListener('change', () => {
 for (const element of [elements['count-in'], elements['end-bar']]) element.addEventListener('change', () => render(state));
 
 window.addEventListener('wheel', event => {
-  if (!audio || !isRunning() || !song?.compiled?.rotation || !Number.isFinite(event.deltaY) || event.deltaY === 0
+  if (!inputPolicy.allowsDomInput() || !audio || !isRunning() || !song?.compiled?.rotation || !Number.isFinite(event.deltaY) || event.deltaY === 0
     || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
   const target = event.target instanceof Element ? event.target : null;
   if (target?.closest('input,select,textarea,[contenteditable=true],details[open]')
     || document.querySelector('dialog[open]')
     || document.activeElement?.closest('input,select,textarea,[contenteditable=true]')) return;
-  event.preventDefault(); void act(() => rotate(event.deltaY));
+  event.preventDefault(); void act(() => rotate(event.deltaY, 'keyboard'));
 }, { passive: false });
 
 window.addEventListener('keydown', event => {
+  if (!inputPolicy.allowsDomInput()) {
+    const target = event.target instanceof Element ? event.target : null;
+    if ((event.code === 'Space' || event.code === 'Enter') && target?.closest('#start,#stop,#mushroom,#pads button,.rotation-controls button')) event.preventDefault();
+    return;
+  }
   if (event.repeat || heldKeys.has(event.code)) return;
   if (event.code === 'Escape') {
-    event.preventDefault();
-    const input = keyboardEdge(event, 'press');
-    if (!input) return;
-    heldKeys.add(event.code);
-    flash('mushroom', true);
-    act(() => panic(peripheralCommandId(input)));
-    return;
+    event.preventDefault(); heldKeys.add(event.code); flash('mushroom', true);
+    act(panic); return;
   }
   if (document.querySelector('dialog[open]')) return;
   const target = event.target instanceof Element ? event.target : null;
@@ -807,21 +821,24 @@ window.addEventListener('keydown', event => {
     || keyboardFocusBlocksShortcut(event.code, Boolean(target?.closest('input,select,textarea,[contenteditable=true]')), Boolean(target?.closest('button,summary,a,[role=button]')))) return;
   const control = CONTROLS.find(control => control.key === event.code);
   if (!control && event.code !== 'Space') return;
-  event.preventDefault();
+  event.preventDefault(); heldKeys.add(event.code);
   if (control) {
-    const input = keyboardEdge(event, 'press');
-    if (!input) return;
-    heldKeys.add(event.code);
-    flash(control.id, true); act(() => triggerPad(control.id, peripheralCommandId(input)));
-  } else { heldKeys.add(event.code); act(() => isRunning() ? stopPractice() : startPractice()); }
+    flash(control.id, true); act(() => triggerPad(control.id, 'keyboard'));
+  } else act(() => isRunning() ? stopPractice() : startPractice());
 });
 window.addEventListener('keyup', event => {
-  const input = event.code === 'Escape' || CONTROLS.some(control => control.key === event.code) ? keyboardEdge(event, 'release') : null;
+  if (!inputPolicy.allowsDomInput()) return;
   heldKeys.delete(event.code);
   const control = CONTROLS.find(control => control.key === event.code);
-  if (control) { pads.get(control.id)?.button.classList.remove('pressed'); if (input) act(() => releasePad(control.id, peripheralCommandId(input))); }
-  if (event.code === 'Escape') elements.mushroom.classList.remove('pressed');
+  if (control) {
+    if (!pointerHeld.has(control.id)) pads.get(control.id)?.button.classList.remove('pressed');
+    if (audio) act(() => releasePad(control.id, 'keyboard'));
+  }
+  if (event.code === 'Escape') {
+    elements.mushroom.classList.remove('pressed');
+  }
 });
+
 function postPerformanceEvent(event: PracticeEvent): void {
   window.postMessage({ kind: 'show-tools-performance', event }, location.origin);
   if (!chartFollowOptIn && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) return;
@@ -840,7 +857,7 @@ window.addEventListener('message', event => {
 
 window.addEventListener('blur', releasePresses);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releasePresses(); });
-window.addEventListener('pagehide', () => { phoneMotionAbort?.abort(); preparationAbort?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
+window.addEventListener('pagehide', () => { void pointerProducer.reset().catch(() => {}); releasePresses(); phoneMotionAbort?.abort(); preparationAbort?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
 
 makePads();
 for (const entry of SONGS) {
@@ -944,6 +961,22 @@ const hardwareStatus = requiredElement('#hardware-audio-status', HTMLSpanElement
 const enableAudio = requiredElement('#enable-audio', HTMLButtonElement);
 const terminateAudio = requiredElement('#terminate-audio', HTMLButtonElement);
 
+async function replaceHardwareDesk(desk: RemoteDesk) {
+  try {
+    const releases = await Promise.allSettled([keyboardProducer.pause(), pointerProducer.pause()]);
+    for (const release of releases) if (release.status === 'rejected') throw release.reason;
+    await remoteDesk?.dispose();
+    remoteDesk = desk;
+    audio = undefined;
+  } catch (error) {
+    await desk.dispose();
+    throw error;
+  } finally {
+    keyboardProducer.resume();
+    pointerProducer.resume();
+  }
+}
+
 function renderHardwareUnavailable() {
   for (const control of [elements.start, elements.stop, elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop, elements.click, elements.mushroom, elements['record-demo'], elements['song-select'], elements['monitor-relationship']]) control.disabled = true;
   elements['phase-label'].textContent = 'AUDIO UNAVAILABLE';
@@ -974,8 +1007,7 @@ if (remote) {
       const desk = await hardwareAuth.connect(key => RemoteDesk.connect(key), reason => window.prompt(reason === 'rejected'
         ? 'Saved key was rejected. Enter the hardware session key' : 'Enter the hardware session key. This browser will remember it.'));
       hardwareKeyStatus.textContent = hardwareAuth.remembered() ? 'Key remembered in this browser.' : 'Key kept for this page only. Browser storage is unavailable.';
-      await remoteDesk?.dispose();
-      remoteDesk = desk;
+      await replaceHardwareDesk(desk);
       await switchSong(desk.snapshot().song.id, undefined, undefined, { remoteSong: desk.snapshot().song });
       desk.subscribe(view => {
         const status = view.audio;
@@ -1010,7 +1042,7 @@ if (remote) {
           syncRemoteTransport(session.snapshot());
           for (const voice of session.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);
           session.subscribe(render);
-          session.onEvent(event => { postPerformanceEvent(event); if (event.type === 'control' && event.applied === false && event.error) showError(new Error(event.error)); });
+          session.onEvent(event => { receivePerformanceEvent(event); if (event.type === 'control' && event.applied === false && event.error) showError(new Error(event.error)); });
         }
         render(session.snapshot());
       });

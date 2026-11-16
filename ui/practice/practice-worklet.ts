@@ -1,6 +1,7 @@
 import { PerformanceProcessor } from './runtime/performance-worklet.js';
 import type { ChannelId, ChannelSettings, Control, LiveEffectDefinition, VoiceEffectConfiguration, StartOptions } from '../../lib/performance/model.js';
 import type { TunerCommand, TuningBankOptions } from '../../lib/tuner/model.js';
+import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
 
 type PracticeMessage = { id: number } & (
   | { command: 'practice.start'; payload: StartOptions & { runId: string } }
@@ -13,6 +14,9 @@ type PracticeMessage = { id: number } & (
   | { command: 'practice.effects'; payload: { effects: readonly LiveEffectDefinition[] } }
   | { command: 'practice.voice-effects'; payload: { configurations: readonly VoiceEffectConfiguration[] } }
   | { command: 'practice.control'; payload: { control: Control; commandId?: string } }
+  | { command: 'practice.input-attach'; payload: InputAttachArgs }
+  | { command: 'practice.input-event'; payload: InputEventArgs }
+  | { command: 'practice.input-revoke'; payload: InputRevokeArgs }
   | { command: 'practice.channel'; payload: { channelId: ChannelId; settings: ChannelSettings } }
   | { command: 'practice.select'; payload: { channelId: ChannelId } }
   | { command: 'practice.automatic' | 'practice.click' | 'practice.microphone'; payload: { enabled: boolean } }
@@ -20,6 +24,35 @@ type PracticeMessage = { id: number } & (
 
 export class PracticeProcessor extends PerformanceProcessor {
   peripheralLights = false;
+  private readonly inputProducers = new Map<InputAttachArgs['kind'], { producer: number; session: number; bindingGeneration: number }>();
+  private inputAttach(args: InputAttachArgs) {
+    const routing = this.native.inputRouting();
+    if (routing.bindingGeneration !== args.bindingGeneration) throw new Error('Input binding generation changed');
+    const previous = this.inputProducers.get(args.kind);
+    if (previous && routing.producers.some(value => value.producer === previous.producer && value.session === previous.session))
+      throw new Error('This input role is already attached');
+    this.inputProducers.delete(args.kind);
+    const current = routing;
+    const producer = Array.from({ length: 32 }, (_, index) => index).find(index => !current.producers.some(value => value.producer === index));
+    if (producer === undefined) throw new Error('Native input producer table is full');
+    if (current.sessionHighWatermark >= Number.MAX_SAFE_INTEGER) throw new Error('Native input sessions exhausted');
+    const session = current.sessionHighWatermark + 1;
+    this.native.inputAttach({ producer, session, bindingGeneration: args.bindingGeneration, kind: args.kind,
+      releasedMask: args.releasedMask, heldMask: args.heldMask });
+    this.inputProducers.set(args.kind, { producer, session, bindingGeneration: args.bindingGeneration });
+  }
+  private inputEvent(args: InputEventArgs) {
+    const owner = this.inputProducers.get(args.kind);
+    if (!owner || owner.bindingGeneration !== args.bindingGeneration) throw new Error('Input producer is not attached to these bindings');
+    this.native.inputEvent({ ...owner, sequence: args.sequence, input: args.input, value: args.value });
+  }
+  private inputRevoke(args: InputRevokeArgs) {
+    const owner = this.inputProducers.get(args.kind);
+    if (!owner) return;
+    const active = this.native.inputRouting().producers.some(value => value.producer === owner.producer && value.session === owner.session);
+    if (active) this.native.inputRevoke({ producer: owner.producer, session: owner.session });
+    this.inputProducers.delete(args.kind);
+  }
   nativeMode() { return 2; }
   practiceState() { return this.native.state(); }
   performanceState() { return { ...super.performanceState(), practice: this.native.state(), tuner: this.native.tunerState(), tuningBank: this.native.tuningBankState() }; }
@@ -43,6 +76,9 @@ export class PracticeProcessor extends PerformanceProcessor {
         case 'practice.effects': this.native.prepareLiveEffects(message.payload.effects); break;
         case 'practice.voice-effects': this.native.prepareVoiceEffects(message.payload.configurations); break;
         case 'practice.control': this.native.control(message.payload.control, message.payload.commandId); break;
+        case 'practice.input-attach': this.inputAttach(message.payload); break;
+        case 'practice.input-event': this.inputEvent(message.payload); break;
+        case 'practice.input-revoke': this.inputRevoke(message.payload); break;
         case 'practice.channel': this.native.setChannel(message.payload.channelId, message.payload.settings); break;
         case 'practice.select': this.native.selectChannel(message.payload.channelId); break;
         case 'practice.automatic': this.native.setAutomatic(message.payload.enabled); break;

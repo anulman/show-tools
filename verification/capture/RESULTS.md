@@ -1,5 +1,33 @@
 # Capture verification result
 
+## Independent held-light maintenance
+
+Outcome: **updated** at `0f178bc`. The source-fence rejection correctly identified the changed light-image loop. Source review confirms that capture state and serialized admission are unchanged. The complete pinned rerun passes 201,097 generated and 11,894 distinct main states, 782 display states and 102 overview states. All six model mutants, seven actual-source mutants and twelve pristine/restored native scenarios pass their expected checks. Receipt: `/private/tmp/capture-six-control-final-unconfined/receipt.json`.
+
+All nine current statechart interpretations have no unchecked rules and preserve the expected mutant counterexamples. Reports: `/private/tmp/capture-six-control-statecharts/outcomes.json`. The first sandboxed TLC attempt could not open its local RMI socket; the identical pinned proof passed after that harness restriction was removed. No property or bound changed. Hardware feedback is outside the Capture claim and has separate native/WASM witnesses.
+
+## GNU header portability maintenance
+
+Outcome: **updated** at `9050285`. Adding the explicit `<iterator>` include changes no capture semantics. The original gate rejected the header hash before execution. The complete pinned rerun passes 201,097 generated and 11,894 distinct main states, 782 display states and 102 overview states. All six model mutants, seven actual-source mutants and twelve pristine/restored native scenarios pass their expected checks. Receipt: `/private/tmp/capture-portability-final/receipt.json`.
+
+All nine statechart interpretations have no unchecked rules and retain their expected two- or three-step mutant counterexamples. Reports: `/private/tmp/capture-portability-statecharts/outcomes.json`. The model, finite bounds and native scenarios are unchanged. This does not establish producer isolation, spinner history, LED wiring or physical hardware acceptance.
+
+## Staged held-owner execution maintenance
+
+Outcome: **updated** at source `7740b3bf9b98d77f2e0a85b6db7f8dd650403313`, after reviewing fix `8947b62`. The original gate rejected the changed `compiled_program.cpp` hash before model execution. That was source correspondence drift. The native playback defect that motivated the fix is outside this capture model; no capture-policy counterexample was found.
+
+The complete pinned run passes 201,097 generated and 11,894 distinct main states with an empty queue. The unchanged display and overview finish at 782 and 102 states. All eleven invariants, six model mutants, twelve pristine native scenarios, seven assertion-specific source mutants and twelve restored scenarios pass their expected checks. Receipt: `/private/tmp/capture-owner-fixed-final/receipt.json`. All recorded source hashes match after restoration.
+
+All nine statechart interpretations finish with no unchecked rules. The overview retains six labels, thirteen arrows and 156 hidden same-label steps. Each intended mutation has a two-step shortest counterexample except the three-step retained-bank violation. Reports are in `/private/tmp/capture-owner-statecharts/`. The three runner failure regressions also pass.
+
+Only held or gated `PF_PLAY` execution receives the new owner check. Capture preflight, commit-before-arm execution, protected banks, publication and launch policy remain unchanged. The model, finite bounds, replay scenarios and mutation controls are unchanged. Producer isolation, Panic priority, hardware behavior and successful cross-row held-playback policy remain outside this formal claim.
+
+## Identified input routing maintenance
+
+Outcome: **updated** at `dfd9c1fc61dd6273b08026f8f2da29516e8f58d8`. The complete run passes 201,097 generated and 11,894 distinct main states with an empty queue, all eleven invariants, six model mutants, twelve pristine/restored native scenarios and seven assertion-specific real-source mutants. The separate display and overview checks finish at 782 and 102 states. Receipt: `/private/tmp/routing-capture-final-restored/receipt.json`.
+
+All nine current statechart interpretations finish with no unchecked rules. The 102-state overview retains six labels, thirteen arrows and 156 hidden same-label transitions. Source-fence drift and the standalone/mutant compiler dependencies were verification maintenance; no capture-policy product defect was found. [SOURCE-SYNC.md](SOURCE-SYNC.md) maps the reviewed dispatch and ownership changes. Producer leases and held-playback isolation remain outside this capture proof.
+
 ## Consolidated practice release
 
 The source-fenced run at `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4` passes: 201,097 generated and 11,894 distinct main-model states with an empty final queue, all eleven invariants, six model mutants, twelve actual-native scenarios and seven assertion-specific source mutants. The 782-state display and 102-state overview models also finish. The twelve-scenario pristine rerun and production-source hashes pass after all mutations. Receipt: `/private/tmp/practice-tonight-capture-final-cd3ae7e/receipt.json`.

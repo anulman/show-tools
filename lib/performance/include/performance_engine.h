@@ -23,8 +23,16 @@ enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_A
   PF_MICROPHONE_REQUIRED = 4, PF_NO_RECORDING = 5, PF_NO_SAMPLE = 6, PF_PATTERN_REQUIRED = 7,
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
   PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
-  PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 11, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+  PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24, PF_INVALID_INPUT = 25, PF_STALE_INPUT = 26 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 12, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+enum pf_input_kind { PF_INPUT_PHYSICAL = 0, PF_INPUT_KEYBOARD = 1, PF_INPUT_POINTER = 2 };
+enum pf_input_target { PF_INPUT_CUES = 0, PF_INPUT_TEMPO = 1, PF_INPUT_PANIC = 2 };
+enum pf_input_limits { PF_INPUT_PRODUCERS = 32, PF_INPUT_SWITCHES = 6, PF_INPUT_MAGIC = 0x50464931,
+  PF_INPUT_BINDING_FIELDS = 3, PF_INPUT_LIGHT_BASE = 257, PF_INPUT_HEADER_FIELDS = 4, PF_INPUT_PRODUCER_FIELDS = 6,
+  PF_INPUT_INFO_FIELDS = 196 };
+enum pf_input_field { PF_INPUT_GENERATION = 0, PF_INPUT_COUNT = 1, PF_INPUT_SESSION_HIGH_WATERMARK = 2, PF_INPUT_PANIC_MASK = 3, PF_INPUT_RECORDS = 4 };
+enum pf_input_producer_field { PF_INPUT_SLOT = 0, PF_INPUT_SESSION = 1, PF_INPUT_KIND = 2,
+  PF_INPUT_RELEASED_MASK = 3, PF_INPUT_HELD_MASK = 4, PF_INPUT_LAST_SEQUENCE = 5 };
 enum pf_tuner_command { PF_TUNER_CONFIGURE = 0, PF_TUNER_CUE = 1, PF_TUNER_CONFIRM = 2, PF_TUNER_LISTEN = 3, PF_TUNER_CLOSE = 4, PF_TUNER_PLAY_SCALE = 5, PF_TUNER_SILENCE = 6 };
 enum pf_tuner_field { PF_TUNER_REVISION, PF_TUNER_ROOT, PF_TUNER_SCALE, PF_TUNER_STEP, PF_TUNER_COUNT,
   PF_TUNER_COMPLETE, PF_TUNER_LISTENING, PF_TUNER_PREVIEW_KIND, PF_TUNER_PITCH_STATUS,
@@ -118,6 +126,24 @@ int pf_audio_needed(const pf_engine* engine);
 /* Controls 0..3 pads, 4 Panic, 5 signed relative jiggle, 6 tempo hit,
    7 cue button (0 released, 1 held). Only a fresh rising edge performs cues. */
 int pf_control(pf_engine* engine, int control, double value, const uint16_t* command_id, uint32_t command_length);
+/* Producer slots are host-assigned. Sessions increase per slot; events increase
+   per session without requiring contiguous sequence numbers. Initial held or
+   unknown switches must first release. All calls run on the engine owner thread. */
+int pf_input_attach(pf_engine* engine, uint32_t producer, double session, double binding_generation,
+  uint32_t kind, uint32_t released_mask, uint32_t held_mask);
+int pf_input_event(pf_engine* engine, uint32_t producer, double session, double binding_generation,
+  double sequence, uint32_t input, double value);
+int pf_input_revoke(pf_engine* engine, uint32_t producer, double session);
+/* Fixed PF_INPUT_INFO_FIELDS image. Records are compacted by slot; unused fields zero.
+   Generation advances only after successful song replacement. */
+void pf_input_info(const pf_engine* engine, double* out);
+/* Stopped candidate swap preserves the prior engine's routing epoch and session
+   watermark. Both engine objects remain owned by the caller. */
+int pf_input_inherit(pf_engine* replacement, const pf_engine* previous);
+/* Priority classification checks the active producer lease and current bindings.
+   It does not consume sequence or mutate state. Return 1 only for bound Panic. */
+int pf_input_is_panic(const pf_engine* engine, uint32_t producer, double session,
+  double binding_generation, double sequence, uint32_t input, double value);
 /* Complete engine-authored brightness image. Query on the engine owner thread.
    Repeated queries without a changed image retain their publication sequence. */
 void pf_light_output(pf_engine* engine, double* out);

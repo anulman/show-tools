@@ -1,4 +1,5 @@
 import { Schema } from 'effect';
+import { InputAttachSchema, InputProducerKindSchema, InputRevokeSchema } from '../performance/input-bindings.js';
 import { TunerStateSchema } from '../tuner/schema.js';
 import { NativeEventSchema, NativeStateSchema, SongSchema, LightPublicationSchema } from './native-schema.js';
 
@@ -43,11 +44,39 @@ export const AudioDecisionSchema = Schema.Union([
   Schema.Struct({ outcome: Schema.Literal('accepted'), view: DeskViewSchema }),
   Schema.Struct({ outcome: Schema.Literal('rejected'), error: message, view: DeskViewSchema }),
 ]);
-export const DeskBootstrapSchema = Schema.Struct({ sessionId: id, view: DeskViewSchema });
+export const NativeEngineRetirementProofSchema = Schema.Struct({ kind: Schema.Literal('old-engine-ended'), target: NativeTargetSchema,
+  serverEpoch: ServerEpochSchema, retirementDeskRevision: DeskRevisionSchema });
+export type NativeEngineRetirementProof = typeof NativeEngineRetirementProofSchema.Type;
+export const InputIntentIdSchema = id;
+export const InputLeaseReceiptSchema = Schema.Struct({ target: NativeTargetSchema, ...InputRevokeSchema.fields,
+  kind: InputProducerKindSchema, bindingGeneration: InputAttachSchema.fields.bindingGeneration, admissionRevision: NativeRevisionSchema });
+export const InputIntentStatusSchema = Schema.Union([
+  Schema.Struct({ kind: Schema.Literals(['pending', 'unknown']) }),
+  Schema.Struct({ kind: Schema.Literal('admitted'), receipt: InputLeaseReceiptSchema }),
+  Schema.Struct({ kind: Schema.Literal('retired'), proof: Schema.Union([
+    Schema.Struct({ ...NativeEngineRetirementProofSchema.fields, kindOfProducer: InputProducerKindSchema,
+      bindingGeneration: InputAttachSchema.fields.bindingGeneration }),
+    Schema.Struct({ kind: Schema.Literal('rejected-before-admission'), target: NativeTargetSchema,
+      kindOfProducer: InputProducerKindSchema, bindingGeneration: InputAttachSchema.fields.bindingGeneration }),
+    Schema.Struct({ kind: Schema.Literal('exact-revoke-applied'), receipt: InputLeaseReceiptSchema, revocationRevision: NativeRevisionSchema }),
+  ]) }),
+]);
+export const InputIntentStatusRequestSchema = Schema.Struct({ inputOwnerToken: id, intentId: InputIntentIdSchema });
+export const DeskBootstrapSchema = Schema.Struct({ sessionId: id, inputOwnerToken: id, view: DeskViewSchema });
 export const NativeOutcomeSchema = Schema.Union([
   Schema.Struct({ outcome: Schema.Literal('applied'), ...NativePerformanceSchema.fields }),
   Schema.Struct({ outcome: Schema.Literals(['rejected', 'unknown']), error: Schema.optionalKey(message) }),
 ]);
+
+export const InputAttachOutcomeSchema = Schema.Union([
+  Schema.Struct({ outcome: Schema.Literal('applied'), ...NativePerformanceSchema.fields, receipt: InputLeaseReceiptSchema }),
+  Schema.Struct({ outcome: Schema.Literals(['rejected', 'unknown']), error: Schema.optionalKey(message) }),
+]);
+export type InputIntentStatus = typeof InputIntentStatusSchema.Type;
+export type InputLeaseReceipt = typeof InputLeaseReceiptSchema.Type;
+export type InputAttachOutcome = typeof InputAttachOutcomeSchema.Type;
+export const decodeInputIntentStatus = Schema.decodeUnknownSync(InputIntentStatusSchema);
+export const decodeInputAttachOutcome = Schema.decodeUnknownSync(InputAttachOutcomeSchema);
 
 export type AudioState = typeof AudioStateSchema.Type;
 export type AudioGoal = typeof AudioGoalSchema.Type;
@@ -67,5 +96,6 @@ export interface DeskController {
   subscribe(listener: (publication: DeskPublication) => void): () => void;
   setAudio(goal: AudioGoal): AudioDecision;
   command(target: NativeTarget, input: unknown): Promise<NativeOutcome>;
+  confirmedRetirement?(target: NativeTarget): NativeEngineRetirementProof | null;
   close(): Promise<void>;
 }

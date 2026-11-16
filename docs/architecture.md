@@ -63,6 +63,16 @@ The combined browser module has a fixed 256 MiB heap and cannot grow it during a
 
 Native diagnostic queries can expose borrowed PCM views in the WASM heap. These views do not transfer ownership to JavaScript. A later preparation, load, or engine disposal can invalidate them, so they are unsuitable for persistent UI storage.
 
+## Input sources retain separate ownership
+
+Canonical songs may contain explicit `inputBindings` from stable physical control IDs to cue-row sets, tempo, or Panic. Absent bindings stay unbound. Packet 7 carries the validated PFI1 extension; native preparation installs it atomically with the song. Hardware installation maps contain observed interfaces, raw inputs and accepted SDK LED channels. They contain no musical target assignments.
+
+The native engine has 32 preallocated input producers. Gateways and the browser worklet assign producer slots and monotonic sessions; clients submit their source role and ordered observations. C++ owns release barriers, selected-row batch ordering, admitted held ownership, queued-action ownership and physical LED images. Stale releases and cleanup cannot release another source. Stop and Start retain bindings. Successful song replacement advances their generation and invalidates old producers; native candidate swaps inherit the generation and session watermark before replacing the previous engine.
+
+Input clients record an attach intent before sending it. The gateway retains its exact assigned native identity and admission revision, and authenticates read-only recovery through the original owner's opaque token. A disconnected endpoint cannot revoke through a replacement client. Candidate input admission waits for authoritative retirement of the old source. Unknown native outcomes remain quarantined; an explicit audio termination resolves them only after the owned controller confirms actual child exit. Server epochs, controller revisions and native revisions remain distinct.
+
+Each browser explicitly chooses keyboard shortcuts or native controls. An unselected browser still supports pointer/touch, with musical DOM keys and wheel disabled. The choice is local to that browser session. Policy changes and blur revoke only keyboard ownership; physical reconnect waits for its own cleanup acknowledgement. Explicit UI Panic remains a global utility with immediate recorder/microphone cleanup. A physically bound Panic stays identified and enters the reserved native priority lane after generation and ownership checks.
+
 ## A chart supplies actions, and a press performs them
 
 Each song is a loadable module under [songs](../songs/README.md), beside its canonical MusicXML document. `SongScript` supplies a parsed chart, a `Program`, and a practice range. The registry loads the selected module on demand.
@@ -293,8 +303,10 @@ ports, event/hidraw node names and PIDs are discovery results, never configurati
 pins. Gateway SSE heartbeat deadlines detect lost connections; they do not
 advance musical time or schedule lights. Only C++ supplies the musical light
 image and native audio continues independently of laptop/phone connectivity.
-The supervisor never enables audio or starts/stops transport. Its persistent
-user-unit renderer is source preparation, not an installed host capability.
+The supervisor never enables audio or starts/stops transport. Unconfirmed native
+source revocation blocks automatic reconnect; helper exit or an ended event
+stream alone cannot establish retirement of a source in a running engine. Its
+persistent user-unit renderer is source preparation, not an installed host capability.
 
 
 The rendered web user unit retries failed server startup/process exits with a

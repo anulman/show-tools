@@ -45,7 +45,7 @@ async function fixture() {
     const body: unknown = data ? JSON.parse(data) : undefined;
     requests.push({ path: req.url ?? '', body });
     res.setHeader('content-type', 'application/json');
-    if (req.url === '/api/session') { bootstraps++; res.end(JSON.stringify({ sessionId: 'cli', view: view() })); }
+    if (req.url === '/api/session') { bootstraps++; res.end(JSON.stringify({ sessionId: 'cli', inputOwnerToken: 'fixture-owner-token', view: view() })); }
     else if (req.url === '/api/status') {
       if (transitions > 0 && --transitions === 0) kind = audioFault ? 'fault' : kind === 'starting' ? 'ready' : 'off';
       res.end(JSON.stringify(view()));

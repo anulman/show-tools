@@ -8,16 +8,23 @@ import { request as httpRequest } from 'node:http';
 import { setImmediate } from 'node:timers/promises';
 import { createHash } from 'node:crypto';
 import { runBrowserPeripheralServer, startBrowserPeripheralServer } from '../browser-server.js';
+import { decodePeripheralInputMap } from '../bridge.js';
 import { PF } from '../../performance/light-abi.js';
+const inputMap = decodePeripheralInputMap({
+  sources: [{ kind: 'hid', id: 'keys', interfaceNumber: 2, usagePage: 1, usage: 6 },
+    { kind: 'hid', id: 'motion', interfaceNumber: 3, usagePage: 1, usage: 2 }],
+  switches: [{ controlId: 'blue', sourceId: 'keys', type: 7, code: 41 }],
+  axis: { sourceId: 'motion', type: 1, code: 49 }, leds: [], confirmWiring: false,
+});
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), 'browser-ipac-'));
   await mkdir(join(root, 'ui/practice'), { recursive: true });
   await writeFile(join(root, 'ui/practice/index.html'), '<h1>Practice</h1>');
   const input = new PassThrough({ objectMode: true });
   const writes: string[] = [];
-  const server = await startBrowserPeripheralServer({ staticRoot: root,
+  const server = await startBrowserPeripheralServer({ staticRoot: root, inputMap,
     transport: { session: 17, input, write: line => { writes.push(line); }, async close() { input.end(); } } });
-  input.write({ type: 'ready', version: 1, session: 17, released: true });
+  input.write({ type: 'ready', version: 2, session: 17, switches: [{ controlId: 'blue', state: 'released' }] });
   await setImmediate();
   const token = new URLSearchParams(new URL(server.url).hash.slice(1)).get('peripheral');
   const headers = { origin: server.origin, authorization: `Bearer ${token}`, 'content-type': 'application/json' };
@@ -31,9 +38,10 @@ async function fixture() {
     const reader = response.body.getReader();
     const first = await reader.read();
     assert.ok(first.value);
-    const lease = JSON.parse(new TextDecoder().decode(first.value)).lease;
+    const initial = JSON.parse(new TextDecoder().decode(first.value));
+    const lease = initial.lease;
     assert.equal(typeof lease, 'string');
-    return { abort, lease, reader };
+    return { abort, lease, reader, ready: initial.ready };
   };
   return { ...server, root, input, writes, headers, request, connect,
     async dispose() { await server.close(); await rm(root, { recursive: true, force: true }); } };
@@ -42,7 +50,7 @@ function image() {
   const values = Array<number>(PF.LIGHT_FIELDS).fill(0);
   values[PF.LIGHT_FORMAT] = 1; values[PF.LIGHT_GENERATION] = 1; values[PF.LIGHT_EPOCH] = 1;
   values[PF.LIGHT_SEQUENCE] = 1; values[PF.LIGHT_RATE] = 48000; values[PF.LIGHT_COUNT] = 1;
-  values[PF.LIGHT_SAMPLES] = 1; values[PF.LIGHT_SAMPLES + 1] = .7;
+  values[PF.LIGHT_SAMPLES] = 257; values[PF.LIGHT_SAMPLES + 1] = .7;
   return values;
 }
 
@@ -71,13 +79,14 @@ test('single client forwards exact native publication and edges; closing fences 
     assert.equal((await f.request('light', { lease: first.lease, values })).status, 204);
     assert.equal(f.writes.length, 2);
     assert.equal(f.writes[1], `light ${f.writes[0].slice(5)} ${values.join(' ')}`);
-    f.input.write({ type: 'button', session: 17, sequence: 1, down: true });
+    f.input.write({ type: 'button', controlId: 'blue', session: 17, sequence: 1, down: true });
     const input = await first.reader.read();
     assert.ok(input.value); assert.equal(JSON.parse(new TextDecoder().decode(input.value)).down, true);
     assert.equal((await f.request('clear', { lease: first.lease })).status, 204);
     assert.equal(f.writes.at(-1), 'clear');
     first.abort.abort();
     const second = await f.connect();
+    assert.deepEqual(second.ready.switches, [{ controlId: 'blue', state: 'held' }], 'new leases receive current physical state');
     assert.notEqual(first.lease, second.lease);
     const newBinding = f.writes.at(-1);
     assert.notEqual(newBinding?.split(' ')[1], f.writes[0].split(' ')[1], 'new audio instance has a fresh engine incarnation');
@@ -93,7 +102,7 @@ test('request payload limits and malformed helper stream fail closed', async () 
   try {
     const client = await f.connect();
     assert.equal((await f.request('light', { lease: client.lease, values: Array(20000).fill(1) })).status, 400);
-    f.input.write({ type: 'button', session: 18, sequence: 1, down: true });
+    f.input.write({ type: 'button', controlId: 'blue', session: 18, sequence: 1, down: true });
     await assert.rejects(f.completed, /Peripheral session changed/);
     assert.equal(f.writes.at(-1), 'clear');
     client.abort.abort();
@@ -135,7 +144,7 @@ require('node:readline').createInterface({ input: process.stdin }).on('line', li
 `, { mode: 0o700 });
   let origin: string | undefined;
   try {
-    await assert.rejects(runBrowserPeripheralServer({ staticRoot: directory, helperExecutable: helper, sdkChannel: 0,
+    await assert.rejects(runBrowserPeripheralServer({ staticRoot: directory, helperExecutable: helper, inputMap,
       onReady: url => { origin = new URL(url).origin; } }, new AbortController().signal));
     assert.match(await readFile(log, 'utf8'), /:quit$/);
     assert.ok(origin);
@@ -153,13 +162,13 @@ const fs = require('node:fs');
 fs.writeFileSync(${JSON.stringify(log)}, 'started:' + process.pid);
 process.stdin.pause();
 setInterval(() => {}, 1000);
-process.stdout.write(JSON.stringify({ type: 'ready', version: 1, session: Number(process.argv[2]), released: true }) + String.fromCharCode(10));
+process.stdout.write(JSON.stringify({ type: 'ready', version: 2, session: Number(process.argv[2]), switches: [{ controlId: 'blue', state: 'released' }] }) + String.fromCharCode(10));
 process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(log)}, ':term'); });
 `, { mode: 0o700 });
   const abort = new AbortController();
   let ready: (url: string) => void = () => {};
   const url = new Promise<string>(resolve => { ready = resolve; });
-  const running = runBrowserPeripheralServer({ staticRoot: directory, helperExecutable: helper, sdkChannel: 0, onReady: ready }, abort.signal);
+  const running = runBrowserPeripheralServer({ staticRoot: directory, helperExecutable: helper, inputMap, onReady: ready }, abort.signal);
   void running.catch(() => {});
   let stream: Response | undefined;
   try {
@@ -174,7 +183,8 @@ process.on('SIGTERM', () => { fs.appendFileSync(${JSON.stringify(log)}, ':term')
     assert.equal(stream?.status, 200); assert.ok(stream?.body);
     const reader = stream.body.getReader(), first = await reader.read();
     assert.ok(first.value);
-    const lease = JSON.parse(new TextDecoder().decode(first.value)).lease;
+    const initial = JSON.parse(new TextDecoder().decode(first.value));
+    const lease = initial.lease;
     const values = image(); values[PF.LIGHT_COUNT] = 32;
     for (let row = 0; row < 32; row++) { values[PF.LIGHT_SAMPLES + row * 2] = 4294967295 - row; values[PF.LIGHT_SAMPLES + row * 2 + 1] = .12345678901234567; }
     let overflow = false;

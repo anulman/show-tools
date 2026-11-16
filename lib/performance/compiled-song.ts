@@ -4,6 +4,7 @@ import { parseSheetCues, type SheetCue } from './sheet-cues.js';
 import { columnName } from './columns.js';
 import { ExternalSampleAssetSchema, decodeExternalSampleWav } from './external-assets.js';
 import { SongSourceSchema } from './song-source.js';
+import { InputBindingsSchema } from './input-bindings.js';
 
 const list = <S extends Schema.Constraint>(schema: S) => Schema.mutable(Schema.Array(schema));
 const Finite = Schema.Number.check(Schema.isFinite());
@@ -44,6 +45,7 @@ export const SongMappingSchema = Schema.Struct({
   spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String,
   titleCell: Schema.String, bpmCell: Schema.String, sectionRow: Schema.Int, barRow: Schema.Int, leadInColumn: Schema.Int,
   startBar: Schema.Int, endBar: Schema.Int,
+  inputBindings: Schema.optionalKey(InputBindingsSchema),
   terminalStops: Schema.optionalKey(list(Schema.String)),
   prelude: Schema.optionalKey(list(Schema.Struct({ label: Schema.NonEmptyString, counts: Schema.Int }))),
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
@@ -60,7 +62,7 @@ export const SongMappingSchema = Schema.Struct({
   deferredRows: list(Schema.Struct({ row: Schema.Int, reason: Schema.String })),
 });
 export type SongMapping = typeof SongMappingSchema.Type;
-export const decodeSongMapping = Schema.decodeUnknownSync(SongMappingSchema);
+export const decodeSongMapping = Schema.decodeUnknownSync(SongMappingSchema, { onExcessProperty: 'error' });
 const DiagnosticSchema = Schema.Struct({ severity: Schema.Literals(['error', 'warning', 'info']), code: Schema.String, message: Schema.String, owner: Schema.String, source: SourceRefSchema });
 export const LegacyCueSchema = Schema.Struct({
   id: Schema.String, bar: Schema.Int, buttonId: ButtonSchema, voiceId: Schema.String, ...ActionFields, takeId: Schema.NullOr(Schema.String),
@@ -97,6 +99,7 @@ export const CompiledSongSchema = Schema.Struct({
   ticksPerQuarter: Schema.Literal(960), meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   source: Schema.Struct({ spreadsheetId: Schema.String, sheetId: Schema.Int, sheetName: Schema.String, range: Schema.String, digest: Schema.String }),
   mappingDigest: Schema.String, chart: ChartSchema,
+  inputBindings: Schema.optionalKey(InputBindingsSchema),
   voices: list(Schema.Struct({ id: Schema.String, buttonId: ButtonSchema, arrangementRow: Schema.Int })),
   sourceProfiles: Schema.optionalKey(list(Schema.Struct({ id: Schema.String, profile: Schema.Int, source: SourceRefSchema, name: Schema.String }))),
   parts: list(PartSchema), rotation: Schema.NullOr(RotationSchema),
@@ -841,6 +844,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     schemaVersion: 7, notationVersion: mapping.notationVersion, id: mapping.songId, title, ticksPerQuarter: 960, meter: mapping.meter,
     source: { spreadsheetId: source.spreadsheetId, sheetId: source.sheetId, sheetName: source.sheetName, range: source.range, digest: await digest(source) },
     mappingDigest: await digest(mapping), chart, voices: mapping.controls.map(c => ({ id: c.voiceId, buttonId: c.buttonId, arrangementRow: c.arrangementRow })),
+    ...(mapping.inputBindings === undefined ? {} : { inputBindings: mapping.inputBindings }),
     ...(terminalStops.length ? { terminalStops } : {}),
     ...(sourceProfiles.length ? { sourceProfiles } : {}), parts, rotation, cueWindow: mapping.cueWindow, ...(mapping.notationVersion === 'terse-v2' ? { authoredCues } : {}), cues, takes, selections, playback, diagnostics,
     executable: !diagnostics.some(d => d.severity === 'error'),

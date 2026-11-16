@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { connect } from 'node:net';
-import { get } from 'node:http';
+import { get, request } from 'node:http';
 import song from '../../../songs/dance-yrself-clean.js';
 import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -253,4 +253,74 @@ test('idle observers receive the documented SSE heartbeat without a controller p
 		assert.match(text, /: show-tools-heartbeat\n\n/);
 		assert.equal(commands, 0);
 	} finally { abort.abort(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('input intent readback requires hardware authorization, exact origin and bounded POST metadata', async () => {
+  let calls = 0;
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, deskFixture({ command: async () => { calls++; return { outcome: 'unknown' }; } }));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const url = `http://127.0.0.1:${address.port}/api/input-intent-status`;
+  const body = JSON.stringify({ inputOwnerToken: 'original-owner', intentId: 'original-intent' });
+  try {
+    assert.equal((await fetch(url, { method: 'POST', body })).status, 401);
+    assert.equal((await fetch(url, { method: 'POST', headers: { authorization: `Bearer ${token}` }, body })).status, 403);
+    const headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
+    assert.equal((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ inputOwnerToken: 'original-owner', intentId: 'x'.repeat(257) }) })).status, 400);
+    assert.equal((await fetch(url, { method: 'POST', headers, body: JSON.stringify({ inputOwnerToken: 'original-owner', intentId: 'original-intent', kind: 'keyboard' }) })).status, 400);
+    const response = await fetch(url, { method: 'POST', headers, body });
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    assert.deepEqual(await response.json(), { kind: 'unknown' });
+    assert.equal(calls, 0, 'status readback has no native command authority');
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('more than 128 sequential empty browser reconnects reclaim only closed namespaces', async () => {
+  let commands = 0;
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, deskFixture({ command: async () => { commands++; return { outcome: 'unknown' }; } }));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`, headers = { authorization: `Bearer ${token}`, origin };
+  try {
+    for (let index = 0; index < 140; index++) {
+      const response = await fetch(`${base}/api/session`, { headers });
+      assert.equal(response.status, 200, `empty reconnect ${index + 1}`);
+      const session = await response.json();
+      const abort = new AbortController();
+      const events = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': session.sessionId }, signal: abort.signal });
+      const reader = events.body!.getReader(); await reader.read(); abort.abort();
+      await new Promise(resolve => setTimeout(resolve, 2));
+    }
+    assert.equal(commands, 0);
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('an input body finishing after its empty SSE owner closed cannot dispatch or recreate that namespace', async () => {
+  let commands = 0;
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, deskFixture({ command: async () => { commands++; return { outcome: 'unknown' }; } }));
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`, headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
+  const abort = new AbortController();
+  let finish!: () => void;
+  try {
+    const session = await (await fetch(`${base}/api/session`, { headers })).json();
+    const events = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': session.sessionId }, signal: abort.signal });
+    await events.body!.getReader().read();
+    const body = JSON.stringify({ sessionId: session.sessionId, sequence: 1, target, command: 'inputAttach', args: {
+      intentId: 'late-intent', kind: 'pointer', bindingGeneration: 1, releasedMask: 223, heldMask: 0,
+    } });
+    const arrived = once(server, 'request');
+    const pending = new Promise<import('node:http').IncomingMessage>((resolve, reject) => {
+      const command = request(`${base}/api/command`, { method: 'POST', headers }, resolve);
+      command.once('error', reject); command.write(body.slice(0, -1));
+      finish = () => command.end(body.slice(-1));
+    });
+    await arrived;
+    abort.abort(); await new Promise(resolve => setTimeout(resolve, 2));
+    finish(); const response = await pending;
+    assert.equal(response.statusCode, 409); response.resume();
+    assert.equal(commands, 0);
+    assert.equal((await fetch(`${base}/api/session`, { headers })).status, 200);
+  } finally { abort.abort(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });

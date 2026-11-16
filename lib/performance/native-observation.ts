@@ -1,9 +1,37 @@
 import { CONTROL_IDS } from './model.js';
 import type { PadLight, Phase, PracticeState, PracticeEvent, TempoHitState, VoiceEffectsState, LiveEffectsState, LiveEffectDefinition, CompiledTakeState } from './model.js';
 import { PF } from './wasm-abi.js';
+import type { InputRoutingState } from './input-bindings.js';
 
 const PHASES: readonly Phase[] = ['idle', 'count-in', 'playing', 'ended'];
 const STATUSES: readonly PracticeState['channels'][number]['status'][] = ['empty', 'ready', 'armed', 'recording', 'stopping', 'looping'];
+
+export function decodeNativeInputRouting(info: ArrayLike<number>): InputRoutingState {
+  const whole = (value: number, maximum: number, minimum = 0) => Number.isSafeInteger(value) && value >= minimum && value <= maximum;
+  const generation = info[PF.INPUT_GENERATION], count = info[PF.INPUT_COUNT];
+  const sessionHighWatermark = info[PF.INPUT_SESSION_HIGH_WATERMARK], panicMask = info[PF.INPUT_PANIC_MASK];
+  if (info.length !== PF.INPUT_INFO_FIELDS || !whole(generation, Number.MAX_SAFE_INTEGER, 1)
+    || !whole(count, PF.INPUT_PRODUCERS) || !whole(sessionHighWatermark, Number.MAX_SAFE_INTEGER)
+    || !whole(panicMask, 63)) throw new Error('Invalid native input routing header');
+  const kinds: readonly InputRoutingState['producers'][number]['kind'][] = ['physical', 'keyboard', 'pointer'];
+  const producers: InputRoutingState['producers'][number][] = [];
+  let previous = -1;
+  for (let index = 0; index < count; index++) {
+    const offset = PF.INPUT_RECORDS + index * PF.INPUT_PRODUCER_FIELDS;
+    const producer = info[offset + PF.INPUT_SLOT], session = info[offset + PF.INPUT_SESSION];
+    const kind = kinds[info[offset + PF.INPUT_KIND]];
+    const releasedMask = info[offset + PF.INPUT_RELEASED_MASK], heldMask = info[offset + PF.INPUT_HELD_MASK];
+    const lastSequence = info[offset + PF.INPUT_LAST_SEQUENCE];
+    const allowed = kind === 'physical' ? 63 : 223;
+    if (!whole(producer, PF.INPUT_PRODUCERS - 1) || producer <= previous || !kind || !whole(session, sessionHighWatermark, 1)
+      || !whole(releasedMask, allowed) || !whole(heldMask, allowed) || ((releasedMask | heldMask) & ~allowed)
+      || (releasedMask & heldMask) || !whole(lastSequence, Number.MAX_SAFE_INTEGER)) throw new Error('Invalid native input producer record');
+    previous = producer; producers.push({ producer, session, kind, releasedMask, heldMask, lastSequence });
+  }
+  for (let index = PF.INPUT_RECORDS + count * PF.INPUT_PRODUCER_FIELDS; index < PF.INPUT_INFO_FIELDS; index++)
+    if (info[index] !== 0) throw new Error('Invalid native input routing padding');
+  return { bindingGeneration: generation, sessionHighWatermark, panicMask, producers };
+}
 
 export function decodeNativeState(data: ArrayLike<number>, channelData: ArrayLike<number>, runId: string, message: (code: number) => string): PracticeState {
     const phase = PHASES[data[PF.PHASE]];

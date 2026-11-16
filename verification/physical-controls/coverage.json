@@ -1,0 +1,91 @@
+{
+  "syncCommit": "5edc12a4d6a23f1b19f9e1fcb5265da8fe66d74d",
+  "domain": {
+    "physicalControls": 6,
+    "physicalProducers": 2,
+    "heldPairs": 4096,
+    "outputLayouts": [
+      [
+        0,
+        1,
+        2,
+        3
+      ],
+      [
+        0,
+        1,
+        2,
+        48
+      ]
+    ],
+    "mappingOrders": 24,
+    "levelAlphabet": [
+      0,
+      0.25,
+      0.7,
+      1
+    ],
+    "deliveryCases": 12288,
+    "baselineWitnesses": 1
+  },
+  "files": {
+    "lib/beat-tracker/include/beat_tracker.h": "a4087a8506e423ae511b0f544caf2b599d9fac4c8670f3b3012184c4e8cd7378",
+    "lib/beat-tracker/src/aubio_detector.cpp": "804d5d33353f476345345c93bb738ac0d9d862143ceb3c39023ef1ae4c4ee42a",
+    "lib/beat-tracker/src/aubio_detector.h": "73d19ea4ea2a0c8062845cdd59b20e744c0127304f08ad6732821f5264176aae",
+    "lib/beat-tracker/src/beat_clock.cpp": "63cb4782b6dc80bf1d8ad94c3b607f5aa4b14a838ffcbda1f4710182e3f35054",
+    "lib/beat-tracker/src/beat_clock.h": "2e911410aedf690c518d13aaee1c555a2a0283dada499b0c8c8a2af31795cd77",
+    "lib/beat-tracker/src/beat_tracker.cpp": "211d46ab21fa4ee4b9000b43fa74ccd180197a53795f25889f7d5b7b5f769de0",
+    "lib/beat-tracker/src/beat_tracker_internal.h": "10dfacb03ed236a3e74d1929c7de60520b1a5fc1be81454098f673a3a2a69f6a",
+    "lib/beat-tracker/src/main.cpp": "f956c2b4d4e68fc5601a6a05768c83af952080e63010604806c35c59b8608f73",
+    "lib/beat-tracker/src/manual_detector.h": "d87f17630a54c9da35c9eb2404e65fbbb80399da02398c2140dd222478c23f43",
+    "lib/beat-tracker/src/tempo_follower.cpp": "11950a3ae59f862ab9e7f412a3224f520775def164589903d8f35c95563a82e1",
+    "lib/beat-tracker/src/tempo_follower.h": "1d09489046882275f25dffd6b2119136abc9f1fd906059aeb1a5f668111427e2",
+    "lib/patches/CMakeLists.txt": "9f3a3dda5751bc8e82e178289940a8053b56ddaa5b59542e1a0491985edcf117",
+    "lib/patches/include/patch_engine.h": "12eb9f1c44efc4ae8bc3d7059916692a3a071c240e55f5c68aabea7fab2a8a5a",
+    "lib/patches/include/tribulations_guitar.h": "aec0a2fe753fa20ab10ff219d498af388f35ac6fc120040408588ab064d2f272",
+    "lib/patches/src/patch_engine.cpp": "c6328aa5a0f620cef27727337af08098b3c94b96011226ecfdcac810ce10ebb6",
+    "lib/patches/src/tribulations_amp.cpp": "5c700e68b45f1029b2dc86c1d43e890285b410bf7e94f23725721108899219bc",
+    "lib/patches/src/tribulations_filter.cpp": "83ac34dc70dee6e0e528249d7e377bfe63f9897abcc770b342b155afccd9b890",
+    "lib/patches/src/tribulations_guitar.cpp": "3dcd0261a188d23da5349f836799a770bf13272bb4084fea53448090c047d161",
+    "lib/patches/src/tribulations_internal.h": "5d2d9ed6a37c7670626382f0fd56903b75332cceca1014d02dbda69f572e0330",
+    "lib/patches/src/tribulations_string.cpp": "799e0355ccd6e78ce1a37d959919477bf66d1db492b5b52f4758e9a966b64baa",
+    "lib/performance/CMakeLists.txt": "69ef7918fe679f6da3f0e72c29721fe21820da53703b32e380112d366ee52470",
+    "lib/performance/include/performance_engine.h": "bc2ab8b668359100f70e7df6027914c5caaab5ef1388e50a6108def157f949c9",
+    "lib/performance/include/performance_light_output.h": "5ca26325f4fcfa44de4e2bc3898a147e488e078b3340829c8ada40699b464265",
+    "lib/performance/src/compiled_program.cpp": "6a07b7613e59db67de4ef702e184c72dcf54d631a7d511edee7b29afd16a50cc",
+    "lib/performance/src/compiled_program.h": "998997281c5701ac214cc246f90f0be01ab162f0a43c47c8dee0b477a8f49b17",
+    "lib/performance/src/input_router.h": "7357d56f107d386ea137d8f7d0ccd3d382b061a054d33c159e75109c11b12b80",
+    "lib/performance/src/performance_engine.cpp": "ff6dd0611a846a0bdfaee502b02b1134f14b8f2d6cedef75e61b9c992eb95357",
+    "lib/performance/src/performance_lights.cpp": "99567a6669033d8cf9d659cb543371604428b7c9ca7fd32757530719cc478012",
+    "lib/performance/src/performance_lights.h": "a1dce69693e42d57a86971bac54964c2db38b2a2fe23ae522afdae0cb6f5fc85",
+    "lib/performance/tests/cue_light_tests.cpp": "b49d201839e47f3b40b7716661a2163d38926a9702457ceff4becf1736341c09",
+    "lib/performance/tests/physical_input_tests.cpp": "82674394ed2a78aaed60918fe9d006ab585acbec0227677fb013b8078e9449e0",
+    "lib/peripherals/include/peripheral_controls.h": "96659635a0cc1ff63c178d1c47935c3f23ad3cc54f408098808df2abd03b4c8f",
+    "lib/peripherals/include/peripheral_light_delivery.h": "b757bc4577013b2aa82e24861861f043161473c26d05b11604490c71dcff90f0",
+    "lib/peripherals/include/peripheral_lights.h": "12fbde88ee59f991bdc59e7f1be862646864a25a850376d9a5cdeb0c31c94954",
+    "lib/peripherals/light-math.cmake": "42205961327860cdde7f9613c9a8d2dc7cb5e7f5aeb7ec358a403b8882b318b1",
+    "lib/peripherals/src/peripheral_controls.cpp": "509a6d35fb4bf76d67269e8274da68ccb42363b0e9942dbc926973d979fee275",
+    "lib/peripherals/src/peripheral_light_delivery.cpp": "f485ced1867d008d8cc67c5be27359ad01c5e40fb673c617d496d31a07475f76",
+    "lib/peripherals/src/peripheral_lights.cpp": "360ac5f402fc43979ff21a11384227967afb3e7c002d45b6db50b497352a72f7",
+    "lib/sampler/CMakeLists.txt": "5d0111e649b4e4d3625f47cd0c9cb3b247ea05ea58f66951adeee19f7169f1f6",
+    "lib/sampler/include/sample_engine.h": "8084010df77b2aa02ecfeb2e3b79b1e6a770a2ce89b99a50e056c6a9ef519282",
+    "lib/sampler/src/sample_engine.cpp": "049259802dbd5a78be5fc228d7c7f4abfadcdd059ccb65b1000c3febb2bcfe49",
+    "lib/sequencer/CMakeLists.txt": "cd14eecd6f019c39d603cd400f295f663109fdf0194f73b5cee9720697b13201",
+    "lib/sequencer/include/audio_sequence_engine.h": "b5b30a4b7ecbc00ee898b83ebe6ee84953737cf2c62b7eddfa61e32bb85a4db4",
+    "lib/sequencer/src/audio_sequence_engine.cpp": "3c15b5f8b32d53c3e5c601322dac48c3ad08076b724f3e8e557f1b3ff7e9ea0c",
+    "lib/tuner/CMakeLists.txt": "21c6294e20c88c5635fa6e61018cc8807ff663b824259d63a07ea82340e7c455",
+    "lib/tuner/include/tuner.h": "568bb3da9355328b8b589b621a30d971388d1599f8fef33f9d52b932b145da98",
+    "lib/tuner/src/tuner.cpp": "23341a5ca6d70105cc7f43571cca85767371d27d79f60a74bebcdb01dbdb32b2"
+  },
+  "exclusions": [
+    "unbounded event traces",
+    "all producer allocations or command failures",
+    "unknown or lost attachment recovery",
+    "spinner position, history or calibration",
+    "arbitrary real-valued levels or continuous pulse phases",
+    "physical USB writes and electrical behavior",
+    "electrically atomic LED transitions",
+    "operator-specific wiring or song assignments",
+    "all songs or DSP fidelity"
+  ]
+}

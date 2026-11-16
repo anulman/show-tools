@@ -20,6 +20,15 @@
     <button id="open-tuner" type="button" class="secondary">Tuner</button>
   </header>
   <div class="audio-mode">
+    <label for="musical-input-select">Controls</label>
+    <select id="musical-input-select" aria-describedby="musical-input-hint">
+      <option value="unselected">Choose controls</option>
+      <option value="keyboard">Keyboard shortcuts</option>
+      <option value="native-controls">Physical controls</option>
+    </select>
+    <span id="musical-input-hint">Touch buttons always work. Keyboard mode requires releasing a key before its first cue.</span>
+  </div>
+  <div class="audio-mode">
     <label for="audio-mode-select">Audio mode</label>
     <select id="audio-mode-select" aria-describedby="audio-mode-hint">
       <option value="browser">Browser mode (this device)</option>

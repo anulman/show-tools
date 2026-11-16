@@ -1,21 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
+import { createMusicalInputPolicy } from '../musical-input-policy.js';
 import { sourceForVM } from '../../../scripts/source-for-vm.js';
 
 async function fixture() {
   const source = await sourceForVM(new URL('../app.ts', import.meta.url));
-  const commands: { value: number; commandId: string }[] = [];
+  const commands: { input: number; value: number }[] = [];
+  const inputPolicy = createMusicalInputPolicy({ storage: { getItem: () => 'keyboard', setItem() {} } });
   let wheel: ((event: object) => void) | undefined;
   class Element { constructor(readonly editing = false) {} closest() { return this.editing; } }
-  const context = vm.createContext({ Element, Number, rotationSession: 'wheel-test', rotationSequence: 0,
+  const context = vm.createContext({ Element, Number, inputPolicy,
     running: true, modalOpen: false, song: { compiled: { rotation: {} } },
     document: { activeElement: null, querySelector(selector: string) {
       assert.equal(selector, 'dialog[open]'); return context.modalOpen ? {} : null;
     } },
-    audio: { control(control: { id: string; value: number }, options: { commandId: string }) {
-      assert.equal(control.id, 'knob'); commands.push({ value: control.value, commandId: options.commandId });
-    } },
+    audio: {},
+    keyboardProducer: { event(input: number, value: number) { commands.push({ input, value }); } },
+    pointerProducer: { event() { assert.fail('DOM wheel must use its keyboard source'); } },
     isRunning: () => context.running,
     act: (action: () => unknown) => action(),
     window: { addEventListener(type: string, handler: (event: object) => void, options: { passive: boolean }) {
@@ -28,7 +30,7 @@ async function fixture() {
   const handler = source.slice(start, source.indexOf('window.addEventListener("keydown"', start));
   vm.runInContext(rotate + handler, context);
   assert(wheel);
-  return { context, commands, Element, wheel };
+  return { context, commands, Element, wheel, inputPolicy };
 }
 
 test('vertical scrolling forwards signed knob movement without choosing a musical deadline', async () => {
@@ -38,7 +40,7 @@ test('vertical scrolling forwards signed knob movement without choosing a musica
   wheel(event); wheel({ ...event, deltaY: -3 });
   wheel({ ...event, deltaMode: 1, deltaY: 2 }); wheel({ ...event, deltaMode: 2, deltaY: -1 });
   assert.deepEqual(commands.map(command => command.value), [12, -3, 2, -1]);
-  assert.equal(new Set(commands.map(command => command.commandId)).size, 4);
+  assert.deepEqual(commands.map(command => command.input), [5, 5, 5, 5]);
   assert.equal(prevented, 4);
 });
 
@@ -70,4 +72,14 @@ test('an open voice dialog keeps vertical scrolling native and never manipulates
   assert.equal(commands.length, 1, 'the knob proxy resumes after closing the dialog');
   assert.equal(commands[0].value, 24);
   assert.equal(prevented, 1);
+});
+
+
+test('unselected and physical-control policies keep DOM scrolling outside the musical engine', async () => {
+  const { wheel, commands, Element, inputPolicy } = await fixture();
+  for (const selection of ['unselected', 'native-controls']) {
+    inputPolicy.select(selection);
+    wheel({ deltaY: 12, target: new Element(), preventDefault() { assert.fail('native scrolling remains available'); } });
+  }
+  assert.deepEqual(commands, []);
 });

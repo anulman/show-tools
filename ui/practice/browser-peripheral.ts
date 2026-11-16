@@ -1,13 +1,18 @@
 import { Schema } from 'effect';
-import type { Control } from '../../lib/performance/model.js';
+import { PHYSICAL_SWITCH_IDS, type PracticeState } from '../../lib/performance/model.js';
+import { currentMusicalInputPolicy, musicalInputPolicyEvent } from './musical-input-policy.js';
+import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
 interface BrowserAudio {
   readonly disposed: boolean;
-  control(control: Control): Promise<unknown>;
+  snapshot(): Pick<PracticeState, 'inputRouting'>;
+  inputAttach(args: InputAttachArgs): Promise<unknown>;
+  inputEvent(args: InputEventArgs): Promise<unknown>;
+  inputRevoke(args: InputRevokeArgs): Promise<unknown>;
   endpoint: { port: Pick<EventTarget, 'addEventListener' | 'removeEventListener'>; request(command: string, payload?: object): Promise<unknown> };
 }
-import { decodeBrowserInput } from '../../lib/peripherals/browser-protocol.js';
+import { decodeBrowserInput, HelperReadySchema, physicalReadyMasks } from '../../lib/peripherals/browser-protocol.js';
 
-const connected = Schema.decodeUnknownSync(Schema.Struct({ type: Schema.Literal('connected'), lease: Schema.NonEmptyString }), { onExcessProperty: 'error' });
+const connected = Schema.decodeUnknownSync(Schema.Struct({ type: Schema.Literal('connected'), lease: Schema.NonEmptyString, ready: HelperReadySchema }), { onExcessProperty: 'error' });
 const lightMessage = Schema.decodeUnknownSync(Schema.Struct({ lights: Schema.Array(Schema.Number) }));
 const pairingKey = 'show-tools-local-peripheral';
 let token: string | undefined;
@@ -34,7 +39,11 @@ function status(message: string) {
 }
 
 export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripheralPairing()) {
-  if (!pairing) return { stop() {}, ready: Promise.resolve() };
+  if (!pairing) return { stop: async () => {}, ready: Promise.resolve() };
+  if (currentMusicalInputPolicy() !== 'native-controls') {
+    status('Choose native controls to connect this controller.');
+    return { stop: async () => {}, ready: Promise.resolve() };
+  }
   const abort = new AbortController();
   let connectedReady: () => void = () => {};
   let failedReady: (error: unknown) => void = () => {};
@@ -43,7 +52,8 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
   let heartbeat: ReturnType<typeof setInterval> | undefined;
   let lease: string | undefined, stopped = false, active = false, sending = false;
   let pending: readonly number[] | undefined;
-  let sequence = 0, session: number | undefined;
+  let sequence = 0, session: number | undefined, bindingGeneration: number | undefined;
+  let sourceAttached = false;
   let controls = Promise.resolve();
   const headers = { authorization: `Bearer ${pairing}`, 'content-type': 'application/json' };
   const post = async (path: string, body?: object) => {
@@ -51,26 +61,44 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     if (!response.ok) throw new Error(`Local peripheral connection failed (${response.status})`);
     return response;
   };
-  const shutdown = (intentional: boolean) => {
-    if (stopped) return;
+  let cleanup = Promise.resolve();
+  const shutdown = (): Promise<void> => {
+    if (stopped) return cleanup;
     stopped = true; active = false; pending = undefined;
     clearInterval(heartbeat);
     failedReady(new Error('Local peripheral connection closed'));
     audio.endpoint.port.removeEventListener('message', light);
-    window.removeEventListener('keydown', suppressTab, true);
-    window.removeEventListener('pagehide', stop);
-    abort.abort();
-    if (lease) void fetch('/api/peripheral/clear', { method: 'POST', headers, body: JSON.stringify({ lease }), keepalive: true }).catch(() => {});
+    window.removeEventListener(musicalInputPolicyEvent, policyChanged);
+    window.removeEventListener('pagehide', pagehide);
+    const publisherCleanup = lease ? fetch('/api/peripheral/clear', { method: 'POST', headers, body: JSON.stringify({ lease }), keepalive: true })
+      .then(response => { if (!response.ok) throw new Error(`Local peripheral publisher retirement unconfirmed (${response.status})`); }) : Promise.reject(new Error('Local peripheral publisher retirement unconfirmed: lease receipt unavailable'));
     const release = async () => {
       if (audio.disposed) return;
+      const failures: unknown[] = [];
       try { await audio.endpoint.request('practice.peripheral-lights', { enabled: false }); }
-      finally { if (!audio.disposed) await audio.control({ id: 'cueButton', value: 0 }); }
+      catch (error) { failures.push(error); }
+      if (!audio.disposed && sourceAttached) {
+        try { await audio.inputRevoke({ kind: 'physical' }); }
+        catch (error) { failures.push(error); }
+      }
+      if (failures.length === 1) throw failures[0];
+      if (failures.length) throw new AggregateError(failures, 'Native peripheral cleanup unconfirmed');
     };
-    void controls.then(release, release).catch(error => { if (!intentional && !audio.disposed) globalThis.reportError?.(error); });
+    cleanup = Promise.allSettled([publisherCleanup, controls, controls.then(release, release)]).then(results => {
+      const failures = results.filter(result => result.status === 'rejected').map(result => result.reason);
+      if (failures.length === 1) throw failures[0];
+      if (failures.length) throw new AggregateError(failures, 'Local peripheral cleanup unconfirmed');
+    }).finally(() => abort.abort());
+    void cleanup.catch(error => {
+      status('Controller cleanup unconfirmed. Reconnect is blocked.');
+      if (!audio.disposed) globalThis.reportError?.(error);
+    });
     status('Controller disconnected. Reconnect the local controller session to resume.');
+    return cleanup;
   };
-  const stop = () => shutdown(true);
-  const fail = (error: unknown) => { if (!stopped) { shutdown(false); globalThis.reportError?.(error); } };
+  const stop = () => shutdown();
+  const pagehide = () => { void stop(); };
+  const fail = (error: unknown) => { if (!stopped) { shutdown(); globalThis.reportError?.(error); } };
   async function pump() {
     if (sending || !active || !lease) return;
     sending = true;
@@ -89,13 +117,17 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     catch (error) { fail(error); }
   }
   const cancelled = () => { if (audio.disposed && !stopped) stop(); return stopped || audio.disposed; };
-  function suppressTab(event: KeyboardEvent) { if (active && event.code === 'Tab') event.preventDefault(); }
+  function policyChanged() { if (currentMusicalInputPolicy() !== 'native-controls') void stop(); }
   async function receive(value: unknown) {
     if (!lease) {
-      lease = connected(value).lease;
+      const connection = connected(value);
+      lease = connection.lease; session = connection.ready.session;
       controls = controls.then(async () => {
         if (cancelled()) return;
-        await audio.control({ id: 'cueButton', value: 0 });
+        bindingGeneration = audio.snapshot().inputRouting?.bindingGeneration;
+        if (bindingGeneration === undefined) throw new Error('Native input routing is unavailable');
+        await audio.inputAttach({ kind: 'physical', bindingGeneration, ...physicalReadyMasks(connection.ready) });
+        sourceAttached = true;
         if (cancelled()) return;
         await audio.endpoint.request('practice.jiggle', { minimumTravel: 4, minimumReversal: 2 });
         if (cancelled()) return;
@@ -113,21 +145,22 @@ export function connectBrowserPeripheral(audio: BrowserAudio, pairing = peripher
     session ??= input.session;
     if (input.session !== session || input.sequence <= sequence) throw new Error('Local peripheral input order changed');
     sequence = input.sequence;
-    const control = input.type === 'button' ? { id: 'cueButton', value: input.down ? 1 : 0 } satisfies Control
-      : { id: 'knob', value: input.deltaY } satisfies Control;
+    const physicalInput = input.type === 'button' ? PHYSICAL_SWITCH_IDS.indexOf(input.controlId) : 6;
+    const physicalValue = input.type === 'button' ? Number(input.down) : input.deltaY;
     controls = controls.then(async () => {
       if (cancelled()) return;
-      try { await audio.control(control); }
+      if (bindingGeneration === undefined) throw new Error('Physical source has not attached');
+      try { await audio.inputEvent({ kind: 'physical', bindingGeneration, sequence: input.sequence, input: physicalInput, value: physicalValue }); }
       catch (error) {
-        if (control.id === 'cueButton' && control.value === 0) throw error;
+        if (input.type === 'button' && !input.down) throw error;
         if (!stopped) globalThis.reportError?.(error);
       }
     });
     await controls;
   }
   audio.endpoint.port.addEventListener('message', light);
-  window.addEventListener('keydown', suppressTab, true);
-  window.addEventListener('pagehide', stop);
+  window.addEventListener(musicalInputPolicyEvent, policyChanged);
+  window.addEventListener('pagehide', pagehide);
   status('Connecting local controller…');
   void (async () => {
     const response = await post('events');

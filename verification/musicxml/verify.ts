@@ -37,18 +37,27 @@ const baseline = run(root);
 assert.equal(baseline.status, 0, baseline.stderr);
 const baselineReport: unknown = JSON.parse(baseline.stdout);
 const original = await readFile(join(root, sourceFile), 'utf8');
+const nativeFile = 'lib/performance/compiled-native.ts';
+const nativeOriginal = await readFile(join(root, nativeFile), 'utf8');
 const displayLine = original.split('\n').find(line => line.includes('if (shown !== cue.source.text.trim()) throw new MusicXmlValidationError('));
 assert(displayLine, 'DISPLAY_GUARD_MISSING');
 const labelLine = original.split('\n').find(line => line.includes('if (measure.number !== (performance.chartBinding.labels?.[index]'));
 assert(labelLine, 'LABEL_GUARD_MISSING');
 const mutants = [
-  { name: 'display-action-guard-removed', witness: 'display', marker: 'DISPLAY_ACTION_AGREEMENT',
+  { file: sourceFile, name: 'display-action-guard-removed', witness: 'display', marker: 'DISPLAY_ACTION_AGREEMENT',
     source: replaceExactlyOnce(original, displayLine, '      void shown;') },
-  { name: 'voices-omitted-from-semantic-digest', witness: 'voices', marker: 'VOICE_SEMANTIC_IDENTITY',
+  { file: sourceFile, name: 'voices-omitted-from-semantic-digest', witness: 'voices', marker: 'VOICE_SEMANTIC_IDENTITY',
     source: replaceExactlyOnce(original, 'chartBinding: { ...data.chartBinding, controlNames } }, voices };',
       'chartBinding: { ...data.chartBinding, controlNames } }, voices: null };') },
-  { name: 'measure-label-agreement-removed', witness: 'labels', marker: 'MEASURE_LABEL_AGREEMENT',
+  { file: sourceFile, name: 'measure-label-agreement-removed', witness: 'labels', marker: 'MEASURE_LABEL_AGREEMENT',
     source: replaceExactlyOnce(original, labelLine, '      void measure.number;') },
+  { file: sourceFile, name: 'input-bindings-omitted-from-writer', witness: 'bindings', marker: 'INPUT_BINDING_MEANING',
+    source: replaceExactlyOnce(original, '    ...(song.inputBindings === undefined ? {} : { inputBindings: song.inputBindings }),', '') },
+  { file: sourceFile, name: 'input-bindings-omitted-from-semantic-digest', witness: 'binding-identity', marker: 'INPUT_BINDING_SEMANTIC_IDENTITY',
+    source: replaceExactlyOnce(original, 'const { source, mappingDigest, selectedLabelCells, conventions, ...data } = performance;',
+      'const { source, mappingDigest, selectedLabelCells, conventions, inputBindings, ...data } = performance;') },
+  { file: nativeFile, name: 'native-input-binding-rows-omitted', witness: 'full-bindings', marker: 'NATIVE_BINDING_TABLE',
+    source: replaceExactlyOnce(nativeOriginal, 'inputRows.length, ...inputRows.flat()', 'inputRows.length') },
 ];
 const temporary = await mkdtemp(join(tmpdir(), 'musicxml-verification-'));
 const outcomes: { name: string; witness: string; status: string; expectedFailure: string }[] = [];
@@ -60,7 +69,7 @@ try {
   await symlink(join(root, 'node_modules'), join(temporary, 'node_modules'), 'dir');
   for (const mutant of mutants) {
     assert.equal(run(temporary, mutant.witness).status, 0, 'PRISTINE_WITNESS_MUST_PASS');
-    await writeFile(join(temporary, sourceFile), mutant.source);
+    await writeFile(join(temporary, mutant.file), mutant.source);
     try {
       const broken = run(temporary, mutant.witness);
       assert.notEqual(broken.status, 0, `MUTANT_SURVIVED: ${mutant.name}`);
@@ -70,7 +79,7 @@ try {
       assert.deepEqual(failure, { status: 'FAIL-witness-property', property: mutant.witness,
         marker: mutant.marker, assertionCode: 'ERR_ASSERTION' }, `WRONG_MUTANT_FAILURE: ${mutant.name}`);
       outcomes.push({ name: mutant.name, witness: mutant.witness, status: 'CAUGHT-real-source-mutation', expectedFailure: mutant.marker });
-    } finally { await writeFile(join(temporary, sourceFile), original); }
+    } finally { await writeFile(join(temporary, mutant.file), mutant.file === sourceFile ? original : nativeOriginal); }
     const restored = run(temporary, mutant.witness);
     assert.equal(restored.status, 0, restored.stderr);
   }

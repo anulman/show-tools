@@ -1,9 +1,10 @@
 import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
 import { HardwareKeyRejectedError } from './hardware-auth.js';
 import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
-import { decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome } from './remote-schema.js';
-import type { DeskView, NativePerformance, NativeTarget } from '../../lib/remote-performance/session-schema.js';
+import { decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus } from './remote-schema.js';
+import type { DeskView, NativePerformance, NativeTarget, InputIntentStatus, InputAttachOutcome, NativeOutcome, InputLeaseReceipt } from '../../lib/remote-performance/session-schema.js';
 import type { ChannelId, ChannelSettings, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
+import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
 
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -23,13 +24,13 @@ export class RemoteDesk {
   private connectionState: RemoteConnection = { kind: 'connecting' };
   private disposed = false;
   private endpoint: RemoteSession | undefined;
-  private constructor(private readonly token: string, private readonly sessionId: string, private latest: DeskView) { this.updateEndpoint(); }
+  private constructor(private readonly token: string, private readonly sessionId: string, private readonly inputOwnerToken: string, private latest: DeskView) { this.updateEndpoint(); }
   static async connect(token: string) {
     const response = await fetch('/api/session', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
     if (response.status === 401 || response.status === 403) throw new HardwareKeyRejectedError();
     if (!response.ok) throw new Error(`Remote desk failed (${response.status})`);
     const bootstrap = decodeDeskBootstrap(await readJson(response));
-    return new RemoteDesk(token, bootstrap.sessionId, bootstrap.view);
+    return new RemoteDesk(token, bootstrap.sessionId, bootstrap.inputOwnerToken, bootstrap.view);
   }
   snapshot() { return this.latest; }
   get connection(): RemoteConnection { return this.connectionState; }
@@ -104,13 +105,23 @@ export class RemoteDesk {
   }
   enableAudio() { return this.setAudio('on'); }
   terminateAudio() { return this.setAudio('off'); }
+  async inputIntentStatus(intentId: string) {
+    const response = await fetch('/api/input-intent-status', { method: 'POST', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ inputOwnerToken: this.inputOwnerToken, intentId }), cache: 'no-store' });
+    if (!response.ok) throw new Error('Input cleanup readback unavailable. Reconnect remains blocked.');
+    return decodeInputIntentStatus(await readJson(response));
+  }
   async command(endpoint: RemoteSession, target: NativeTarget, command: string, args: object) {
     if (this.endpoint !== endpoint) throw new Error('Hardware audio session is stale.');
-    let result: ReturnType<typeof decodeNativeOutcome>;
-    try { result = decodeNativeOutcome(await this.post('/api/command', { target, command, args })); }
-    catch (error) { endpoint.invalidate(); throw new Error('Remote command outcome unknown. Terminate audio before enabling it again.', { cause: error }); }
+    let result: NativeOutcome | InputAttachOutcome;
+    try {
+      const response = await this.post('/api/command', { target, command, args });
+      result = command === 'inputAttach' ? decodeInputAttachOutcome(response) : decodeNativeOutcome(response);
+      endpoint.observeInputOutcome(command, args, result);
+    }
+    catch (error) { this.disconnect(error); throw new Error('Remote command outcome unknown. Input recovery is blocked. On the host, use ./show-tools session audio off to end the old engine.', { cause: error }); }
     if (result.outcome !== 'applied') {
-      if (result.outcome === 'unknown') endpoint.invalidate();
+      if (result.outcome === 'unknown') this.disconnect(new Error(result.error || 'Native input disposition unknown'));
       throw new Error(result.error || `Remote command ${result.outcome}`);
     }
     if (this.endpoint !== endpoint || result.hostEpoch !== target.hostEpoch) { endpoint.invalidate(); throw new Error('Hardware audio session is stale.'); }
@@ -121,12 +132,15 @@ export class RemoteDesk {
 }
 
 export class RemoteSession {
+  get inputScope() { return JSON.stringify([this.target.attempt, this.target.hostEpoch]); }
   private readonly listeners = new Set<(state: PracticeState) => void>();
   private readonly tunerListeners = new Set<(state: TunerState) => void>();
   readonly tuner: TunerPort;
   private readonly eventListeners = new Set<(event: PracticeEvent) => void>();
   readonly outputStream = undefined;
   readonly monitoringRelationship = 'unknown' as const;
+  readonly requiresInputRetirementProof = true;
+  private readonly inputAttempts = new Map<InputAttachArgs['kind'], { intentId: string; args: InputAttachArgs; status: InputIntentStatus }>();
   private valid = true;
   private latest: NativePerformance;
   constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance) {
@@ -156,6 +170,81 @@ export class RemoteSession {
   start(options: StartOptions = {}) { return this.command('start', options); }
   stop() { return this.command('stop'); }
   control(control: Control, options: { commandId?: string } | string = {}) { return this.command('control', { control, commandId: typeof options === 'string' ? options : options.commandId }); }
+  private receiptMatches(receipt: InputLeaseReceipt, args: InputAttachArgs) {
+    return receipt.target.attempt === this.target.attempt && receipt.target.hostEpoch === this.target.hostEpoch
+      && receipt.kind === args.kind && receipt.bindingGeneration === args.bindingGeneration;
+  }
+  observeInputOutcome(command: string, args: object, result: NativeOutcome | InputAttachOutcome) {
+    if (command !== 'inputAttach' && command !== 'inputRevoke') return;
+    const attempt = [...this.inputAttempts.values()].find(value => 'kind' in args && value.args.kind === args.kind);
+    if (!attempt) return;
+    const kind = attempt.args.kind;
+    if (command === 'inputAttach') {
+      if (result.outcome === 'applied') {
+        const routing = result.state.inputRouting;
+        if (!('receipt' in result) || !this.receiptMatches(result.receipt, attempt.args)
+          || result.hostEpoch !== this.target.hostEpoch || result.revision !== result.receipt.admissionRevision
+          || routing?.bindingGeneration !== attempt.args.bindingGeneration
+          || !routing.producers.some(value => value.producer === result.receipt.producer && value.session === result.receipt.session && value.kind === kind)) {
+          attempt.status = { kind: 'unknown' };
+          throw new Error('Native input admission receipt is inconsistent');
+        }
+        attempt.status = { kind: 'admitted', receipt: result.receipt };
+      }
+      else if (result.outcome === 'rejected') attempt.status = { kind: 'retired', proof: {
+        kind: 'rejected-before-admission', target: this.target, kindOfProducer: kind, bindingGeneration: attempt.args.bindingGeneration } };
+      else attempt.status = { kind: 'unknown' };
+    } else if (result.outcome === 'applied' && attempt.status.kind === 'admitted') {
+      const receipt = attempt.status.receipt;
+      if (result.hostEpoch === this.target.hostEpoch && BigInt(result.revision) > BigInt(receipt.admissionRevision)
+        && result.state.inputRouting && !result.state.inputRouting.producers.some(value => value.producer === receipt.producer && value.session === receipt.session))
+        attempt.status = { kind: 'retired', proof: { kind: 'exact-revoke-applied', receipt, revocationRevision: result.revision } };
+    }
+  }
+  async inputAttach(args: InputAttachArgs) {
+    if (this.inputAttempts.has(args.kind)) throw new Error('Prior input cleanup is unconfirmed. Reconnect remains blocked.');
+    const attempt: { intentId: string; args: InputAttachArgs; status: InputIntentStatus } = { intentId: crypto.randomUUID(), args, status: { kind: 'pending' } };
+    this.inputAttempts.set(args.kind, attempt);
+    try { return await this.command('inputAttach', { ...args, intentId: attempt.intentId }); }
+    catch (error) { if (attempt.status.kind === 'pending') attempt.status = { kind: 'unknown' }; throw error; }
+  }
+  inputEvent(args: InputEventArgs) { return this.command('inputEvent', args); }
+  async inputRevoke(args: InputRevokeArgs) {
+    const attempt = this.inputAttempts.get(args.kind);
+    if (!attempt) return this.command('inputRevoke', args);
+    let cleanupError: unknown;
+    if (this.valid && attempt.status.kind === 'admitted') {
+      try { await this.command('inputRevoke', args); } catch (error) { cleanupError = error; }
+    }
+    if (attempt.status.kind !== 'retired') {
+      const status = await this.desk.inputIntentStatus(attempt.intentId);
+      if (status.kind === 'admitted' && this.receiptMatches(status.receipt, attempt.args)
+        && (attempt.status.kind !== 'admitted' || status.receipt.producer === attempt.status.receipt.producer && status.receipt.session === attempt.status.receipt.session
+          && status.receipt.admissionRevision === attempt.status.receipt.admissionRevision)) attempt.status = status;
+      if (status.kind === 'retired') {
+        const proof = status.proof;
+        let matches: boolean;
+        switch (proof.kind) {
+          case 'rejected-before-admission':
+            matches = attempt.status.kind !== 'admitted' && proof.target.attempt === this.target.attempt && proof.target.hostEpoch === this.target.hostEpoch
+              && proof.kindOfProducer === args.kind && proof.bindingGeneration === attempt.args.bindingGeneration;
+            break;
+          case 'old-engine-ended':
+            matches = proof.target.attempt === this.target.attempt && proof.target.hostEpoch === this.target.hostEpoch
+              && proof.serverEpoch === this.desk.snapshot().serverEpoch && proof.kindOfProducer === args.kind && proof.bindingGeneration === attempt.args.bindingGeneration;
+            break;
+          case 'exact-revoke-applied':
+            matches = this.receiptMatches(proof.receipt, attempt.args) && BigInt(proof.revocationRevision) > BigInt(proof.receipt.admissionRevision)
+              && (attempt.status.kind !== 'admitted' || proof.receipt.producer === attempt.status.receipt.producer && proof.receipt.session === attempt.status.receipt.session && proof.receipt.admissionRevision === attempt.status.receipt.admissionRevision);
+            break;
+        }
+        if (matches) attempt.status = status;
+      }
+    }
+    if (attempt.status.kind !== 'retired') throw cleanupError ?? new Error('Hardware audio session is stale or input cleanup is unconfirmed. Reconnect remains blocked. On the host, use ./show-tools session audio off to end the old engine.');
+    this.inputAttempts.delete(args.kind);
+    return this.snapshot();
+  }
   selectChannel(channelId: ChannelId) { return this.command('selectChannel', { channelId }); }
   setChannel(channelId: ChannelId, settings: ChannelSettings) { return this.command('setChannel', { channelId, settings }); }
   setClick(enabled: boolean) { return this.command('setClick', { enabled }); }

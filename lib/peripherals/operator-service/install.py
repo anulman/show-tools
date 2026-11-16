@@ -391,13 +391,64 @@ def enable_link():
         os.close(fd)
 
 
+def validate_input_map(mapping):
+    controls = {'blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'}
+    require(type(mapping) is dict and set(mapping) in ({'sources', 'switches', 'leds', 'confirmWiring'}, {'sources', 'switches', 'axis', 'leds', 'confirmWiring'}), 'Explicit installation map required')
+    sources, switches, leds = mapping['sources'], mapping['switches'], mapping['leds']
+    require(type(sources) is list and 1 <= len(sources) <= 8, 'Invalid source count')
+    require(type(switches) is list and len(switches) <= 6 and type(leds) is list and len(leds) <= 6, 'Invalid control count')
+    require(type(mapping['confirmWiring']) is bool and (not leds or mapping['confirmWiring']), 'Mapped LEDs require confirmed wiring')
+    require(switches or 'axis' in mapping, 'An explicit input is required')
+    indexed, selectors = {}, set()
+    for source in sources:
+        require(type(source) is dict and set(source) == {'kind', 'id', 'interfaceNumber', 'eventTypes', 'keyCodes', 'relativeAxes'}, 'Linux source selector required')
+        require(source['kind'] == 'linux' and type(source['id']) is str and re.fullmatch(r'[A-Za-z0-9_-]{1,32}', source['id']), 'Invalid source ID')
+        require(source['id'] not in indexed, 'Duplicate source ID')
+        require(type(source['interfaceNumber']) is int and 0 <= source['interfaceNumber'] <= 255, 'Invalid USB interface')
+        for name in ('eventTypes', 'keyCodes', 'relativeAxes'):
+            values = source[name]
+            require(type(values) is list and len(values) <= 1024 and all(type(value) is int and 0 <= value <= 65535 for value in values), 'Invalid capability set')
+            require(values == sorted(set(values)), 'Capabilities must be sorted and unique')
+        require(source['eventTypes'], 'Event capabilities required')
+        selector = (source['interfaceNumber'], tuple(source['eventTypes']), tuple(source['keyCodes']), tuple(source['relativeAxes']))
+        require(selector not in selectors, 'Duplicate source selector')
+        selectors.add(selector)
+        indexed[source['id']] = source
+    ids, raw_inputs, used = set(), set(), set()
+    for is_axis, input_value in [(False, value) for value in switches] + ([(True, mapping['axis'])] if 'axis' in mapping else []):
+        expected = {'sourceId', 'type', 'code'} | (set() if is_axis else {'controlId'})
+        require(type(input_value) is dict and set(input_value) == expected, 'Invalid input mapping fields')
+        if not is_axis:
+            control = input_value['controlId']
+            require(type(control) is str and control in controls and control not in ids, 'Invalid or duplicate physical switch')
+            ids.add(control)
+        require(type(input_value['sourceId']) is str and input_value['sourceId'] in indexed, 'Unknown input source')
+        source = indexed[input_value['sourceId']]
+        require(type(input_value['type']) is int and input_value['type'] == (2 if is_axis else 1), 'Invalid Linux input type')
+        require(type(input_value['code']) is int and 0 <= input_value['code'] <= 65535, 'Invalid raw input code')
+        require(input_value['type'] in source['eventTypes'] and input_value['code'] in source['relativeAxes' if is_axis else 'keyCodes'], 'Input absent from declared capabilities')
+        raw = (input_value['sourceId'], input_value['type'], input_value['code'])
+        require(raw not in raw_inputs, 'Raw inputs cannot alias physical controls')
+        raw_inputs.add(raw)
+        used.add(input_value['sourceId'])
+    require(used == set(indexed), 'Every source must supply an input')
+    ids, channels = set(), set()
+    for led in leds:
+        require(type(led) is dict and set(led) == {'controlId', 'sdkChannel'}, 'Invalid LED mapping fields')
+        require(type(led['controlId']) is str and led['controlId'] in controls and led['controlId'] not in ids, 'Invalid or duplicate LED identity')
+        require(type(led['sdkChannel']) is int and 0 <= led['sdkChannel'] <= 95 and led['sdkChannel'] not in channels, 'Invalid or duplicate SDK channel')
+        ids.add(led['controlId'])
+        channels.add(led['sdkChannel'])
+
+
 def validate_profile(profile, release):
-    expected = {'version': 1, 'origin': 'https://proxmox.tail54fc55.ts.net:8443',
+    expected = {'version': 2, 'origin': 'https://proxmox.tail54fc55.ts.net:8443',
                 'connectAddress': '100.93.139.99', 'tokenFile': TOKEN,
                 'helperExecutable': release + '/native/peripheral/peripheral-host',
-                'sdkChannel': 0, 'bindingRevision': 1, 'buttonKey': 'escape'}
-    require(type(profile) is dict and set(profile) == set(expected) | {'jiggle'}, 'Unexpected peripheral profile fields')
+                'bindingRevision': 1}
+    require(type(profile) is dict and set(profile) == set(expected) | {'jiggle', 'inputMap'}, 'Unexpected peripheral profile fields')
     require(all(type(profile[key]) is type(value) and profile[key] == value for key, value in expected.items()), 'Peripheral target/binding differs from review')
+    validate_input_map(profile['inputMap'])
     jiggle = profile['jiggle']
     if jiggle is None:
         return

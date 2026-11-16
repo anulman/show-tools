@@ -139,3 +139,40 @@ Outcome: **updated** from `7e3b3c19c71b14b1370c2b36bf6c8a804bbd7935` to `894915f
 The final source-fenced receipt is `/private/tmp/native-cues-capture-final-894915f-profiles/receipt.json`. It exhausts 201,097 generated and 11,894 distinct main-model states, preserves the 782-state two-capture display and 102-state overview, catches all six model and seven assertion-specific actual-source mutants, and passes all twelve native scenarios before and after mutation. The store-only scenario covers pressed and missed commits at 8, 44.1, and 48 kHz under profiles 0, 4, and 5. All production hashes remain unchanged. No invariant, finite bound, original witness, or mutation control was weakened.
 
 Three focused actual WASM regressions and twelve canonical/source/asset tests pass independently. The owned host-socket fixture initially fails with sandbox `EPERM` and passes with the required local-socket permission. This is a harness restriction. No capture-policy product defect or model drift is found in this refresh.
+
+## Identified input routing at dfd9c1f
+
+Outcome: **updated** from `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4` to `dfd9c1fc61dd6273b08026f8f2da29516e8f58d8`. The unchanged command first rejected the changed compiled-program hash. Review of every covered diff found native commits `a87067e` and `9c3f1f5`. The patch, tuner, light-layout and existing capture fixture sources are unchanged. The capture model, all eleven invariants and every bound remain unchanged.
+
+| Changed boundary | Classification and mapping |
+| --- | --- |
+| PFI1 binding trailer and stopped native routing preparation | New declarative input metadata. Successful song replacement changes routing generation after preparation; this does not change a capture transaction. Invalid configurations still fail before replacement. |
+| `press_current` delegates to selected-row `press_rows` | The selected batch resolves rows before execution and retains commit-before-arm ordering and per-row results. An unselected cue is simply an unissued command in the model. Capture admission continues through the same `press_selected`, preflight and `execute` boundaries. |
+| Held admission ownership, scoped release and queued owner checks | New producer/held-playback state. Pending-owner cancellation and supersession checks apply to held/gated `PF_PLAY` entries. Capture arm/commit pending entries keep their existing path, ordering, reservations and bank checks. No capture promise was changed. |
+| Gated-play preflight before releasing prior held playback | A rejected playback admission now preserves prior playback. The capture model abstracts incoming bank readiness; it does not model gate ownership or prove producer isolation. |
+| Native ABI 12 and physical LED output | Source interface and observation changes, outside the capture invariants. The actual replay now links the shared portable input latch because the real engine requires it. The new router header and portable latch source/header are pinned too. |
+
+Two failures were harness drift, not product counterexamples: the standalone native build needed the peripheral include/source, and copied mutation headers needed `input_router.h`. The first repaired run passed all twelve pristine native scenarios but failed compiling the first mutant for that missing header; that failure received no mutation credit. The corrected full run passed every model, all twelve native scenarios, six model mutants, seven assertion-specific actual-source mutants and the twelve-scenario pristine rerun. Receipt: `/private/tmp/routing-capture-final-restored/receipt.json`.
+
+The current statechart tool interpreted the pristine main, display and overview checks and all six broken-policy variants. Every rule was checked. The main graph has 11,894 states, the display has 782, and the overview has 102. The overview still has six labels and thirteen arrows; it hides 156 transitions that keep the same visible label. The retained-bank mutant has a three-step shortest violation; each other intended capture-policy mutant has two. The chart files and model bytes are unchanged.
+
+This source sync does not extend the capture proof to input leases, producer/session generations, held-source isolation, physical LED delivery, Panic queue priority, raw input, or hardware timing. Those require their separate native, WASM and host witnesses. No successful cross-row held-playback policy was changed or formalized here.
+
+## Staged held execution ownership at 7740b3b
+
+The unchanged gate first rejected `compiled_program.cpp` because its recorded hash was stale. This was verification correspondence drift. The reviewed product change is `8947b62`, included in source commit `7740b3bf9b98d77f2e0a85b6db7f8dd650403313`. Every other recorded source file is byte-identical to the previous `dfd9c1f` sync.
+
+`Program::Due` now snapshots the pending admission's owner token. Immediately before each held or gated `PF_PLAY` executes, `apply_pending` checks that the token is nonzero and still matches that row's current owner. Earlier same-boundary playback can invalidate a later staged owner; the new check prevents that stale entry from executing. Capture commit and arm entries cannot enter this `PF_PLAY` guard. Their preflight, two-pass ordering, protected-bank choice, publication and launch policy are unchanged. No model variable, action, invariant, configuration, bound, replay scenario or mutation control changes.
+
+The independently reproduced dangling held-playback bug and its native/WASM regression are separate product evidence. This capture model does not represent producer ownership and cannot prove that bug fixed. The refresh checks that the unchanged capture promises still hold against the corrected C++ implementation. Successful cross-row held-playback policy remains unchanged and outside this model.
+
+The full pinned rerun passed at `/private/tmp/capture-owner-fixed-final/receipt.json`. It exhausted 11,894 main states, 782 display states and 102 overview states. All twelve native scenarios passed before and after seven assertion-specific source mutants. All six model mutants failed their intended invariants. Every source hash matched after restoration. All nine current statechart interpretations checked every rule. Their intended shortest violations retain two steps, except the three-step retained-bank violation.
+
+
+## GNU standard-library dependency at 9050285
+
+The old gate rejected the changed `input_router.h` source hash before model execution. The only covered-source delta from `7740b3b` is an explicit `<iterator>` include for the existing `std::begin` and `std::end` array operations. GNU libstdc++ requires that declaration; the Mac standard library had exposed it transitively. No router body, capture operation, model action, invariant, bound, native scenario or mutation changes. The separate fixture rename avoids GNU's `linux` macro and is outside this proof. This refresh preserves the existing finite capture claim and does not add a producer-ownership proof.
+
+## All-control held-light image
+
+Reviewed `0f178bc` against source sync `9050285`. The only covered-source change is the physical light-image loop in `pf_light_output`. It now publishes unbound and utility controls with an off baseline plus their independent held override. Cue-bound light calculations preserve recording, warning and playing precedence. Capture ownership, admission, publication, bank selection, completion and Stop are untouched. The Capture model and witnesses remain unchanged; this refresh does not claim proof of LED behavior or physical acceptance.

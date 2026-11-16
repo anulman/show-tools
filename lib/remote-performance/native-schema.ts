@@ -3,6 +3,7 @@ import { Schema } from 'effect';
 import { PF as LIGHT } from '../performance/light-abi.js';
 import { ChartSchema, CompiledSongSchema } from '../performance/compiled-song.js';
 import { SongSourceSchema } from '../performance/song-source.js';
+import { InputRoutingStateSchema } from '../performance/input-bindings.js';
 
 const finite = Schema.Number.check(Schema.isFinite());
 const frameCoordinate = finite.check(Schema.isGreaterThanOrEqualTo(0));
@@ -29,6 +30,7 @@ const state = Schema.Struct({ phase: Schema.Literals(['idle', 'count-in', 'playi
     status: Schema.Literals(['empty', 'ready', 'armed', 'recording', 'stopping', 'looping']), light }), 4).check(Schema.isMinLength(4)),
   looping: list(channel, 4), recording: Schema.NullOr(Schema.Struct({ id: channel, status: Schema.Literals(['armed', 'recording', 'stopping']) })),
   microphone: Schema.Boolean, error: Schema.NullOr(text), lifecycle: Schema.optionalKey(text),
+  inputRouting: Schema.optionalKey(InputRoutingStateSchema),
   chart: Schema.optionalKey(Schema.Struct({ spreadsheetId: text, sheetId: count, columns: list(count, 4096), leadInColumn: count })),
   liveEffects: Schema.optionalKey(Schema.Struct({ prepared: Schema.Boolean, active: Schema.Boolean, revision: count, stageCount: count, captureSupported: Schema.Boolean })),
   voiceEffects: Schema.optionalKey(list(voice, 6).check(Schema.isMinLength(6)).check(Schema.makeFilter(value => new Set(value.map(item => item.profile)).size === 6 || 'Duplicate voice profile'))),

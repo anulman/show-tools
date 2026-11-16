@@ -12,12 +12,13 @@ import { prepareInstalledPackage, type validateInstalledPackage } from './prepar
 import type { SessionProfile } from './session-profile.js';
 import { requireLegacyMonitorInactive } from './legacy-monitor.js';
 import { AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
-  type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome } from './session-schema.js';
+  type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome, type NativeEngineRetirementProof } from './session-schema.js';
 
 const performance = Schema.decodeUnknownSync(NativePerformanceSchema);
 const outcome = Schema.decodeUnknownSync(NativeOutcomeSchema);
 const nativeEvent = Schema.decodeUnknownSync(NativeEventSchema);
 const revision = Schema.decodeUnknownSync(DeskRevisionSchema);
+const MAX_RETIRED_TARGETS = 128;
 const errorText = (error: unknown) => (error instanceof Error ? error.message : 'Native audio failed').slice(0, 8192);
 type InstalledPackage = ReturnType<typeof validateInstalledPackage>;
 const diagnosticMessage = (attempt: Attempt, message: string) => {
@@ -26,13 +27,17 @@ const diagnosticMessage = (attempt: Attempt, message: string) => {
   return tail ? `${prefix}\n${tail.slice(-(8192 - prefix.length - 1))}` : prefix;
 };
 type ChildOwnership = { kind: 'not-requested' } | { kind: 'pending' } | { kind: 'known'; handle: ChildProcessSpawner.ChildProcessHandle };
-type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Promise<void>; finish: 'off' | 'fault'; stderr: Buffer; instrument?: NativeInstrument; child: ChildOwnership };
+type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Promise<void>; finish: 'off' | 'fault'; stderr: Buffer; readyTarget?: NativeTarget; instrument?: NativeInstrument; child: ChildOwnership };
 
 export class PersistentDesk implements DeskController {
   private view: DeskView;
   private readonly listeners = new Set<(value: DeskPublication) => void>();
   private attempt: Attempt | undefined;
   private closing = false;
+  private readonly retirements = new Map<string, NativeEngineRetirementProof>();
+  confirmedRetirement(target: NativeTarget) {
+    return this.retirements.get(JSON.stringify([target.attempt, target.hostEpoch])) ?? null;
+  }
 
   constructor(private readonly profile: SessionProfile, private readonly installed: InstalledPackage) {
     this.view = { serverEpoch: Schema.decodeUnknownSync(ServerEpochSchema)(randomUUID()), revision: revision('0'),
@@ -90,10 +95,18 @@ export class PersistentDesk implements DeskController {
     }
     if (attempt.child.kind === 'known') {
       const running = await Effect.runPromise(attempt.child.handle.isRunning).catch(() => true);
+      if (this.attempt !== attempt) return;
       if (running) {
         this.update({ kind: 'stopping', attempt: attempt.id, error: 'Native cleanup could not confirm exit. Stop the managed service before enabling audio again.' });
         return;
       }
+    }
+    if (attempt.child.kind === 'known' && attempt.readyTarget) {
+      this.retirements.set(JSON.stringify([attempt.readyTarget.attempt, attempt.readyTarget.hostEpoch]), {
+        kind: 'old-engine-ended', target: attempt.readyTarget, serverEpoch: this.view.serverEpoch,
+        retirementDeskRevision: revision((BigInt(this.view.revision) + 1n).toString()),
+      });
+      if (this.retirements.size > MAX_RETIRED_TARGETS) this.retirements.delete(this.retirements.keys().next().value!);
     }
     this.attempt = undefined;
     this.update(attempt.finish === 'off' ? { kind: 'off' } : { kind: 'fault', error: diagnosticMessage(attempt, attempt.abort.signal.aborted ? errorText(attempt.abort.signal.reason) : error) });
@@ -145,6 +158,7 @@ export class PersistentDesk implements DeskController {
             if (this.attempt !== attempt || attempt.abort.signal.aborted) throw new Error('Stale audio attempt');
             instrument.subscribe(value => this.observe(attempt, value));
             this.update({ kind: 'ready', attempt: attempt.id, performance: next });
+            attempt.readyTarget = { attempt: attempt.id, hostEpoch: next.hostEpoch };
             break;
           }
           await new Promise<void>(resolve => setTimeout(resolve, 10));

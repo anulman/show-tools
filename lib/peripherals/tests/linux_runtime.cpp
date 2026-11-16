@@ -11,8 +11,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <sstream>
-#include <string>
-
+using namespace peripheral_host;
 bool interrupt_next_poll = false;
 extern "C" int __real_poll(pollfd*, nfds_t, int);
 extern "C" int __wrap_poll(pollfd* fds, nfds_t count, int timeout) {
@@ -21,33 +20,49 @@ extern "C" int __wrap_poll(pollfd* fds, nfds_t count, int timeout) {
 }
 namespace {
 void require(bool value, const char* message) { if (!value) { std::fprintf(stderr, "%s\n", message); std::abort(); } }
-void send(int fd, const void* value, size_t bytes) { require(write(fd, value, bytes) == ssize_t(bytes), "write synthetic runtime input"); }
+void send(int fd, const void* value, size_t bytes) { require(write(fd, value, bytes) == ssize_t(bytes), "write owned synthetic fixture pipe"); }
 struct Child {
-  int key[2], mouse[2], led[2], commands[2], output[2];
-  pid_t pid;
-  Child(bool held = false, bool bench = false, bool queued = false, bool interrupt_poll = false, bool fresh_on_stop = false, peripheral_host::ButtonKey button_key = peripheral_host::ButtonKey::Tab) {
-    for (auto pair : {key, mouse, led, commands, output}) require(pipe2(pair, O_NONBLOCK | O_CLOEXEC) == 0, "create owned fixture pipe");
-    const auto selected_code = peripheral_host::linux_button_code(button_key);
+  int inputs[3][2], led[2], commands[2], output[2];
+  pid_t pid = -1;
+  bool lights;
+  Child(InitialState blue = InitialState::Released, bool with_lights = true, bool queued = false, bool interrupt = false) : lights(with_lights) {
+    for (auto& pair : inputs) require(pipe2(pair, O_NONBLOCK | O_CLOEXEC) == 0, "create input pipe");
+    for (auto pair : {led, commands, output}) require(pipe2(pair, O_NONBLOCK | O_CLOEXEC) == 0, "create output pipe");
     if (queued) {
-      event(key[1], EV_KEY, selected_code, 1, 10); event(key[1], EV_KEY, selected_code, 0, 20);
-      event(mouse[1], EV_SYN, SYN_DROPPED, 0, 12); event(mouse[1], EV_REL, REL_Y, 11, 15);
+      event(0, EV_KEY, KEY_A, 1, 10); event(0, EV_KEY, KEY_A, 0, 20);
+      event(2, EV_SYN, SYN_DROPPED, 0, 12); event(2, EV_REL, REL_X, 11, 15);
     }
-    if (fresh_on_stop) event(key[1], EV_KEY, selected_code, 1, 100);
     pid = fork(); require(pid >= 0, "fork owned runtime fixture");
     if (!pid) {
-      close(key[1]); close(mouse[1]); close(led[0]); close(commands[1]); close(output[0]);
+      LinuxHandles handles;
+      for (auto& pair : inputs) { close(pair[1]); handles.inputs.push_back(pair[0]); }
+      close(led[0]); close(commands[1]); close(output[0]);
       require(dup2(output[1], STDOUT_FILENO) >= 0, "redirect fixture stdout"); close(output[1]);
-      interrupt_next_poll = interrupt_poll;
-      int code = peripheral_host::run_linux_host({key[0], mouse[0], led[1], commands[0]}, 7, 0, held, bench, queued ? 1000020000 : 0, button_key);
+      HostConfig config; config.session = 7;
+      config.map.sources = {{"a", LinuxSelector{0, {0, 1}, {KEY_A, KEY_B}, {}}},
+        {"b", LinuxSelector{1, {0, 1}, {KEY_A, KEY_B}, {}}}, {"c", LinuxSelector{2, {0, 2}, {}, {REL_X}}}};
+      config.map.switches = {{PhysicalControl::Blue, 0, EV_KEY, KEY_A}, {PhysicalControl::Yellow, 1, EV_KEY, KEY_A}};
+      config.map.axis = AxisBinding{2, EV_REL, REL_X};
+      if (lights) config.map.leds = {{PhysicalControl::Blue, 9}, {PhysicalControl::Yellow, 12}};
+      handles.output = lights ? led[1] : -1; handles.commands = commands[0];
+      InitialStates initial; initial.fill(InitialState::Unknown);
+      initial[0] = blue; initial[1] = InitialState::Released;
+      interrupt_next_poll = interrupt;
+      int code = run_linux_host(handles, config, initial, queued ? 1000020000 : 0);
       std::cout.flush(); _exit(code);
     }
-    close(key[0]); close(mouse[0]); close(led[1]); close(commands[0]); close(output[1]);
-    require(report() == std::array<unsigned char, 5>{3, 0, 0, 0, 0}, "startup clears only the selected brightness channel");
-    require(line().find(held ? "\"released\":false" : "\"released\":true") != std::string::npos, "ready reports actual initial held state");
+    for (auto& pair : inputs) close(pair[0]);
+    close(led[1]); close(commands[0]); close(output[1]);
+    if (lights) clear_reports();
+    auto ready = line();
+    require(ready.find("\"version\":2") != std::string::npos
+      && ready.find("\"controlId\":\"blue\",\"state\":\"" + std::string(blue == InitialState::Held ? "held" : blue == InitialState::Released ? "released" : "unknown")) != std::string::npos
+      && ready.find("\"controlId\":\"yellow\",\"state\":\"released\"") != std::string::npos, "ready reports independent physical identities and actual initial states");
   }
   ~Child() {
     if (pid > 0) { kill(pid, SIGKILL); waitpid(pid, nullptr, 0); }
-    for (int fd : {key[1], mouse[1], led[0], commands[1], output[0]}) if (fd >= 0) close(fd);
+    for (auto& pair : inputs) if (pair[1] >= 0) close(pair[1]);
+    for (int fd : {led[0], commands[1], output[0]}) if (fd >= 0) close(fd);
   }
   bool available(int fd, int milliseconds = 1000) {
     pollfd ready{fd, POLLIN, 0}; return poll(&ready, 1, milliseconds) == 1 && (ready.revents & POLLIN);
@@ -56,106 +71,108 @@ struct Child {
     require(available(led[0]), "LED report arrives"); std::array<unsigned char, 5> bytes{};
     require(read(led[0], bytes.data(), bytes.size()) == ssize_t(bytes.size()), "complete five-byte brightness report"); return bytes;
   }
+  void level(unsigned channel, unsigned value) { require(report() == std::array<unsigned char, 5>{3, (unsigned char)channel, (unsigned char)value, 0, 0}, "brightness report addresses only explicitly mapped channel"); }
+  void clear_reports() { level(9, 0); level(12, 0); }
   std::string line() {
     std::string value; char byte;
     do { require(available(output[0]), "runtime output arrives"); require(read(output[0], &byte, 1) == 1, "read runtime output"); value += byte; } while (byte != '\n');
     return value;
   }
-  void event(int fd, unsigned short type, unsigned short code, int value, int microseconds) {
+  void edge(const char* id, bool down, unsigned sequence) {
+    auto value = line();
+    require(value.find("\"controlId\":\"" + std::string(id) + "\"") != std::string::npos
+      && value.find(down ? "\"down\":true" : "\"down\":false") != std::string::npos
+      && value.find("\"sequence\":" + std::to_string(sequence) + ",") != std::string::npos, "identified edge and monotonic observation sequence match");
+  }
+  void event(unsigned source, unsigned short type, unsigned short code, int value, int microseconds) {
     input_event event{}; event.time.tv_sec = 1; event.time.tv_usec = microseconds; event.type = type; event.code = code; event.value = value;
-    send(fd, &event, sizeof(event));
+    send(inputs[source][1], &event, sizeof(event));
   }
   void command(const std::string& value) { send(commands[1], value.data(), value.size()); }
-  void finish(int expected, bool signal = false, bool leave_idle = false) {
-    if (signal) kill(pid, SIGTERM); else if (!leave_idle) { close(commands[1]); commands[1] = -1; }
+  void pause() { require(kill(pid, SIGSTOP) == 0, "pause only owned fixture"); int status; require(waitpid(pid, &status, WUNTRACED) == pid && WIFSTOPPED(status), "owned fixture paused"); }
+  void resume() { require(kill(pid, SIGCONT) == 0, "resume only owned fixture"); }
+  void finish(int expected, int signal = 0, bool keep_commands = false) {
+    if (signal) kill(pid, signal); else if (!keep_commands) { close(commands[1]); commands[1] = -1; }
     int status = 0; bool done = false;
     for (int attempt = 0; attempt < 3000; ++attempt) { if (waitpid(pid, &status, WNOHANG) == pid) { done = true; break; } usleep(1000); }
     require(done && WIFEXITED(status) && WEXITSTATUS(status) == expected, "owned runtime exits with expected result"); pid = -1;
   }
 };
-void held_and_order() {
-  Child child(true, true);
-  child.event(child.key[1], EV_KEY, KEY_TAB, 1, 10);
-  child.event(child.key[1], EV_KEY, KEY_TAB, 0, 20);
-  require(!child.available(child.led[0], 30), "initially held button requires a fresh release and press");
-  child.event(child.key[1], EV_KEY, KEY_TAB, 1, 30);
-  require(child.report() == std::array<unsigned char, 5>{3, 0, 255, 0, 0}, "fresh press lights only selected channel");
-  require(child.line().find("\"down\":true") != std::string::npos, "fresh press emitted once");
-  child.event(child.key[1], EV_KEY, KEY_TAB, 2, 40);
-  require(!child.available(child.led[0], 30), "kernel auto-repeat adds no LED write");
-  child.event(child.key[1], EV_KEY, KEY_TAB, 0, 50);
-  require(child.report()[2] == 0 && child.line().find("\"down\":false") != std::string::npos, "release clears brightness and emits its edge");
-  child.finish(0, true); require(child.report()[2] == 0, "shutdown clears owned output");
+void independent_inputs() {
+  Child child(InitialState::Held);
+  child.event(0, EV_KEY, KEY_A, 1, 10);
+  child.event(1, EV_KEY, KEY_A, 1, 20); child.edge("yellow", true, 2);
+  child.event(0, EV_KEY, KEY_A, 2, 30);
+  child.event(0, EV_KEY, KEY_A, 0, 40);
+  child.edge("blue", false, 4);
+  child.event(1, EV_KEY, KEY_A, 2, 50);
+  child.event(1, EV_KEY, KEY_A, 0, 60); child.edge("yellow", false, 6);
+  child.event(0, EV_KEY, KEY_A, 1, 70); child.edge("blue", true, 7);
+  child.event(0, EV_KEY, KEY_B, 1, 80);
+  child.event(0, EV_KEY, KEY_A, 0, 90); child.edge("blue", false, 9);
+  require(!child.available(child.led[0], 25), "raw keys and repeats never synthesize musical LED state");
+  child.finish(0, SIGHUP); child.clear_reports();
+  Child unknown(InitialState::Unknown);
+  unknown.event(0, EV_KEY, KEY_A, 2, 10); unknown.event(0, EV_KEY, KEY_A, 1, 20);
+  require(!unknown.available(unknown.output[0], 25), "unknown or repeat cannot bypass release barrier");
+  unknown.event(0, EV_KEY, KEY_A, 0, 30); unknown.edge("blue", false, 3);
+  unknown.event(0, EV_KEY, KEY_A, 1, 40); unknown.edge("blue", true, 4);
+  unknown.finish(0, SIGTERM); unknown.clear_reports();
+}
+void ordering_and_loss() {
   Child ordered;
-  require(kill(ordered.pid, SIGSTOP) == 0, "pause only owned fixture");
-  int status; require(waitpid(ordered.pid, &status, WUNTRACED) == ordered.pid && WIFSTOPPED(status), "owned fixture paused");
-  ordered.event(ordered.key[1], EV_KEY, KEY_TAB, 1, 200);
-  ordered.event(ordered.mouse[1], EV_REL, REL_Y, -9, 100);
-  kill(ordered.pid, SIGCONT);
-  require(ordered.line().find("\"deltaY\":-9") != std::string::npos, "earlier signed mouse observation emits before later key");
-  require(ordered.line().find("\"down\":true") != std::string::npos, "button follows its actual later timestamp");
-  ordered.finish(0); require(ordered.report()[2] == 0, "EOF clears owned output");
+  ordered.pause(); ordered.event(0, EV_KEY, KEY_A, 1, 200); ordered.event(1, EV_KEY, KEY_A, 1, 300); ordered.event(2, EV_REL, REL_X, -9, 100); ordered.resume();
+  require(ordered.line().find("\"deltaY\":-9") != std::string::npos, "configured signed relative axis precedes later switches across three sources");
+  ordered.edge("blue", true, 2); ordered.edge("yellow", true, 3);
+  ordered.finish(0); ordered.clear_reports();
+  Child ambiguous;
+  ambiguous.pause(); ambiguous.event(0, EV_KEY, KEY_A, 1, 100); ambiguous.event(1, EV_KEY, KEY_A, 1, 100); ambiguous.resume();
+  require(ambiguous.line().find("\"detached\"") != std::string::npos, "ambiguous cross-interface timestamps revoke instead of inventing colour order");
+  ambiguous.finish(1); ambiguous.clear_reports();
+  Child gap; gap.event(2, EV_SYN, SYN_DROPPED, 0, 10);
+  require(gap.line().find("\"detached\"") != std::string::npos, "explicit dropped input revokes producer"); gap.finish(1); gap.clear_reports();
+  Child partial; char byte = 0; send(partial.inputs[0][1], &byte, 1);
+  require(partial.line().find("\"detached\"") != std::string::npos, "partial kernel event revokes producer"); partial.finish(1); partial.clear_reports();
+  Child disconnected; close(disconnected.inputs[1][1]); disconnected.inputs[1][1] = -1;
+  require(disconnected.line().find("\"detached\"") != std::string::npos, "one removed input revokes entire mapped producer"); disconnected.finish(1); disconnected.clear_reports();
 }
-void escape_selection() {
-  using peripheral_host::ButtonKey;
-  Child held(true, true, false, false, false, ButtonKey::Escape);
-  held.event(held.key[1], EV_KEY, KEY_TAB, 1, 10);
-  held.event(held.key[1], EV_KEY, KEY_TAB, 0, 20);
-  held.event(held.key[1], EV_KEY, KEY_ESC, 1, 30);
-  held.event(held.key[1], EV_KEY, KEY_ESC, 0, 40);
-  require(!held.available(held.led[0], 30) && !held.available(held.output[0], 30), "Escape selection ignores Tab and retains initially-held release barrier");
-  held.event(held.key[1], EV_KEY, KEY_ESC, 1, 50);
-  require(held.report()[2] == 255 && held.line().find("\"down\":true") != std::string::npos, "selected Escape fresh press lights and emits");
-  held.event(held.key[1], EV_KEY, KEY_ESC, 2, 60);
-  held.event(held.key[1], EV_KEY, KEY_TAB, 1, 70);
-  require(!held.available(held.led[0], 30) && !held.available(held.output[0], 30), "Escape repeat and unselected Tab add no edge or LED write");
-  held.event(held.key[1], EV_KEY, KEY_ESC, 0, 80);
-  require(held.report()[2] == 0 && held.line().find("\"down\":false") != std::string::npos, "selected Escape release clears and emits");
-  require(kill(held.pid, SIGHUP) == 0, "signal only owned Escape fixture");
-  held.finish(0, false, true);
-  require(held.report()[2] == 0, "SIGHUP exits and clears owned Escape LED");
-  Child stale(false, true, true, false, false, ButtonKey::Escape);
-  require(!stale.available(stale.led[0], 30) && !stale.available(stale.output[0], 30), "selected Escape pre-ready observations stay discarded");
-  stale.event(stale.key[1], EV_KEY, KEY_ESC, 1, 30);
-  require(stale.report()[2] == 255 && stale.line().find("\"down\":true") != std::string::npos, "post-cutoff Escape press admits normally");
-  stale.finish(0, true); require(stale.report()[2] == 0, "Escape fixture finishes dark");
-}
-void protocol_and_failures() {
-  Child protocol;
-  protocol.command("bind 100 7 1 1\n"); require(protocol.report()[2] == 0, "binding clears before publication");
+std::string light(unsigned sequence, bool both = true) {
   std::array<double, PF_LIGHT_FIELDS> image{};
   image[PF_LIGHT_FORMAT] = 1; image[PF_LIGHT_GENERATION] = 1; image[PF_LIGHT_EPOCH] = 1;
-  image[PF_LIGHT_SEQUENCE] = 1; image[PF_LIGHT_RATE] = 48000; image[PF_LIGHT_COUNT] = 1;
-  image[PF_LIGHT_SAMPLES] = 1; image[PF_LIGHT_SAMPLES + 1] = .7;
+  image[PF_LIGHT_SEQUENCE] = sequence; image[PF_LIGHT_RATE] = 48000; image[PF_LIGHT_COUNT] = both ? 2 : 1;
+  image[PF_LIGHT_SAMPLES] = 257; image[PF_LIGHT_SAMPLES + 1] = .7;
+  if (both) { image[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_FIELDS] = 258; image[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_FIELDS + 1] = 1; }
   std::ostringstream command; command.precision(17); command << "light 100 7 1 1";
   for (double value : image) command << ' ' << value;
-  command << '\n'; protocol.command(command.str());
-  require(protocol.report()[2] == 179, "native seventy-percent image reaches real runtime write path");
-  require(protocol.line().find("\"publication\":1") != std::string::npos, "delivery acknowledged after successful write");
-  protocol.command("bad-command\n"); protocol.finish(1); require(protocol.report()[2] == 0, "malformed command fails and clears");
-  Child gap;
-  gap.event(gap.mouse[1], EV_SYN, SYN_DROPPED, 0, 10);
-  gap.finish(1); require(gap.report()[2] == 0, "SYN_DROPPED fails closed and attempts dark");
-  Child partial;
-  char byte = 0; send(partial.key[1], &byte, 1);
-  partial.finish(1); require(partial.report()[2] == 0, "partial event fails closed");
+  return command.str() + '\n';
 }
-void startup_and_signal_barriers() {
-  Child buffered(false, true, true);
-  require(!buffered.available(buffered.output[0], 30) && !buffered.available(buffered.led[0], 30), "buffered pre-ready press/release and rotation do not activate");
-  buffered.event(buffered.key[1], EV_KEY, KEY_TAB, 1, 30);
-  require(buffered.report()[2] == 255 && buffered.line().find("\"down\":true") != std::string::npos, "fresh post-cutoff press activates normally");
-  buffered.finish(0, true); require(buffered.report()[2] == 0, "buffered fixture shuts down dark");
-  Child signaled(false, false, false, true);
-  signaled.finish(0, false, true);
-  require(signaled.report()[2] == 0, "SIGTERM immediately before idle poll still exits and clears");
-  Child signaled_ready(false, false, false, true, true);
-  signaled_ready.finish(0, false, true);
-  require(signaled_ready.report()[2] == 0 && !signaled_ready.available(signaled_ready.output[0], 30),
-    "SIGTERM before a ready poll does not admit queued button input");
+void complete_images() {
+  Child child;
+  child.command("bind 100 7 1 1\n"); child.clear_reports();
+  child.command(light(1)); child.level(9, 179); child.level(12, 255);
+  require(child.line().find("\"publication\":1") != std::string::npos, "full frame commits after both mapped brightness writes");
+  child.command(light(2, false)); child.level(9, 179); child.level(12, 0);
+  require(child.line().find("\"publication\":2") != std::string::npos, "absent logical output clears its independently mapped LED");
+  child.command(light(1)); require(!child.available(child.led[0], 25), "stale publication produces no output writes");
+  close(child.led[0]); child.led[0] = -1;
+  child.command(light(3));
+  require(child.line().find("\"detached\"") != std::string::npos, "failed report is never acknowledged as committed publication"); child.finish(1);
+  Child input_only(InitialState::Released, false);
+  input_only.command("bind 100 7 1 1\n" + light(1));
+  require(input_only.line().find("\"publication\":1") != std::string::npos && !input_only.available(input_only.led[0], 25), "empty LED map binds and commits with no output FD or writes");
+  input_only.event(1, EV_KEY, KEY_A, 1, 10); input_only.edge("yellow", true, 1); input_only.finish(0);
+}
+void startup_and_signal() {
+  Child buffered(InitialState::Released, true, true);
+  require(!buffered.available(buffered.output[0], 25), "pre-ready buffered input and pre-cutoff drop do not activate");
+  buffered.event(0, EV_KEY, KEY_A, 1, 30); buffered.edge("blue", true, 1); buffered.finish(0, SIGINT); buffered.clear_reports();
+  Child signaled(InitialState::Released, true, false, true);
+  signaled.finish(0, 0, true); signaled.clear_reports();
+  Child malformed; malformed.command("bad-command\n");
+  require(malformed.line().find("\"detached\"") != std::string::npos, "malformed command revokes and clears mapped outputs"); malformed.finish(1); malformed.clear_reports();
 }
 }
 int main() {
-  held_and_order(); escape_selection(); protocol_and_failures(); startup_and_signal_barriers();
-  std::puts("Linux runtime pipe fixtures passed. No hardware or audio opened.");
+  independent_inputs(); ordering_and_loss(); complete_images(); startup_and_signal();
+  std::puts("Linux v2 runtime pipe fixtures passed. No devices or audio opened.");
 }

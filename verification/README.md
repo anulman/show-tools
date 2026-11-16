@@ -7,6 +7,8 @@ These packages make selected performance promises executable and reviewable. Cha
 | [Native audio lifecycle](native-audio/README.md) | Canceled startup cannot publish Ready; obsolete callbacks and controls cannot affect a replacement; cleanup confirmation gates replacement. | Bounded TLA+ state-machine checking, actual-controller witnesses, and deliberate source mutations. |
 | [Capture handoff](capture/README.md) | Capture publication and admission preserve valid drafts and retained takes, including manual and automatic endpoint paths. | Bounded TLA+ state-machine checking, actual C++ witnesses, and deliberate source mutations. |
 | [MusicXML semantics](musicxml/README.md) | Canonical round trips preserve executable meaning and voices; optional archives do not change meaning; displayed cues agree with actions. | Exhaustive finite grammar through the actual TypeScript implementation, with deliberate source mutations. |
+| [Physical controls](physical-controls/README.md) | Six identified held states remain independent and four explicit LED mappings preserve brightness and complete-frame delivery. | Bounded exhaustive replay through actual C++ with assertion-specific source mutations. |
+| [Terse cues](cues/README.md) | The declared terse notation preserves its deterministic action meaning. | Bounded actual-parser enumeration and source mutations. |
 
 ## Run the checks
 
@@ -14,6 +16,7 @@ Install the repository's locked Node dependencies. Prepare the pinned [formal to
 
 ```sh
 npm run verify:formal
+node --import tsx verification/physical-controls/verify.ts
 ```
 
 Run one package with `npm run verify:formal:native`, `npm run verify:formal:capture`, or `npm run verify:formal:musicxml`. These explicit checks are separate from the default test suite. They open no microphone, ALSA device, physical peripheral, or live application service. TLC may require permission for its internal local socket. Each package uses its own temporary outputs and preserves production source.
@@ -22,7 +25,7 @@ Read each package's complete output. Source drift, an incomplete checker search,
 
 ## Review a changed intent
 
-The project-local `verify-native-audio-lifecycle`, `verify-capture-handoff`, and `verify-musicxml-semantics` skills describe the covered source, last synchronization record, commands, and failure interpretation. `/maintain-formal-verification-skill` helps reconcile later source changes.
+The project-local `verify-native-audio-lifecycle`, `verify-capture-handoff`, `verify-musicxml-semantics`, and `verify-physical-controls` skills describe the covered source, last synchronization record, commands, and failure interpretation. `/maintain-formal-verification-skill` helps reconcile later source changes.
 
 Read the plain-language promise before updating a model. Distinguish a product defect from an inaccurate abstraction, a changed contract, or a missing verification dependency. Keep observed implementation behavior separate from newly proposed behavior. Report a genuine product counterexample with a replay against real code. Hold only dependent work and never waive a valid product invariant through harness recovery.
 

@@ -53,6 +53,7 @@ struct Observation {
   std::array<double,PF_TEMPO_FIELDS> tempo{};
   std::array<double,PF_LIGHT_FIELDS> lights{};
   std::array<double,PF_TUNER_FIELDS> tuner{};
+  std::array<double,PF_INPUT_INFO_FIELDS> inputs{};
 };
 struct Request { uint64_t connection=0, order=0; uint32_t sequence=0; uint16_t op=0; std::array<double,6> args{}; Bytes manifest,packet; std::array<uint8_t,32> digest{}; std::array<uint32_t,6> counts{},revisions{}; std::vector<pf_effect_definition> effects; int status=1,code=0; Observation observation; };
 void observe(Instrument& instrument,Observation& out,uint64_t revision) {
@@ -65,11 +66,12 @@ void observe(Instrument& instrument,Observation& out,uint64_t revision) {
   pf_tempo_info(e,out.tempo.data());
   pf_light_output(e,out.lights.data());
   pf_tuner_info(e,out.tuner.data());
+  pf_input_info(e,out.inputs.data());
 }
 struct Presentation { Bytes manifest; std::array<uint8_t,32> digest{}; };
 Bytes snapshot(const Observation& state,const Presentation& presentation) {
   Bytes out; out.reserve(22000+presentation.manifest.size()); put64(out,state.revision); put64(out,state.run); put32(out,uint32_t(presentation.manifest.size())); out.insert(out.end(),presentation.manifest.begin(),presentation.manifest.end()); out.insert(out.end(),presentation.digest.begin(),presentation.digest.end());
-  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); array(out,state.lights); array(out,state.tuner); return out;
+  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); array(out,state.lights); array(out,state.tuner); array(out,state.inputs); return out;
 }
 int64_t discard(void*,const float*,uint32_t frames) { return frames; }
 }
@@ -78,6 +80,20 @@ bool parse(Request& request,const Bytes& data) {
   if(data.size()<34)return false;
   request.op=u16(data.data()+32);
   const uint8_t* p=data.data()+34; size_t left=data.size()-34;
+  if(request.op==14 || request.op==16 || request.op==17) {
+    const size_t count=request.op==17 ? 2 : 6;
+    if(left!=count*8)return false;
+    for(size_t i=0;i<count;++i) { request.args[i]=f64(p+i*8); if(!std::isfinite(request.args[i]) || std::abs(request.args[i])>9007199254740991.)return false; }
+    auto integer=[](double v,double minimum,double maximum) { return v>=minimum && v<=maximum && std::floor(v)==v; };
+    const auto& a=request.args;
+    if(!integer(a[0],0,31) || !integer(a[1],1,9007199254740991.))return false;
+    if(request.op==17)return true;
+    if(!integer(a[2],1,9007199254740991.))return false;
+    if(request.op==16)return integer(a[3],1,9007199254740991.) && integer(a[4],0,7);
+    if(!integer(a[3],0,2) || !integer(a[4],0,255) || !integer(a[5],0,255))return false;
+    const uint32_t released=uint32_t(a[4]), held=uint32_t(a[5]), allowed=a[3]==0 ? 63 : 223;
+    return !(released&held) && !((released|held)&~allowed);
+  }
   if(request.op<=8) {
     const size_t counts[]={0,6,0,2,1,3,1,1,1};
     if(!request.op || left!=counts[request.op]*8)return false;
@@ -166,6 +182,11 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
       Event event{run,data}; if(!shared.events.push(event))shared.dropped.fetch_add(1,std::memory_order_relaxed);
     }
   };
+  auto identified_panic=[&](const Request* request) {
+    const auto& a=request->args;
+    return request->op==16 && instrument.engine() &&
+      pf_input_is_panic(instrument.engine(),uint32_t(a[0]),a[1],a[2],a[3],uint32_t(a[4]),a[5])==1;
+  };
   auto process=[&](Request* r,bool canceled) {
     int rc=-1;
     if(canceled) { r->status=2; }
@@ -201,6 +222,18 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #endif
           break;
         case 15: rc=instrument.prepare_external_wave(uint32_t(a[0]),r->packet.data(),uint32_t(r->packet.size())); break;
+        case 14: rc=instrument.input_attach(uint32_t(a[0]),a[1],a[2],uint32_t(a[3]),uint32_t(a[4]),uint32_t(a[5])); break;
+        case 16: {
+#ifdef NATIVE_ALSA_HOST
+          const bool panic=identified_panic(r);
+#endif
+          rc=instrument.input_event(uint32_t(a[0]),a[1],a[2],a[3],uint32_t(a[4]),a[5]);
+#ifdef NATIVE_ALSA_HOST
+          if(rc==0 && panic && alsa_run.drop(*device)<0) { shared.device_failed=true; rc=-1; }
+#endif
+          break;
+        }
+        case 17: rc=instrument.input_revoke(uint32_t(a[0]),a[1]); break;
         case 12: rc=instrument.set_jiggle_thresholds(a[0],a[1]); break;
         case 4: rc=instrument.select(int(a[0])); break;
         case 5: rc=instrument.set_channel(int(a[0]),a[1],int(a[2])); break;
@@ -259,9 +292,10 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
   while(!shared.done.load(std::memory_order_relaxed)) {
     Request* stop=nullptr;
     if(shared.stops.pop(stop)) {
+      const bool cancel_older=stop->op==2 || (stop->op==3 && stop->args[0]==4) || identified_panic(stop);
       process(stop,false); shared.stop_results.push(stop);
       Request* pending=nullptr;
-      while(shared.commands.pop(pending)) { process(pending,pending->order<stop->order); shared.results.push(pending); }
+      while(shared.commands.pop(pending)) { process(pending,cancel_older && pending->order<stop->order); shared.results.push(pending); }
     }
     Request* request=nullptr;
     for(unsigned i=0;i<16 && shared.commands.pop(request);++i) { process(request,false); shared.results.push(request); }
@@ -309,6 +343,20 @@ bool send_result(int fd,Request* request,const Presentation& presentation,uint64
   published_revision=request->observation.revision;
   return send_frame(fd,5,0,snapshot(request->observation,presentation));
 }
+bool input_panic(const Request& request,const std::array<double,PF_INPUT_INFO_FIELDS>& routing) {
+  if(request.op!=16 || request.args[5]!=1 || request.args[2]!=routing[PF_INPUT_GENERATION])return false;
+  const auto& a=request.args;
+  for(uint32_t index=0;index<uint32_t(routing[PF_INPUT_COUNT]);++index) {
+    const auto* producer=routing.data()+PF_INPUT_RECORDS+index*PF_INPUT_PRODUCER_FIELDS;
+    if(producer[PF_INPUT_SLOT]!=a[0] || producer[PF_INPUT_SESSION]!=a[1])continue;
+    const uint32_t bit=1u<<uint32_t(a[4]);
+    if(a[3]<=producer[PF_INPUT_LAST_SEQUENCE] || !(uint32_t(producer[PF_INPUT_RELEASED_MASK])&bit)
+      || uint32_t(producer[PF_INPUT_HELD_MASK])&bit)return false;
+    return producer[PF_INPUT_KIND]==PF_INPUT_PHYSICAL
+      ? a[4]<PF_INPUT_SWITCHES && (uint32_t(routing[PF_INPUT_PANIC_MASK])&bit) : a[4]==4;
+  }
+  return false;
+}
 void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,uint64_t connection,uint64_t& order,Presentation& presentation) {
   std::array<uint8_t,32> identity{}; std::copy(epoch.begin(),epoch.end(),identity.begin()); random_bytes(identity.data()+16,16);
   Bytes hello(identity.begin(),identity.end()); put32(hello,PF_ABI_VERSION); put32(hello,PF_COMPILED_VERSION);
@@ -319,24 +367,38 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
   if(!shared.commands.push(bootstrap)) { delete bootstrap; return; }
   uint32_t highest=0; size_t outstanding=1, pending_bytes=0; bool stop_outstanding=false;
   bool active=true, bootstrapped=false; uint64_t published_revision=0;
+  std::array<double,PF_INPUT_INFO_FIELDS> routing{};
+  std::array<double,PF_INPUT_PRODUCERS> owned_sessions{};
+  uint64_t routing_revision=0;
+  auto update_routing=[&](const Observation& observation) {
+    if(observation.revision>=routing_revision) { routing=observation.inputs; routing_revision=observation.revision; }
+  };
+  auto record_ownership=[&](const Request& result) {
+    if(result.connection!=connection || result.status!=0)return;
+    if(result.op==9) owned_sessions.fill(0);
+    else if(result.op==14) owned_sessions[uint32_t(result.args[0])]=result.args[1];
+    else if(result.op==17 && owned_sessions[uint32_t(result.args[0])]==result.args[1]) owned_sessions[uint32_t(result.args[0])]=0;
+  };
   while(active && !quit.load(std::memory_order_relaxed) && !shared.device_failed.load()) {
     Request* result=nullptr;
     while(shared.results.pop(result)) {
+      record_ownership(*result);
       if(result->connection==connection) {
         if(outstanding)--outstanding;
         pending_bytes-=result->packet.size()+result->manifest.size()+result->effects.size()*40;
         if(result->op==9 && result->status==0) { presentation.manifest=std::move(result->manifest); presentation.digest=result->digest; }
         if(result->op==0) bootstrapped=true;
+        update_routing(result->observation);
         if(!send_result(fd,result,presentation,published_revision))active=false;
       }
       delete result;
     }
     while(shared.stop_results.pop(result)) {
-      if(result->connection==connection) { stop_outstanding=false; if(!send_result(fd,result,presentation,published_revision))active=false; }
+      if(result->connection==connection) { stop_outstanding=false; update_routing(result->observation); if(!send_result(fd,result,presentation,published_revision))active=false; }
       delete result;
     }
     Observation observation;
-    while(bootstrapped && shared.observations.pop(observation)) if(observation.revision>=published_revision) { published_revision=observation.revision; if(!send_frame(fd,5,0,snapshot(observation,presentation)))active=false; }
+    while(bootstrapped && shared.observations.pop(observation)) if(observation.revision>=published_revision) { published_revision=observation.revision; update_routing(observation); if(!send_frame(fd,5,0,snapshot(observation,presentation)))active=false; }
     Event event;
     while(bootstrapped && shared.events.pop(event)) { Bytes payload; put64(payload,event.run); array(payload,event.fields); if(!send_frame(fd,6,0,payload))active=false; }
     auto lost=bootstrapped ? shared.dropped.exchange(0,std::memory_order_relaxed) : 0;
@@ -352,7 +414,7 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
     if(payload.size()<34 || !std::equal(identity.begin(),identity.end(),payload.begin()))break;
     auto* request=new Request; request->sequence=header.sequence; request->connection=connection; request->order=++order;
     if(!parse(*request,payload)) { delete request; break; }
-    bool is_stop=request->op==2 || (request->op==3 && request->args[0]==4);
+    bool is_stop=request->op==2 || (request->op==3 && request->args[0]==4) || input_panic(*request,routing);
     size_t request_bytes=request->packet.size()+request->manifest.size()+request->effects.size()*40;
     if(request_bytes>16*1024*1024-pending_bytes || (is_stop && stop_outstanding) || (!is_stop && outstanding>=256) ||
        !(is_stop?shared.stops.push(request):shared.commands.push(request))) {
@@ -361,9 +423,20 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
   }
   while(outstanding || stop_outstanding) {
     Request* result=nullptr;
-    while(shared.results.pop(result)) { if(result->op==9 && result->status==0) { presentation.manifest=std::move(result->manifest); presentation.digest=result->digest; } if(result->connection==connection && outstanding)--outstanding; delete result; }
+    while(shared.results.pop(result)) { record_ownership(*result); if(result->op==9 && result->status==0) { presentation.manifest=std::move(result->manifest); presentation.digest=result->digest; } if(result->connection==connection && outstanding)--outstanding; delete result; }
     while(shared.stop_results.pop(result)) { if(result->connection==connection)stop_outstanding=false; delete result; }
     if(outstanding || stop_outstanding)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  for(uint32_t slot=0;slot<PF_INPUT_PRODUCERS;++slot) {
+    if(!owned_sessions[slot])continue;
+    auto* cleanup=new Request; cleanup->connection=connection; cleanup->order=++order;
+    cleanup->op=17; cleanup->args[0]=slot; cleanup->args[1]=owned_sessions[slot];
+    if(shared.commands.push(cleanup)) ++outstanding; else delete cleanup;
+  }
+  while(outstanding) {
+    Request* result=nullptr;
+    while(shared.results.pop(result)) { if(result->connection==connection)--outstanding; delete result; }
+    if(outstanding)std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
 }
 }

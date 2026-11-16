@@ -2,7 +2,7 @@ import { decodeTunerState } from '../tuner/observation.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { Schema } from 'effect';
 import { CompiledSongSchema, decodeCompiledSong } from '../performance/compiled-song.js';
-import { decodeNativeEvent, decodeNativeLiveEffects, decodeNativeState, decodeNativeTake, decodeNativeTempo, decodeNativeVoices } from '../performance/native-observation.js';
+import { decodeNativeEvent, decodeNativeInputRouting, decodeNativeLiveEffects, decodeNativeState, decodeNativeTake, decodeNativeTempo, decodeNativeVoices } from '../performance/native-observation.js';
 import type { SongScript } from '../performance/model.js';
 import { PF } from '../performance/wasm-abi.js';
 import { PF as LIGHT } from '../performance/light-abi.js';
@@ -68,6 +68,7 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	const tempo = reader.array(PF.TEMPO_FIELDS);
 	const lightImage = reader.array(LIGHT.LIGHT_FIELDS);
 	const tunerData = reader.array(PF.TUNER_FIELDS);
+	const inputData = reader.array(PF.INPUT_INFO_FIELDS);
 	reader.end();
 	if (revision === 0n && manifestBytes.length === 0 && digest.every(byte => byte === 0)) return null;
 	const tuner = decodeTunerState(tunerData);
@@ -83,6 +84,7 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	state.liveEffects = decodeNativeLiveEffects(live);
 	state.compiledTakes = Array.from({ length: manifest.takeCount }, (_, i) => decodeNativeTake(takes.subarray(i * PF.TAKE_FIELDS, (i + 1) * PF.TAKE_FIELDS), i));
 	state.tempoHits = decodeNativeTempo(tempo);
+	state.inputRouting = decodeNativeInputRouting(inputData);
 	return { revision, song: manifest.song, state, lights, tuner };
 }
 

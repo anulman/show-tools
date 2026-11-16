@@ -1,11 +1,32 @@
 import type { CatalogDocument } from '../voice-catalog/model.js';
 import type { SongSource } from './song-source.js';
 import type { CompiledSong } from './compiled-song.js';
+import type { InputBindings, InputRoutingState } from './input-bindings.js';
 
 export type ChannelId = 'L1' | 'L2' | 'R1' | 'R2';
 export type ControlId = ChannelId | 'mushroom' | 'knob' | 'tempo' | 'cueButton' | 'external';
 export type Control = { readonly id: ChannelId; readonly edge?: 'release' } | { readonly id: 'mushroom' | 'tempo' } | { readonly id: 'external'; readonly slot: number } | { readonly id: 'knob'; readonly value: number } | { readonly id: 'cueButton'; readonly value: 0 | 1 };
 export const CONTROL_IDS: readonly ChannelId[] = ['L1', 'L2', 'R1', 'R2'];
+export const PHYSICAL_SWITCH_IDS: readonly ['blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'] = ['blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'];
+export type PhysicalSwitchId = typeof PHYSICAL_SWITCH_IDS[number];
+export const INPUT_PRODUCER_KINDS: readonly ['physical', 'keyboard', 'pointer'] = ['physical', 'keyboard', 'pointer'];
+export const INPUT_PRODUCER_LIMIT = 32;
+export const INPUT_LIGHT_ID_BASE = 257;
+export const INPUT_PACKET_MAGIC = 0x50464931;
+export const INPUT_BINDING_FIELDS = 3;
+export function inputBindingRows(bindings: InputBindings): readonly (readonly [number, number, number])[] {
+  return bindings.map(binding => {
+    const id = PHYSICAL_SWITCH_IDS.indexOf(binding.controlId);
+    switch (binding.target.kind) {
+      case 'cue-rows': return [id, 0, binding.target.rows.reduce((mask, row) => mask | 1 << CONTROL_IDS.indexOf(row), 0)];
+      case 'tempo': return [id, 1, 0];
+      case 'panic': return [id, 2, 0];
+    }
+  });
+}
+export function physicalControlLightId(id: PhysicalSwitchId): number {
+  return INPUT_LIGHT_ID_BASE + PHYSICAL_SWITCH_IDS.indexOf(id);
+}
 export const CONTROLS: readonly { id: ChannelId; key: string; shortcut: string; color: string }[] = [
   { id: 'L1', key: 'KeyQ', shortcut: 'Q', color: '#8bb7ff' },
   { id: 'R1', key: 'KeyW', shortcut: 'W', color: '#dfbe78' },
@@ -106,6 +127,7 @@ export interface PracticeState extends TransportState {
   voiceEffects?: readonly VoiceEffectsState[];
   tempoHits?: TempoHitState;
   compiledTakes?: readonly CompiledTakeState[];
+  inputRouting?: InputRoutingState;
 }
 export interface StartOptions {
   bpm?: number;

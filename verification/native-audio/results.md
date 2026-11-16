@@ -1,5 +1,13 @@
 # Initial checked result
 
+## Confirmed engine retirement maintenance
+
+Outcome: **updated** at `092ffbc`. The original source fence rejected controller drift. Reviewed controller and schema changes preserve the existing owned-child release condition and add an exact-target retirement record after confirmed exit, plus a post-await attempt fence. The two-attempt, one-command model and all seven invariants remain unchanged.
+
+The complete pinned run exhausts 1,761 pristine states, catches all six real controller mutants across seven counterexample paths, and passes the pristine controller schedules. All nine statechart interpretations report every rule checked. Receipts: `/private/tmp/native-audio-intents-final/receipt.json` and `/private/tmp/native-audio-intents-statecharts/outcomes.json`. Scoped TypeScript and twelve ownership regressions pass. Their initial sandboxed rerun could not create isolated bundles under the shared node_modules symlink; the unchanged tests passed after that harness permission was restored.
+
+This refresh protects lifecycle source correspondence. Exact intent-ledger authorization and browser recovery have separate real gateway, child-process and UI witnesses; they are not additional TLA+ invariants. Physical hardware, electrical behavior and spinner telemetry remain outside this claim.
+
 ## Consolidated practice release
 
 Outcome: **in sync** at `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. All five covered source files, the lifecycle model, configurations, replay and dependency versions are byte-identical to `894915f`. The baseline run passed before this maintenance; a fresh rerun with the release revision in `coverage.json` also exhausts 1,761 states with all seven invariants. Six real controller-source mutants are rejected, including both pending-ownership paths. Scoped TypeScript and diff checks pass. Receipt: `/private/tmp/practice-tonight-lifecycle-final-cd3ae7e/receipt.json`.
@@ -59,3 +67,9 @@ Outcome: updated at `894915fd154c07529d08c79182cafe46cc9191ef`. The source fence
 The fresh full verifier exhausts the same 1,761-state graph with all seven invariants. All six actual-controller source mutants are rejected at their named assertions, including both pending-ownership paths. The model, configuration, replay implementation and bounds remain unchanged; the prior complete statechart interpretation therefore still describes these identical model bytes. Scoped TypeScript and diff checks pass. The final receipt is `/private/tmp/native-cues-lifecycle-final-894915f/receipt.json`.
 
 The controller replay substitutes package preparation. This proof does not establish native sample decoding, per-asset upload cancellation, old-engine sample ownership, note preparation, physical phone input or musical triggering. Those remain separate integration and native playback claims.
+
+## Identified input observations
+
+Updated at `dfd9c1fc61dd6273b08026f8f2da29516e8f58d8` after the old native-schema source fence rejected optional input-routing metadata. The lifecycle controller and all modeled boundaries are byte-identical to `cd3ae7e`; the added observation validator and registry are pinned without changing the finite model. The complete run passes the 1,761-state pristine graph and all six real-source mutants, including both pending-ownership paths. All pristine replay schedules pass. All nine statechart interpretations have no unchecked rules; the separate illustration has 86 states, seven labels and twelve arrows. Receipt: `/private/tmp/routing-native-audio-final/receipt.json`.
+
+The source-fence failure was verification drift. No lifecycle product bug was found. This result does not prove the new gateway/native producer state machine or hardware behavior.

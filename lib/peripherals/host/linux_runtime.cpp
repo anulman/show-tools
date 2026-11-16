@@ -1,6 +1,6 @@
 #include "linux_runtime.h"
 #include "linux_order.h"
-#include "control_stream.h"
+#include "linux_input_map.h"
 #include "peripheral_controls.h"
 #include <linux/input.h>
 #include <poll.h>
@@ -11,21 +11,23 @@
 #include <iostream>
 #include <limits>
 #include <memory>
-#include <string>
 
 namespace peripheral_host {
-static_assert(linux_button_code(ButtonKey::Tab) == KEY_TAB && linux_button_code(ButtonKey::Escape) == KEY_ESC, "Supported Linux key codes");
 namespace {
 volatile std::sig_atomic_t running = 1;
 void stop(int) { running = 0; }
 struct Host {
-  LinuxHandles handles;
-  double session, sequence = 0;
-  uint32_t channel;
-  bool bench, bound = false, owns_output = false;
+  const LinuxHandles& handles;
+  const HostConfig& config;
+  double sequence = 0;
+  bool bound = false, owns_output = false;
+  InitialStates states;
+  std::vector<pp_light_binding> bindings;
   std::unique_ptr<pp_inputs, decltype(&pp_destroy)> inputs{pp_create(), pp_destroy};
   std::unique_ptr<pp_light_delivery, decltype(&pp_light_delivery_destroy)> delivery{pp_light_delivery_create(), pp_light_delivery_destroy};
-  ~Host() { if (owns_output) brightness(0); }
+  Host(const LinuxHandles& h, const HostConfig& c, const InitialStates& initial)
+    : handles(h), config(c), states(initial), bindings(light_bindings(c.map)) {}
+  ~Host() { if (owns_output) clear(); }
   bool report(const uint8_t* bytes) {
     ssize_t sent;
     do { sent = write(handles.output, bytes, PP_LED_REPORT_BYTES); } while (sent < 0 && errno == EINTR && running);
@@ -33,17 +35,21 @@ struct Host {
     std::cerr << "I-PAC brightness write failed or was short: " << std::strerror(errno) << '\n';
     return false;
   }
-  bool brightness(uint32_t level) {
-    uint8_t bytes[PP_LED_REPORT_BYTES];
-    return pp_ipac_led_report(channel, level, bytes) == PP_LED_REPORT_BYTES && report(bytes);
+  bool clear() {
+    bool ok = true;
+    for (const auto& binding : bindings) {
+      uint8_t bytes[PP_LED_REPORT_BYTES];
+      if (pp_ipac_led_report(binding.sdk_channel, 0, bytes) != PP_LED_REPORT_BYTES || !report(bytes)) ok = false;
+    }
+    return ok;
   }
   bool command(const Command& value) {
-    if (value.operation == Operation::Clear) { bound = false; return brightness(0); }
+    if (value.operation == Operation::Clear) { bound = false; return clear(); }
     if (value.operation == Operation::Quit) { running = 0; return true; }
-    if (value.connection.device_session != session) return false;
+    if (value.connection.device_session != config.session) return false;
     if (value.operation == Operation::Bind) {
-      pp_light_binding binding{1, channel}; bound = false;
-      if (!brightness(0) || pp_light_delivery_bind(delivery.get(), &value.connection, &binding, 1) != 0) return false;
+      bound = false;
+      if (!clear() || pp_light_delivery_bind(delivery.get(), &value.connection, bindings.data(), uint32_t(bindings.size())) != 0) return false;
       bound = true; return true;
     }
     if (!bound) return false;
@@ -60,23 +66,26 @@ struct Host {
     if (sequence >= 9007199254740991.) return false;
     ++sequence;
     if (value.kind == LinuxInputKind::Button) {
-      int edge = pp_key(inputs.get(), session, sequence, 0, value.value);
+      if (value.value == 2) return true;
+      const auto prior = states[value.control];
+      int edge = pp_key(inputs.get(), config.session, sequence, value.control, value.value);
       if (edge < 0) return false;
-      if (edge == PP_PRESS || edge == PP_RELEASE) {
-        if (bench && !brightness(edge == PP_PRESS ? 255 : 0)) return false;
-        std::cout << "{\"type\":\"button\",\"session\":" << session << ",\"sequence\":" << sequence
-          << ",\"down\":" << (edge == PP_PRESS ? "true" : "false") << "}" << std::endl;
-      }
-    } else {
-      int result = pp_rotate(inputs.get(), session, sequence, value.value);
+      states[value.control] = value.value ? InitialState::Held : InitialState::Released;
+      // The engine received Ready's held/unknown barrier too. Its first release
+      // must reach that engine even when the local latch has no admitted press.
+      if (!value.value && prior != InitialState::Released)
+        return emit_button(std::cout, config.session, sequence, PhysicalControl(value.control), false);
+      if (edge == PP_PRESS || edge == PP_RELEASE)
+        return emit_button(std::cout, config.session, sequence, PhysicalControl(value.control), edge == PP_PRESS);
+    } else if (value.kind == LinuxInputKind::Motion) {
+      int result = pp_rotate(inputs.get(), config.session, sequence, value.value);
       if (result < 0) return false;
-      if (result == PP_MOVEMENT) std::cout << "{\"type\":\"motion\",\"session\":" << session
-        << ",\"sequence\":" << sequence << ",\"deltaY\":" << value.value << "}" << std::endl;
+      if (result == PP_MOVEMENT) return emit_motion(std::cout, config.session, sequence, value.value);
     }
     return std::cout.good();
   }
 };
-bool drain(int fd, unsigned source, int64_t cutoff, std::vector<LinuxObservation>& batch, ButtonKey button_key) {
+bool drain(int fd, unsigned source, int64_t cutoff, const InputMap& map, std::vector<LinuxObservation>& batch) {
   size_t observed = 0;
   for (;;) {
     input_event events[32];
@@ -92,50 +101,61 @@ bool drain(int fd, unsigned source, int64_t cutoff, std::vector<LinuxObservation
         || event.time.tv_usec < 0 || event.time.tv_usec > 999999) return false;
       int64_t time = int64_t(event.time.tv_sec) * 1000000000 + int64_t(event.time.tv_usec) * 1000;
       if (time <= cutoff) continue;
-      if (event.type == EV_SYN && event.code == SYN_DROPPED) { std::cerr << "I-PAC SYN_DROPPED: lost rotation cannot be recovered. Reconnect after releasing the button.\n"; return false; }
-      bool key = source == 0 && event.type == EV_KEY && event.code == linux_button_code(button_key);
-      bool motion = source == 1 && event.type == EV_REL && event.code == REL_Y;
-      if (!key && !motion) continue;
-      if (key && event.value == 2) continue;
-      if ((key && event.value != 0 && event.value != 1) || (motion && (event.value < -32768 || event.value > 32767))) return false;
+      if (event.type == EV_SYN && event.code == SYN_DROPPED) { std::cerr << "I-PAC SYN_DROPPED: input lost; revoke and reconnect.\n"; return false; }
+      if (event.type != EV_KEY && event.type != EV_REL) continue;
+      if ((event.type == EV_KEY && (event.value < 0 || event.value > 2))
+        || (event.type == EV_REL && (event.value < -32768 || event.value > 32767))) return false;
       if (batch.size() == 256) { std::cerr << "I-PAC input backlog exceeded 256 observations.\n"; return false; }
-      batch.push_back({source, time,
-        key ? LinuxInputKind::Button : LinuxInputKind::Motion, event.value});
+      const auto* key = linux_switch(map, source, event.type, event.code);
+      const bool motion = linux_axis(map, source, event.type, event.code);
+      batch.push_back({source, time, key ? LinuxInputKind::Button : motion ? LinuxInputKind::Motion : LinuxInputKind::Ignored,
+        event.value, key ? uint32_t(key->control) : 0});
     }
   }
 }
 }
-int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool initially_held, bool bench, int64_t startup_cutoff_ns, ButtonKey button_key) {
-  Host host{handles, session, 0, channel, bench};
-  if (!host.inputs || !host.delivery || pp_begin(host.inputs.get(), session, initially_held ? 0 : 1, initially_held ? 1 : 0) != 0) return 1;
+int run_linux_host(const LinuxHandles& handles, const HostConfig& config, const InitialStates& initial, int64_t cutoff) {
+  if (handles.inputs.empty() || handles.inputs.size() > 8 || handles.inputs.size() != config.map.sources.size()
+    || handles.commands < 0 || (!config.map.leds.empty() && handles.output < 0)) return 1;
+  Host host(handles, config, initial);
+  uint32_t released = 0, held = 0;
+  for (const auto& binding : config.map.switches) {
+    auto id = size_t(binding.control);
+    if (initial[id] == InitialState::Released) released |= 1u << id;
+    if (initial[id] == InitialState::Held) held |= 1u << id;
+  }
+  if (!host.inputs || !host.delivery || pp_begin(host.inputs.get(), config.session, released, held) != 0) return 1;
   running = 1;
   std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGHUP, stop); std::signal(SIGPIPE, SIG_IGN);
-  std::cout.precision(17);
-  if (!host.brightness(0)) return 1;
   host.owns_output = true;
-  std::cout << "{\"type\":\"ready\",\"version\":1,\"session\":" << session
-    << ",\"released\":" << (initially_held ? "false" : "true") << "}" << std::endl;
-  bool failed = !std::cout.good(), disconnected = false;
+  if (!host.clear()) return 1;
+  bool failed = !emit_ready(std::cout, config.session, config.map, initial), disconnected = false;
   std::string pending;
   LinuxInputOrder last;
   while (running && !failed) {
-    pollfd pollers[]{{handles.keyboard, POLLIN, 0}, {handles.mouse, POLLIN, 0}, {handles.commands, short(bench ? 0 : POLLIN), 0}};
-    int result = poll(pollers, bench ? 2 : 3, 250);
+    std::vector<pollfd> pollers;
+    for (int fd : handles.inputs) pollers.push_back({fd, POLLIN, 0});
+    pollers.push_back({handles.commands, POLLIN, 0});
+    int result = poll(pollers.data(), pollers.size(), 250);
     if (!running) break;
     if (result < 0 && errno == EINTR) continue;
     if (result < 0) { failed = true; break; }
-    if ((pollers[0].revents | pollers[1].revents) & (POLLHUP | POLLERR | POLLNVAL)) { disconnected = true; break; }
+    for (size_t source = 0; source < handles.inputs.size(); ++source)
+      if (pollers[source].revents & (POLLHUP | POLLERR | POLLNVAL)) disconnected = true;
+    if (disconnected) break;
     std::vector<LinuxObservation> batch;
-    if (!drain(handles.keyboard, 0, startup_cutoff_ns, batch, button_key) || !drain(handles.mouse, 1, startup_cutoff_ns, batch, button_key) || !order_linux_input(batch, last)) {
-      std::cerr << "I-PAC input gap, invalid record or ambiguous cross-interface event order. Reconnect.\n"; failed = true; break;
+    for (unsigned source = 0; source < handles.inputs.size(); ++source)
+      if (!drain(handles.inputs[source], source, cutoff, config.map, batch)) { failed = true; break; }
+    if (failed || !order_linux_input(batch, last, handles.inputs.size())) {
+      std::cerr << "I-PAC input loss, invalid record or ambiguous cross-interface order; revoke and reconnect.\n"; failed = true; break;
     }
     for (const auto& value : batch) {
       if (!running) break;
       if (!host.input(value)) { failed = true; break; }
       last = {value.nanoseconds, value.source};
     }
-    if (bench || failed || !running) continue;
-    if (pollers[2].revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) {
+    if (failed || !running) continue;
+    if (pollers.back().revents & (POLLIN | POLLHUP | POLLERR | POLLNVAL)) {
       char bytes[4096]; ssize_t count = read(handles.commands, bytes, sizeof(bytes));
       if (count == 0) { if (!pending.empty()) failed = true; break; }
       if (count < 0) { if (errno == EAGAIN || errno == EINTR) continue; failed = true; break; }
@@ -150,10 +170,10 @@ int run_linux_host(LinuxHandles handles, double session, uint32_t channel, bool 
       if (pending.size() > 16384) failed = true;
     }
   }
-  if (disconnected) std::cout << "{\"type\":\"detached\",\"session\":" << session << "}" << std::endl;
-  if (!host.brightness(0)) failed = true;
+  if (failed || disconnected) emit_detached(std::cout, config.session);
+  if (!host.clear()) failed = true;
   host.owns_output = false;
-  if (failed) std::cerr << "Peripheral host failed; owned LED clear attempted.\n";
+  if (failed) std::cerr << "Peripheral host failed; mapped LED clear attempted.\n";
   return failed || disconnected ? 1 : 0;
 }
 }

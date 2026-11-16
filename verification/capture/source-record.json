@@ -1,15 +1,18 @@
 {
-  "sourceCommit": "cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4",
+  "sourceCommit": "0f178bcc7372a907e6524e5d6723bb208536dde1",
   "files": {
-    "lib/performance/src/compiled_program.cpp": "338eb7b74ac47df837231b7fba07195de0fc1cd7ce06ca5a116e4f46f248e50a",
-    "lib/performance/src/compiled_program.h": "06eb94ceb75eb80c3d3ad0dc096e1f1f99897256ba6407e5f23b242ad4f65d2c",
-    "lib/performance/include/performance_engine.h": "c6b02a1dddba2cbcca2148b51301c69e8800fca58b35094dac702d971221ee86",
+    "lib/performance/src/compiled_program.cpp": "6a07b7613e59db67de4ef702e184c72dcf54d631a7d511edee7b29afd16a50cc",
+    "lib/performance/src/compiled_program.h": "998997281c5701ac214cc246f90f0be01ab162f0a43c47c8dee0b477a8f49b17",
+    "lib/performance/include/performance_engine.h": "bc2ab8b668359100f70e7df6027914c5caaab5ef1388e50a6108def157f949c9",
     "lib/performance/tests/compiled_program_tests.cpp": "1aa358561b76d9c11392a971a6fce0f3900250973a60ecbf5d9bca488a31dd75",
     "lib/patches/src/patch_engine.cpp": "c6328aa5a0f620cef27727337af08098b3c94b96011226ecfdcac810ce10ebb6",
     "lib/patches/include/patch_engine.h": "12eb9f1c44efc4ae8bc3d7059916692a3a071c240e55f5c68aabea7fab2a8a5a",
-    "lib/performance/src/performance_engine.cpp": "9c487dc4ccfd8c247f8bafc829e7fcd4c930b7af0325f46a26b10d6bc6df7969",
+    "lib/performance/src/performance_engine.cpp": "ff6dd0611a846a0bdfaee502b02b1134f14b8f2d6cedef75e61b9c992eb95357",
     "lib/performance/include/performance_light_output.h": "5ca26325f4fcfa44de4e2bc3898a147e488e078b3340829c8ada40699b464265",
     "lib/tuner/include/tuner.h": "568bb3da9355328b8b589b621a30d971388d1599f8fef33f9d52b932b145da98",
-    "lib/tuner/src/tuner.cpp": "23341a5ca6d70105cc7f43571cca85767371d27d79f60a74bebcdb01dbdb32b2"
+    "lib/tuner/src/tuner.cpp": "23341a5ca6d70105cc7f43571cca85767371d27d79f60a74bebcdb01dbdb32b2",
+    "lib/performance/src/input_router.h": "7357d56f107d386ea137d8f7d0ccd3d382b061a054d33c159e75109c11b12b80",
+    "lib/peripherals/include/peripheral_controls.h": "96659635a0cc1ff63c178d1c47935c3f23ad3cc54f408098808df2abd03b4c8f",
+    "lib/peripherals/src/peripheral_controls.cpp": "509a6d35fb4bf76d67269e8274da68ccb42363b0e9942dbc926973d979fee275"
   }
 }

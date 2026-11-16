@@ -3,8 +3,8 @@ import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { resolve, sep, extname } from 'node:path';
 import { spawn } from 'node:child_process';
-import { boundedLines } from './bridge.js';
-import { decodeBrowserInput, decodeBrowserLease, validateBrowserLight } from './browser-protocol.js';
+import { boundedLines, peripheralHelperArgs, validateHelperReady, type PeripheralInputMap } from './bridge.js';
+import { decodeBrowserInput, decodeBrowserLease, validateBrowserLight, type HelperReady } from './browser-protocol.js';
 import { verifyBuild } from '../ui-host/snapshot.js';
 
 type Lease = { id: string; response: ServerResponse; tuple: string; heartbeat: number };
@@ -23,11 +23,13 @@ async function body(request: IncomingMessage): Promise<unknown> {
   }
   return JSON.parse(text);
 }
-export async function startBrowserPeripheralServer(options: { staticRoot: string; transport: BrowserPeripheralTransport }) {
+export async function startBrowserPeripheralServer(options: { staticRoot: string; transport: BrowserPeripheralTransport; inputMap: PeripheralInputMap }) {
   const root = await realpath(options.staticRoot);
   const token = randomBytes(32).toString('hex');
   let lease: Lease | undefined;
-  let fence = 0, origin = '', stopped = false, ready = false;
+  let fence = 0, origin = '', stopped = false;
+  let ready: HelperReady | undefined;
+  let sequence = 0;
   const clear = () => {
     const previous = lease;
     lease = undefined;
@@ -51,7 +53,7 @@ export async function startBrowserPeripheralServer(options: { staticRoot: string
           lease = { id, response, tuple, heartbeat: performance.now() };
           options.transport.write(`bind ${tuple}`);
           response.writeHead(200, { 'content-type': 'application/x-ndjson' });
-          response.write(`${JSON.stringify({ type: 'connected', lease: id })}\n`);
+          response.write(`${JSON.stringify({ type: 'connected', lease: id, ready })}\n`);
           response.on('close', () => { if (lease?.id === id) clear(); });
           return;
         }
@@ -92,14 +94,28 @@ export async function startBrowserPeripheralServer(options: { staticRoot: string
       for await (const value of options.transport.input) {
         const input = decodeBrowserInput(value);
         if ('session' in input && input.session !== options.transport.session) throw new Error('Peripheral session changed');
-        if (input.type === 'ready') { if (ready) throw new Error('Duplicate helper ready'); ready = true; }
+        if (input.type === 'ready') {
+          if (ready) throw new Error('Duplicate helper ready');
+          validateHelperReady(input, options.inputMap); ready = input;
+        }
         else if (input.type === 'detached') throw new Error('I-PAC disconnected');
-        else if (input.type !== 'delivered' && lease) {
-          if (lease.response.writableLength > 32768) throw new Error('Peripheral input consumer stalled');
-          lease.response.write(`${JSON.stringify(input)}\n`);
+        else if (input.type !== 'delivered') {
+          if (!ready) throw new Error('Peripheral event arrived before ready');
+          if (input.sequence <= sequence) throw new Error('Peripheral input sequence is stale');
+          sequence = input.sequence;
+          if (input.type === 'motion' && !options.inputMap.axis) throw new Error('Unconfigured physical axis');
+          if (input.type === 'button') {
+            if (!ready.switches.some(value => value.controlId === input.controlId)) throw new Error('Unconfigured physical switch');
+            ready = { ...ready, switches: ready.switches.map(value => value.controlId === input.controlId
+              ? { ...value, state: input.down ? 'held' : 'released' } : value) };
+          }
+          if (lease) {
+            if (lease.response.writableLength > 32768) throw new Error('Peripheral input consumer stalled');
+            lease.response.write(`${JSON.stringify(input)}\n`);
+          }
         }
       }
-    } finally { ready = false; if (!stopped) clear(); }
+    } finally { ready = undefined; if (!stopped) clear(); }
   })();
   const watchdog = setInterval(() => { if (lease && performance.now() - lease.heartbeat > 2500) clear(); }, 250);
   const completed = task.then(() => { clearInterval(watchdog); if (!stopped) server.closeAllConnections(); server.close(); });
@@ -115,11 +131,10 @@ export async function startBrowserPeripheralServer(options: { staticRoot: string
     } };
 }
 
-export async function runBrowserPeripheralServer(options: { staticRoot: string; helperExecutable: string; sdkChannel: number; onReady?: (url: string) => void }, signal: AbortSignal) {
+export async function runBrowserPeripheralServer(options: { staticRoot: string; helperExecutable: string; inputMap: PeripheralInputMap; onReady?: (url: string) => void }, signal: AbortSignal) {
   await verifyBuild(options.staticRoot);
-  if (!Number.isInteger(options.sdkChannel) || options.sdkChannel < 0 || options.sdkChannel > 95) throw new Error('Invalid SDK channel');
   const session = randomBytes(6).readUIntBE(0, 6) + 1;
-  const child = spawn(options.helperExecutable, [String(session), String(options.sdkChannel), '--confirm-wiring'], { stdio: ['pipe', 'pipe', 'inherit'] });
+  const child = spawn(options.helperExecutable, peripheralHelperArgs(session, options.inputMap), { stdio: ['pipe', 'pipe', 'inherit'] });
   let fatal: (error: unknown) => void = () => {};
   const failed = new Promise<never>((_, reject) => { fatal = reject; });
   void failed.catch(() => {});

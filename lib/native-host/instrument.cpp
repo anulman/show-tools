@@ -20,6 +20,7 @@ bool Instrument::prepare(const uint8_t* packet, uint32_t bytes, const Profiles& 
   Engine candidate(pf_create(config_.sample_rate, PF_PRACTICE, config_.max_voices, config_.max_seconds, 4), pf_destroy);
   if (!candidate || pf_prepare_voice_effects(candidate.get(), profiles.effects, profiles.counts.data(), profiles.revisions.data()) < 0 ||
       pf_load_compiled_bytes(candidate.get(), packet, bytes) < 0 || pf_set_microphone(candidate.get(), config_.microphone_ready ? 1 : 0) < 0) return false;
+  if (engine_ && pf_input_inherit(candidate.get(), engine_.get()) < 0) return false;
   auto pump = std::make_unique<AudioPump>(candidate.get(), config_.block_capacity);
   pump_ = std::move(pump); engine_ = std::move(candidate); lifecycle_ = Lifecycle::Prepared;
   return true;
@@ -50,6 +51,20 @@ int Instrument::control(int id, double value) {
   int result = pf_control(engine_.get(), id, value, nullptr, 0);
   if (result == 0 && id == 4) { pump_->discard(); lifecycle_ = Lifecycle::Prepared; }
   return result;
+}
+int Instrument::input_attach(uint32_t producer, double session, double generation, uint32_t kind, uint32_t released, uint32_t held) {
+  return engine_ && lifecycle_ != Lifecycle::Faulted
+    ? pf_input_attach(engine_.get(), producer, session, generation, kind, released, held) : -1;
+}
+int Instrument::input_event(uint32_t producer, double session, double generation, double sequence, uint32_t input, double value) {
+  if (!engine_ || lifecycle_ == Lifecycle::Faulted) return -1;
+  const bool panic = pf_input_is_panic(engine_.get(), producer, session, generation, sequence, input, value) == 1;
+  const int result = pf_input_event(engine_.get(), producer, session, generation, sequence, input, value);
+  if (result == 0 && panic) { pump_->discard(); lifecycle_ = Lifecycle::Prepared; }
+  return result;
+}
+int Instrument::input_revoke(uint32_t producer, double session) {
+  return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_input_revoke(engine_.get(), producer, session) : -1;
 }
 int Instrument::select(int channel) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_select(engine_.get(), channel) : -1; }
 int Instrument::set_channel(int channel, double gain, int muted) { return engine_ && lifecycle_ != Lifecycle::Faulted ? pf_set_channel(engine_.get(), channel, gain, muted) : -1; }

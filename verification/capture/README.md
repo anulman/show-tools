@@ -39,11 +39,11 @@ This is a safety proof of the model under these abstractions. It does not establ
 
 ## Source mapping and sensitivity
 
-The last source sync is `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward.
+The last source sync is `0f178bcc7372a907e6524e5d6723bb208536dde1`. [source-record.json](source-record.json) contains exact hashes. If covered source changes, inspect model drift before moving that sync record forward. The current source review is in [SOURCE-SYNC.md](SOURCE-SYNC.md).
 
 | Model action or rule | Current source boundary |
 | --- | --- |
-| Begin and protected bank selection | `Program::available_bank`, `Program::press` / `press_current` through `press_selected`, `Program::execute` in `lib/performance/src/compiled_program.cpp`. |
+| Begin and protected bank selection | `Program::available_bank`, `Program::press` / selected-row `press_rows` through `press_selected`, `Program::execute` in `lib/performance/src/compiled_program.cpp`. |
 | Combined admission before any outgoing change | `Program::press` admission guard and `Program::execute` preflight ordering. |
 | Standalone/automatic release before incoming start | `Program::apply_pending` staged preflight and two passes. |
 | Complete publication and declared launch policy | `Program::preflight_commit` and `Program::finish_capture`; `ProcessedTake::commit` and `Playback::start_at_capture_end` / `start_window_at_capture_end` in `lib/patches/src/patch_engine.cpp`. |
@@ -51,6 +51,8 @@ The last source sync is `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. [source-reco
 | Real native witness entry | `pf_control`, `pf_process_stems`, take/channel readback, and existing `compiled_program_tests.cpp` fixtures. |
 
 The model mutants and actual-source mutants represent the same broken policy. The native witnesses concretize those policies using real compiled fixtures and PCM assertions; they are not an exhaustive C++ trace equivalence proof.
+
+`press_current` now delegates to `press_rows` with all four rows, preserving the serialized resolve and commit-before-arm passes. Held/gated owner tokens affect playback-only pending entries. Producer leases, release barriers, Panic priority and device delivery are outside this capture model. The standalone replay links and pins the real shared peripheral latch required by the engine; its presence does not expand the model's claim.
 
 | Deliberate broken policy | TLC rule that fails | Actual C++ witness |
 | --- | --- | --- |

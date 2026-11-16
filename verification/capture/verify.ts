@@ -97,10 +97,11 @@ const sourceFiles = [
   'lib/sampler/src/sample_engine.cpp', 'lib/sequencer/src/audio_sequence_engine.cpp', 'lib/patches/src/patch_engine.cpp',
   'lib/tuner/src/tuner.cpp',
   'lib/patches/src/tribulations_guitar.cpp', 'lib/patches/src/tribulations_string.cpp', 'lib/patches/src/tribulations_filter.cpp', 'lib/patches/src/tribulations_amp.cpp',
+  'lib/peripherals/src/peripheral_controls.cpp',
 ];
 const build = join(output, 'native');
 mkdirSync(build);
-const flags = ['-std=c++17', '-O0', '-DBT_MANUAL_ONLY', ...['beat-tracker', 'sampler', 'sequencer', 'performance', 'patches', 'tuner'].map(name => '-I' + join(repository, 'lib', name, 'include'))];
+const flags = ['-std=c++17', '-O0', '-DBT_MANUAL_ONLY', ...['beat-tracker', 'sampler', 'sequencer', 'performance', 'patches', 'tuner', 'peripherals'].map(name => '-I' + join(repository, 'lib', name, 'include'))];
 const compiler = process.env.CXX || 'c++';
 const objects = sourceFiles.map((file, index) => {
   const object = join(build, index + '.o');
@@ -129,6 +130,7 @@ for (const mutation of nativeMutations) {
   const changed = join(folder, 'mutant.cpp');
   writeFileSync(changed, source);
   copyFileSync(join(repository, 'lib/performance/src/compiled_program.h'), join(folder, 'compiled_program.h'));
+  copyFileSync(join(repository, 'lib/performance/src/input_router.h'), join(folder, 'input_router.h'));
   const object = join(folder, 'mutant.o');
   accepted(compiler, [...flags, '-c', changed, '-o', object], 'compile-mutant-' + mutation.name);
   const mutant = join(folder, 'replay');
