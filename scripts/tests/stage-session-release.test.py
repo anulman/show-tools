@@ -365,6 +365,11 @@ class StagingTests(unittest.TestCase):
             stage.validate_release(target, SOURCE)
             self.assertEqual(sum(candidate.exists() for candidate in candidates), 1)
 
+    def test_anchored_writer_suite(self):
+        result = subprocess.run([sys.executable, "-I", str(Path(__file__).with_name("stage-session-release-anchored.test.py"))],
+                                capture_output=True, text=True, timeout=60)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
