@@ -41,21 +41,51 @@ If discovery reports an error, stop here. The commands below require the matched
 
 Skip this step after the peripheral service has been installed. Its initial installation must run locally as `anulman`, without `sudo`. The existing remote web-deployment grant does not enable this separate service.
 
-The deployment supplies a reviewed installation packet for the exact installed release. Run:
+The deployment supplies a reviewed bootstrap reference for the installed application. The installer can have a different revision. Run this block to verify and execute the selected command:
 
 ```sh
-PRACTICE_BOOTSTRAP=$(python3 - "$PRACTICE_RELEASE/release.json" <<'PY'
-import json, pathlib, re, sys
+python3 - "$PRACTICE_RELEASE/release.json" <<'PY'
+import hashlib, json, os, pathlib, re, stat, subprocess, sys
+
+def capture(path, limit):
+    flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    with os.fdopen(os.open(path, flags), 'rb') as stream:
+        before = os.fstat(stream.fileno())
+        if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1 or (before.st_uid, before.st_gid) != (1000, 1000) or stat.S_IMODE(before.st_mode) != 0o600 or before.st_size > limit:
+            raise SystemExit('Bootstrap file has unexpected ownership, type, mode or size: ' + str(path))
+        data = stream.read(limit + 1)
+        after = os.fstat(stream.fileno())
+    stamp = lambda s: (s.st_dev, s.st_ino, s.st_mode, s.st_uid, s.st_gid, s.st_nlink, s.st_size, s.st_mtime_ns, s.st_ctime_ns)
+    if len(data) != before.st_size or stamp(before) != stamp(after):
+        raise SystemExit('Bootstrap file changed during capture. Stop here.')
+    return data
+
+if os.getuid() != 1000 or os.getgid() != 1000:
+    raise SystemExit('Run this locally on the EliteDesk as anulman, without sudo.')
 p = json.loads(pathlib.Path(sys.argv[1]).read_text())
 r = p.get('sourceRevision', '')
 if p.get('schemaVersion') != 2 or not re.fullmatch('[0-9a-f]{40}', r):
     raise SystemExit('A reviewed V2 release is required.')
-print('/home/anulman/.local/share/show-tools/staging/peripheral-service-' + r[:7] + '-' + r[:7])
+staging = pathlib.Path('/home/anulman/.local/share/show-tools/staging')
+reference = json.loads(capture(staging / ('peripheral-bootstrap-' + r[:7] + '.json'), 8192))
+if not isinstance(reference, dict) or set(reference) != {'schemaVersion', 'applicationSourceRevision', 'installerSourceRevision', 'manifestSha256', 'command'} or type(reference['schemaVersion']) is not int or reference['schemaVersion'] != 1 or reference['applicationSourceRevision'] != r:
+    raise SystemExit('Bootstrap reference does not match this application. Stop here.')
+installer = reference['installerSourceRevision']
+if not isinstance(installer, str) or not re.fullmatch('[0-9a-f]{40}', installer):
+    raise SystemExit('Invalid installer revision. Stop here.')
+packet = staging / ('peripheral-service-' + r[:7] + '-' + installer[:7])
+command = reference['command']
+if not isinstance(command, dict) or set(command) != {'path', 'bytes', 'sha256'} or command['path'] != str(packet / 'OPERATOR-COMMAND.txt') or type(command['bytes']) is not int or not 0 < command['bytes'] <= 32768:
+    raise SystemExit('Invalid bootstrap command reference. Stop here.')
+manifest = capture(packet / 'manifest.json', 32768)
+body = capture(packet / 'OPERATOR-COMMAND.txt', 32768)
+if hashlib.sha256(manifest).hexdigest() != reference['manifestSha256'] or len(body) != command['bytes'] or hashlib.sha256(body).hexdigest() != command['sha256']:
+    raise SystemExit('Bootstrap hashes differ from the reviewed reference. Stop here.')
+subprocess.run(['/bin/sh'], input=body, check=True)
 PY
-) && /bin/sh "$PRACTICE_BOOTSTRAP/OPERATOR-COMMAND.txt"
 ```
 
-The command verifies the pinned installer and packet, then installs, enables, and starts only `show-tools-peripheral.service`. It writes no input map and opens no USB or audio device. The service waits for the capture step below. If the packet is missing, deployment is incomplete. If a peripheral profile already exists, preserve it and skip this initial-install path.
+The command uses captured, hash-checked bytes. It installs, enables, and starts only `show-tools-peripheral.service`. It writes no input map and opens no USB or audio device. The service waits for the capture step below. If the reference or packet is missing, deployment is incomplete. Do not guess an installer revision or use an older packet. If a peripheral profile already exists, preserve it and skip this initial-install path.
 
 ## Check the services before touching the controls
 
