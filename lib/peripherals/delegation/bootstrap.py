@@ -113,13 +113,17 @@ def active_grant(inactive):
             'Reviewed explicit version-two installation map required')
     input_map = assignment['inputMap']
     require(type(input_map.get('switches')) is list and type(input_map.get('leds')) is list
-            and all(type(item) is dict for item in input_map['switches'] + input_map['leds'])
-            and {item.get('controlId') for item in input_map['switches']}
-                == {'blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'}
-            and len(input_map['switches']) == 6 and len(input_map['leds']) == 4
-            and {item.get('controlId') for item in input_map['leds']} == {'blue', 'yellow', 'red', 'green'}
-            and type(input_map.get('axis')) is dict and input_map.get('confirmWiring') is True,
-            'Complete six-switch, spinner and four-arcade-LED assignment required')
+            and all(type(item) is dict and type(item.get('controlId')) is str
+                    for item in input_map['switches'] + input_map['leds']),
+            'Explicit observed switch and LED identities required')
+    controls = [item['controlId'] for item in input_map['switches']]
+    leds = [item['controlId'] for item in input_map['leds']]
+    require(1 <= len(controls) <= 6 and len(set(controls)) == len(controls)
+            and set(controls) <= {'blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'}
+            and len(set(leds)) == len(leds) and set(leds) <= set(controls)
+            and ('axis' not in input_map or type(input_map['axis']) is dict)
+            and (not leds or input_map.get('confirmWiring') is True),
+            'Observed switches required; LEDs must belong to those switches')
     value['active'] = True
     return (json.dumps(value, indent=2) + '\n').encode()
 

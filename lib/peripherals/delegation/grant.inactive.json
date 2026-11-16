@@ -111,6 +111,6 @@
     "maxBytes": 8388608,
     "onFailure": "deny"
   },
-  "checkerSha256": "8f86481991f1bf577ad9623e07888d7cd35434377fb433b4c8f1b09ffb5572c0",
+  "checkerSha256": "c9e67248a7656956b1c67bded435b760caec543d8ad734cdc8583b82a0508143",
   "signersSha256": "367f4cd6685d962f7fac2e4e406f691e6c3c4da92a40b36c1170d95c1df5adc7"
 }

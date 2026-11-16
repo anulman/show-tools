@@ -137,17 +137,34 @@ class Delegation(unittest.TestCase):
                 with self.assertRaises(check.Rejected):
                     check.validate_input_map(changed)
 
-    def test_null_legacy_and_partial_assignments_cannot_be_admitted(self):
+    def test_null_legacy_and_unpaired_led_assignments_cannot_be_admitted(self):
         for replacement in (None, {'buttonKey': 'escape', 'sdkChannel': 0}):
             grant = copy.deepcopy(self.grant)
             grant['target']['peripheralAssignment']['inputMap'] = replacement
             with self.assertRaises(check.Rejected):
                 check.validate_grant(check.canonical(grant), self.checker, self.signer)
-        for field in ('switches', 'leds'):
-            grant = copy.deepcopy(self.grant)
-            grant['target']['peripheralAssignment']['inputMap'][field].pop()
-            with self.assertRaisesRegex(check.Rejected, 'Complete six-switch'):
-                check.validate_grant(check.canonical(grant), self.checker, self.signer)
+        grant = copy.deepcopy(self.grant)
+        grant['target']['peripheralAssignment']['inputMap']['switches'].pop(0)
+        with self.assertRaisesRegex(check.Rejected, 'LEDs must belong'):
+            check.validate_grant(check.canonical(grant), self.checker, self.signer)
+
+    def test_one_or_two_observed_buttons_do_not_require_future_controls_or_spinner(self):
+        for count in (1, 2):
+            with self.subTest(count=count):
+                grant = copy.deepcopy(self.grant)
+                observed = grant['target']['peripheralAssignment']['inputMap']
+                observed['switches'] = observed['switches'][:count]
+                observed['leds'] = observed['leds'][:count]
+                observed['sources'] = observed['sources'][:1]
+                observed.pop('axis')
+                raw = check.canonical(grant)
+                check.validate_grant(raw, self.checker, self.signer)
+                plan = dict(self.plan, grantSha256=check.sha(raw),
+                            peripheralAssignmentSha256=check.sha(check.canonical(grant['target']['peripheralAssignment'])))
+                result = self.candidate(self.message(plan), grant=raw)
+                self.assertFalse(result['executable'])
+                self.assertEqual(len(observed['switches']), count)
+                self.assertNotIn('axis', observed)
 
     def test_changed_observed_map_requires_new_root_grant_and_new_signed_request(self):
         changed = copy.deepcopy(self.grant)
