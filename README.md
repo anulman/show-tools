@@ -1,5 +1,7 @@
 # Show tools
 
+For EliteDesk hardware practice, follow the [practice quickstart](docs/practice-quickstart.md). It covers installed services, button and dial capture, LED checks, song assignments, and a first recording.
+
 Start with [how the practice instrument fits together](docs/architecture.md) for the architecture and its rationale. Use [the development handoff](docs/development.md) to divide filter, UI, and EliteDesk work across sessions.
 
 For optional Sheets following, run `./show-tools sheets` to open the set list, or `./show-tools sheets 1` to open a song chart. The [CLI guide](scripts/open-chart.md) covers browser reuse, `--no-cdp`, `--skip-open`, and local `.envrc` overrides. Practice audio works independently.

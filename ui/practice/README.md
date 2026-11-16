@@ -1,5 +1,7 @@
 # Practice with the desk
 
+For the installed EliteDesk and physical I-PAC controls, use the [practice quickstart](../../docs/practice-quickstart.md).
+
 From the repository root, build the manual clock and browser files.
 
 ```sh
