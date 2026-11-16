@@ -412,3 +412,12 @@ Run `node --import tsx --test ui/practice/tests/voice-effects.test.ts ui/practic
 In the actual practice desk, verify keyboard arrows adjust a focused knob without triggering Q/W/A/S or Space transport shortcuts. Verify Apply readback and reload persistence while stopped. Drag up/right to increase, down/left to decrease; Shift gives fine control. Keep the operator's active desk and audio session untouched. Main-view controls lock during practice; native DSP and the existing save/apply boundary own the effect change.
 
 For the full Drunk Girls pickup/capture regression, run `node --import tsx scripts/verify-drunk-girls-performance.ts` after rebuilding WASM. It creates private temporary artifacts and executes the native host; it does not start a service or access devices. Inspect the canonical song with `./show-tools chart inspect songs/drunk-girls.musicxml`. Periodic live-source preparation and pickup-phase witnesses also run in `lib/performance/tests/terse-wasm.test.ts`.
+
+
+### Verify identified hardware and browser inputs
+
+Run `node --import tsx --test lib/performance/tests/input-routing.test.ts` for canonical MusicXML bindings, strict installation/music separation and exact native routing readback. Build fresh WASM, then run `lib/performance/tests/physical-input-wasm.test.ts` and `ui/practice/tests/musical-input-policy.test.ts` through the same test command. The native `physical_input` target covers admitted and queued held ownership, failed admission, source-specific release, atomic replacement and producer fences.
+
+Build the current fake host and set `NATIVE_FAKE_HOST` to its absolute executable before running `lib/peripherals/tests/bridge-integration.test.ts` and `lib/peripherals/tests/managed-runtime.test.ts`. Run `ui/practice/tests/browser-peripheral.test.ts` for stop, pagehide and policy changes during every attachment stage. These use owned synthetic processes and loopback sockets. They leave live services and devices untouched.
+
+The [peripheral guide](../lib/peripherals/README.md#persistent-device-host) defines version-two installation profiles and explicit migration facts. Both adapters reject anonymous historical key defaults. Empty LED maps support input-only attachment without an output interface. Actual Linux CI must execute the multi-interface pipe fixtures; cross-compilation is insufficient. Physical acceptance still requires observed input maps and electrical confirmation. Source installer verification does not install or expand a host delegation.

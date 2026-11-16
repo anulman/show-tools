@@ -53,7 +53,7 @@ The editor may display Blue or Yellow beside the affected cue row. It must not i
 
 Use the reserved native identified-input boundary `pf_input_event`, with a bounded binding table prepared while stopped. TypeScript validates and lowers declarative IDs; C++ owns fresh-edge admission, target selection, release ownership and all musical timing.
 
-Native execution must extend the existing resolve-all-first, commit-before-arm batch with a selected row mask. Repeated calls to `press(row)` are not equivalent. Record the admitted held owner and ownership generation per row, including software producers. A rejected press cannot acquire another producer's held ownership; late release or revocation cannot release a newer owner. Do not use `release_current()` for producer cleanup.
+Native execution must extend the existing resolve-all-first, commit-before-arm batch with a selected row mask. Repeated calls to `press(row)` are not equivalent. Record the admitted held owner and ownership generation per row, including software producers. A rejected press cannot acquire another producer's held ownership; late release or revocation cannot release a newer owner. Queued held launches also retain the admitted owner token; superseded launches cannot execute later or cancel another owner. Producer cleanup uses `release_owner`, and the global `release_current()` path is removed.
 
 Two designs were considered. Bridge-only lowering can reuse today's pad press/release commands, but leaves physical held ownership and LED selection outside the engine. The native boundary keeps them together and supports the complete engine-authored output image. Reuse the existing portable 32-slot input latch and compiled cue executor rather than creating another clock or scheduler.
 
@@ -69,23 +69,27 @@ The UI boundary is a Keyboard shortcuts / Physical controls selection. `native-c
 
 Native same-host activation requires that explicit client policy when operator configuration has not established it. Pairing cannot silently enable both producers. Policy changes and blur revoke only the keyboard producer's admitted ownership, clear its local pressed UI and establish fresh release barriers before keyboard readmission. Pointer, remote-client and native-device ownership remain separate. Perfect automatic USB-specific DOM suppression is not a supported capability.
 
-## Proposed ABI and host slots
+## Implemented ABI and host slots
 
-These slots are proposed for Chief's reservation, not implemented. The inspected `0c748b6` tree uses PF ABI 11 and host operations 1–13 and 15; operation 14 and 16–17 are free. Existing `pf_control` IDs are unchanged, including 16–79 for external samples.
+The integration source uses PF ABI 12. These changes are not a deployment or physical acceptance receipt. Existing `pf_control` IDs are unchanged, including 16–79 for external samples; host operation 15 remains WAV preparation.
 
 | Surface | Proposed reservation |
 | --- | --- |
 | Native/WASM handshake | `PF_ABI_VERSION = 12` |
 | Binding storage | Optional compiled-packet-7 extension `PFI1` (`0x50464931`), bounded by six physical switches |
-| Native API | `pf_input_attach`, `pf_input_event`, `pf_input_revoke`, `pf_input_info` |
+| Native API | `pf_input_attach`, `pf_input_event`, `pf_input_revoke`, `pf_input_info`, `pf_input_is_panic`, `pf_input_inherit` |
 | Host operation 14 | Attach producer: slot, monotonic session, binding generation, producer kind, released mask, held mask |
 | Host operation 16 | Observation: producer slot, session, binding generation, sequence, input ID, value |
 | Host operation 17 | Revoke producer: slot and matching session |
 | Light output | Keep format version 1, 78 fields and capacity 32; identified controls use opaque IDs 257–262, separate from existing aggregate ID 1 |
 
+`pf_input_info` returns exactly 196 doubles. Its four-field header is binding generation, active producer count, session high-water mark, and the physical Panic binding mask. Up to 32 active records follow, ordered by slot, with six fields each: slot, session, producer kind, released mask, held mask, and last sequence. Inactive trailing records are zero. The high-water mark survives revoke, Stop and Start, so a replacement gateway can allocate newer sessions without guessing hidden retired-slot state.
+
+Native host preparation verifies a separate candidate engine. Before the atomic swap, `pf_input_inherit(candidate, previous)` advances the previous binding generation and carries its session high-water mark. It transfers no producer records. Invalid candidates or precision exhaustion leave the previous engine unchanged. Events queued against the old generation fail even if a slot number is reused.
+
 The producer table is preallocated with 32 slots. Physical producers use switch IDs 0–5 and knob ID 6; logical keyboard/pointer producers use existing logical control IDs. The host assigns slots and monotonic sessions from authenticated producer identity; a client cannot adopt another client's slot. A full table rejects admission rather than evicting an owner. The audio thread allocates nothing for attach, input or revoke.
 
-Attach, input and revoke are one engine-thread path in browser/WASM and native hosting. Existing raw producers, keyboard and pointer callers migrate to that path; low-level legacy control callers have a distinct reserved source, not global release authority. A bound Panic input must enter the existing reserved Stop/Panic lane after checking its current binding generation; do not trust a client-supplied priority claim.
+Attach, input and revoke are one engine-thread path in browser/WASM and native hosting. Existing raw producers, keyboard and pointer callers migrate to that path; low-level legacy control callers have a distinct reserved source, not global release authority. Explicit UI Panic remains the reserved global utility through control 4, including immediate local recording and microphone cleanup when backend acknowledgement fails. The DOM policy runs before Escape, and physical Panic readback also performs that UI cleanup without a second Panic action. This utility has no held-sample release ownership. A bound physical Panic input must enter the existing reserved Stop/Panic lane after checking its current binding generation; do not trust a client-supplied priority claim.
 
 ## Proposed file reservations
 
@@ -114,9 +118,9 @@ PE owns the `control_stream.h/.cpp` parser and these shared records. The install
 
 The version-2 production CLI is `peripheral-host SESSION --map-version 2`, followed by fixed-arity repeated arguments: `--linux-source ID INTERFACE EVENT_TYPES KEY_CODES RELATIVE_AXES` or `--hid-source ID INTERFACE USAGE_PAGE USAGE`; `--switch CONTROL SOURCE TYPE CODE`; optional `--axis knob SOURCE TYPE CODE`; and `--led CONTROL SDK_CHANNEL` only with `--confirm-wiring`. Capability sets use sorted unique decimal comma-separated values, with `-` for an empty set. Source IDs are bounded ASCII identifiers. Validate the whole map before opening any device. No shell interpretation occurs: the bridge uses `spawn()` argument arrays.
 
-`Ready(version=2)` lists each configured switch's physical ID and released/held/unknown state. Button records carry `controlId` and `down`; motion remains signed `deltaY`. All observations share one increasing session sequence. Repeat value 2 advances observation order without emitting another semantic press. Explicit loss emits a detached/loss diagnostic and revokes the stream; sequence jumps do not.
+`Ready(version=2)` lists each configured switch's physical ID and released/held/unknown state. Button records carry `controlId` and `down`; motion remains signed `deltaY`. All observations share one increasing session sequence. Repeat value 2 advances observation order without emitting another semantic press. Helpers forward the first held/unknown-to-released edge even when their local latch admits no semantic release, so the engine can clear its own initial barrier. Explicit loss emits a detached/loss diagnostic and revokes the stream; sequence jumps do not.
 
-The Linux runtime receives a qualified collection of source handles, that immutable map and initial switch states, replacing `LinuxHandles`' one keyboard, one mouse, one selected `ButtonKey` and one held Boolean. It owns polling, stable per-interface order, fresh snapshots and explicit loss. It never selects a song target, allocates an engine producer slot or produces musical LED timing.
+The Linux runtime receives a qualified collection of source handles, that immutable map and initial switch states. It replaces `LinuxHandles`' one keyboard, one mouse, one selected `ButtonKey` and one held Boolean. It owns polling, stable per-interface order, fresh snapshots and explicit loss. It never selects a song target, allocates an engine producer slot or produces musical LED timing.
 
 Helper stdin retains fenced bind/full-image/clear/quit delivery. Bind expands the complete configured physical-ID-to-SDK map, including removed-output clearing; no single-channel constructor remains in the production path. Shared PE logical LED IDs 257–262 correspond to the physical registry order, not SDK channels. Existing descriptor validation and complete-frame prepare/deliver/commit remain mandatory.
 

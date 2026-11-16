@@ -143,273 +143,82 @@ For 6/8, chart and pedal count six eighth-note beats. The first pedal tap can oc
 The native tests cover reconnect latches, ordering, raw rotation, explicit light math, envelope endpoints, baseline changes at expiry, malformed descriptors, and exact SDK report encoding. The WASM build runs the same assertions and compares emitted values against native execution. The separate PF fixture applies four deliberately reordered button-to-channel bindings to the real C++ engine, captures generated PCM sequentially, commits and auto-plays four loops, renders their mix, and stops them. The fixture forwards identical signed rotation to two explicit host-side test bindings, one selecting a target and one enabling click. This proves the normalization seam can feed different operations; it does not test song-based resolution.
 
 Mac and Linux CI compile the probe and exercise its help and refusal paths without hardware. Stop/disconnect/error summary counters have synthetic coverage. The original implementation checks opened no physical I-PAC. Subsequent MacBook bench testing verified keyboard input, signed relative Y motion, and visible control of LED output 1. See the [bench verification record](../../docs/guides/ipac-mac/bench-verification.md) for the limits of those observations. The checked-in enable/pulse commands have automated protocol and failure-path tests; their packaged hardware execution still needs a repeat. Linux physical operation, the remaining input and LED map, latency, and exact physical pulse timing remain unverified.
-## Persistent Mac device host
+## Persistent device host
 
-The `peripheral-host` target owns the confirmed I-PAC installation's Tab key
-(HID page 7, usage 43), relative Y axis (page 1, usage 49), and one explicitly
-selected SDK LED channel. It requires exactly one `d209:0410` device with unique
-matching input interfaces and a validated LED report descriptor. It opens only
-those interfaces without exclusive seizure. The I-PAC's Tab and cursor-Y events
-also reach macOS. Exclusive opening requires privileges that Input Monitoring
-alone does not grant. Start it from the context granted Input Monitoring.
-It never opens the laptop keyboard.
+`peripheral-host` uses an explicit version-two installation map on macOS and Linux. Physical controls are `blue`, `yellow`, `red`, `green`, `pedal`, and `mushroom`. The relative axis is `knob`. These names identify wiring, not cue rows. No key, interface, LED channel, or musical target has a default. The [routing contract](../../docs/implementation/physical-control-routing.md) defines the engine boundary and current physical acceptance gaps.
 
-`peripheral-host --access-status` reports granted, denied or unknown Input
-Monitoring permission without prompting. `--inspect` also qualifies the device
-without opening any interfaces. Permission and USB enumeration are separate
-checks; open failures report their actual macOS error rather than assuming a
-permission cause.
+Build and `--help` open no devices. Run `--inspect` only when inspection is requested. It reports observed interfaces and capabilities without opening output delivery. On Mac, `--access-status` checks Input Monitoring without prompting. Start the Mac host from the context granted that permission. Inputs also reach the operating system because the helper does not seize them.
 
-`peripheral-host SESSION SDK_CHANNEL --confirm-wiring` is a child-process
-interface rather than a stand-alone performance command. The gateway client
-supplies a fresh exact positive session integer and owns stdin. Build and
-`--help` perform no hardware IO. The current installation uses SDK channel 0,
-physical output 1, with its separate 5 V supply connected.
+The production child interface is:
 
-Stdout emits version-one `ready`, `button`, `motion`, `detached` and `delivered`
-NDJSON. Unknown or initially held buttons require a release before admission;
-repeated held reports and zero motion produce no controls. Raw signed Y distance
-is preserved. Registry IDs are discovered per connection rather than saved.
-Removal ends the child, and EOF or signals close its interfaces. A parent must
-discard pending inputs and release native held state when the child exits.
+```text
+peripheral-host SESSION --map-version 2
+  --linux-source ID INTERFACE EVENT_TYPES KEY_CODES RELATIVE_AXES
+  --switch CONTROL SOURCE TYPE CODE
+  --axis knob SOURCE TYPE CODE
+  --led CONTROL SDK_CHANNEL --confirm-wiring
+```
 
-Stdin accepts `bind ENGINE SESSION REVISION FENCE`, then
-`light ENGINE SESSION REVISION FENCE` followed by the complete 78-number PE
-publication, or `clear` / `quit`. The existing delivery gate validates and fences
-each image; all brightness writes must succeed before commit. `clear` also
-disables delivery until a fresh bind. Only brightness reports are written:
-unknown peer enable masks are preserved. A disabled physical channel may need
-separately verified enable-mask initialization; this helper never guesses it.
-The 5 ms run-loop wait services IO and does not advance musical time or animate
-lights. The Linux helper implements the same protocol through evdev and hidraw.
+Use `--hid-source ID INTERFACE USAGE_PAGE USAGE` instead of `--linux-source` on Mac. Repeat source, switch, and LED arguments as needed. Axis and LED mappings are optional. Linux capability lists are sorted, unique decimal values separated by commas; `-` means empty. A source ID contains at most 32 ASCII letters, digits, underscores, or hyphens. The whole map is validated before device access. Source selectors must resolve uniquely within the qualified board.
 
-Enable hardware audio and leave transport stopped, then run from the permissioned
-terminal:
+Linux selectors use the observed USB interface number and exact event-type, key-code, and relative-axis capability sets. HID selectors use the observed interface and top-level collection usage; input mappings select elements inside that collection. Device paths, USB ports, registry IDs, and enumeration order are not persistent selectors. Unavailable or ambiguous identity blocks attachment rather than choosing a likely interface.
+
+An empty LED map requires no LED interface and produces no USB output writes. Mapped LEDs require independently confirmed wiring and zero-based SDK channels. Physical LED IDs 257 through 262 correspond to the six physical controls in registry order, independently of SDK channel numbers.
+
+Stdout emits version-two NDJSON. Ready contains `switches: [{controlId, state}]`, where state is `released`, `held`, or `unknown`. Buttons contain `controlId`, `down`, `session`, and `sequence`; motion contains signed `deltaY`. The first release of an initially held or unknown switch is forwarded to clear the engine's release barrier. It admits no musical release. Repeats consume observation order without another press. Sequence numbers increase but need not be contiguous. Explicit loss or disconnect revokes the stream.
+
+Stdin accepts `bind ENGINE SESSION REVISION FENCE`, then `light` with the same tuple and the complete 78-field native publication, or `clear` and `quit`. Complete-frame prepare/deliver/commit fencing remains mandatory. Only brightness reports are written. The helper does not change enable masks, advance musical time, animate LEDs, or choose song targets. Input-only sessions retain validated zero-report bind/light acknowledgements.
+
+## Connect to hardware audio
+
+With an explicitly configured hardware session available, run:
 
 ```sh
 ./show-tools peripheral connect --config /absolute/path/peripheral.json
+./show-tools peripheral serve --config /absolute/path/peripheral.json
 ```
 
-Configuration contains no token value:
+The configuration requires `version: 2`, the gateway `origin`, private absolute `tokenFile`, `helperExecutable`, positive `bindingRevision`, explicit `inputMap`, and `jiggle`. Optional `caFile` and `connectAddress` retain the existing TLS and routing contract. The token value belongs in its caller-owned private file, never in JSON or songs. `jiggle` is either `null` or an explicitly selected `{minimumTravel, minimumReversal}` object. Disabled motion still consumes sequence numbers; buttons and feedback continue.
 
-```json
-{
-  "version": 1,
-  "origin": "https://YOUR-CONFIGURED-INSTRUMENT-ORIGIN",
-  "tokenFile": "/absolute/private/gateway-token",
-  "caFile": "/absolute/path/instrument-certificate.pem",
-  "helperExecutable": "/absolute/path/peripheral-host",
-  "sdkChannel": 0,
-  "bindingRevision": 1,
-  "jiggle": { "minimumTravel": 4, "minimumReversal": 2 }
-}
-```
+`inputMap` contains:
 
-Omit `caFile` when using the system trust store. HTTP is accepted only on loopback.
-The token file must be caller-owned with mode 600. The bridge sends no transport
-Start or Stop. It resets held state before admitting inputs. An explicit jiggle
-object requires native threshold acknowledgement first. Set `"jiggle": null`
-to leave physical musical knob actions off: motion reports remain validated and
-consume sequence numbers, but send no knob controls or threshold configuration.
-Button actions, PE-authored light images and release cleanup remain enabled.
-The field is required; omitting it does not select a default. Reconnect after an engine attempt changes or USB is removed.
+| Field | Required data |
+| --- | --- |
+| `sources` | One to eight unique selectors. Linux uses `{kind:"linux", id, interfaceNumber, eventTypes, keyCodes, relativeAxes}`. Mac uses `{kind:"hid", id, interfaceNumber, usagePage, usage}`. |
+| `switches` | Up to six unique `{controlId, sourceId, type, code}` entries. Linux uses EV_KEY and the observed key code. Mac uses element usage page and usage. |
+| `axis` | Optional `{sourceId, type, code}`. Linux requires EV_REL and the observed relative axis. Mac requires a relative HID element. |
+| `leds` | Up to six unique `{controlId, sdkChannel}` entries, or `[]` for input-only operation. |
+| `confirmWiring` | Boolean. It must be true when LEDs are mapped. |
 
-The starting 4/2 thresholds are software tuning values in raw Y counts rather
-than a measured physical deadband. Native C++ owns confirmation and its
-quarter-count observation window. Adjacent same-direction reports may combine
-during a network acknowledgement; signed travel is retained and reversals stay
-ordered. Old queued input is never replayed into another engine attempt.
+Every declared source must supply an input. Raw inputs cannot alias controls. The map belongs to one host platform and contains no musical targets. Version-one `sdkChannel`/`buttonKey` configurations are refused. Migration requires observed selectors and confirmed physical identities; historical Tab or Escape settings cannot identify a colour. Musical bindings are selected separately in canonical song `inputBindings` and remain unbound when absent.
 
-Ctrl+C clears the local output, makes a fresh bounded release request against the
-same native target, and closes the helper. Release failures are reported. Native
-stdout and both input streams are bounded. A silently stalled network stream
-currently has no automatic fail-dark watchdog. Physical beat alignment remains
-subject to network latency. The bridge never guesses an LED enable mask.
+The gateway assigns native producer slots and monotonic sessions to authenticated clients. The bridge submits only the physical role, generation, initial masks, and ordered observations. Cleanup revokes that client's physical source, never a global cue release. Start, Stop, and song preparation retain their normal lifecycle rules. `serve` waits for audio/device readiness and reconnects after a completed cleanup; it starts no audio, browser, or Sheets helper.
 
-### Connect the I-PAC directly to Linux
+The operator packet preparer additionally requires `--input-map FILE` before emitting an activatable packet. It validates explicit Linux selectors and retains the exact installer, release, credential, unit, and idle checks. Updating this source does not install or expand a remote delegation. An older installed authority may still refuse the new profile until its operator-controlled migration is reviewed.
 
-Build `lib/peripherals` on the EliteDesk, then run `peripheral-host --inspect`
-from the build directory. Inspection opens read-only handles and sends no LED
-reports. It requires one `d209:0410` USB device with unique Tab, relative-Y and
-validated LED interfaces under the same USB parent. The helper discovers actual
-evdev and hidraw paths on each launch and retains the qualified handles. It
-checks the USB instance again before starting.
-
-The operating-system account needs read access to the selected evdev devices
-and read/write access to the selected hidraw device. Permission failures identify
-the inaccessible paths. The helper does not use sudo, change permissions, install
-udev rules, or take an exclusive input grab.
-
-Use the same `peripheral connect` configuration with the Linux helper path and
-the already confirmed SDK channel. Tab maps to the existing cue button and raw
-relative Y retains its signed counts. No other switch or LED mapping is inferred.
-The current engine publishes one logical LED, not an invented four-button map.
-
-The helper defaults to the confirmed Tab configuration. For a switch confirmed
-to emit Escape, append `--button-key escape` to `--inspect`, `--bench-held`, or
-the session/channel invocation. Explicit `--button-key tab` selects the default.
-The same selection controls interface qualification, initial held state, event
-filtering, and inspection output. Escape uses Linux key code 1 and HID page 7,
-usage 41. Tab uses Linux key code 15 and HID usage 43. This selects a physical
-input without changing the board's firmware or the engine's logical cue action.
-
-Both evdev interfaces must support monotonic event timestamps. The helper merges
-bounded available batches by those timestamps and preserves order within each
-interface. Ambiguous equal timestamps across interfaces, timestamp regressions,
-partial records, input overflow and `SYN_DROPPED` fail the session and attempt to
-clear its owned LED. Reconnect after releasing the button. An initially held
-button needs a fresh release and press before activation. Keyboard auto-repeat
-does not add activations.
-Queued observations at or before the initial monotonic cutoff are discarded,
-so device discovery cannot replay an earlier press or rotation. This includes
-the startup queue reset that Linux can issue when changing an evdev clock.
-See the [kernel evdev implementation](https://github.com/torvalds/linux/blob/master/drivers/input/evdev.c).
-The runtime's
-bounded poll wait permits shutdown signals to reach cleanup even when all
-inputs are idle. That service wait does not advance musical time or LED phase.
-
-`peripheral-host --bench-held 0 --confirm-wiring` provides the same audio-free
-hold-to-light test for the confirmed output-1 wiring. It sends brightness-only
-reports and preserves enable masks. Compile and pipe fixtures establish adapter
-behavior without devices; visible Linux LED response and physical cue timing
-remain unverified until the controller is moved and tested.
-
-
-## Hold-to-light wiring test without audio
-
-Build `peripheral-host`, then run this from the terminal granted Input Monitoring
-for the confirmed Tab switch and physical LED output 1, SDK channel 0:
+## Use browser audio with local controls
 
 ```sh
-/path/to/peripheral-host --bench-held 0 --confirm-wiring
+./show-tools peripheral browser --helper /absolute/path/peripheral-host --static-root /absolute/path/dist --input-map /absolute/path/input-map.json
 ```
 
-The host clears only that output, then lights it at brightness 255 while a fresh
-Tab press is held and clears it on release. An initially held or unknown switch
-must be released before a fresh press is admitted. Repeated held reports do not
-produce extra activations. Ctrl+C ends the test and attempts to clear the owned
-output. Disconnect or a failed USB write ends the process. Physical darkness
-after unplugging cannot be guaranteed by software.
+This explicit command starts an owned loopback bridge and prints its paired URL. Use the existing deterministic practice launcher for ordinary practice. The bridge does not replace the managed live server or start Chrome/CDP.
 
-This is a wiring test. It opens no microphone, audio device, performance engine,
-or network connection, and it generates no cue timing. It sends brightness
-reports only and preserves the unknown eight-output enable mask. A disabled
-channel therefore remains disabled. It does not monitor the other three button
-or LED mappings, which still require individual observation.
+Choose **Physical controls** in that browser before attachment. **Keyboard shortcuts** enables musical DOM keys and wheel input; **Choose input mode** leaves pointer/touch usable without those shortcuts. The choice is stored per browser tab session. Native controls cannot automatically distinguish a USB keyboard from a laptop keyboard by DOM event properties, hostname, or device lease. Another remote browser's keyboard choice stays independent.
 
-## Run browser practice with the local I-PAC
+Keyboard, pointer, and physical input have separate native leases. Policy changes and blur revoke only keyboard ownership; changing away from physical controls closes only that connection. Physical reattachment waits for its previous revocation acknowledgement. Failed same-engine cleanup remains blocked. A new engine identity can retire an old local lease without sending cleanup into the replacement.
 
-Stop any separate wiring-test monitor before starting this command. One process
-owns the board at a time. Build the matching WASM and UI from this checkout, then
-use the native `peripheral-host` built with its nonseizing Mac transport.
+Explicit UI Panic remains the existing global utility, including immediate local recording/microphone cleanup when its acknowledgement fails. The DOM policy runs before Escape. A physically bound Panic uses identified input and the native generation-checked priority lane. Native Panic readback also completes local UI cleanup without a second Panic action.
+
+## Verify without hardware
 
 ```sh
-npm run build
-./show-tools peripheral browser --helper /absolute/path/peripheral-host --static-root /absolute/path/dist
+node --import tsx --test lib/peripherals/tests/bridge.test.ts lib/peripherals/tests/browser-server.test.ts
+node --import tsx --test ui/practice/tests/browser-peripheral.test.ts ui/practice/tests/musical-input-policy.test.ts
+node --import tsx --test lib/peripherals/tests/operator-service.test.ts
+cmake -S lib/peripherals -B /tmp/show-tools-peripherals -DCMAKE_BUILD_TYPE=Release
+cmake --build /tmp/show-tools-peripherals --parallel
+ctest --test-dir /tmp/show-tools-peripherals --output-on-failure
 ```
 
-Open the printed loopback URL on this Mac. The command serves its own verified
-practice build and does not replace the managed practice server. It binds only
-`127.0.0.1` and owns LED output 1, SDK channel 0. This is the confirmed one-button
-installation, not a guessed map for the other three buttons.
-
-Start practice in the page to prepare browser audio and connect the controller.
-The page reports **Controller connected** before transport Start completes. The
-local pairing secret stays in this origin's session storage so reload can pair
-again. It is removed from the URL before device connection. A second connected
-page is rejected rather than taking ownership from the first.
-
-If the button is held or unknown when the helper opens, release it before the
-first accepted press. The native input latch does not synthesize an activation.
-
-The browser forwards ordered Tab-button edges and signed spinner motion to its
-WASM engine. It sends the engine's complete evaluated light publication to the
-native helper. C++ owns every cue window, pulse phase, and brightness decision.
-The helper sends brightness reports only and preserves unknown enable masks.
-Ordinary Tab focus traversal is suppressed while the helper owns the input.
-
-Closing the page, ending the stream, or missing transport heartbeats for 2.5
-seconds requests an LED clear and invalidates the old connection. This heartbeat does
-not advance musical time. A background page whose browser suspends timers may
-disconnect; the page reports that condition instead of replaying old input.
-Restart the local controller session to reconnect after a device disconnect.
-
-This command does not provide held-button feedback before browser audio is
-prepared. Use `peripheral-host --bench-held 0 --confirm-wiring` for the separate,
-audio-free wiring test, then stop that process before opening this mode.
-
-HTTP acknowledgement means the helper accepted the image into its bounded input
-queue. It does not prove completed USB delivery or measured physical timing.
-If that queue stalls, the server stops and reaps the owned helper with bounded
-TERM and KILL deadlines. A disconnected or unresponsive device can prevent the
-final off report from reaching the LED.
-
-The bridge configuration accepts an optional literal-IP `connectAddress` when the host cannot resolve its configured origin. This changes only the connection destination: Host, Origin, TLS SNI and certificate identity still use `origin`, with normal CA verification. HTTP overrides must be loopback; omit the field for normal DNS resolution.
-
-### Keep the Linux controller available
-
-`show-tools peripheral serve --config /absolute/path/peripheral.json` keeps the
-controller available without enabling audio. It polls authenticated status while
-audio is off, then waits for the sole supported USB board. The config is the
-same explicit endpoint, credentials, helper, LED binding and jiggle thresholds
-used by `connect`; it contains no USB port, device-node name or process ID.
-Changing ports or reconnecting the board does not require another setup script.
-The Linux device-access rule must already be installed once by the operator.
-
-Each attachment uses new helper and command-session identities. Cleanup clears
-the owned LED and releases the native button before a replacement child starts.
-Pending controls are discarded; uncertain controls are never replayed. The
-native engine remains the only musical clock and LED-pattern author. A transport
-already playing may attach only when native jiggle configuration is acknowledged;
-identical thresholds are a native no-op, while changed thresholds require Stop.
-An explicit `jiggle:null` skips threshold configuration and drops physical musical
-knob input without changing the native engine’s existing threshold state.
-This requires the matching native engine implementation of that no-op.
-
-If USB appears before input/hidraw nodes or permissions, a failed qualification
-holds until that board's interface/access metadata changes. An unchanged fault
-does not repeatedly spawn the helper. Multiple boards, invalid credentials, TLS,
-protocol or configuration errors require correction. No permissions are changed
-by the service. Gateway SSE comments establish a one-second connection heartbeat;
-five seconds without a heartbeat or publication fails the connection, clears the
-local output and permits a fresh attachment. These are connection deadlines,
-not musical timers. The helper cannot guarantee darkness after hard power loss
-or an inaccessible/disconnected device.
-
-`renderPeripheralUnit()` in `service-unit.ts` renders a source-only systemd user
-unit for an installed `bin/show-tools-peripheral` and private config. Its
-`default.target` enablement is suitable for an already-lingering user manager;
-it restarts abnormal process exits with a three-second backoff, while normal
-configuration failures remain stopped for diagnosis. Ordinary gateway/USB loss
-is handled inside `serve`. This renderer neither installs nor enables a service.
-The existing web-only host grant does not admit this new named device service:
-its initial operator-controlled installation/activation is a separate missing
-capability. Reboots and reconnects after that bootstrap do not need setup again.
-
-A laptop or phone disconnect leaves the EliteDesk's native audio running. Local
-controller reconnection handles gateway unavailability; it does not change
-Tailscale, networking, the audio lifecycle, or transport. If Tailscale removes
-its local address, a web service bound to that address must itself become
-available again before the controller can reconnect.
-
-
-### Select the confirmed physical switch key
-
-The bridge config accepts optional `buttonKey: "tab" | "escape"`. Omit it to
-preserve existing Tab helper behavior. An explicit value appends the native
-helper's `--button-key tab|escape` flag; the helper uses that key for interface
-qualification and held/press/release input. The logical performance control is
-still `cueButton`; this changes neither firmware nor musical bindings.
-
-For the EliteDesk board whose operator capture identified Escape (Linux
-`KEY_ESC` 1, HID keyboard usage 41), the proposed private profile addition is:
-
-```json
-{"buttonKey":"escape"}
-```
-
-This is a profile proposal, not an installed host change. Use a matching native
-helper release with the optional flag; older helpers reject explicit selections
-rather than silently using another key. Existing profiles without `buttonKey`
-retain their original arguments. LED channel and jiggle configuration stay
-explicit and independent of the physical key selection.
+Build the current fake native host and set `NATIVE_FAKE_HOST` to that executable for `bridge-integration.test.ts` and `managed-runtime.test.ts`. These fixtures use owned HTTP/IPC listeners and synthetic helpers. Linux runtime tests use pipes, synthetic capability maps, and controlled write failures. Mac compilation and Linux cross-compilation do not establish actual Linux runtime behavior. Linux CI must execute the runtime fixtures. None of these checks establishes electrical suitability, raw Blue/Yellow codes, physical latency, or a successful practice audition.
