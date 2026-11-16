@@ -17,5 +17,10 @@ int main() {
   require(!order_linux_input(batch, {200, 0}), "cross-batch simultaneous input is also ambiguous");
   batch = {{1, -1, LinuxInputKind::Motion, 4}};
   require(!order_linux_input(batch, {}), "negative timestamps fail closed");
+  batch = {{7, 100, LinuxInputKind::Button, 1, 5}, {3, 90, LinuxInputKind::Motion, -2}, {7, 101, LinuxInputKind::Button, 2, 5}};
+  require(order_linux_input(batch, {}, 8) && batch[0].value == -2 && batch[2].value == 2,
+    "bounded multiple interfaces preserve repeat observations and signed motion");
+  require(!order_linux_input(batch, {}, 3), "an unconfigured source cannot enter ordering");
+  require(!order_linux_input(batch, {}, 9), "source count is bounded before indexing");
   std::puts("Linux input ordering tests passed without opening devices.");
 }
