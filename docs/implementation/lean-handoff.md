@@ -21,7 +21,12 @@ Keep mutable host observations separate from immutable artifact evidence. Record
 `scripts/stage-session-release-admission.py` is the fixed admission caller for the anchored staging path. On its assigned Linux host, its interface is:
 
 ```sh
-python3 -I scripts/stage-session-release-admission.py --envelope ENVELOPE.json --plan PLAN.json --archive RELEASE.tar.gz --executor stage-session-release-anchored.py --validator stage-session-release.py
+python3 -I scripts/stage-session-release-admission.py \
+	--envelope /home/anulman/.local/share/show-tools/staging/ENVELOPE.json \
+	--plan /home/anulman/.local/share/show-tools/staging/PLAN.json \
+	--archive /home/anulman/.local/share/show-tools/staging/RELEASE.tar.gz \
+	--executor /home/anulman/.local/share/show-tools/staging/stage-session-release-anchored.py \
+	--validator /home/anulman/.local/share/show-tools/staging/stage-session-release.py
 ```
 
 All five inputs must be in its fixed app-private staging directory. The caller checks the assigned host and user, protected checker pins, executor and validator hashes, reviewed archive accounting, and pinned current application files. It is a fixed-target caller with frozen preconditions, not a general deployment runner. The matching reviewed files and recognized host capability are prerequisites. This example is an interface reference, not a claim that the caller or grant is installed.
