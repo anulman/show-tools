@@ -41,7 +41,7 @@ test('explicit routes preserve authority, TLS identity and failure boundaries fo
       servername: request.socket.servername });
     if (stall) return;
     response.writeHead(status, { 'content-type': 'application/json' });
-    response.end(JSON.stringify(request.url === '/api/session' ? { sessionId: 'test-session', view } : view));
+    response.end(JSON.stringify(request.url === '/api/session' ? { sessionId: 'test-session', inputOwnerToken: 'fixture-owner-token', view } : view));
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
@@ -111,7 +111,7 @@ test('HTTP legacy and explicit loopback routes reach both actual clients', async
   await writeFile(join(directory, 'token'), token, { mode: 0o600 });
   const view = deskFixture().snapshot();
   const requests: IncomingMessage[] = [];
-  const server = httpServer((request, response) => { requests.push(request); response.end(JSON.stringify(request.url === '/api/session' ? { sessionId: 'test', view } : view)); });
+  const server = httpServer((request, response) => { requests.push(request); response.end(JSON.stringify(request.url === '/api/session' ? { sessionId: 'test', inputOwnerToken: 'fixture-owner-token', view } : view)); });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   t.after(() => new Promise<void>(resolve => { server.closeAllConnections(); server.close(() => resolve()); }));
   const bound = server.address(); if (!bound || typeof bound === 'string') throw new Error('Missing test port');
