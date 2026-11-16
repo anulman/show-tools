@@ -59,7 +59,7 @@ class InstallerTests(unittest.TestCase):
         self.write(self.token, b'owned-test-token-never-output')
         self.web_data = json.dumps({'serviceName': 'show-tools-web.service', 'origin': 'https://proxmox.tail54fc55.ts.net:8443', 'connectAddress': '100.93.139.99', 'tokenFile': str(self.token), 'server': {'nodeExecutable': str(self.release.parent / ('session-' + WEB_REVISION[:7])) + '/runtime/node', 'entrypoint': str(self.release.parent / ('session-' + WEB_REVISION[:7])) + '/gateway/server.mjs'}}).encode()
         self.write(self.web, self.web_data)
-        self.profile_data = json.dumps({'version': 1, 'origin': 'https://proxmox.tail54fc55.ts.net:8443', 'connectAddress': '100.93.139.99', 'tokenFile': str(self.token), 'helperExecutable': str(self.release) + '/native/peripheral/peripheral-host', 'sdkChannel': 0, 'bindingRevision': 1, 'buttonKey': 'escape', 'jiggle': {'minimumTravel': 4, 'minimumReversal': 2}}).encode()
+        self.profile_data = json.dumps({'version': 2, 'origin': 'https://proxmox.tail54fc55.ts.net:8443', 'connectAddress': '100.93.139.99', 'tokenFile': str(self.token), 'helperExecutable': str(self.release) + '/native/peripheral/peripheral-host', 'bindingRevision': 1, 'inputMap': {'sources': [{'kind': 'linux', 'id': 'synthetic', 'interfaceNumber': 2, 'eventTypes': [0, 1], 'keyCodes': [41], 'relativeAxes': []}], 'switches': [{'controlId': 'blue', 'sourceId': 'synthetic', 'type': 1, 'code': 41}], 'leds': [], 'confirmWiring': False}, 'jiggle': {'minimumTravel': 4, 'minimumReversal': 2}}).encode()
         self.unit_data = ('[Unit]\nDescription=Show Tools peripheral controller\nStartLimitIntervalSec=0\n\n[Service]\nType=exec\nExecStart="' + str(self.release) + '/bin/show-tools-peripheral" serve --config "' + str(self.profile) + '"\nRestart=on-abnormal\nRestartSec=3s\nKillMode=control-group\nTimeoutStopSec=15s\nSendSIGKILL=yes\nUMask=0077\n\n[Install]\nWantedBy=default.target\n').encode()
         packet_files = {'install.py': Path(m.__file__).read_bytes(), 'profile.json': self.profile_data, m.UNIT_NAME: self.unit_data}
         for name, data in packet_files.items(): self.write(self.packet / name, data)
@@ -192,6 +192,24 @@ class InstallerTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError): m.validate_profile({**json.loads(self.profile_data), 'jiggle': value}, str(self.release))
         with self.assertRaises(ValueError): m.validate_profile({**json.loads(self.profile_data), 'caFile': '/arbitrary'}, str(self.release))
+
+    def test_map_requires_observed_linux_inputs_and_never_translates_legacy_keys(self):
+        profile = json.loads(self.profile_data)
+        m.validate_profile(profile, str(self.release))
+        legacy = {key: value for key, value in profile.items() if key != 'inputMap'}
+        legacy.update(version=1, sdkChannel=0, buttonKey='escape')
+        with self.assertRaises(ValueError): m.validate_profile(legacy, str(self.release))
+        for change in ('missing-source', 'unobserved-code', 'alias', 'unsorted', 'unconfirmed-led', 'musical-target', 'hid-source'):
+            mapping = json.loads(self.profile_data)['inputMap']
+            if change == 'missing-source': mapping['switches'][0]['sourceId'] = 'missing'
+            elif change == 'unobserved-code': mapping['switches'][0]['code'] = 99
+            elif change == 'alias': mapping['switches'].append({**mapping['switches'][0], 'controlId': 'yellow'})
+            elif change == 'unsorted': mapping['sources'][0]['keyCodes'] = [42, 41]
+            elif change == 'unconfirmed-led': mapping['leds'] = [{'controlId': 'blue', 'sdkChannel': 0}]
+            elif change == 'musical-target': mapping['switches'][0]['target'] = 'R1'
+            elif change == 'hid-source': mapping['sources'][0]['kind'] = 'hid'
+            with self.subTest(change=change):
+                with self.assertRaises(ValueError): m.validate_profile({**profile, 'inputMap': mapping}, str(self.release))
 
     def test_root_and_wrong_host_are_refused_before_any_action(self):
         with patch.object(m.os, 'getuid', lambda: -1):
