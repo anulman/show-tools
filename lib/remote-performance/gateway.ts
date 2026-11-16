@@ -33,12 +33,34 @@ export interface GatewayConfig {
 
 export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; tuner?: TunerState; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
 type Session = { highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
-type InputIntent = { request: string; status: InputIntentStatus; result: Promise<InputAttachOutcome> };
+type InputIntent = { target: NativeTarget; kindOfProducer: InputAttach['kind']; bindingGeneration: number; request: string; status: InputIntentStatus; result: Promise<InputAttachOutcome> };
 type InputLease = InputAttach & { intent: InputIntent; target: NativeTarget; status: 'pending' | 'active' | 'quarantined'; pending: Promise<InputAttachOutcome>; revoking?: Promise<NativeOutcome> };
 
 export class InputProducerRegistry {
   private readonly intents = new Map<object, Map<string, InputIntent>>();
-  status(owner: object, intentId: string): InputIntentStatus { return this.intents.get(owner)?.get(intentId)?.status ?? { kind: 'unknown' }; }
+  status(owner: object, intentId: string): InputIntentStatus {
+    const intent = this.intents.get(owner)?.get(intentId);
+    if (!intent) return { kind: 'unknown' };
+    if (intent.status.kind === 'retired') return intent.status;
+    const ended = this.controller.confirmedRetirement?.(intent.target);
+    if (ended && ended.target.attempt === intent.target.attempt && ended.target.hostEpoch === intent.target.hostEpoch
+      && ended.serverEpoch === this.controller.snapshot().serverEpoch)
+      return { kind: 'retired', proof: { ...ended, kindOfProducer: intent.kindOfProducer, bindingGeneration: intent.bindingGeneration } };
+    return intent.status;
+  }
+  async readStatus(owner: object, intentId: string): Promise<InputIntentStatus> {
+    const current = this.status(owner, intentId);
+    if (current.kind === 'unknown' || current.kind === 'retired') return current;
+    const intent = this.intents.get(owner)?.get(intentId);
+    const lease = intent && this.owners.get(owner)?.get(intent.kindOfProducer);
+    if (this.closed.has(owner) && lease && lease.intent === intent) {
+      await lease.intent.result;
+      const settled = this.status(owner, intentId);
+      if (settled.kind === 'unknown' || settled.kind === 'retired') return settled;
+      if (lease.revoking) await lease.revoking;
+    }
+    return this.status(owner, intentId);
+  }
   private readonly owners = new Map<object, Map<InputAttach['kind'], InputLease>>();
   private readonly slots = new Map<number, InputLease>();
   private readonly closed = new WeakSet<object>();
@@ -114,7 +136,7 @@ export class InputProducerRegistry {
     const retained = ledger.get(command.args.intentId);
     if (retained) return retained.request === request ? retained.result : Promise.resolve({ outcome: 'rejected', error: 'Input intent identity reused' });
     if (ledger.size >= MAX_RESULTS) return Promise.resolve({ outcome: 'rejected', error: 'Input intent capacity reached' });
-    const intent: InputIntent = { request, status: { kind: 'pending' }, result: Promise.resolve({ outcome: 'unknown' }) };
+    const intent: InputIntent = { target, kindOfProducer: command.args.kind, bindingGeneration: command.args.bindingGeneration, request, status: { kind: 'pending' }, result: Promise.resolve({ outcome: 'unknown' }) };
     ledger.set(command.args.intentId, intent);
     const kind = command.args.kind;
     intent.result = (async (): Promise<InputAttachOutcome> => {
@@ -280,7 +302,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
         catch { return json(response, 400, { error: 'Invalid input intent readback' }); }
         const original = inputOwners.get(input.inputOwnerToken);
         if (original && ++original.reads > MAX_INPUT_STATUS_REQUESTS) return json(response, 429, { error: 'Input readback capacity reached' });
-        return json(response, 200, original ? inputs.status(original.owner, input.intentId) : { kind: 'unknown' });
+        return json(response, 200, original ? await inputs.readStatus(original.owner, input.intentId) : { kind: 'unknown' });
       }
 			if (request.method === 'GET' && path === '/api/status') return json(response, 200, controller.snapshot());
 			if (request.method === 'GET' && path === '/api/events') {

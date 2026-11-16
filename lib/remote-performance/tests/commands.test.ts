@@ -343,3 +343,49 @@ test('bounded intent ledger refuses capacity without recycling old identities', 
   await registry.command(owner, host.target, first);
   assert.equal(host.calls.length, 0);
 });
+
+test('native unknown admission retires only with original target and server process-exit authority', async () => {
+  const host = inputHost(); host.unknownAttach();
+  let proof: import('../session-schema.js').NativeEngineRetirementProof | null = null;
+  const registry = new InputProducerRegistry({ ...host.controller, confirmedRetirement: () => proof });
+  const owner = {}, command = clientAttach();
+  await registry.command(owner, host.target, command);
+  assert.deepEqual(registry.status(owner, command.args.intentId), { kind: 'unknown' });
+  const decode = Schema.decodeUnknownSync((await import('../session-schema.js')).NativeEngineRetirementProofSchema);
+  proof = decode({ kind: 'old-engine-ended', target: host.target, serverEpoch: 'other-server', retirementDeskRevision: '1' });
+  assert.deepEqual(registry.status(owner, command.args.intentId), { kind: 'unknown' });
+  proof = decode({ kind: 'old-engine-ended', target: { ...host.target, hostEpoch: 'other-host' }, serverEpoch: host.view.serverEpoch, retirementDeskRevision: '1' });
+  assert.deepEqual(registry.status(owner, command.args.intentId), { kind: 'unknown' });
+  proof = decode({ kind: 'old-engine-ended', target: host.target, serverEpoch: host.view.serverEpoch, retirementDeskRevision: '1' });
+  const ended = await registry.readStatus(owner, command.args.intentId);
+  assert.equal(ended.kind, 'retired');
+  if (ended.kind === 'retired') assert.equal(ended.proof.kind, 'old-engine-ended');
+  assert.equal(host.calls.length, 1, 'readback must not dispatch cleanup or change audio');
+  proof = null;
+  assert.deepEqual(registry.status(owner, command.args.intentId), { kind: 'unknown' }, 'pruned authority is not inferred from prior observations');
+});
+
+test('readback waits only for already-started exact close cleanup and never dispatches or waits on another role', async () => {
+  const host = inputHost();
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const decode = Schema.decodeUnknownSync(Schema.Struct({ command: Schema.String, args: Schema.Record(Schema.String, Schema.Unknown) }));
+  const registry = new InputProducerRegistry({ ...host.controller, async command(target, input) {
+    const command = decode(input);
+    if (command.command === 'inputRevoke' && command.args.producer === 0) await blocked;
+    return host.controller.command(target, input);
+  } });
+  const owner = {}, physical = clientAttach(), keyboard = clientAttach('keyboard');
+  await registry.command(owner, host.target, physical); await registry.command(owner, host.target, keyboard);
+  const closing = registry.close(owner);
+  let settled = false;
+  const readback = registry.readStatus(owner, physical.args.intentId).finally(() => { settled = true; });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(settled, false);
+  assert.equal((await registry.readStatus(owner, keyboard.args.intentId)).kind, 'retired', 'confirmed unrelated role must not wait for pending physical cleanup');
+  assert.deepEqual(await registry.readStatus(owner, 'missing-intent'), { kind: 'unknown' });
+  assert.deepEqual(await registry.readStatus({}, physical.args.intentId), { kind: 'unknown' });
+  release(); await closing;
+  assert.equal((await readback).kind, 'retired');
+  assert.equal(host.calls.filter(command => command.command === 'inputRevoke').length, 2, 'readback never starts an additional revoke');
+});

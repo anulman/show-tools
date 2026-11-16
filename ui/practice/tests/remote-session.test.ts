@@ -457,8 +457,14 @@ for (const scenario of ['sse', 'blur', 'lost-attach-reply', 'pending-attach', 'p
       for (let count = 0; count < 100 && !commands.some(command => command.command === 'inputRevoke'); count++) await tick();
       await tick();
       candidate = await RemoteDesk.connect(token);
-      const replacement = context.replaceHardwareDesk(candidate);
-      if (['native-unknown', 'unknown-revoke', 'hung-revoke'].includes(scenario)) {
+      const replacement = context.replaceHardwareDesk(candidate); void replacement.catch(() => {});
+      if (scenario === 'hung-revoke') {
+        await tick();
+        assert.equal(context.remoteDesk, old);
+        assert.equal(candidate.connection.kind, 'connecting', 'a pending exact cleanup acknowledgement cannot admit the candidate');
+        release();
+      }
+      if (['native-unknown', 'unknown-revoke'].includes(scenario)) {
         await assert.rejects(replacement, /cleanup is unconfirmed|cleanup unconfirmed|Reconnect remains blocked/);
         assert.equal(context.remoteDesk, old);
         assert.equal(candidate.connection.kind, 'disconnected');
@@ -507,5 +513,21 @@ test('readback cannot replace a known receipt, accept stale proof or revalidate 
     await session.inputRevoke({ kind: 'pointer' });
     await assert.rejects(session.start(), /stale/);
     assert.equal(calls.length, 1, 'readback cannot dispatch commands or revoke via any successor');
+  });
+});
+
+test('actual engine retirement uses its Desk revision domain and never revalidates stale input', async () => {
+  await fixture(async ({ desk, publish, setInputStatus, calls }) => {
+    await publish({ type: 'desk', view: ready });
+    const session = desk.performance();
+    await session.inputAttach({ kind: 'pointer', bindingGeneration: 1, releasedMask: 223, heldMask: 0 });
+    await publish({ type: 'gap' });
+    const proof = { kind: 'old-engine-ended', target: { attempt: 'attempt', hostEpoch: 'host' }, serverEpoch: 'server', retirementDeskRevision: '1', kindOfProducer: 'pointer', bindingGeneration: 1 };
+    setInputStatus({ kind: 'retired', proof: { ...proof, serverEpoch: 'other-server' } });
+    await assert.rejects(session.inputRevoke({ kind: 'pointer' }), /cleanup is unconfirmed/);
+    setInputStatus({ kind: 'retired', proof });
+    await session.inputRevoke({ kind: 'pointer' });
+    await assert.rejects(session.start(), /stale/);
+    assert.equal(calls.length, 1);
   });
 });

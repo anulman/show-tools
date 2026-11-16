@@ -183,3 +183,146 @@ test('a healthy native child remains ready after writing more than the diagnosti
     } finally { await controller.close(); }
   } finally { await fixture.dispose(); }
 });
+
+test('retirement proof follows actual ready host exit and stays scoped across replacements', async () => {
+  const fixture = await desk();
+  try {
+    fixture.controller.setAudio('on');
+    const first = await until(() => { const audio = fixture.controller.snapshot().audio; return audio.kind === 'ready' ? audio : undefined; });
+    const target = { attempt: first.attempt, hostEpoch: first.performance.hostEpoch };
+    assert.equal(fixture.controller.confirmedRetirement(target), null);
+    fixture.controller.setAudio('off');
+    assert.equal(fixture.controller.snapshot().audio.kind, 'stopping');
+    assert.equal(fixture.controller.confirmedRetirement(target), null, 'requested termination is not confirmed exit');
+    await until(() => fixture.controller.snapshot().audio.kind === 'off' ? true : undefined);
+    const proof = fixture.controller.confirmedRetirement(target);
+    assert(proof);
+    assert.deepEqual(proof.target, target);
+    assert.equal(proof.serverEpoch, fixture.controller.snapshot().serverEpoch);
+    assert.equal(proof.retirementDeskRevision, fixture.controller.snapshot().revision);
+    fixture.controller.setAudio('on');
+    const second = await until(() => { const audio = fixture.controller.snapshot().audio; return audio.kind === 'ready' ? audio : undefined; });
+    assert.equal(fixture.controller.confirmedRetirement({ attempt: second.attempt, hostEpoch: second.performance.hostEpoch }), null);
+    assert.deepEqual(fixture.controller.confirmedRetirement(target), proof);
+    assert.equal(fixture.controller.confirmedRetirement({ ...target, hostEpoch: second.performance.hostEpoch }), null);
+  } finally { await fixture.dispose(); }
+});
+
+test('unknown launch, running child, cleanup failure and canceled startup cannot mint retirement proof', async () => {
+  const { Effect } = await import('effect');
+  const { target } = await import('./session-fixture.js');
+  const fixture = await desk();
+  try {
+    for (const [index, child] of [
+      { kind: 'pending' }, { kind: 'known', handle: { isRunning: Effect.succeed(true) } },
+      { kind: 'known', handle: { isRunning: Effect.fail(new Error('Exit status unavailable')) } },
+      { kind: 'not-requested' }, { kind: 'known', handle: { isRunning: Effect.succeed(false) } },
+    ].entries()) {
+      const attempt = { id: target.attempt, readyTarget: index < 3 ? target : undefined, abort: new AbortController(), done: Promise.resolve(), finish: 'off', stderr: Buffer.alloc(0), child };
+      Reflect.set(fixture.controller, 'attempt', attempt);
+      await Reflect.get(fixture.controller, 'finished').call(fixture.controller, attempt, 'Synthetic cleanup');
+      assert.equal(fixture.controller.confirmedRetirement(target), null);
+      Reflect.set(fixture.controller, 'attempt', undefined);
+    }
+  } finally { await fixture.dispose(); }
+});
+
+test('delayed old exit callback cannot retire or overwrite a replacement attempt', async () => {
+  const { Effect } = await import('effect');
+  const { target } = await import('./session-fixture.js');
+  const fixture = await desk();
+  let release!: (running: boolean) => void;
+  const pending = new Promise<boolean>(resolve => { release = resolve; });
+  const attempt = { id: target.attempt, readyTarget: target, abort: new AbortController(), done: Promise.resolve(), finish: 'off', stderr: Buffer.alloc(0),
+    child: { kind: 'known', handle: { isRunning: Effect.promise(() => pending) } } };
+  try {
+    Reflect.set(fixture.controller, 'attempt', attempt);
+    const finishing = Reflect.get(fixture.controller, 'finished').call(fixture.controller, attempt, 'Delayed cleanup');
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(fixture.controller.confirmedRetirement(target), null);
+    const replacement = { ...attempt, readyTarget: undefined, child: { kind: 'pending' } };
+    Reflect.set(fixture.controller, 'attempt', replacement);
+    release(false); await finishing;
+    assert.equal(Reflect.get(fixture.controller, 'attempt'), replacement);
+    assert.equal(fixture.controller.confirmedRetirement(target), null);
+  } finally { release(false); Reflect.set(fixture.controller, 'attempt', undefined); await fixture.dispose(); }
+});
+
+test('explicit Terminate of the actual old child retires an unknown original input intent', async () => {
+  const { createGateway } = await import('../gateway.js');
+  const { RemoteDesk } = await import('../../../ui/practice/remote-session.js');
+  const { createMusicalInputProducer } = await import('../../../ui/practice/peripheral-input.js');
+  const { Schema } = await import('effect');
+  const fixture = await desk();
+  const originalFetch = globalThis.fetch;
+  const token = 'b'.repeat(32), origin = 'http://127.0.0.1:9999';
+  let unknown = true;
+  const controller = fixture.controller;
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, {
+    snapshot: () => controller.snapshot(), subscribe: listener => controller.subscribe(listener), setAudio: goal => controller.setAudio(goal),
+    confirmedRetirement: target => controller.confirmedRetirement(target), close: () => controller.close(),
+    async command(target, input) {
+      const result = await controller.command(target, input);
+      if (unknown && Schema.decodeUnknownSync(Schema.Struct({ command: Schema.String }))(input).command === 'inputAttach') {
+        unknown = false; return { outcome: 'unknown' };
+      }
+      return result;
+    },
+  });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  globalThis.fetch = (input, init) => {
+    const headers = new Headers(init?.headers); headers.set('origin', origin);
+    return originalFetch(new URL(String(input), `http://127.0.0.1:${address.port}`), { ...init, headers });
+  };
+  let old: Awaited<ReturnType<typeof RemoteDesk.connect>> | undefined, next: Awaited<ReturnType<typeof RemoteDesk.connect>> | undefined;
+  try {
+    controller.setAudio('on');
+    const initial = await until(() => { const audio = controller.snapshot().audio; return audio.kind === 'ready' ? audio : undefined; });
+    const target = { attempt: initial.attempt, hostEpoch: initial.performance.hostEpoch };
+    old = await RemoteDesk.connect(token); void old.listen();
+    await until(() => old?.connection.kind === 'connected' ? true : undefined);
+    let selected = old;
+    const producer = createMusicalInputProducer({ kind: 'pointer', releasedMask: 223, endpoint: async () => selected.performance() });
+    await assert.rejects(producer.event(0, 0), /unknown/);
+    await assert.rejects(producer.pause(), /cleanup is unconfirmed/);
+    assert.equal(controller.snapshot().audio.kind, 'ready', 'readback cannot terminate or restart audio automatically');
+    assert.equal(controller.confirmedRetirement(target), null);
+    controller.setAudio('off');
+    assert.equal(controller.confirmedRetirement(target), null);
+    await until(() => controller.snapshot().audio.kind === 'off' ? true : undefined);
+    const proof = controller.confirmedRetirement(target);
+    assert(proof);
+    await producer.pause();
+    controller.setAudio('on');
+    const replacement = await until(() => { const audio = controller.snapshot().audio; return audio.kind === 'ready' ? audio : undefined; });
+    assert.notEqual(replacement.performance.hostEpoch, target.hostEpoch);
+    next = await RemoteDesk.connect(token); selected = next; void next.listen();
+    await until(() => next?.connection.kind === 'connected' ? true : undefined);
+    producer.resume(); await producer.event(0, 0);
+    assert.equal(next.performance().snapshot().inputRouting?.producers.some(value => value.kind === 'pointer'), true);
+    assert.deepEqual(controller.confirmedRetirement(target), proof);
+  } finally {
+    await old?.dispose(); await next?.dispose();
+    server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve()));
+    globalThis.fetch = originalFetch; await fixture.dispose();
+  }
+});
+
+test('bounded process retirement cache makes pruned and missing scopes unknown', async () => {
+  const { Effect, Schema } = await import('effect');
+  const { NativeTargetSchema } = await import('../session-schema.js');
+  const fixture = await desk();
+  const targets = Array.from({ length: 129 }, (_, index) => Schema.decodeUnknownSync(NativeTargetSchema)({ attempt: `attempt-${index}`, hostEpoch: `host-${index}` }));
+  try {
+    for (const target of targets) {
+      const attempt = { id: target.attempt, readyTarget: target, abort: new AbortController(), done: Promise.resolve(), finish: 'off', stderr: Buffer.alloc(0),
+        child: { kind: 'known', handle: { isRunning: Effect.succeed(false) } } };
+      Reflect.set(fixture.controller, 'attempt', attempt);
+      await Reflect.get(fixture.controller, 'finished').call(fixture.controller, attempt, 'Confirmed synthetic exit');
+    }
+    assert.equal(fixture.controller.confirmedRetirement(targets[0]), null);
+    assert(fixture.controller.confirmedRetirement(targets[1]));
+    assert(fixture.controller.confirmedRetirement(targets[128]));
+  } finally { Reflect.set(fixture.controller, 'attempt', undefined); await fixture.dispose(); }
+});

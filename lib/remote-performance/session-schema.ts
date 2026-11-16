@@ -44,6 +44,9 @@ export const AudioDecisionSchema = Schema.Union([
   Schema.Struct({ outcome: Schema.Literal('accepted'), view: DeskViewSchema }),
   Schema.Struct({ outcome: Schema.Literal('rejected'), error: message, view: DeskViewSchema }),
 ]);
+export const NativeEngineRetirementProofSchema = Schema.Struct({ kind: Schema.Literal('old-engine-ended'), target: NativeTargetSchema,
+  serverEpoch: ServerEpochSchema, retirementDeskRevision: DeskRevisionSchema });
+export type NativeEngineRetirementProof = typeof NativeEngineRetirementProofSchema.Type;
 export const InputIntentIdSchema = id;
 export const InputLeaseReceiptSchema = Schema.Struct({ target: NativeTargetSchema, ...InputRevokeSchema.fields,
   kind: InputProducerKindSchema, bindingGeneration: InputAttachSchema.fields.bindingGeneration, admissionRevision: NativeRevisionSchema });
@@ -51,6 +54,8 @@ export const InputIntentStatusSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(['pending', 'unknown']) }),
   Schema.Struct({ kind: Schema.Literal('admitted'), receipt: InputLeaseReceiptSchema }),
   Schema.Struct({ kind: Schema.Literal('retired'), proof: Schema.Union([
+    Schema.Struct({ ...NativeEngineRetirementProofSchema.fields, kindOfProducer: InputProducerKindSchema,
+      bindingGeneration: InputAttachSchema.fields.bindingGeneration }),
     Schema.Struct({ kind: Schema.Literal('rejected-before-admission'), target: NativeTargetSchema,
       kindOfProducer: InputProducerKindSchema, bindingGeneration: InputAttachSchema.fields.bindingGeneration }),
     Schema.Struct({ kind: Schema.Literal('exact-revoke-applied'), receipt: InputLeaseReceiptSchema, revocationRevision: NativeRevisionSchema }),
@@ -91,5 +96,6 @@ export interface DeskController {
   subscribe(listener: (publication: DeskPublication) => void): () => void;
   setAudio(goal: AudioGoal): AudioDecision;
   command(target: NativeTarget, input: unknown): Promise<NativeOutcome>;
+  confirmedRetirement?(target: NativeTarget): NativeEngineRetirementProof | null;
   close(): Promise<void>;
 }

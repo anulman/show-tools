@@ -223,11 +223,21 @@ export class RemoteSession {
           && status.receipt.admissionRevision === attempt.status.receipt.admissionRevision)) attempt.status = status;
       if (status.kind === 'retired') {
         const proof = status.proof;
-        const matches = proof.kind === 'rejected-before-admission'
-          ? attempt.status.kind !== 'admitted' && proof.target.attempt === this.target.attempt && proof.target.hostEpoch === this.target.hostEpoch
-            && proof.kindOfProducer === args.kind && proof.bindingGeneration === attempt.args.bindingGeneration
-          : this.receiptMatches(proof.receipt, attempt.args) && BigInt(proof.revocationRevision) > BigInt(proof.receipt.admissionRevision)
-            && (attempt.status.kind !== 'admitted' || proof.receipt.producer === attempt.status.receipt.producer && proof.receipt.session === attempt.status.receipt.session && proof.receipt.admissionRevision === attempt.status.receipt.admissionRevision);
+        let matches: boolean;
+        switch (proof.kind) {
+          case 'rejected-before-admission':
+            matches = attempt.status.kind !== 'admitted' && proof.target.attempt === this.target.attempt && proof.target.hostEpoch === this.target.hostEpoch
+              && proof.kindOfProducer === args.kind && proof.bindingGeneration === attempt.args.bindingGeneration;
+            break;
+          case 'old-engine-ended':
+            matches = proof.target.attempt === this.target.attempt && proof.target.hostEpoch === this.target.hostEpoch
+              && proof.serverEpoch === this.desk.snapshot().serverEpoch && proof.kindOfProducer === args.kind && proof.bindingGeneration === attempt.args.bindingGeneration;
+            break;
+          case 'exact-revoke-applied':
+            matches = this.receiptMatches(proof.receipt, attempt.args) && BigInt(proof.revocationRevision) > BigInt(proof.receipt.admissionRevision)
+              && (attempt.status.kind !== 'admitted' || proof.receipt.producer === attempt.status.receipt.producer && proof.receipt.session === attempt.status.receipt.session && proof.receipt.admissionRevision === attempt.status.receipt.admissionRevision);
+            break;
+        }
         if (matches) attempt.status = status;
       }
     }
