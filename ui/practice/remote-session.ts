@@ -1,7 +1,8 @@
+import { decodeInputBindings, type InputBindings } from '../../lib/performance/input-bindings.js';
 import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
 import { HardwareKeyRejectedError } from './hardware-auth.js';
 import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
-import { decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus } from './remote-schema.js';
+import { decodeSongChoices, decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus } from './remote-schema.js';
 import type { DeskView, NativePerformance, NativeTarget, InputIntentStatus, InputAttachOutcome, NativeOutcome, InputLeaseReceipt } from '../../lib/remote-performance/session-schema.js';
 import type { ChannelId, ChannelSettings, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
@@ -105,6 +106,24 @@ export class RemoteDesk {
   }
   enableAudio() { return this.setAudio('on'); }
   terminateAudio() { return this.setAudio('off'); }
+  async songs() {
+    const response = await fetch('/api/songs', { headers: { Authorization: `Bearer ${this.token}` }, cache: 'no-store' });
+    if (!response.ok) throw new Error(`Installed song list unavailable (${response.status})`);
+    return decodeSongChoices(await readJson(response)).songs;
+  }
+  async selectSong(songId: string) {
+    const decision = decodeAudioDecision(await this.post('/api/song', { songId, expectedRevision: this.latest.revision }));
+    this.observe(decision.view);
+    if (decision.outcome === 'rejected') throw new Error(decision.error);
+    return decision.view;
+  }
+  async configureSongBindings(songId: string, input: InputBindings, expectedRevision: string) {
+    const decision = decodeAudioDecision(await this.post('/api/song-bindings', { songId, expectedRevision, bindings: decodeInputBindings(input) }));
+    this.observe(decision.view);
+    if (decision.outcome === 'rejected') throw new Error(decision.error);
+    if (decision.view.song.id !== songId) throw new Error('Song assignment acknowledgement belongs to another song');
+    return { bindings: decodeInputBindings(decision.view.song.compiled?.inputBindings ?? []), revision: decision.view.revision };
+  }
   async inputIntentStatus(intentId: string) {
     const response = await fetch('/api/input-intent-status', { method: 'POST', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ inputOwnerToken: this.inputOwnerToken, intentId }), cache: 'no-store' });

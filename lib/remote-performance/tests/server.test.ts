@@ -247,3 +247,10 @@ test('configuration locks audio and selection, commits no data on failure, and c
     assert.equal(authority.read(entry).revision, revisionBeforeClose, 'shutdown before commit preserves authored bindings');
   } finally { await controller.close(); authority.close(); await rm(directory, { recursive: true, force: true }); }
 });
+
+test('authoring database cannot be created inside the public static root', async () => {
+  const { directory, profile } = await fixture();
+  const database = join(profile.staticRoot, 'private.sqlite');
+  try { await assert.rejects(serveProfile({ ...profile, authoringDatabase: database }), /outside the static root/); await assert.rejects(stat(database)); }
+  finally { await rm(directory, { recursive: true, force: true }); }
+});

@@ -1,5 +1,5 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
-import { resolve, sep } from 'node:path';
+import { basename, dirname, resolve, sep } from 'node:path';
 import { createGateway } from './gateway.js';
 import { PersistentDesk } from './controller.js';
 import { SongBindingAuthority, prepareSongBindings } from './song-bindings.js';
@@ -23,7 +23,9 @@ export async function serveProfile(input: SessionProfile) {
     privateFile(profile.tokenFile), Effect.runPromise(loadInstalledSongCatalog(profile.catalog)),
     profile.tls ? Promise.all([readFile(profile.tls.cert), privateFile(profile.tls.key)]).then(([cert, key]) => ({ cert, key })) : undefined,
   ]);
-  const bindings = SongBindingAuthority.open(profile.authoringDatabase);
+  const database = resolve(await realpath(dirname(profile.authoringDatabase)), basename(profile.authoringDatabase));
+  if (database === root || database.startsWith(root + sep)) throw new Error('Authoring database must be outside the static root');
+  const bindings = SongBindingAuthority.open(database);
   let installed;
   try { const initial = catalog.get(catalog.initialSongId), authored = bindings.read(initial);
     installed = authored.revision ? (await prepareSongBindings(initial, authored.bindings)).installed : initial.installed;
