@@ -156,9 +156,21 @@ bool parse_host_config(int argc, const char* const* argv, Platform platform, Hos
 
 std::vector<pp_light_binding> light_bindings(const InputMap& map) {
   std::vector<pp_light_binding> bindings;
-  for (const auto& led : map.leds) bindings.push_back({physical_light_id(led.control), led.sdk_channel});
+  for (const auto& led : map.leds) bindings.push_back({PF_LIGHT_PHYSICAL_BASELINE_BASE + uint32_t(led.control), led.sdk_channel});
   return bindings;
 }
+void PhysicalFeedback::clear_baseline() { baseline_.fill(0); }
+void PhysicalFeedback::commit_baseline(const std::vector<LedBinding>& leds, const pp_light_delivery_frame& frame) {
+  for (size_t index = 0; index < leds.size(); ++index)
+    baseline_[size_t(leds[index].control)] = frame.reports[index][2];
+}
+uint8_t PhysicalFeedback::level(PhysicalControl control) const {
+  return level(control, baseline_[size_t(control)]);
+}
+uint8_t PhysicalFeedback::level(PhysicalControl control, uint8_t candidate_baseline) const {
+  return states_[size_t(control)] == InitialState::Held ? 255 : candidate_baseline;
+}
+
 bool emit_ready(std::ostream& out, double session, const InputMap& map, const InitialStates& states) {
   if (!identity(session)) return false;
   out << std::setprecision(17) << "{\"type\":\"ready\",\"version\":2,\"session\":" << session << ",\"switches\":[";
@@ -187,23 +199,32 @@ bool emit_detached(std::ostream& out, double session) {
   if (!identity(session)) return false;
   out << std::setprecision(17) << "{\"type\":\"detached\",\"session\":" << session << "}" << std::endl; return out.good();
 }
+bool same_connection(const pp_light_connection& first, const pp_light_connection& second) {
+  return first.engine_incarnation == second.engine_incarnation && first.device_session == second.device_session
+    && first.binding_revision == second.binding_revision && first.request_fence == second.request_fence;
+}
 bool parse_command(const std::string& line, Command& out) {
   if (line.size() > 16384) return false;
   std::istringstream input(line);
   std::string name, extra;
   if (!(input >> name)) return false;
   Command parsed;
-  if (name == "clear") parsed.operation = Operation::Clear;
-  else if (name == "quit") parsed.operation = Operation::Quit;
+  if (name == "clear") {
+    parsed.operation = Operation::Clear;
+    input >> std::ws;
+    parsed.scoped = input.peek() != std::char_traits<char>::eof();
+  } else if (name == "quit") parsed.operation = Operation::Quit;
   else if (name == "bind" || name == "light") {
     parsed.operation = name == "bind" ? Operation::Bind : Operation::Light;
+  } else return false;
+  if (parsed.operation == Operation::Bind || parsed.operation == Operation::Light || parsed.scoped) {
     auto& c = parsed.connection;
     if (!(input >> c.engine_incarnation >> c.device_session >> c.binding_revision >> c.request_fence)
       || !identity(c.engine_incarnation) || !identity(c.device_session)
       || !identity(c.binding_revision) || !identity(c.request_fence)) return false;
     if (parsed.operation == Operation::Light)
       for (auto& value : parsed.image) if (!(input >> value) || !std::isfinite(value)) return false;
-  } else return false;
+  }
   if (input >> extra) return false;
   out = parsed;
   return true;

@@ -139,8 +139,10 @@ void unbound_light_checks() {
   for (int input = 0; input < 6; ++input)
     require(level(engine, PF_INPUT_LIGHT_BASE + input) == 0, "unbound controls publish an off baseline");
   for (int input = 0; input < 4; ++input) event(engine, 0, 1, input + 1, input, 1);
-  for (int input = 0; input < 4; ++input)
+  for (int input = 0; input < 4; ++input) {
     require(level(engine, PF_INPUT_LIGHT_BASE + input) == 1, "four unbound arcade buttons light simultaneously");
+    require(level(engine, PF_LIGHT_PHYSICAL_BASELINE_BASE + input) == 0, "physical-only baseline excludes the held override");
+  }
   event(engine, 0, 1, 5, 1, 0);
   require(level(engine, PF_INPUT_LIGHT_BASE + 1) == 0, "released unbound button restores its off baseline");
   for (int input : {0, 2, 3})
@@ -153,6 +155,48 @@ void unbound_light_checks() {
   for (int input = 0; input < 6; ++input)
     require(level(engine, PF_INPUT_LIGHT_BASE + input) == 0, "revoke clears only physical held overrides");
 }
+void sequenced_baseline_while_held() {
+  Engine engine;
+  std::vector<double> data{PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25,
+    1, 3, 1, 0, 0, 1, 2, 3, 0, 2, 0, 3, 0, 1, 3, 0, 0};
+  const double cues[][11]{{0, 0, 1, -1, PF_ARM, 1, 0, 0, -1, -1, 0},
+    {0, 0, 2, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0},
+    {0, 0, 4, 2, PF_STOP, 0, 0, -1, -1, -1, 0}};
+  for (const auto& cue : cues) {
+    data.insert(data.end(), std::begin(cue), std::end(cue));
+    const double policy[]{PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, 0};
+    data.insert(data.end(), std::begin(policy), std::end(policy));
+  }
+  const double selection_and_binding[]{0, 0, 1, PF_INPUT_MAGIC, 1, 0, PF_INPUT_CUES, 1};
+  data.insert(data.end(), std::begin(selection_and_binding), std::end(selection_and_binding));
+  load(engine, data); ok(engine, pf_set_microphone(engine, 1));
+  ok(engine, pf_start(engine, 120, 1, 1, 5, 0, 0));
+  until(engine, 1); ok(engine, pf_control(engine, 0, 0, nullptr, 0));
+  bool recording = false;
+  for (int attempt = 0; attempt < 1000; ++attempt) {
+    double channel[PF_CHANNEL_FIELDS]; pf_channel_info(engine, 0, channel);
+    if (channel[PF_CHANNEL_STATUS] == PF_RECORDING) { recording = true; break; }
+    render(engine);
+  }
+  require(recording, "compiled capture begins for baseline witness");
+  attach(engine, 0, 1, PF_INPUT_PHYSICAL, 0, 1);
+  const double first = level(engine, PF_LIGHT_PHYSICAL_BASELINE_BASE);
+  require(level(engine, PF_INPUT_LIGHT_BASE) == 1 && first <= .7, "held image and sequenced baseline are independent");
+  for (int step = 0; step < 8; ++step) render(engine, 128);
+  const double second = level(engine, PF_LIGHT_PHYSICAL_BASELINE_BASE);
+  require(std::abs(second - first) > .1 && level(engine, PF_INPUT_LIGHT_BASE) == 1,
+          "recording pulse keeps advancing behind a held physical button");
+  event(engine, 0, 1, 1, 0, 0);
+  require(level(engine, PF_INPUT_LIGHT_BASE) == level(engine, PF_LIGHT_PHYSICAL_BASELINE_BASE),
+          "held release restores the current native recording pulse");
+  until(engine, 2); ok(engine, pf_control(engine, 0, 0, nullptr, 0)); until(engine, 3);
+  attach(engine, 1, 2, PF_INPUT_PHYSICAL, 0, 1);
+  require(level(engine, PF_INPUT_LIGHT_BASE) == 1 && level(engine, PF_LIGHT_PHYSICAL_BASELINE_BASE) == .7,
+          "held playback retains the seventy-percent baseline");
+  event(engine, 1, 2, 1, 0, 0);
+  require(level(engine, PF_INPUT_LIGHT_BASE) == .7, "held playback release restores seventy percent");
+}
+
 void exhaustive_held_image_checks() {
   Engine engine;
   load(engine, empty_program());
@@ -161,9 +205,12 @@ void exhaustive_held_image_checks() {
     const int first_session = ++session, second_session = ++session;
     attach(engine, 0, first_session, PF_INPUT_PHYSICAL, 63 ^ first, first);
     attach(engine, 1, second_session, PF_INPUT_PHYSICAL, 63 ^ second, second);
-    for (int input = 0; input < 6; ++input)
+    for (int input = 0; input < 6; ++input) {
       require(level(engine, PF_INPUT_LIGHT_BASE + input) == double(((first | second) >> input) & 1),
               "all 4096 two-source held combinations preserve six independent light levels");
+      require(level(engine, PF_LIGHT_PHYSICAL_BASELINE_BASE + input) == 0,
+              "all held combinations preserve independent sequenced-only baselines");
+    }
     ok(engine, pf_input_revoke(engine, 0, first_session));
     for (int input = 0; input < 6; ++input)
       require(level(engine, PF_INPUT_LIGHT_BASE + input) == double((second >> input) & 1),
@@ -408,6 +455,7 @@ void ordered_batch_checks() {
 }  // namespace
 int main() {
   unbound_light_checks();
+  sequenced_baseline_while_held();
   exhaustive_held_image_checks();
   protocol_checks();
   ownership_checks(false);

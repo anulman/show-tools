@@ -4,7 +4,8 @@ One physical source's release must preserve another source's held lights. Every
 held control must publish full brightness even before a song assigns it a
 function. Releasing a cue control must resume its current sequenced pulse or
 playing level. Four explicitly mapped LED outputs must retain independent
-brightness values.
+brightness values. Sequenced-only baseline IDs must remain independent of held
+brightness and continue to advance behind a held control.
 
 Run from the repository root:
 
@@ -28,11 +29,13 @@ repository's locked dependencies for the `tsx` loader.
 | Check | Complete enumerated domain |
 | --- | --- |
 | Six held-light identities | All 64 held-bit masks for each of two physical producers, or 4,096 pairs |
+| Sequenced-only baselines | IDs 513 through 518 stay zero for every unbound held-mask pair and its source cleanup |
+| Light identity families | Both held IDs 257 through 260 and baseline IDs 513 through 516 traverse the complete delivery domain |
 | Source cleanup | Revoke the first source in each pair and preserve the second source's mask; revoke the second and require all six off |
 | Four output channels | Synthetic SDK layouts `[0, 1, 2, 3]` and `[0, 1, 2, 48]` |
 | Mapping order | All 24 list orders for each four-control map |
 | Independent brightness | All 256 assignments from the four-level alphabet `0`, `0.25`, `0.7`, `1` |
-| Delivery total | 12,288 complete four-output images |
+| Delivery total | 24,576 complete four-output images, preserving the original 12,288 held-ID cases and adding 12,288 baseline-ID cases |
 | Delivery integrity | For each image, inspect actual brightness report bytes, zero padding, identical pending retry, rejected partial/modified commit, successful full commit and rejected committed replay |
 
 Each logical LED remains associated with the same SDK channel as the map list is
@@ -43,7 +46,7 @@ terminal numbers or physical output acceptance.
 
 A separate concrete native witness records a take through an identified cue
 control. It checks a non-peak recording pulse, full held brightness, exact pulse
-restoration without advancing audio time, steady playback, four simultaneous
+restoration without advancing audio time, advancing the pulse while held, steady playback, four simultaneous
 held arcade controls and release back to the current playback level. Existing
 `physical_input_tests` and `cue_light_tests` also run against the copied source.
 Those fixtures cover fresh edges, initial release barriers, stale releases and
@@ -52,7 +55,7 @@ cue warning behavior. They are witnesses, not exhaustive temporal models.
 ## Actual source correspondence
 
 `coverage.json` pins 47 build, header, implementation and native-fixture inputs at
-source sync `5edc12a4d6a23f1b19f9e1fcb5265da8fe66d74d`. The runner rejects drift
+source sync `eb994928dab680d594860152b65b677dc47d71d0`. The runner rejects drift
 before compilation. After building it reads compiler `.o.d` dependency records
 and rejects any project dependency absent from the source record. Operating
 system and compiler standard-library headers are identified by the recorded
@@ -74,7 +77,7 @@ The main correspondence is:
 
 ## Ability to fail
 
-Every run checks pristine behavior, eight assertion-specific mutations of real
+Every run checks pristine behavior, ten assertion-specific mutations of real
 copied C++, restored behavior after each mutation, a final pristine run and
 unchanged original source hashes. A compiler failure or unrelated assertion is
 not accepted as a caught mutant.
@@ -85,6 +88,8 @@ not accepted as a caught mutant.
 | Limit held brightness to 70% | `HELD_IMAGE_OR` |
 | Remove recording pulse baseline | `BASELINE_RECORDING_PULSE` |
 | Remove playing baseline | `BASELINE_PLAYING_LEVEL` |
+| Publish the held override as a sequenced-only baseline | `BASELINE_INDEPENDENT_OF_HELD` |
+| Suppress the recording baseline while the control is held | `BASELINE_HELD_CURRENT_PULSE` |
 | Clear every producer's held bits when revoking one producer | `HELD_REVOKE_ISOLATION` |
 | Send every report to SDK channel zero | `FOUR_LED_REPORT_BYTES` |
 | Allow a committed publication to be prepared again | `DELIVERY_COMMITTED_REPLAY` |
@@ -103,6 +108,14 @@ replay executable. This prevents coarse Make timestamps from reusing a mutant
 binary after source restoration. It does not use sleeps or modify real source.
 
 ## Verified result
+
+The maintained run at `eb994928dab680d594860152b65b677dc47d71d0` passes 4,096 held-mask pairs, all six independent baseline rows under each pair and cleanup, and 24,576 delivery images across both identity families. The concrete native witness verifies that the baseline pulse advances while the held image remains one, then that release restores the current pulse. Playback baseline and existing input and cue-light fixtures pass. Ten actual-source mutants fail on their exact named assertions, including both new baseline faults. Each restored run and the final pristine run pass. All 47 recorded hashes and 34 actual compiler dependencies match.
+
+The retained receipt is `/var/folders/gr/rxxj7y9j4bs54nht4mpqsh7h0000gn/T/show-tools-physical-controls-rRnab1/receipt.json`. Initial source-hash rejection and old mutation anchors were verification drift, not product findings. The old seven-row assertion changed to thirteen because the intentional six extra baseline rows fit the unchanged 32-pair image. No original held-mask or delivery case was removed. Capture policy and its separate formal model remain unchanged.
+
+The new helper's offline overlay, bind/clear fencing and platform adapters are not linked by this replay. Their native tests and physical acceptance remain separate; baseline publication verification must not be reported as installed idle-light readiness.
+
+### Initial result
 
 The first complete run passed all declared held and output cases, the baseline
 witness and both existing native fixtures. All eight actual-source mutants
