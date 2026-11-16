@@ -1,5 +1,13 @@
 # Initial checked result
 
+## Confirmed engine retirement maintenance
+
+Outcome: **updated** at `092ffbc`. The original source fence rejected controller drift. Reviewed controller and schema changes preserve the existing owned-child release condition and add an exact-target retirement record after confirmed exit, plus a post-await attempt fence. The two-attempt, one-command model and all seven invariants remain unchanged.
+
+The complete pinned run exhausts 1,761 pristine states, catches all six real controller mutants across seven counterexample paths, and passes the pristine controller schedules. All nine statechart interpretations report every rule checked. Receipts: `/private/tmp/native-audio-intents-final/receipt.json` and `/private/tmp/native-audio-intents-statecharts/outcomes.json`. Scoped TypeScript and twelve ownership regressions pass. Their initial sandboxed rerun could not create isolated bundles under the shared node_modules symlink; the unchanged tests passed after that harness permission was restored.
+
+This refresh protects lifecycle source correspondence. Exact intent-ledger authorization and browser recovery have separate real gateway, child-process and UI witnesses; they are not additional TLA+ invariants. Physical hardware, electrical behavior and spinner telemetry remain outside this claim.
+
 ## Consolidated practice release
 
 Outcome: **in sync** at `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. All five covered source files, the lifecycle model, configurations, replay and dependency versions are byte-identical to `894915f`. The baseline run passed before this maintenance; a fresh rerun with the release revision in `coverage.json` also exhausts 1,761 states with all seven invariants. Six real controller-source mutants are rejected, including both pending-ownership paths. Scoped TypeScript and diff checks pass. Receipt: `/private/tmp/practice-tonight-lifecycle-final-cd3ae7e/receipt.json`.
