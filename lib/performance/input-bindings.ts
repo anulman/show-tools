@@ -55,7 +55,13 @@ export const decodeInputEvent = Schema.decodeUnknownSync(InputEventSchema, { onE
 export const decodeInputRevoke = Schema.decodeUnknownSync(InputRevokeSchema, { onExcessProperty: 'error' });
 
 export const InputRoutingStateSchema = Schema.Struct({ bindingGeneration: identity,
+  sessionHighWatermark: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })),
+  panicMask: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 63 })),
   producers: Schema.Array(Schema.Struct({ producer, session: identity, kind: InputProducerKindSchema,
     releasedMask: mask, heldMask: mask, lastSequence: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: Number.MAX_SAFE_INTEGER })) }))
-    .check(Schema.isMaxLength(INPUT_PRODUCER_LIMIT), Schema.makeFilter(values => new Set(values.map(value => value.producer)).size === values.length || 'Duplicate input producer')) });
+    .check(Schema.isMaxLength(INPUT_PRODUCER_LIMIT), Schema.makeFilter(values => new Set(values.map(value => value.producer)).size === values.length || 'Duplicate input producer')) })
+  .check(Schema.makeFilter(state => state.producers.every(value => value.session <= state.sessionHighWatermark
+    && !(value.releasedMask & value.heldMask)
+    && !((value.releasedMask | value.heldMask) & ~(value.kind === 'physical' ? 63 : 223)))
+    || 'Input producer state contradicts its session watermark or switch namespace'));
 export type InputRoutingState = typeof InputRoutingStateSchema.Type;

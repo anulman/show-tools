@@ -1,7 +1,7 @@
 import type { CatalogDocument } from '../voice-catalog/model.js';
 import type { SongSource } from './song-source.js';
 import type { CompiledSong } from './compiled-song.js';
-import type { InputBindings } from './input-bindings.js';
+import type { InputBindings, InputRoutingState } from './input-bindings.js';
 
 export type ChannelId = 'L1' | 'L2' | 'R1' | 'R2';
 export type ControlId = ChannelId | 'mushroom' | 'knob' | 'tempo' | 'cueButton' | 'external';
@@ -127,6 +127,7 @@ export interface PracticeState extends TransportState {
   voiceEffects?: readonly VoiceEffectsState[];
   tempoHits?: TempoHitState;
   compiledTakes?: readonly CompiledTakeState[];
+  inputRouting?: InputRoutingState;
 }
 export interface StartOptions {
   bpm?: number;
