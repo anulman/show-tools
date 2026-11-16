@@ -219,10 +219,9 @@ def validate_assignment(value):
     require(canonical({key: value[key] for key in ASSIGNMENT}) == canonical(ASSIGNMENT),
             'unsupported peripheral assignment')
     input_map = validate_input_map(value['inputMap'])
-    require({item['controlId'] for item in input_map['switches']} == PHYSICAL_CONTROLS
-            and 'axis' in input_map
-            and {item['controlId'] for item in input_map['leds']} == {'blue', 'yellow', 'red', 'green'},
-            'Complete six-switch, spinner and four-arcade-LED assignment required')
+    controls = {item['controlId'] for item in input_map['switches']}
+    require(controls and {item['controlId'] for item in input_map['leds']} <= controls,
+            'Observed switches required; LEDs must belong to those switches')
     return value
 
 

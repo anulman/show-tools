@@ -67,7 +67,7 @@ class Bootstrap(unittest.TestCase):
             path.chmod(0o644)
             self.old_paths.append((path, content, path.stat().st_ino))
 
-    def test_unconfigured_legacy_and_incomplete_packets_cannot_activate(self):
+    def test_unconfigured_legacy_and_unpaired_led_packets_cannot_activate(self):
         grant = json.loads((ROOT / 'grant.inactive.json').read_bytes())
         with self.assertRaisesRegex(ValueError, 'version-two installation map'):
             bootstrap.active_grant(json.dumps(grant).encode())
@@ -76,10 +76,33 @@ class Bootstrap(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'version-two installation map'):
             bootstrap.active_grant(json.dumps(legacy).encode())
         incomplete = json.loads(self.content['grant.inactive.json'])
-        incomplete['target']['peripheralAssignment']['inputMap']['switches'].pop()
-        with self.assertRaisesRegex(ValueError, 'Complete six-switch'):
+        incomplete['target']['peripheralAssignment']['inputMap']['switches'].pop(0)
+        with self.assertRaisesRegex(ValueError, 'LEDs must belong'):
             bootstrap.active_grant(json.dumps(incomplete).encode())
         self.assertFalse((self.root / 'policy' / bootstrap.GRANT.name).exists())
+
+    def test_two_button_map_freezes_and_bootstraps_without_future_switches(self):
+        observed = json.loads(self.content['grant.inactive.json'])['target']['peripheralAssignment']['inputMap']
+        observed['sources'] = observed['sources'][:1]
+        observed['switches'] = observed['switches'][:2]
+        observed['leds'] = observed['leds'][:2]
+        observed.pop('axis')
+        input_file = self.root / 'two-button-map.json'
+        input_file.write_text(json.dumps(observed))
+        output = self.root / 'two-button-packet'
+        subprocess.run([sys.executable, '-I', str(ROOT / 'freeze.py'), '--input-map', str(input_file),
+                        '--out', str(output)], check=True, stdout=subprocess.PIPE)
+        manifest_bytes = (output / 'manifest.json').read_bytes()
+        manifest = json.loads(manifest_bytes)
+        fd = os.open(output, os.O_RDONLY | os.O_DIRECTORY)
+        self.addCleanup(os.close, fd)
+        self.content, self.active = bootstrap.load_bundle(fd, bootstrap.digest(manifest_bytes),
+                                                        manifest['activeGrantSha256'])
+        self.install()
+        installed = json.loads((self.root / 'policy' / bootstrap.GRANT.name).read_bytes())
+        self.assertEqual(installed['target']['peripheralAssignment']['inputMap'], observed)
+        self.assertEqual(len(observed['switches']), 2)
+        self.assertNotIn('axis', observed)
 
     def test_freeze_preserves_source_and_refuses_invalid_or_existing_output(self):
         before = {name: (ROOT / name).read_bytes() for name in (*bootstrap.FILES, 'manifest.json')}
