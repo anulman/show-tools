@@ -15,7 +15,7 @@ node_modules/.bin/tsc --project verification/native-audio
 
 The checker creates a new temporary output directory and prints its receipt path. An optional final argument selects a new output directory whose parent already exists. Existing directories are refused. TLC uses one worker and a 512 MiB heap. Its local management socket may require running outside the restricted sandbox; that is a verification-environment prerequisite, not a product exception.
 
-A successful command verifies the controller and schema source hashes in `coverage.json`, the pinned Effect/Node-platform versions and TLC JAR, the complete finite-model search, the corresponding actual-controller schedules, and six actual-source mutants. It writes complete TLC logs, the changed controller source variants, and a JSON receipt binding source/model/config/replay hashes and runtime version. No production file is edited. A timeout, incomplete model, unexpected invariant failure, wrong mutation assertion, or source drift fails the command.
+A successful command verifies the controller and schema source hashes in `coverage.json`, the pinned Effect/Node-platform versions and TLC JAR, the complete finite-model search, the corresponding actual-controller schedules, six ownership source mutants, and eight configuration source mutants. It writes complete TLC logs, the changed controller source variants, and a JSON receipt binding source/model/config/replay hashes and runtime version. No production file is edited. A timeout, incomplete model, unexpected invariant failure, wrong mutation assertion, or source drift fails the command.
 
 Read every model result with the current p-stack `/statechart` skill. Its installed paths and commands are deliberately not copied here. Use `NativeAudio.tla`, `NativeAudio.cfg`, and `view.mjs` for the full proof. `Chart.cfg` reduces the domain to one attempt for an illustrative graph. That smaller graph does not replace the two-attempt proof, and hidden within-label transitions do not disappear from the checker.
 
@@ -37,7 +37,7 @@ The model treats native epochs as distinct per attempt and assumes supplied read
 
 Listener callbacks are assumed not to throw or synchronously reenter controller methods. Native handle exit checks must accurately report false only after that child leader exits; failures remain uncertain. Process identities are not reused within the bounded run.
 
-Cleanup can remain unconfirmed. The model retains that attempt indefinitely and refuses a replacement. A spawn failure before a handle returns is deliberately sticky, even if it may have created no child. Managed-service recovery is required. Failures before the spawn request remain recoverable in process. It does not assume the OS must eventually permit a kill. Actual `close()`/service shutdown integration and unconditional liveness remain separate concerns.
+Cleanup can remain unconfirmed. The model retains that attempt indefinitely and refuses a replacement. A spawn failure before a handle returns is deliberately sticky, even if it may have created no child. Managed-service recovery is required. Failures before the spawn request remain recoverable in process. It does not assume the OS must eventually permit a kill. The supplemental model covers the configuration wait in `close()`. Other service-shutdown integration and unconditional liveness remain separate concerns.
 
 ## Source correspondence
 
@@ -45,16 +45,16 @@ The sync revision and file hashes live in `coverage.json`. The checker rejects a
 
 | Model action | Controller boundary at the sync revision |
 | --- | --- |
-| `Enable` | `setAudio()` and the synchronous reservation/publication in `start()`, lines 48-57 and 78-83. |
+| `Enable` | `setAudio()` and the synchronous reservation and publication in `start()`. |
 | `SetupFailed` | Runtime prerequisites fail before any child request; the attempt may become Fault and retry without asserting cleanup of a nonexistent request. |
 | `BeginSpawn`, `ChildAcquired`, `Spawn`, `SpawnFailed` | The Pending assignment before the spawn await, physical acquisition, and Known assignment after handle return. These are separate steps; acquisition or cleanup may fail before a handle reaches the controller. |
-| `PrepareDone`, `PublishReady` | The package preparation await, readback polling await, cancellation/identity checks and synchronous Ready update, lines 132-151. A delayed readback permits Terminate between preparation and publication. |
-| `Terminate` | `stop()` publishes Stopping, sets the final goal to Off and aborts, lines 59-62. |
+| `PrepareDone`, `PublishReady` | The package preparation await, readback polling await, cancellation and identity checks and the synchronous Ready update. A delayed readback permits Terminate between preparation and publication. |
+| `Terminate` | `stop()` publishes Stopping, sets the final goal to Off and aborts. |
 | `NativeExit` | Physical child exit may precede the asynchronous completion callback. It does not immediately change the public view. |
-| `BeginCleanup` | Effect scoped finalization before `finished()`, lines 82-83 and 154-161. |
+| `BeginCleanup` | Effect scoped finalization before `finished()`. |
 | `HoldPending`, `FinishExited`, `CleanupUnconfirmed` | `finished()` first retains a Pending ownership record. A Known handle then permits the real `isRunning` await and retain-versus-release branch. |
-| `IssueCommand`, `ReturnCommand` | Admission before the instrument await and the current/Ready/abort recheck afterward, lines 164-172. |
-| `DeliverEvent` | The current/Ready/abort subscription gate, lines 69-72. Only attempts that previously subscribed can emit a delayed event in the model. |
+| `IssueCommand`, `ReturnCommand` | Admission before the instrument await and the current, Ready and abort recheck afterward. |
+| `DeliverEvent` | The current/Ready/abort subscription gate. Only attempts that previously subscribed can emit a delayed event in the model. |
 
 The installed Node process service registers its child finalizer before returning a handle. The actual controller awaits the whole scoped attempt before `finished()`, but completion alone does not prove reaping: the backend can ignore termination errors. The model therefore keeps Pending ownership when a request fails or interruption prevents publication of its handle. It permits the physical child to remain alive or to exit independently. The synthetic acquisition and cleanup-failure replays use real Effect scope ordering; they do not prove OS kill behavior.
 
@@ -74,6 +74,45 @@ Each TLC mutant must fail its specific named invariant. The ownership mutant has
 | `observe` | Omit the subscription admission fence. | A canceled or old subscription publishes an event. |
 
 These are sensitivity and selected conformance checks, not a proof of every implementation interleaving. A model-only mutant is never counted as source verification. The separate unassigned-child fault probe changes no production operation and now asserts the repaired baseline remains Stopping and rejects replacement. Ordinary tests also cover launch failure before/after child creation, cancellation before handle publication, failed exit queries, and recoverable failures before a spawn request.
+
+## Song and button-map configuration
+
+The current source sync is `e9ecebb858dc580fb43717c3d3771d9c8c458858`. The existing ownership model remains unchanged. Configuration adds no child process or new ownership transfer. Its guarded work occurs only while audio is Off and no attempt is reserved. Hiding that work leaves a conservative ownership model because configuration can reject Enable but cannot introduce another owned attempt. This is a reviewed correspondence argument, not a mechanically checked composition or refinement proof.
+
+`SongConfiguration.tla` checks the new promise separately. It covers two never-reused attempt reservations and two configuration requests. Each request independently supplies a current or noncurrent desk token. This equality abstraction covers both old and future tokens without bounding native telemetry's revision counter. The model's `commits` counts successful configuration completions, not numeric desk revisions. No state-depth constraint or fairness assumption is used.
+
+| Invariant | Meaning |
+| --- | --- |
+| `TypeOK` | Ownership, request identities, completion counts and flags stay in the finite domain. |
+| `OneConfiguration` | At most one asynchronous configuration is pending. |
+| `NoOwnedConfiguration` | Pending configuration and a reserved native attempt cannot overlap. |
+| `ConfigurationRequiresOff` | Configuration requires audio Off, including after a recoverable Fault. |
+| `NoCommitAfterClosing` | A candidate cannot commit after shutdown begins. |
+| `ClosedHasNoConfiguration` | Close cannot return with configuration still pending, and a closed desk cannot admit new configuration. |
+| `NoStaleConfigurationRevision` | Admission rejects every token unequal to the current desk token. |
+
+`BeginConfigure` corresponds to `configure()` checking closing, attempt, audio state, lock and expected revision, then reserving its promise before awaiting preparation. `FinishConfigure` corresponds to that await settling, candidate validation, the closing check, synchronous commit and in-memory activation, and the `finally` release. These synchronous operations have no modeled external interleaving. `BeginClose` reserves closing before waiting. `ConfirmClosed` represents the close promise returning after the pending configuration settles.
+
+The coarse native states in this supplemental model retain an attempt until confirmed exit or failure. Unknown ownership can remain reserved indefinitely. The original lifecycle model and its actual-controller witnesses check that release condition in more detail. The supplemental model does not repeat acquisition, handle publication, event or command internals.
+
+Preparation and compare-and-swap are controlled external boundaries in the configuration replay. The real controller, schemas, Effect runtime and native scope ordering remain real. A temporary private SQLite authority supplies the declared class interface, but its save method is replaced by a synchronous success or no-change failure. These checks do not prove SQLite durability, ambiguous commit errors, canonical chart compilation, asset loading or backup behavior. Listener callbacks must not throw or synchronously reenter the controller, as in the ownership proof. Trusted collaborators must not mutate validated package objects outside the controller; deep object immutability is not proved here.
+
+The source mutants remove these guards one at a time:
+
+| Mutation | Required real-controller failure |
+| --- | --- |
+| Enable during preparation | Enable reserves an attempt while a configuration is pending. |
+| Configuration during audio ownership | Preparation starts while an attempt is already reserved. |
+| Configuration during Fault | Preparation starts before the operator explicitly turns audio Off. |
+| Configuration after Close | A closed desk admits preparation. |
+| Overlapping configuration | A second preparation starts before the first settles. |
+| Commit after closing begins | A prepared candidate reaches the commit callback after Close. |
+| Close without its configuration wait | The close promise settles before preparation. |
+| Noncurrent desk revision | Preparation starts with a valid revision token unequal to the current token. |
+
+The replay also checks successful configuration, rejected preparation, rejected compare-and-swap, lock release, Ready and unresolved-child admission rejection, admission after confirmed exit, and rejection of a previously current token after a successful configuration. Each model counterexample has one corresponding actual-controller operation per reported action. The baseline must preserve the rule and the matching source mutant must fail its named assertion.
+
+[configuration-illustration.mmd](configuration-illustration.mmd) shows the complete finite configuration model through reader-facing labels. It omits transitions whose endpoints share a label. The smaller `SongConfiguration-chart.cfg` remains a separate illustration check and never replaces the full two-attempt, two-request proof. The existing ownership chart and model bounds are unchanged.
 
 ## Pad-release schema maintenance
 

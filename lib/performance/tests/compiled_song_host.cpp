@@ -66,7 +66,7 @@ struct Events {
 }
 
 int main(int argc, char** argv) {
-  if (argc != 4) return fail("Usage: compiled_song_host program.pfp presses.tsv sampleRate");
+  if (argc != 4 && argc != 5) return fail("Usage: compiled_song_host program.pfp presses.tsv sampleRate [assets.tsv]");
   uint64_t sample_rate = 0;
   if (!number(argv[3], sample_rate) || sample_rate < 8000 || sample_rate > 192000) return fail("sampleRate must be an integer from 8000 through 192000");
   std::ifstream artifact(argv[1], std::ios::binary | std::ios::ate);
@@ -100,9 +100,12 @@ int main(int argc, char** argv) {
     uint64_t frame = 0, button = 0; double value = 0, window_end_count = -1;
     if (!valid_columns || !number(columns[0], frame) || !number(columns[1], button)
       || !finite_number(columns[2], value) || !finite_number(columns[3], window_end_count)
-      || (button >= PF_CHANNELS && button != 5 && button != 7) || (button < PF_CHANNELS && (value != 0 || window_end_count != -1))
+      || (button >= PF_CHANNELS && button != 5 && button != 7 && (button < 8 || button > 14) && (button < 16 || button >= 80))
+      || (button < PF_CHANNELS && (value != 0 || window_end_count != -1))
       || (button == 7 && ((value != 0 && value != 1) || window_end_count != -1))
-      || (button == 5 && window_end_count <= 0) || frame >= max_frames || (!presses.empty() && frame < presses.back().frame)) {
+      || ((button == 5 || button == 14) && window_end_count <= 0)
+      || (button >= 8 && button <= 13 && ((value != 0 && value != 1) || window_end_count != -1))
+      || (button >= 16 && (value != 0 || window_end_count != -1)) || frame >= max_frames || (!presses.empty() && frame < presses.back().frame)) {
       return fail("Invalid or unsorted press script at line " + std::to_string(line_number));
     }
     presses.push_back({frame, int(button), value, window_end_count});
@@ -117,6 +120,36 @@ int main(int argc, char** argv) {
   std::array<uint32_t, PF_VOICE_PROFILES> counts{}, revisions{}; counts.fill(1); counts[PF_BACKUP_PROFILE] = 2; revisions.fill(1);
   if (pf_prepare_voice_effects(engine.get(), effects.data(), counts.data(), revisions.data()) < 0
     || pf_load_compiled_bytes(engine.get(), bytes.data(), uint32_t(bytes.size())) < 0) return fail(pf_error(engine.get()));
+  if (argc == 5) {
+    std::ifstream assets(argv[4]);
+    if (!assets) return fail("Could not open external asset list");
+    std::array<bool, 64> prepared{};
+    std::string asset_line;
+    while (std::getline(assets, asset_line)) {
+      const auto tab = asset_line.find('\t');
+      uint64_t slot = 0;
+      if (tab == std::string::npos || !number(std::string_view(asset_line).substr(0, tab), slot)
+        || slot >= prepared.size() || prepared[slot]) return fail("Invalid or duplicate external asset slot");
+      std::ifstream wav(asset_line.substr(tab + 1), std::ios::binary | std::ios::ate);
+      if (!wav) return fail("Could not open external WAV");
+      const auto wav_size = wav.tellg();
+      if (wav_size <= 0 || wav_size > 4 * 1024 * 1024) return fail("External WAV byte limit");
+      std::vector<uint8_t> wav_bytes(static_cast<size_t>(wav_size)); wav.seekg(0);
+      if (!wav.read(reinterpret_cast<char*>(wav_bytes.data()), wav_size)
+        || pf_prepare_external_wav(engine.get(), uint32_t(slot), wav_bytes.data(), uint32_t(wav_bytes.size())) < 0)
+        return fail("External WAV preparation failed");
+      prepared[slot] = true;
+    }
+    if (!assets.eof()) return fail("Could not read external asset list");
+  }
+  double physical_generation = 0;
+  uint64_t physical_events = 0, external_triggers = 0;
+  if (std::any_of(presses.begin(), presses.end(), [](const Press& press) { return press.button >= 8 && press.button <= 14; })) {
+    std::array<double, PF_INPUT_INFO_FIELDS> routing{}; pf_input_info(engine.get(), routing.data());
+    physical_generation = routing[PF_INPUT_GENERATION];
+    if (pf_input_attach(engine.get(), 0, 1, physical_generation, PF_INPUT_PHYSICAL, 63, 0) < 0)
+      return fail("Physical producer admission failed");
+  }
   double inactivity = 0;
   const size_t cue_fields = field(bytes, 1) == PF_COMPILED_LEGACY_VERSION ? PF_COMPILED_LEGACY_CUE_FIELDS : PF_COMPILED_CUE_FIELDS;
   size_t cursor = PF_COMPILED_HEADER_FIELDS + size_t(field(bytes, 8)) * PF_COMPILED_TAKE_FIELDS
@@ -130,6 +163,7 @@ int main(int argc, char** argv) {
     else if (field(bytes, cursor) == PF_COMPILED_PROFILES_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1)) * PF_COMPILED_PROFILES_FIELDS;
     else if (field(bytes, cursor) == PF_COMPILED_SUSTAIN_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1));
     else if (field(bytes, cursor) == PF_COMPILED_EXTERNAL_MAGIC || field(bytes, cursor) == PF_COMPILED_NOTES_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1)) * 5;
+    else if (field(bytes, cursor) == PF_INPUT_MAGIC) cursor += 2 + size_t(field(bytes, cursor + 1)) * PF_INPUT_BINDING_FIELDS;
     else return fail("Unsupported compiled extension");
   }
   std::array<double, PF_FIELDS> snapshot{}; pf_snapshot(engine.get(), snapshot.data());
@@ -176,8 +210,14 @@ int main(int argc, char** argv) {
       }
     }
     while (next_press < presses.size() && presses[next_press].frame == frame) {
-      if (pf_control(engine.get(), presses[next_press].button, presses[next_press].value, nullptr, 0) < 0) return fail("Press rejected at frame " + std::to_string(frame) + ": " + pf_error(engine.get()));
-      if (presses[next_press].button == 5 && presses[next_press].value != 0) {
+      const auto& press = presses[next_press];
+      const bool physical = press.button >= 8 && press.button <= 14;
+      const int applied = physical
+        ? pf_input_event(engine.get(), 0, 1, physical_generation, double(++physical_events), uint32_t(press.button - 8), press.value)
+        : pf_control(engine.get(), press.button, press.value, nullptr, 0);
+      if (applied < 0) return fail("Press rejected at frame " + std::to_string(frame) + ": " + pf_error(engine.get()));
+      if (press.button >= 16) ++external_triggers;
+      if ((press.button == 5 || press.button == 14) && press.value != 0) {
         std::array<double, PF_VOICE_FIELDS> backup{}; pf_voice_info(engine.get(), PF_BACKUP_PROFILE, backup.data());
         if (backup[PF_VOICE_ROTATION_ELIGIBLE] != 1 || backup[PF_VOICE_ROTATION_REMAINING] <= 0 || backup[PF_VOICE_ROTATION_REMAINING] > inactivity + 1e-9) return fail("Rotation did not activate for its full inactivity interval at frame " + std::to_string(frame));
         pf_snapshot(engine.get(), snapshot.data());
@@ -214,6 +254,7 @@ int main(int argc, char** argv) {
   if (!process(128, true)) return 1;
   pf_snapshot(engine.get(), snapshot.data());
   std::cout << std::setprecision(17) << "{\"frames\":" << frame << ",\"phase\":" << snapshot[PF_PHASE]
+            << ",\"physicalEvents\":" << physical_events << ",\"externalTriggers\":" << external_triggers
             << ",\"bpm\":" << snapshot[PF_BPM] << ",\"tempoHits\":" << events.tempo_hits << ",\"events\":" << events.count << ",\"rotations\":" << rotations << ",\"rotationCutoffs\":[";
   for (size_t index = 0; index < rotation_cutoffs.size(); ++index) {
     if (index) std::cout << ',';

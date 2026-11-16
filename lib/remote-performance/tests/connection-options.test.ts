@@ -54,7 +54,7 @@ test('explicit routes preserve authority, TLS identity and failure boundaries fo
     inputMap, bindingRevision: 1, jiggle: { minimumTravel: 10, minimumReversal: 2 } });
   await t.test('unresolvable DNS name reaches explicit IP with original Host, Origin, auth and SNI', async () => {
     assert.equal((await (await createSessionClient(profile())).status()).audio.kind, 'off');
-    await assert.rejects(runPeripheralBridge(bridge(), new AbortController().signal), /Enable hardware audio/);
+    await assert.rejects(runPeripheralBridge(bridge(), new AbortController().signal), /Hardware audio is off/);
     assert.equal(requests.length, 2);
     for (const request of requests) assert.deepEqual(request, { host: `desk.invalid:${bound.port}`, origin,
       authorization: `Bearer ${token}`, servername: 'desk.invalid' });
@@ -72,7 +72,7 @@ test('explicit routes preserve authority, TLS identity and failure boundaries fo
   await t.test('original IP certificate identity works without IP SNI', async () => {
     const ipOrigin = `https://[::1]:${bound.port}`;
     assert.equal((await (await createSessionClient(profile(ipOrigin))).status()).audio.kind, 'off');
-    await assert.rejects(runPeripheralBridge(bridge(ipOrigin), new AbortController().signal), /Enable hardware audio/);
+    await assert.rejects(runPeripheralBridge(bridge(ipOrigin), new AbortController().signal), /Hardware audio is off/);
     for (const request of requests.slice(-2)) { assert.equal(request.host, `[::1]:${bound.port}`); assert.equal(request.origin, ipOrigin); assert.ok(!request.servername); }
     const before = requests.length;
     await assert.rejects((await createSessionClient(profile(`https://127.0.0.1:${bound.port}`))).status());
@@ -122,7 +122,7 @@ test('HTTP legacy and explicit loopback routes reach both actual clients', async
     assert.equal((await (await createSessionClient(profile)).status()).audio.kind, 'off');
     const bridge = decodePeripheralBridgeConfig({ version: 2, origin, ...route, tokenFile: join(directory, 'token'),
       helperExecutable: '/no-helper-must-run', inputMap, bindingRevision: 1, jiggle: { minimumTravel: 10, minimumReversal: 2 } });
-    await assert.rejects(runPeripheralBridge(bridge, new AbortController().signal), /Enable hardware audio/);
+    await assert.rejects(runPeripheralBridge(bridge, new AbortController().signal), /Hardware audio is off/);
     for (const request of requests.slice(-2)) { assert.equal(request.headers.host, new URL(origin).host); assert.equal(request.headers.origin, origin); }
   }
 });

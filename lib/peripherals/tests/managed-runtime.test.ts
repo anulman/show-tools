@@ -40,7 +40,7 @@ test('silent event stream fails even while socket remains open; comments keep it
 	assert.equal(stream.destroyed, true);
 });
 
-test('normal off/device waits use only status; cancellation leaves no child or audio command', async () => {
+test('absent device waits without opening a helper or requiring gateway audio', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'peripheral-wait-'));
 	const controller = new PersistentDesk(sessionProfile(directory), installedPackage().installed);
 	const paths: string[] = [];
@@ -52,23 +52,39 @@ test('normal off/device waits use only status; cancellation leaves no child or a
 		server.listen(0, '127.0.0.1'); await once(server, 'listening');
 		const address = server.address(); assert.ok(address && typeof address !== 'string');
 		const running = servePeripheral({ version: 2, origin: `http://127.0.0.1:${address.port}`, tokenFile: join(directory, 'token'), helperExecutable: '/nonexistent-helper', inputMap, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, abort.signal, { retryMs: 5, present: async () => { presenceChecks++; return false; }, report: () => {} });
-		await until(() => paths.length >= 3 || undefined);
+		await until(() => presenceChecks >= 3 || undefined);
 		abort.abort(); await running;
-		assert.ok(paths.every(path => path === '/api/status'));
-		assert.equal(presenceChecks, 0);
+		assert.deepEqual(paths, []);
+		assert.ok(presenceChecks >= 3);
 		assert.equal(controller.snapshot().audio.kind, 'off');
 	} finally { abort.abort(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await controller.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test('auth faults hold instead of reconnecting or starting a helper', async () => {
+test('gateway authentication failure holds musical input while the one local helper remains active', async () => {
 	const directory = await mkdtemp(join(tmpdir(), 'peripheral-auth-'));
 	const server = createServer((_, response) => { response.writeHead(401); response.end(); });
+	const abort = new AbortController(); let running: Promise<void> | undefined;
+	const helper = join(directory, 'helper'), log = join(directory, 'log');
+	const states: string[] = [];
 	try {
 		await writeFile(join(directory, 'token'), 'a'.repeat(32), { mode: 0o600 });
+		await writeFile(helper, `#!${process.execPath}
+const fs=require('node:fs'),rl=require('node:readline');
+fs.appendFileSync(${JSON.stringify(log)},'start\\n');
+process.stdout.write(JSON.stringify({type:'ready',version:2,session:Number(process.argv[2]),switches:[{controlId:'blue',state:'released'}]})+'\\n');
+rl.createInterface({input:process.stdin}).on('line',line=>{if(line==='quit')process.exit(0)});
+process.on('exit',()=>fs.appendFileSync(${JSON.stringify(log)},'exit\\n'));
+`);
+		await chmod(helper, 0o700);
 		server.listen(0, '127.0.0.1'); await once(server, 'listening');
 		const address = server.address(); assert.ok(address && typeof address !== 'string');
-		await assert.rejects(servePeripheral({ version: 2, origin: `http://127.0.0.1:${address.port}`, tokenFile: join(directory, 'token'), helperExecutable: '/nonexistent-helper', inputMap, bindingRevision: 1, jiggle: { minimumTravel: 4, minimumReversal: 2 } }, new AbortController().signal), /401/);
-	} finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(directory, { recursive: true, force: true }); }
+		running = servePeripheral({ version: 2, origin: `http://127.0.0.1:${address.port}`, tokenFile: join(directory, 'token'), helperExecutable: helper, inputMap, bindingRevision: 1, jiggle: null }, abort.signal,
+			{ present: async () => true, fingerprint: async () => 'same-device', retryMs: 5, report: state => states.push(JSON.stringify(state)) });
+		await until(() => states.some(state => state.includes('401') && state.includes('physical-only')) || undefined);
+		assert.equal(await readFile(log, 'utf8'), 'start\n');
+		abort.abort(); await running;
+		assert.equal(await readFile(log, 'utf8'), 'start\nexit\n');
+	} finally { abort.abort(); await running?.catch(() => {}); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('persistent unit restarts abnormal exits with backoff, but holds normal configuration failures', () => {
@@ -110,13 +126,14 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		return controller.command(target, input);
 	}, close: () => controller.close(), setAudio: () => { audioCommands++; throw new Error('supervisor must not control audio'); } });
 	const abort = new AbortController(); let running: Promise<void> | undefined;
+	const reports: string[] = [];
 	try {
 		controller.setAudio('on');
 		await until(() => { const audio = controller.snapshot().audio; if (audio.kind === 'fault') throw new Error(audio.error); return audio.kind === 'ready' ? true : undefined; });
 		server.listen(0, '127.0.0.1'); await once(server, 'listening');
 		const address = server.address(); assert.ok(address && typeof address !== 'string'); config.origin = `http://127.0.0.1:${address.port}`;
 		let present = false;
-		running = servePeripheral({ version: 2, origin: config.origin, tokenFile, helperExecutable: helper, inputMap, bindingRevision: 1, jiggle: null }, abort.signal, { present: async () => present, fingerprint: () => readFile(stageFile, 'utf8'), retryMs: 10, report: () => {} });
+		running = servePeripheral({ version: 2, origin: config.origin, tokenFile, helperExecutable: helper, inputMap, bindingRevision: 1, jiggle: null }, abort.signal, { present: async () => present, fingerprint: () => readFile(stageFile, 'utf8'), retryMs: 10, report: state => reports.push(JSON.stringify(state)) });
 		const settled = running.then(() => ({ ok: true }), error => ({ ok: false, error }));
 		await new Promise(resolve => setTimeout(resolve, 50)); assert.equal((await records()).length, 0, 'absent hardware never starts a child');
 		present = true;
@@ -140,19 +157,19 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		failCleanup = unknownCleanup;
 		server.closeAllConnections();
 		if (unknownCleanup) {
-			const result = await settled;
-			assert.equal(result.ok, false);
-			if ('error' in result) assert.match(String(result.error), /revocation is unconfirmed/);
+			await until(() => reports.some(report => report.includes('revocation is unconfirmed')) || undefined);
 			await new Promise(resolve => setTimeout(resolve, 60));
-			assert.equal(new Set((await records()).filter(record => record.line?.startsWith('light ')).map(record => record.session)).size, 2, 'uncertain cleanup never creates a replacement source');
+			assert.equal(new Set((await records()).filter(record => record.line?.startsWith('light ')).map(record => record.session)).size, 2, 'uncertain musical cleanup never creates another input source');
 		} else {
-			await waitRecords(history => new Set(history.filter(record => record.line?.startsWith('light ')).map(record => record.session)).size === 3);
-			abort.abort(); await running;
+			await waitRecords(history => history.filter(record => record.line?.startsWith('bind ')).length >= 3);
+			assert.equal(new Set((await records()).filter(record => record.line?.startsWith('light ')).map(record => record.session)).size, 2, 'gateway reconnect retains the same physical helper');
 		}
+		abort.abort(); await running;
+
 		const history = await records(); const starts = history.filter(record => record.type === 'start');
 		assert.equal(new Set(starts.map(record => record.session)).size, starts.length, 'every attempt has a fresh helper identity');
 		for (let i = 1; i < starts.length; i++) assert.ok(history.findIndex(record => record.type === 'exit' && record.session === starts[i-1].session) < history.indexOf(starts[i]), 'old process exits before another child starts');
-		assert.equal(history.filter(record => record.line === 'clear').length, unknownCleanup ? 2 : 3);
+		assert.equal(history.filter(record => record.line === 'clear').length, history.filter(record => record.type === 'ready').length, 'only helper teardown uses the device-owner clear');
 		assert.equal(history.at(-1)?.type, 'exit');
 		assert.equal(audioCommands, 0);
 		const final = controller.snapshot().audio;
@@ -185,4 +202,68 @@ test('read-only fingerprint notices late input/hidraw creation and permissions o
 		const permissionReady = await peripheralFingerprint(paths); assert.notEqual(permissionReady, withLed);
 		assert.equal(await peripheralFingerprint(paths), permissionReady, 'unchanged metadata is stable');
 	} finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('one helper survives audio-off and engine replacement without replaying offline presses', { timeout: 15000 }, async () => {
+  const { createGateway } = await import('../../remote-performance/gateway.js');
+  const directory = await mkdtemp(join(tmpdir(), 'physical-idle-'));
+  const helper = join(directory, 'helper'), mode = join(directory, 'mode'), log = join(directory, 'log');
+  const controller = new PersistentDesk(sessionProfile(directory), installedPackage().installed);
+  const abort = new AbortController();
+  const commands: { command: string; args: { sequence?: number; heldMask?: number; releasedMask?: number } }[] = [];
+  const reports: string[] = [];
+  const waitLog = async (text: string) => { for (let index = 0; index < 400; index++) { if ((await readFile(log, 'utf8').catch(() => '')).includes(text)) return; await new Promise(resolve => setTimeout(resolve, 5)); } throw new Error(`Helper did not observe ${text}`); };
+  let audioCommands = 0, running: Promise<void> | undefined;
+  const config = { host: '127.0.0.1', port: 0, origin: 'http://127.0.0.1', token: Buffer.from('c'.repeat(32)), staticRoot: directory };
+  const server = createGateway(config, { snapshot: () => controller.snapshot(), subscribe: listener => controller.subscribe(listener),
+    command: (target, input) => {
+      if (input && typeof input === 'object' && 'command' in input && typeof input.command === 'string' && 'args' in input) {
+        commands.push(JSON.parse(JSON.stringify(input)));
+      }
+      return controller.command(target, input);
+    }, confirmedRetirement: target => controller.confirmedRetirement(target), close: () => controller.close(),
+    setAudio: () => { audioCommands++; throw new Error('The peripheral service cannot enable audio'); } });
+  try {
+    await writeFile(join(directory, 'token'), 'c'.repeat(32), { mode: 0o600 });
+    await writeFile(mode, 'released');
+    await writeFile(helper, `#!${process.execPath}
+const fs=require('node:fs'),rl=require('node:readline');
+const session=Number(process.argv[2]);let sequence=0,prior='released';
+fs.appendFileSync(${JSON.stringify(log)},'start\\n');
+process.stdout.write(JSON.stringify({type:'ready',version:2,session,switches:[{controlId:'blue',state:'released'}]})+'\\n');
+const timer=setInterval(()=>{const next=fs.readFileSync(${JSON.stringify(mode)},'utf8');if(next!==prior){prior=next;process.stdout.write(JSON.stringify({type:'button',session,sequence:++sequence,controlId:'blue',down:next==='held'})+'\\n');fs.appendFileSync(${JSON.stringify(log)},next+'\\n')}},5);
+rl.createInterface({input:process.stdin}).on('line',line=>{if(line==='quit'){clearInterval(timer);process.exit(0)}});
+process.on('exit',()=>fs.appendFileSync(${JSON.stringify(log)},'exit\\n'));
+`);
+    await chmod(helper, 0o700);
+    server.listen(0, '127.0.0.1'); await once(server, 'listening');
+    const address = server.address(); assert.ok(address && typeof address !== 'string'); config.origin = `http://127.0.0.1:${address.port}`;
+    running = servePeripheral({ version: 2, origin: config.origin, tokenFile: join(directory, 'token'), helperExecutable: helper, inputMap, bindingRevision: 1, jiggle: null }, abort.signal,
+      { present: async () => true, fingerprint: async () => 'one-board', retryMs: 10, report: state => reports.push(JSON.stringify(state)) });
+    await until(() => reports.some(value => value.includes('physical-only')) || undefined);
+    assert.equal(controller.snapshot().audio.kind, 'off');
+    await writeFile(mode, 'held');
+    await waitLog('held\n');
+    assert.equal(commands.length, 0, 'offline physical input never reaches a native engine');
+    controller.setAudio('on');
+    await until(() => commands.some(value => value.command === 'inputAttach') || undefined);
+    assert.equal(commands.find(value => value.command === 'inputAttach')?.args.heldMask, 1, 'native admission observes the current held barrier');
+    await writeFile(mode, 'released'); await waitLog('released\n');
+    await writeFile(mode, 'held');
+    await until(() => commands.filter(value => value.command === 'inputEvent').length >= 2 || undefined);
+    assert.deepEqual(commands.filter(value => value.command === 'inputEvent').map(value => value.args.sequence), [2, 3], 'the old offline press is never replayed');
+    controller.setAudio('off');
+    await until(() => controller.snapshot().audio.kind === 'off' || undefined);
+    await writeFile(mode, 'released');
+    for (let index = 0; index < 100; index++) { const text = await readFile(log, 'utf8'); if (text.split('released\n').length === 3) break; await new Promise(resolve => setTimeout(resolve, 5)); }
+    controller.setAudio('on');
+    await until(() => commands.filter(value => value.command === 'inputAttach').length === 2 || undefined);
+    assert.equal(commands.filter(value => value.command === 'inputAttach')[1].args.releasedMask, 1);
+    assert.equal((await readFile(log, 'utf8')).split('start\n').length, 2, 'audio replacement retains the original USB helper');
+    assert.equal(audioCommands, 0);
+    abort.abort(); await running;
+  } finally {
+    abort.abort(); await running?.catch(() => {}); server.closeAllConnections();
+    await new Promise<void>(resolve => server.close(() => resolve())); await controller.close(); await rm(directory, { recursive: true, force: true });
+  }
 });

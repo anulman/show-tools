@@ -1,1 +1,1 @@
-export { decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus } from '../../lib/remote-performance/session-schema.js';
+export { decodeSongChoices, decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus } from '../../lib/remote-performance/session-schema.js';

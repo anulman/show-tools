@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { renderPeripheralUnit } from '../service-unit.js';
 import { sessionProfile } from '../../remote-performance/tests/session-fixture.js';
 
@@ -64,4 +65,77 @@ test('operator packet stays pending without explicit tuning and pins a resolved 
     assert.equal(JSON.parse(await readFile(join(disabled, 'profile.json'), 'utf8')).jiggle, null);
     assert.throws(() => prepare('--out', join(directory, 'invalid-mixed'), '--disable-jiggle', '--jiggle-travel', '4', '--jiggle-reversal', '2'));
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('waiting packet pins the reviewed CLI and emits no profile or credential requirement', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'operator-waiting-fixture-'));
+  try {
+    const release = join(directory, 'release');
+    const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const names = ['release.json', 'runtime/node', 'bin/show-tools-peripheral', 'gateway/peripheral-cli.mjs', 'native/peripheral/peripheral-host', 'bin/show-tools-session', 'gateway/session-cli.mjs', 'provenance/source/lib/peripherals/bridge-cli.ts'];
+    for (const name of names) {
+      const path = join(release, name); await mkdir(resolve(path, '..'), { recursive: true });
+      await writeFile(path, name === 'release.json' ? JSON.stringify({ sourceRevision: revision }) : name.startsWith('provenance/') ? await readFile(resolve('lib/peripherals/bridge-cli.ts')) : `synthetic fixture ${name}`);
+    }
+    const prepare = (out: string, ...extra: string[]) => JSON.parse(execFileSync(process.execPath,
+      ['--import', 'tsx', resolve('lib/peripherals/operator-service/prepare.ts'), '--release', release, '--source-revision', revision, '--installer-source-revision', revision, '--waiting-configuration', '--out', out, ...extra], { encoding: 'utf8', stdio: 'pipe' }));
+    const output = join(directory, 'packet');
+    assert.equal(prepare(output).ready, true);
+    const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'));
+    assert.equal(manifest.schemaVersion, 3);
+    assert.equal(manifest.mode, 'waiting-configuration');
+    assert.deepEqual(Object.keys(manifest.files).sort(), ['install.py', 'show-tools-peripheral.service']);
+    assert.equal(manifest.webProfileSha256, undefined);
+    assert.equal(manifest.waitingCliSourceSha256, sha(await readFile(resolve('lib/peripherals/bridge-cli.ts'))));
+    await assert.rejects(access(join(output, 'profile.json')));
+    assert.match(await readFile(join(output, 'README.txt'), 'utf8'), /without sudo/);
+    assert.match(await readFile(join(output, 'OPERATOR-COMMAND.txt'), 'utf8'), /--manifest-sha256 [a-f0-9]{64} --activate/);
+    for (const extra of [['--disable-jiggle'], ['--input-map', '/unused'], ['--web-profile', '/unused'], ['--jiggle-travel', '4']]) {
+      assert.throws(() => prepare(join(directory, `mixed-${extra[0]}`), ...extra));
+    }
+    await writeFile(join(release, 'provenance/source/lib/peripherals/bridge-cli.ts'), 'old CLI source');
+    const rejected = join(directory, 'rejected');
+    assert.throws(() => prepare(rejected));
+    await assert.rejects(access(join(rejected, 'OPERATOR-COMMAND.txt')));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('real serve CLI waits with a missing profile and refuses invalid configuration without spawning a helper', { timeout: 10000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'operator-waiting-cli-'));
+  const missing = join(directory, 'peripheral.json');
+  const moduleUrl = pathToFileURL(resolve('lib/peripherals/bridge-cli.ts')).href;
+  const driver = `import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+childProcess.spawn = () => { throw new Error('Unexpected helper spawn'); };
+syncBuiltinESMExports();
+const { runPeripheralCli } = await import(${JSON.stringify(moduleUrl)});
+await runPeripheralCli(['serve', '--config', ${JSON.stringify(missing)}]);`;
+  const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', driver], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '', errors = '';
+  child.stderr.on('data', data => { errors += data; });
+  try {
+    await new Promise<void>((resolveReady, reject) => {
+      const timer = setTimeout(() => reject(new Error(`No waiting status: ${errors}`)), 3000);
+      child.once('exit', code => { clearTimeout(timer); reject(new Error(`CLI exited before waiting: ${code}; ${errors}`)); });
+      child.stdout.on('data', data => {
+        output += data;
+        if (output.includes('USB is unopened.')) { clearTimeout(timer); resolveReady(); }
+      });
+    });
+    const exited = new Promise<number | null>(resolveExit => child.once('exit', resolveExit));
+    child.kill('SIGTERM');
+    assert.equal(await exited, 0);
+    assert.equal(errors, '');
+    await writeFile(missing, 'invalid profile');
+    assert.throws(() => execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', driver], { stdio: 'pipe' }), error => {
+      assert.ok(error instanceof Error);
+      assert.ok('stderr' in error);
+      assert.match(String(error.stderr), /SyntaxError/);
+      assert.doesNotMatch(String(error.stderr), /Unexpected helper spawn/);
+      return true;
+    });
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await rm(directory, { recursive: true, force: true });
+  }
 });

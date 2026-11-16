@@ -11,7 +11,9 @@ import { TunerStateSchema } from '../../lib/tuner/schema.js';
 import { lightFixture } from '../../lib/remote-performance/tests/light-fixture.js';
 import { installedPackage, sessionProfile } from '../../lib/remote-performance/tests/session-fixture.js';
 import type { Observation } from '../../lib/remote-performance/gateway.js';
-import type { NativeOutcome } from '../../lib/remote-performance/session-schema.js';
+import { DeskRevisionSchema, type NativeOutcome } from '../../lib/remote-performance/session-schema.js';
+import { SongBindingAuthority } from '../../lib/remote-performance/song-bindings.js';
+import type { InstalledSong, InstalledSongCatalog } from '../../lib/remote-performance/song-catalog.js';
 
 export type Mutation = 'none' | 'cancel' | 'cleanup' | 'command' | 'observe' | 'ownership' | 'identity';
 const replacements = {
@@ -25,6 +27,23 @@ const replacements = {
 export function mutateController(source: string, mutation: Mutation): string {
   if (mutation === 'none') return source;
   const [before, after] = replacements[mutation];
+  assert.equal(source.split(before).length, 2, `Source drift: ${mutation} mutation anchor must occur once`);
+  return source.replace(before, after);
+}
+export type ConfigurationMutation = 'none' | 'enable-during-config' | 'config-during-audio' | 'config-during-fault' | 'config-after-close' | 'overlapping-config' | 'commit-after-close' | 'close-without-wait' | 'stale-revision';
+const configurationReplacements = {
+  'enable-during-config': ["      if (this.configuration.kind !== 'idle') return { outcome: 'rejected', error: 'Wait for song configuration to finish before enabling audio', view: this.view };", '      void this.configuration;'],
+  'config-during-audio': ["this.closing || this.attempt || this.view.audio.kind !== 'off' || this.configuration.kind !== 'idle'", "this.closing || this.configuration.kind !== 'idle'"],
+  'config-during-fault': ["this.view.audio.kind !== 'off' || ", ''],
+  'config-after-close': ["if (this.closing || this.attempt ||", "if (this.attempt ||"],
+  'overlapping-config': [" || this.configuration.kind !== 'idle')\n      return rejected", ")\n      return rejected"],
+  'commit-after-close': ["      if (this.closing) return rejected('Desk is shutting down; configuration was not committed');", '      void this.closing;'],
+  'close-without-wait': ["    if (this.configuration.kind === 'preparing') await this.configuration.done;", '    void this.configuration;'],
+  'stale-revision': ["    if (expectedRevision !== this.view.revision) return rejected('Desk changed. Reload its current state before saving');", '    void expectedRevision;'],
+} satisfies Record<Exclude<ConfigurationMutation, 'none'>, [string, string]>;
+export function mutateConfigurationController(source: string, mutation: ConfigurationMutation): string {
+  if (mutation === 'none') return source;
+  const [before, after] = configurationReplacements[mutation];
   assert.equal(source.split(before).length, 2, `Source drift: ${mutation} mutation anchor must occur once`);
   return source.replace(before, after);
 }
@@ -55,6 +74,7 @@ type SyntheticChild = { alive: boolean; exit: ReturnType<typeof deferred<ChildPr
 interface ReplayDependencies {
   layer: Layer.Layer<ChildProcessSpawner.ChildProcessSpawner>;
   prepare(): Promise<void>;
+  prepareBindings(): Promise<{ installed: ReturnType<typeof installedPackage>['installed'] }>;
   Instrument: new () => ReplayInstrument;
 }
 declare global { var __nativeAudioReplay: ReplayDependencies | undefined; }
@@ -69,6 +89,8 @@ class ReplayInstrument {
 }
 type ReplayOptions = {
   mutation: Mutation;
+  configurationMutation?: ConfigurationMutation;
+  configuration?: 'blocked' | 'failed-prepare' | 'failed-commit';
   preparation?: 'blocked';
   cleanup?: 'unconfirmed';
   readback?: 'blocked';
@@ -87,6 +109,8 @@ async function fixture(options: ReplayOptions) {
   const children: SyntheticChild[] = [], instruments: ReplayInstrument[] = [];
   let prepareCalls = 0, commandCalls = 0, spawnCalls = 0;
   const readback = { ready: !options.readback };
+  const configurationPrepared = deferred<void>();
+  let configurationPrepareCalls = 0, configurationCommitCalls = 0;
   const song = installedPackage().installed;
   const spawner = ChildProcessSpawner.make(() => Effect.gen(function*() {
     spawnCalls++;
@@ -121,6 +145,12 @@ async function fixture(options: ReplayOptions) {
   const dependencies: ReplayDependencies = {
     layer: Layer.succeed(ChildProcessSpawner.ChildProcessSpawner, spawner),
     prepare: async () => { prepareCalls++; await prepared.promise; },
+    prepareBindings: async () => {
+      configurationPrepareCalls++;
+      await configurationPrepared.promise;
+      if (options.configuration === 'failed-prepare') throw Error('Synthetic candidate preparation rejected');
+      return { installed: song };
+    },
     Instrument: class extends ReplayInstrument {
       constructor() {
         super({ type: 'session', song: song.song, state, lights: lightFixture(), tuner: tuning,
@@ -132,7 +162,7 @@ async function fixture(options: ReplayOptions) {
   };
   globalThis.__nativeAudioReplay = dependencies;
   const sourcePath = resolve('lib/remote-performance/controller.ts');
-  const source = mutateController(await readFile(sourcePath, 'utf8'), mutation);
+  const source = mutateConfigurationController(mutateController(await readFile(sourcePath, 'utf8'), mutation), options.configurationMutation ?? 'none');
   const sourceCopy = join(bundleDirectory, 'controller-source.ts');
   await writeFile(sourceCopy, source);
   const outfile = join(bundleDirectory, 'controller.mjs');
@@ -141,21 +171,35 @@ async function fixture(options: ReplayOptions) {
     plugins: [{ name: 'controlled-native-boundaries', setup(builder) {
       builder.onLoad({ filter: /\/controller\.ts$/ }, async () => ({ contents: await readFile(sourceCopy, 'utf8'), loader: 'ts', resolveDir: resolve('lib/remote-performance') }));
       builder.onResolve({ filter: /^@effect\/platform-node$/ }, () => ({ path: 'platform', namespace: 'native-replay' }));
-      builder.onResolve({ filter: /^\.\/(instrument|prepare)\.js$/ }, args => args.importer === sourcePath ? { path: args.path, namespace: 'native-replay' } : undefined);
+      builder.onResolve({ filter: /^\.\/(instrument|prepare|song-bindings)\.js$/ }, args => args.importer === sourcePath ? { path: args.path, namespace: 'native-replay' } : undefined);
       builder.onLoad({ filter: /.*/, namespace: 'native-replay' }, args => ({ contents:
         args.path === 'platform' ? 'export const NodeServices = {layer: globalThis.__nativeAudioReplay.layer};'
+          : args.path.includes('song-bindings') ? 'export const prepareSongBindings = (...args) => globalThis.__nativeAudioReplay.prepareBindings(...args);'
           : args.path.includes('instrument') ? 'export const NativeInstrument = globalThis.__nativeAudioReplay.Instrument;'
           : 'export const prepareInstalledPackage = (...args) => globalThis.__nativeAudioReplay.prepare(...args);', loader: 'js' }));
     } }],
   });
   const { PersistentDesk }: typeof import('../../lib/remote-performance/controller.js') = await import(pathToFileURL(outfile).href);
-  const controller = new PersistentDesk(sessionProfile(directory), song);
+  const entry: InstalledSong = { id: song.song.id, title: song.song.chart.title, packageDigest: '0'.repeat(64),
+    hashes: { manifestSha256: '0'.repeat(64), packetSha256: '0'.repeat(64), effectsSha256: '0'.repeat(64) },
+    paths: { manifest: join(directory, 'manifest.json'), packet: join(directory, 'song.pfp'), effects: join(directory, 'effects.json') }, installed: song };
+  const catalog: InstalledSongCatalog = { initialSongId: entry.id, choices: [entry], get(id) { assert.equal(id, entry.id); return entry; } };
+  const authority = options.configuration ? SongBindingAuthority.open(join(directory, 'binding-authority.sqlite')) : undefined;
+  if (authority) authority.save = () => {
+    if (options.configuration === 'failed-commit') throw Error('Synthetic compare-and-swap rejected');
+    configurationCommitCalls++;
+    return { ...authority.read(entry), revision: 1 };
+  };
+  const controller = new PersistentDesk(sessionProfile(directory), song, authority ? { catalog, bindings: authority } : undefined);
   const publications: ReturnType<typeof controller.snapshot>[] = [];
   controller.subscribe(publication => { if (publication.type === 'desk') publications.push(publication.view); });
   return { directory, controller, children, instruments, prepared, commandDone, publications, readback, spawnReturned,
+    configurationPrepared,
+    get configurationPrepareCalls() { return configurationPrepareCalls; }, get configurationCommitCalls() { return configurationCommitCalls; },
     get prepareCalls() { return prepareCalls; }, get commandCalls() { return commandCalls; }, get spawnCalls() { return spawnCalls; },
     async dispose() {
       prepared.resolve();
+      configurationPrepared.resolve();
       spawnReturned.resolve();
       commandDone.resolve({ outcome: 'unknown' });
       for (const child of children) { child.alive = false; child.exit.resolve(ChildProcessSpawner.ExitCode(0)); }
@@ -163,6 +207,7 @@ async function fixture(options: ReplayOptions) {
       await controller.close().catch(error => {
         if (!(options.cleanup || options.acquisition || options.exitQuery) || !(error instanceof Error) || error.message !== 'Native cleanup did not confirm exit') throw error;
       });
+      authority?.close();
       await rm(directory, { recursive: true, force: true });
       await rm(bundleDirectory, { recursive: true, force: true });
       globalThis.__nativeAudioReplay = undefined;
@@ -400,4 +445,148 @@ export async function replayCounterexample(mutation: Mutation, actions: readonly
       } else throw Error(`Unmapped TLC action ${action}`);
     }
   } finally { await f.dispose(); }
+}
+
+export const configurationFailures = {
+  'enable-during-config': 'Configuration must reject Enable before reserving an attempt',
+  'config-during-audio': 'Owned audio must reject configuration before preparation',
+  'config-during-fault': 'Faulted audio must reject configuration until explicitly Off',
+  'config-after-close': 'A closed desk must reject new configuration before preparation',
+  'overlapping-config': 'A pending configuration must reject another preparation',
+  'commit-after-close': 'Closing must prevent configuration commit',
+  'close-without-wait': 'Close must wait for its pending configuration',
+  'stale-revision': 'Stale desk revisions must reject configuration',
+} satisfies Record<Exclude<ConfigurationMutation, 'none'>, string>;
+
+export async function replayConfiguration(mutation: ConfigurationMutation, scenario: Exclude<ConfigurationMutation, 'none'>,
+  actions: readonly string[]): Promise<void> {
+  const expectedActions = {
+    'enable-during-config': ['BeginConfigure', 'Enable'],
+    'config-during-audio': ['Enable', 'BeginConfigure'],
+    'config-during-fault': ['Enable', 'ConfirmedFailure', 'BeginConfigure'],
+    'config-after-close': ['BeginClose', 'BeginConfigure'],
+    'overlapping-config': ['BeginConfigure', 'BeginConfigure'],
+    'commit-after-close': ['BeginConfigure', 'BeginClose', 'FinishConfigure'],
+    'close-without-wait': ['BeginConfigure', 'BeginClose'],
+    'stale-revision': ['BeginConfigure'],
+  } satisfies Record<Exclude<ConfigurationMutation, 'none'>, string[]>;
+  assert.deepEqual(actions, expectedActions[scenario], 'New model path must map to these actual-controller operations');
+  const f = await fixture({ mutation: 'none', configuration: 'blocked', configurationMutation: mutation,
+    ...(scenario === 'config-during-fault' ? { runtimeRootFailure: true } : {}) });
+  const configure = (expected = f.controller.snapshot().revision) =>
+    f.controller.configureSongBindings(f.controller.snapshot().song.id, expected, []);
+  try {
+    if (scenario === 'config-during-fault' || scenario === 'config-after-close') {
+      if (scenario === 'config-during-fault') {
+        f.controller.setAudio('on');
+        await until(() => f.controller.snapshot().audio.kind === 'fault', 'confirmed setup failure before spawn');
+        assert.equal(f.spawnCalls, 0);
+      } else await f.controller.close();
+      const result = configure();
+      assert.equal(f.configurationPrepareCalls, 0, configurationFailures[scenario]);
+      assert.equal((await result).outcome, 'rejected');
+      return;
+    }
+    if (scenario === 'stale-revision') {
+      const noncurrent = Schema.decodeUnknownSync(DeskRevisionSchema)((BigInt(f.controller.snapshot().revision) + 1n).toString());
+      const result = configure(noncurrent);
+      assert.equal(f.configurationPrepareCalls, 0, configurationFailures[scenario]);
+      assert.equal((await result).outcome, 'rejected');
+      return;
+    }
+    if (scenario === 'config-during-audio') {
+      f.controller.setAudio('on');
+      const result = configure();
+      assert.equal(f.configurationPrepareCalls, 0, configurationFailures[scenario]);
+      assert.equal((await result).outcome, 'rejected');
+      return;
+    }
+    const original = f.controller.snapshot();
+    const pending = configure();
+    assert.equal(f.configurationPrepareCalls, 1, 'Configuration must reserve before its preparation await');
+    if (scenario === 'enable-during-config') {
+      assert.equal(f.controller.setAudio('on').outcome, 'rejected', configurationFailures[scenario]);
+      assert.equal(f.spawnCalls, 0, 'Rejected Enable must not request a native child');
+    } else if (scenario === 'overlapping-config') {
+      const second = configure();
+      assert.equal(f.configurationPrepareCalls, 1, configurationFailures[scenario]);
+      assert.equal((await second).outcome, 'rejected');
+    } else if (scenario === 'commit-after-close' || scenario === 'close-without-wait') {
+      let closed = false;
+      const closing = f.controller.close().then(() => { closed = true; });
+      await Promise.resolve();
+      await Promise.resolve();
+      if (scenario === 'close-without-wait') assert(!closed, configurationFailures[scenario]);
+      f.configurationPrepared.resolve();
+      const decision = await pending;
+      await closing;
+      assert.equal(f.configurationCommitCalls, 0, configurationFailures['commit-after-close']);
+      assert.equal(decision.outcome, 'rejected');
+      assert.equal(f.controller.snapshot().revision, original.revision);
+    } else {
+      f.configurationPrepared.resolve();
+      assert.equal((await pending).outcome, 'accepted');
+      assert.notEqual(f.controller.snapshot().revision, original.revision);
+      const second = await configure(original.revision);
+      assert.equal(second.outcome, 'rejected', configurationFailures[scenario]);
+      assert.equal(f.configurationPrepareCalls, 1, 'A stale request must not prepare a second candidate');
+    }
+  } finally { await f.dispose(); }
+}
+
+export async function replayConfigurationOutcomes(): Promise<void> {
+  for (const configuration of ['blocked', 'failed-prepare', 'failed-commit'] satisfies Array<NonNullable<ReplayOptions['configuration']>>) {
+    const f = await fixture({ mutation: 'none', configuration });
+    try {
+      const before = f.controller.snapshot();
+      const pending = f.controller.configureSongBindings(before.song.id, before.revision, []);
+      assert.equal(f.configurationPrepareCalls, 1);
+      f.configurationPrepared.resolve();
+      const result = await pending;
+      if (configuration === 'blocked') {
+        assert.equal(result.outcome, 'accepted');
+        assert.equal(f.configurationCommitCalls, 1);
+        assert.notEqual(f.controller.snapshot().revision, before.revision);
+      } else {
+        assert.equal(result.outcome, 'rejected');
+        assert.equal(f.configurationCommitCalls, 0);
+        assert.equal(f.controller.snapshot(), before, 'A rejected preparation or CAS must preserve the installed view');
+      }
+      if (configuration === 'blocked') {
+        const calls = f.configurationPrepareCalls;
+        const stale = await f.controller.configureSongBindings(before.song.id, before.revision, []);
+        assert.equal(stale.outcome, 'rejected', 'A prior successful configuration must invalidate its old desk revision');
+        assert.equal(f.configurationPrepareCalls, calls);
+      }
+      assert.equal(f.controller.setAudio('on').outcome, 'accepted', 'Configuration outcome must release its lock');
+      await ready(f.controller);
+    } finally { await f.dispose(); }
+  }
+}
+
+export async function replayConfigurationOwnershipStates(): Promise<void> {
+  const known = await fixture({ mutation: 'none', configuration: 'blocked' });
+  try {
+    known.controller.setAudio('on');
+    await ready(known.controller);
+    const rejected = await known.controller.configureSongBindings(known.controller.snapshot().song.id, known.controller.snapshot().revision, []);
+    assert.equal(rejected.outcome, 'rejected', 'A Ready native attempt must block configuration');
+    assert.equal(known.configurationPrepareCalls, 0);
+    known.controller.setAudio('off');
+    await until(() => known.controller.snapshot().audio.kind === 'off', 'owned child exit before configuration');
+    const pending = known.controller.configureSongBindings(known.controller.snapshot().song.id, known.controller.snapshot().revision, []);
+    assert.equal(known.configurationPrepareCalls, 1);
+    known.configurationPrepared.resolve();
+    assert.equal((await pending).outcome, 'accepted', 'Confirmed ownership release must admit configuration');
+  } finally { await known.dispose(); }
+  const unknown = await fixture({ mutation: 'none', configuration: 'blocked', acquisition: 'blocked', cleanup: 'unconfirmed' });
+  try {
+    unknown.controller.setAudio('on');
+    await until(() => unknown.children.length === 1, 'acquired child before its handle returns');
+    unknown.controller.setAudio('off');
+    await until(() => stopped(unknown.controller), 'unknown ownership retained');
+    const rejected = await unknown.controller.configureSongBindings(unknown.controller.snapshot().song.id, unknown.controller.snapshot().revision, []);
+    assert.equal(rejected.outcome, 'rejected', 'Unknown native ownership must block configuration');
+    assert.equal(unknown.configurationPrepareCalls, 0);
+  } finally { await unknown.dispose(); }
 }

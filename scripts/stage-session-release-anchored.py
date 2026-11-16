@@ -24,7 +24,8 @@ MAX_ARCHIVE = 100 * CHUNK
 MAX_EXPANDED = 256 * CHUNK
 MAX_MEMBERS = 2048
 MAX_READ_BYTES = 8 * MAX_EXPANDED
-VALIDATOR_SHA256 = '4fd35fce4131918823b5970952e0112702122151244f72c9b5aa6b01e38c2260'
+VALIDATOR_SHA256 = '8d64fee84136c594ae3fca769cdb87c6cde5efefb64a8c73a782468bde4b1065'
+PRE_CATALOG_VALIDATOR_SHA256 = '4fd35fce4131918823b5970952e0112702122151244f72c9b5aa6b01e38c2260'
 LEGACY_VALIDATOR_SHA256 = 'eef5759425f47f0128ded96918603ab9b0fd06c9e695b42e7ae26dfcb02a1d7c'
 CHECKER_SHA256 = 'ff28dab2fc95eb4b4e7937a547529d4edd110874f87fd5e7de19d47f6d654d7d'
 PRODUCTION_APPROVED = False
@@ -512,7 +513,7 @@ def load_validator(path, read_only=False):
     finally:
         os.close(fd)
     digest = hashlib.sha256(data).hexdigest()
-    allowed = {VALIDATOR_SHA256, LEGACY_VALIDATOR_SHA256} if read_only else {VALIDATOR_SHA256}
+    allowed = {VALIDATOR_SHA256, PRE_CATALOG_VALIDATOR_SHA256, LEGACY_VALIDATOR_SHA256} if read_only else {VALIDATOR_SHA256}
     require(digest in allowed, 'Validator digest mismatch')
     namespace = {'__name__': 'captured_stage_validator', '__file__': str(path)}
     exec(compile(data, str(path), 'exec'), namespace)

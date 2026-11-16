@@ -242,7 +242,7 @@ class AnchoredStagingTests(unittest.TestCase):
             after = (self.release() / path).lstat()
             self.assertEqual((after.st_ino, after.st_mtime_ns, after.st_mode), (info.st_ino, info.st_mtime_ns, info.st_mode))
         self.assertEqual((self.release() / 'runtime/node').stat().st_mode & 0o777, 0o700)
-        self.assertEqual((self.release() / 'song/song.pfp').stat().st_mode & 0o777, 0o600)
+        self.assertEqual((self.release() / 'catalog/songs/dance-yrself-clean/song.pfp').stat().st_mode & 0o777, 0o600)
 
     def test_differing_existing_release_is_preserved(self):
         pins = self.pins()
@@ -262,7 +262,7 @@ class AnchoredStagingTests(unittest.TestCase):
         self.assertTrue((self.target / 'releases' / fixtures.LEAF).is_symlink())
 
     def test_bad_manifest_refuses_publication_and_retains_attempt(self):
-        files = fixtures.package(schema=2)
+        files = fixtures.package(schema=1)
         with self.assertRaises(RuntimeError):
             self.execute(self.pins(files))
         self.assertFalse(self.release().exists())
@@ -311,9 +311,9 @@ class AnchoredStagingTests(unittest.TestCase):
         substituted = False
         def swapped(tree, names):
             nonlocal substituted
-            if names == ('song', 'effects.json') and not substituted:
+            if names == ('catalog', 'songs', 'dance-yrself-clean', 'effects.json') and not substituted:
                 substituted = True
-                fd = tree.directory(('song',))
+                fd = tree.directory(('catalog', 'songs', 'dance-yrself-clean'))
                 try:
                     os.unlink('effects.json', dir_fd=fd)
                     os.symlink(str(self.root / 'outside'), 'effects.json', dir_fd=fd)
@@ -380,19 +380,23 @@ class AnchoredStagingTests(unittest.TestCase):
         self.execute(self.pins(fixtures.peripheral_package()))
         self.assertTrue((self.release() / 'native/peripheral/peripheral-host').is_file())
 
-    def test_legacy_validator_is_allowlisted_for_read_only_not_stage(self):
+    def test_pre_catalog_validators_are_read_only_and_cannot_publish(self):
         self.loader.stop()
         try:
-            old = self.root / 'legacy-validator.py'
-            data = self.validator_path.read_bytes().replace(b'    "lib/peripherals/host/linux_input_map.h",\n', b'')
-            self.assertEqual(hashlib.sha256(data).hexdigest(), anchored.LEGACY_VALIDATOR_SHA256)
-            old.write_bytes(data); old.chmod(0o600)
-            self.assertEqual(anchored.load_validator(old, read_only=True)['_capturedSha256'], anchored.LEGACY_VALIDATOR_SHA256)
-            with self.assertRaisesRegex(RuntimeError, 'digest mismatch'):
-                anchored.load_validator(old)
-            old.write_bytes(data + b'\n')
-            with self.assertRaisesRegex(RuntimeError, 'digest mismatch'):
-                anchored.load_validator(old, read_only=True)
+            old = self.root / 'pre-catalog-validator.py'
+            current = (SCRIPTS / 'tests/fixtures/stage-session-release-4fd35fce.py.fixture').read_bytes()
+            legacy = current.replace(b'    "lib/peripherals/host/linux_input_map.h",\n', b'')
+            for data, expected in ((current, anchored.PRE_CATALOG_VALIDATOR_SHA256),
+                                   (legacy, anchored.LEGACY_VALIDATOR_SHA256)):
+                with self.subTest(validator=expected):
+                    self.assertEqual(hashlib.sha256(data).hexdigest(), expected)
+                    old.write_bytes(data); old.chmod(0o600)
+                    self.assertEqual(anchored.load_validator(old, read_only=True)['_capturedSha256'], expected)
+                    with self.assertRaisesRegex(RuntimeError, 'digest mismatch'):
+                        anchored.load_validator(old)
+                    old.write_bytes(data + b'\n')
+                    with self.assertRaisesRegex(RuntimeError, 'digest mismatch'):
+                        anchored.load_validator(old, read_only=True)
         finally:
             self.loader.start()
 
@@ -427,7 +431,7 @@ class AnchoredStagingTests(unittest.TestCase):
     def test_read_only_refuses_linked_file(self):
         pins = self.pins()
         self.execute(pins)
-        os.link(self.release() / 'song/song.pfp', self.root / 'other-link')
+        os.link(self.release() / 'catalog/songs/dance-yrself-clean/song.pfp', self.root / 'other-link')
         with self.assertRaisesRegex(RuntimeError, 'single-link'):
             anchored.verify_local_release(self.archive_path, pins, self.validator_path, self.release())
 

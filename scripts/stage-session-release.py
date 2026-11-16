@@ -21,7 +21,11 @@ REQUIRED = {
     "native/native_alsa_host", "runtime/node", "gateway/server.mjs",
     "gateway/prepare.mjs", "gateway/session-cli.mjs", "bin/show-tools-session",
     "static/ui/practice/index.html",
-    "song/manifest.json", "song/song.pfp", "song/effects.json",
+    "catalog/catalog.json",
+    "bench/raw_keys.py", "bench/publish_marker.py", "bench/raw_motion.py",
+    "provenance/source/lib/peripherals/bench/raw_keys.py",
+    "provenance/source/lib/peripherals/bench/publish_marker.py",
+    "provenance/source/lib/peripherals/bench/raw_motion.py",
     "provenance/source.json", "provenance/package-lock.json",
     "provenance/source/lib/remote-performance/controller.ts",
     "provenance/source/lib/remote-performance/session-service.ts",
@@ -217,10 +221,48 @@ def inspect_release_tree(extracted):
     return files
 
 
+
+def validate_catalog(extracted, files):
+    catalog = read_json(extracted / "catalog/catalog.json")
+    if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "initialSongId", "entries"} or type(catalog.get("schemaVersion")) is not int or catalog["schemaVersion"] != 1:
+        raise RuntimeError("Invalid song catalog schema")
+    entries = catalog.get("entries")
+    if not isinstance(entries, list) or len(entries) != 3:
+        raise RuntimeError("Release requires three song catalog entries")
+    ids, required = set(), {"catalog/catalog.json"}
+    for entry in entries:
+        if not isinstance(entry, dict) or set(entry) != {"id", "path", "title", "packageDigest", "files"}:
+            raise RuntimeError("Invalid catalog entry")
+        identity = entry.get("id")
+        if not isinstance(identity, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", identity) or identity in ids or entry.get("path") != "songs/" + identity or not isinstance(entry.get("title"), str):
+            raise RuntimeError("Duplicate song identity or unsafe catalog path")
+        ids.add(identity)
+        hashes = entry.get("files")
+        if not isinstance(hashes, dict) or set(hashes) != {"manifest.json", "song.pfp", "effects.json", "source.musicxml"}:
+            raise RuntimeError("Invalid catalog file set")
+        for name, digest in hashes.items():
+            path = "catalog/" + entry["path"] + "/" + name
+            required.add(path)
+            if not isinstance(digest, str) or not re.fullmatch(r"[a-f0-9]{64}", digest) or path not in files or files[path][1] != digest:
+                raise RuntimeError("Catalog checksum mismatch")
+        package = {"format": "show-tools-installed-song-v1", "files": [[name, hashes[name]] for name in ("manifest.json", "song.pfp", "effects.json")]}
+        digest = hashlib.sha256(json.dumps(package, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
+        if entry["packageDigest"] != digest:
+            raise RuntimeError("Catalog package digest mismatch")
+        manifest = read_json(extracted / ("catalog/" + entry["path"] + "/manifest.json"))
+        effects = read_json(extracted / ("catalog/" + entry["path"] + "/effects.json"))
+        if not isinstance(manifest, dict) or manifest.get("id") != identity or not isinstance(effects, list):
+            raise RuntimeError("Invalid catalog song JSON identity")
+    if ids != {"dance-yrself-clean", "drunk-girls", "tribulations"} or catalog["initialSongId"] not in ids:
+        raise RuntimeError("Invalid release song set or initial song")
+    if {path for path in files if path.startswith("catalog/")} != required:
+        raise RuntimeError("Unexpected catalog members")
+
+
 def validate_release(extracted, expected_source):
     actual = inspect_release_tree(extracted)
     manifest = read_json(extracted / "release.json")
-    if not isinstance(manifest, dict) or type(manifest.get("schemaVersion")) is not int or manifest["schemaVersion"] != 1 or manifest.get("sourceRevision") != expected_source:
+    if not isinstance(manifest, dict) or type(manifest.get("schemaVersion")) is not int or manifest["schemaVersion"] != 2 or manifest.get("sourceRevision") != expected_source:
         raise RuntimeError("Release schema or expected source mismatch")
     records = manifest.get("files")
     if not isinstance(records, list) or not records or len(records) > MAX_MEMBERS:
@@ -254,8 +296,10 @@ def validate_release(extracted, expected_source):
             header = executable.read(20)
         if len(header) != 20 or header[:6] != b"\x7fELF\x02\x01" or header[18:20] != b"\x3e\x00":
             raise RuntimeError("Expected a Linux x86-64 executable")
-    if not isinstance(read_json(extracted / "song/manifest.json"), dict) or not isinstance(read_json(extracted / "song/effects.json"), list):
-        raise RuntimeError("Invalid song JSON layout")
+    validate_catalog(extracted, files)
+    for name in ("raw_keys.py", "publish_marker.py", "raw_motion.py"):
+        if files["bench/" + name] != files["provenance/source/lib/peripherals/bench/" + name]:
+            raise RuntimeError("Bench helper differs from reviewed source")
     checksums = {}
     for line in small_bytes(extracted / "SHA256SUMS", MAX_CHECKSUMS).decode("utf-8").splitlines():
         match = re.fullmatch(r"([a-f0-9]{64})  (.+)", line)

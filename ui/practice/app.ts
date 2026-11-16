@@ -9,6 +9,7 @@ import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 import type { PracticeAudio } from './audio.js';
 import { RemoteDesk, RemoteSession } from './remote-session.js';
+import { createInputBindingPanel } from './input-binding-panel.js';
 import { createHardwareAuth } from './hardware-auth.js';
 import type { RemoteConnection } from './remote-session.js';
 import type { DeskView } from '../../lib/remote-performance/session-schema.js';
@@ -104,6 +105,40 @@ let tunerSession: PerformanceSession | undefined;
 let tunerPort: TunerPort | undefined;
 const tunerDialog = requiredElement('#tuner-dialog', HTMLDialogElement);
 let remoteDesk: RemoteDesk | undefined;
+let bindingBaseRevision = '0';
+let bindingSongId = '';
+let mountedHardwareSong = '';
+let mountingHardwareSong: { key: string; done: Promise<void> } | undefined;
+const buttonBindingPanel = createInputBindingPanel({ onSave: async (bindings, songId) => {
+  if (!remoteDesk) throw new Error('Connect to the hardware desk before saving assignments');
+  const acknowledged = await remoteDesk.configureSongBindings(songId, bindings, bindingBaseRevision);
+  if (remoteDesk.snapshot().song.id !== songId || remoteDesk.snapshot().revision !== acknowledged.revision)
+    throw new Error('Assignments changed again. Reload the desk before applying another edit');
+  bindingBaseRevision = acknowledged.revision;
+  return acknowledged.bindings;
+} });
+buttonBindingPanel.element.hidden = !remote;
+requiredElement('#hardware-audio', HTMLElement).after(buttonBindingPanel.element);
+function renderButtonBindings() {
+  const view = remoteDesk?.snapshot();
+  if (!view) { buttonBindingPanel.update({ songId: '', title: 'Hardware desk', bindings: [], editable: false, reason: 'Connect to the hardware desk first.' }); return; }
+  if (bindingSongId !== view.song.id || !buttonBindingPanel.dirty && !buttonBindingPanel.pending) {
+    bindingBaseRevision = view.revision; bindingSongId = view.song.id;
+  }
+  buttonBindingPanel.update({ songId: view.song.id, title: view.song.chart.title, bindings: view.song.compiled?.inputBindings ?? [],
+    editable: remoteDesk?.connection.kind === 'connected' && view.audio.kind === 'off' && !switching,
+    reason: switching ? 'Wait for the selected song to load.' : 'Turn hardware audio off before changing button assignments.' });
+}
+async function mountHardwareSong(view: DeskView) {
+  const key = `${view.song.id}/${view.song.compiled?.source.digest ?? ''}`;
+  if (mountedHardwareSong === key) return;
+  if (mountingHardwareSong?.key === key) return mountingHardwareSong.done;
+  const done = switchSong(view.song.id, undefined, undefined, { remoteSong: view.song }).then(() => {
+    const current = remoteDesk?.snapshot().song;
+    if (current && `${current.id}/${current.compiled?.source.digest ?? ''}` === key) mountedHardwareSong = key;
+  }).finally(() => { if (mountingHardwareSong?.key === key) mountingHardwareSong = undefined; renderButtonBindings(); });
+  mountingHardwareSong = { key, done }; return done;
+}
 let preparing: Promise<PerformanceSession> | null = null;
 let preparationAbort: AbortController | undefined;
 let phoneMotionAbort: AbortController | undefined;
@@ -588,6 +623,7 @@ function render(next: Partial<PracticeState>) {
   }
   applyPendingPracticeUpdate();
   elements['audio-mode-select'].disabled = changingAudioMode || !canChangeAudioMode(mode, browserModeBusy());
+  if (remote) renderButtonBindings();
   if (remote && !audio) { renderHardwareUnavailable(); return; }
   if (!chart) return;
   if (remote && state.click !== undefined && document.activeElement !== elements.click) elements.click.checked = state.click;
@@ -606,7 +642,7 @@ function render(next: Partial<PracticeState>) {
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
   elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
-  elements['song-select'].disabled = remote || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
+  elements['song-select'].disabled = remote && remoteDesk?.snapshot().audio.kind !== 'off' || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
   elements['record-demo'].disabled = remote || voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
   const effectsLocked = running || starting || switching || Boolean(preparing) || effectsApplying || outputCapture !== 'idle';
   voiceEffects.render(state.voiceEffects, effectsLocked);
@@ -785,6 +821,7 @@ elements.click.addEventListener('change', () => act(async () => {
   if (audio) await audio.setClick(elements.click.checked);
 }));
 elements['start-section'].addEventListener('change', () => {
+  if (remote) renderButtonBindings();
   if (remote && !audio) { renderHardwareUnavailable(); return; }
   if (!chart) return;
   const start = Number(elements['start-section'].value);
@@ -869,7 +906,10 @@ for (const entry of SONGS) {
 elements.start.disabled = true;
 async function switchSong(id: string, imported?: CompiledSong, source?: SongSource, options: { remoteSong?: SongScript; voiceMetadata?: CatalogDocument } = {}): Promise<void> {
   const { remoteSong, voiceMetadata } = options;
-  if (remote && !remoteSong) throw new Error('Songs are loaded on the remote host.');
+  if (remote && !remoteSong) {
+    if (!remoteDesk) throw new Error('Connect to the hardware desk before choosing a song');
+    await remoteDesk.selectSong(id); await mountHardwareSong(remoteDesk.snapshot()); return;
+  }
   if (voiceCatalog.busy) throw new Error('Wait for the voice library save before switching songs.');
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
@@ -978,8 +1018,11 @@ async function replaceHardwareDesk(desk: RemoteDesk) {
 }
 
 function renderHardwareUnavailable() {
+  renderButtonBindings();
+  if (chart) elements['range-label'].textContent = `BARS ${chartBarLabel(chart, Number(elements['start-section'].value))}–${elements['end-bar'].value}`;
   for (const control of [elements.start, elements.stop, elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop, elements.click, elements.mushroom, elements['record-demo'], elements['song-select'], elements['monitor-relationship']]) control.disabled = true;
-  elements['phase-label'].textContent = 'AUDIO UNAVAILABLE';
+  elements['song-select'].disabled = !remoteDesk || remoteDesk.connection.kind !== 'connected' || remoteDesk.snapshot().audio.kind !== 'off' || switching;
+  elements['phase-label'].textContent = remoteDesk?.connection.kind === 'connected' && remoteDesk.snapshot().audio.kind === 'off' ? 'AUDIO OFF' : 'AUDIO UNAVAILABLE';
   elements['bar-number'].textContent = '··';
   elements['beat-number'].textContent = '·';
   elements['beat-dots'].querySelectorAll('i').forEach(dot => dot.classList.remove('active'));
@@ -1008,8 +1051,13 @@ if (remote) {
         ? 'Saved key was rejected. Enter the hardware session key' : 'Enter the hardware session key. This browser will remember it.'));
       hardwareKeyStatus.textContent = hardwareAuth.remembered() ? 'Key remembered in this browser.' : 'Key kept for this page only. Browser storage is unavailable.';
       await replaceHardwareDesk(desk);
-      await switchSong(desk.snapshot().song.id, undefined, undefined, { remoteSong: desk.snapshot().song });
+      const choices = await desk.songs();
+      elements['song-select'].replaceChildren(...choices.map(choice => { const option = document.createElement('option'); option.value = choice.id; option.textContent = choice.title; return option; }));
+      await mountHardwareSong(desk.snapshot());
       desk.subscribe(view => {
+        const remoteKey = `${view.song.id}/${view.song.compiled?.source.digest ?? ''}`;
+        if (mountedHardwareSong !== remoteKey && mountingHardwareSong?.key !== remoteKey) void act(() => mountHardwareSong(view));
+        renderButtonBindings();
         const status = view.audio;
         const connection = desk.connection;
         const connected = connection.kind === 'connected';
@@ -1019,8 +1067,8 @@ if (remote) {
           : connection.kind === 'connecting' ? 'Connecting to desk…'
           : status.kind === 'fault' ? `Audio fault · ${status.error}`
           : status.kind === 'ready' ? 'Audio on' : `Audio ${status.kind}`;
-        enableAudio.disabled = !connected || (status.kind !== 'off' && status.kind !== 'fault');
-        terminateAudio.disabled = !connected || status.kind === 'off' || status.kind === 'fault' || status.kind === 'stopping';
+        enableAudio.disabled = !connected || switching || (status.kind !== 'off' && status.kind !== 'fault');
+        terminateAudio.disabled = !connected || status.kind === 'off' || status.kind === 'stopping';
         if (!connected || status.kind !== 'ready') {
           audio = undefined;
           syncTunerSession();

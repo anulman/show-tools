@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Schema } from 'effect';
 import { version as esbuildVersion } from 'esbuild';
-import { replay, replayCounterexample, replayAcquisitionCancellation, replayAcquisitionFailures, replayPreSpawnRecovery, replayCancelBeforeRequest, replayFailedExitQuery, mutateController, type Mutation } from './replay.js';
+import { replay, replayCounterexample, replayAcquisitionCancellation, replayAcquisitionFailures, replayPreSpawnRecovery, replayCancelBeforeRequest, replayFailedExitQuery, mutateController, replayConfiguration, replayConfigurationOutcomes, replayConfigurationOwnershipStates, configurationFailures, mutateConfigurationController, type ConfigurationMutation, type Mutation } from './replay.js';
 
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const lock = Schema.decodeUnknownSync(Schema.Struct({ tlc: Schema.Struct({ version: Schema.String, sha256: Schema.String }) }))(
@@ -30,6 +30,13 @@ const expectedJarSha256 = lock.tlc.sha256;
 const java = process.env.JAVA, jar = process.env.TLA2TOOLS;
 assert(java && jar, 'Set JAVA and TLA2TOOLS to the pinned toolchain; see verification/native-audio/README.md');
 assert.equal(createHash('sha256').update(await readFile(jar)).digest('hex'), expectedJarSha256, `Unexpected TLC JAR; use pinned TLA+${lock.tlc.version}`);
+for (const filename of ['NativeAudio.cfg', 'SongConfiguration.cfg']) {
+  const config = await readFile(`verification/native-audio/${filename}`, 'utf8');
+  assert.match(config, /^\s*Attempts\s*=\s*\{\s*1\s*,\s*2\s*\}\s*$/m, 'Keep the full two-attempt proof bound');
+  assert(!/^\s*(?:ACTION_)?CONSTRAINTS?\b/m.test(config), 'Full proof configs must not prune reachable states');
+  if (filename === 'SongConfiguration.cfg')
+    assert.match(config, /^\s*Configurations\s*=\s*\{\s*1\s*,\s*2\s*\}\s*$/m, 'Keep two configuration requests');
+}
 const args = process.argv.slice(2);
 assert(args.length <= 1, 'Usage: node --import tsx verification/native-audio/verify.ts [NEW_OUTPUT_DIRECTORY]');
 const output = args[0] ? resolve(args[0]) : join(await mkdtemp(join(tmpdir(), 'native-audio-proof-')), 'run');
@@ -38,10 +45,13 @@ await mkdir(output, { recursive: false });
 const source = await readFile('lib/remote-performance/controller.ts');
 const sourceSha256 = hash(source);
 const cases: Array<{ name: string; mutation: Mutation; status: number; actions: string[]; states: number; invariant: string | null }> = [];
+const configurationCases: Array<{ mutation: ConfigurationMutation; status: number; actions: string[]; states: number; invariant: string | null }> = [];
 const proof = {
   schemaVersion: 1,
   outputDirectory: output,
   sourceSha256,
+  sourceFiles: coverage.files,
+  verifierSha256: hash(await readFile('verification/native-audio/verify.ts')),
   syncedRevision: coverage.revision,
   effectVersion,
   platformNodeVersion,
@@ -55,6 +65,8 @@ const proof = {
   configSha256: hash(await readFile('verification/native-audio/NativeAudio.cfg')),
   replaySha256: hash(await readFile('verification/native-audio/replay.ts')),
   cases,
+  configuration: { attempts: 2, configurationRequests: 2, invariants: 7, modelSha256: hash(await readFile('verification/native-audio/SongConfiguration.tla')),
+    configSha256: hash(await readFile('verification/native-audio/SongConfiguration.cfg')), cases: configurationCases },
 };
 const expected = { identity: 'ReadyIdentity', ownership: 'UnknownOwnershipHeld', cancel: 'NoCanceledReady', cleanup: 'OneOwnedChild', command: 'NoStaleApplied', observe: 'NoStaleEvent' };
 const replayFailures = {
@@ -109,6 +121,48 @@ for (const { name, mutation, omitInvariant, expectedInvariant } of runs) {
     process.stdout.write(`${name}: ${states} model states; ${mutation === 'none' ? 'invariants hold' : `${invariant} fails and real-source mutant is caught`}\n`);
   } finally { await rm(directory, { recursive: true, force: true }); }
 }
-assert.equal(createHash('sha256').update(await readFile('lib/remote-performance/controller.ts')).digest('hex'), sourceSha256, 'Production source must remain untouched');
+const configurationRuns: ConfigurationMutation[] = ['none', 'enable-during-config', 'config-during-audio', 'config-during-fault', 'config-after-close',
+  'overlapping-config', 'commit-after-close', 'close-without-wait', 'stale-revision'];
+assert.equal(configurationRuns.length, Object.keys(configurationFailures).length + 1);
+const configurationExpected = {
+  'enable-during-config': 'NoOwnedConfiguration', 'config-during-audio': 'NoOwnedConfiguration',
+  'config-during-fault': 'ConfigurationRequiresOff', 'config-after-close': 'ClosedHasNoConfiguration',
+  'overlapping-config': 'OneConfiguration', 'commit-after-close': 'NoCommitAfterClosing',
+  'close-without-wait': 'ClosedHasNoConfiguration', 'stale-revision': 'NoStaleConfigurationRevision',
+} satisfies Record<Exclude<ConfigurationMutation, 'none'>, string>;
+for (const checkedMutation of configurationRuns) {
+  const directory = await mkdtemp(join(tmpdir(), 'song-configuration-model-'));
+  try {
+    await cp('verification/native-audio/SongConfiguration.tla', join(directory, 'SongConfiguration.tla'));
+    const cfg = (await readFile('verification/native-audio/SongConfiguration.cfg', 'utf8')).replace('Mutation = "none"', `Mutation = "${checkedMutation}"`);
+    await writeFile(join(directory, 'SongConfiguration.cfg'), cfg);
+    const result: SpawnSyncReturns<string> = spawnSync(java, ['-Xmx512m', '-XX:+UseParallelGC', '-cp', jar, 'tlc2.TLC', '-workers', '1', '-config', 'SongConfiguration.cfg', 'SongConfiguration.tla'], { cwd: directory, encoding: 'utf8', timeout: 30000, maxBuffer: 8 * 1024 * 1024 });
+    if (result.error) throw result.error;
+    const text = result.stdout + result.stderr;
+    await writeFile(join(output, `configuration-${checkedMutation}.tlc.out`), text);
+    const invariant = text.match(/Error: Invariant (\w+) is violated\./)?.[1] ?? null;
+    const actions = [...text.matchAll(/^State \d+: <(\w+) line/gm)].map(match => match[1]);
+    const states = Number(text.match(/(\d+) distinct states found/)?.[1]);
+    assert(Number.isSafeInteger(states) && states > 0, 'Configuration TLC must report explored states');
+    if (checkedMutation === 'none') {
+      assert.equal(result.status, 0, text);
+      assert(text.includes('Model checking completed. No error has been found.') && text.includes('0 states left on queue.'), text);
+      await replayConfigurationOutcomes();
+    } else {
+      assert.equal(result.status, 12, text);
+      assert.equal(invariant, configurationExpected[checkedMutation], text);
+      await writeFile(join(output, `configuration-${checkedMutation}.controller.ts`), mutateConfigurationController(source.toString('utf8'), checkedMutation));
+      await replayConfiguration('none', checkedMutation, actions);
+      await assert.rejects(replayConfiguration(checkedMutation, checkedMutation, actions), error => error instanceof assert.AssertionError && error.message.includes(configurationFailures[checkedMutation]));
+    }
+    configurationCases.push({ mutation: checkedMutation, status: result.status ?? -1, actions, states, invariant });
+    process.stdout.write(`configuration-${checkedMutation}: ${states} model states; ${checkedMutation === 'none' ? 'invariants hold' : `${invariant} fails and real-source mutant is caught`}\n`);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+}
+await replayConfigurationOutcomes();
+await replayConfigurationOwnershipStates();
+for (const [filename, expected] of Object.entries(coverage.files))
+  assert.equal(hash(await readFile(filename)), expected, `Production source must remain untouched: ${filename}`);
+
 await writeFile(join(output, 'receipt.json'), JSON.stringify(proof, null, 2) + '\n', { flag: 'wx' });
 process.stdout.write(`Receipt: ${join(output, 'receipt.json')}\n`);

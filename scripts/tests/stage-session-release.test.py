@@ -22,10 +22,17 @@ LEAF = "session-" + SOURCE[:7]
 ELF = b"\x7fELF\x02\x01" + bytes(12) + b"\x3e\x00"
 
 
-def package(source=SOURCE, omit=None, schema=1, runtime=ELF):
+def package(source=SOURCE, omit=None, schema=2, runtime=ELF):
     files = {path: b"fixture" for path in stage.REQUIRED}
-    files["song/manifest.json"] = b"{}"
-    files["song/effects.json"] = b"[]"
+    entries = []
+    for identity in ("dance-yrself-clean", "drunk-girls", "tribulations"):
+        path = "songs/" + identity
+        data = {"manifest.json": json.dumps({"id": identity}).encode(), "song.pfp": b"fixture packet", "effects.json": b"[]", "source.musicxml": b"<score-partwise/>"}
+        hashes = {name: hashlib.sha256(value).hexdigest() for name, value in data.items()}
+        package_identity = {"format": "show-tools-installed-song-v1", "files": [[name, hashes[name]] for name in ("manifest.json", "song.pfp", "effects.json")]}
+        entries.append({"id": identity, "path": path, "title": identity, "files": hashes, "packageDigest": hashlib.sha256(json.dumps(package_identity, separators=(",", ":")).encode()).hexdigest()})
+        files.update({"catalog/" + path + "/" + name: value for name, value in data.items()})
+    files["catalog/catalog.json"] = json.dumps({"schemaVersion": 1, "initialSongId": "dance-yrself-clean", "entries": entries}).encode()
     files["licenses/NOTICE"] = b"fixture license"
     files["native/native_alsa_host"] = ELF
     files["runtime/node"] = runtime
@@ -151,6 +158,33 @@ class StagingTests(unittest.TestCase):
     def test_valid_staging_and_idempotent_retry(self):
         self.execute(archive(), twice=True)
 
+    def test_all_bench_helpers_are_required_and_match_reviewed_source(self):
+        for name in ("raw_keys.py", "publish_marker.py", "raw_motion.py"):
+            with self.subTest(name=name), self.assertRaises(RuntimeError):
+                self.execute(archive(package(omit="bench/" + name)))
+            files = package()
+            files["bench/" + name] = b"changed helper"
+            with self.subTest(changed=name), self.assertRaisesRegex(RuntimeError, "reviewed source"):
+                self.execute(archive(reseal(files)))
+
+    def test_catalog_identity_path_digest_and_exact_members_fail_closed(self):
+        for mutation in ("duplicate", "escape", "missing-effects", "bad-digest", "extra"):
+            files = package()
+            catalog = json.loads(files["catalog/catalog.json"])
+            if mutation == "duplicate":
+                catalog["entries"][1] = catalog["entries"][0]
+            elif mutation == "escape":
+                catalog["entries"][0]["path"] = "../outside"
+            elif mutation == "missing-effects":
+                del files["catalog/songs/drunk-girls/effects.json"]
+            elif mutation == "bad-digest":
+                catalog["entries"][0]["packageDigest"] = "0" * 64
+            else:
+                files["catalog/extra"] = b"unexpected"
+            files["catalog/catalog.json"] = json.dumps(catalog).encode()
+            with self.subTest(mutation=mutation), self.assertRaises(RuntimeError):
+                self.execute(archive(reseal(files)))
+
     def test_peripheral_staging_is_data_only_and_idempotent(self):
         self.execute(archive(peripheral_package()), twice=True)
 
@@ -193,7 +227,7 @@ class StagingTests(unittest.TestCase):
                     self.execute(archive(reseal(files)))
 
     def test_source_and_schema_rejected_before_promotion(self):
-        for files in [package(source="0" * 40), package(schema=2)]:
+        for files in [package(source="0" * 40), package(schema=1)]:
             with self.subTest(), self.assertRaisesRegex(RuntimeError, "schema or expected source"):
                 self.execute(archive(files))
 
@@ -217,7 +251,7 @@ class StagingTests(unittest.TestCase):
                 self.execute(archive(extra=[member]))
 
     def test_file_directory_conflict(self):
-        for path in ("song", "song/song.pfp/child"):
+        for path in ("catalog", "catalog/catalog.json/child"):
             with self.subTest(path=path), self.assertRaisesRegex(RuntimeError, "file/directory conflict"):
                 self.execute(archive(extra=[tarfile.TarInfo(NAME + "/" + path)]))
 

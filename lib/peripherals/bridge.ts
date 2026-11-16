@@ -5,7 +5,7 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { Readable } from 'node:stream';
 import { Schema } from 'effect';
-import { decodeDeskBootstrap, decodeDeskPublication, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus, DeskViewSchema, type InputLeaseReceipt, type NativePerformance, type NativeTarget } from '../remote-performance/session-schema.js';
+import { decodeDeskBootstrap, decodeDeskPublication, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus, DeskViewSchema, type InputLeaseReceipt, type InputIntentStatus, type NativePerformance, type NativeTarget } from '../remote-performance/session-schema.js';
 import { PHYSICAL_SWITCH_IDS } from '../performance/model.js';
 import { decodeBrowserInput, physicalReadyMasks, type HelperInput, type HelperReady } from './browser-protocol.js';
 import { DESK_HEARTBEAT_MS, DESK_STREAM_IDLE_MS } from '../remote-performance/event-liveness.js';
@@ -212,37 +212,120 @@ export async function connection(config: PeripheralBridgeConfig, signal: AbortSi
 	return { open, json };
 }
 
-export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal: AbortSignal) {
+export interface PeripheralDevice {
+	readonly session: number;
+	snapshot(): HelperReady;
+	subscribe(input: (value: HelperInput) => void, failed: (error: unknown) => void): () => void;
+	write(line: string): void;
+	bind(engineKey: string, revision: number): string;
+	close(): Promise<void>;
+}
+
+export async function openPeripheralDevice(config: PeripheralBridgeConfig, signal: AbortSignal): Promise<PeripheralDevice> {
 	signal.throwIfAborted();
-	const abort = new AbortController();
-	const combined = AbortSignal.any([signal, abort.signal]);
-	const link = await connection(config, abort.signal);
-	const bootstrap = decodeDeskBootstrap(await link.json('/api/session'));
-	signal.throwIfAborted();
-	const audio = bootstrap.view.audio;
-	if (audio.kind !== 'ready') throw new PeripheralRetry('Enable hardware audio in the desk before connecting the I-PAC');
-	const target: NativeTarget = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
-	const bindingGeneration = audio.performance.state.inputRouting?.bindingGeneration;
-	if (bindingGeneration === undefined) throw new Error('Native input routing is unavailable; update the engine before connecting');
-	const intentId = randomUUID();
-	let receipt: InputLeaseReceipt | undefined;
 	const session = randomBytes(6).readUIntBE(0, 6) + 1;
-	const incarnation = randomBytes(6).readUIntBE(0, 6) + 1;
-	const fence = 1;
-	const tuple = `${incarnation} ${session} ${config.bindingRevision} ${fence}`;
 	const child = spawn(config.helperExecutable, peripheralHelperArgs(session, config.inputMap), { stdio: ['pipe', 'pipe', 'inherit'] });
-	let commandSequence = 0, stopped = false, attached = false, releaseRequired = false;
-	let failure: unknown;
-	let finishing = false;
-	let finish: () => void = () => {};
-	const done = new Promise<void>(resolve => { finish = resolve; });
-	let ready: (initial: HelperReady | undefined) => void = () => {};
-	const attachment = new Promise<HelperReady | undefined>(resolve => { ready = resolve; });
-	const fail = (error: unknown) => { if (!stopped && !finishing) { finishing = true; failure = error; finish(); } };
+	const listeners = new Set<{ input: (value: HelperInput) => void; failed: (error: unknown) => void }>();
+	let initial: HelperReady | undefined, sequence = 0, failure: unknown, closing = false;
+	let engineKey = '', incarnation = 0, fence = 0;
+	let resolveReady!: (value: HelperReady) => void, rejectReady!: (error: unknown) => void;
+	const ready = new Promise<HelperReady>((resolve, reject) => { resolveReady = resolve; rejectReady = reject; });
+	const fail = (error: unknown) => {
+		if (closing || failure) return;
+		failure = error; rejectReady(error);
+		for (const listener of listeners) listener.failed(error);
+	};
 	const write = (line: string) => {
 		if (!child.stdin.writable || child.stdin.writableLength > 32768) throw new Error('Peripheral output queue is blocked');
 		child.stdin.write(`${line}\n`);
 	};
+	const timeout = setTimeout(() => fail(new PeripheralHelperUnavailable('Peripheral helper did not qualify within 3 seconds; inspect device access')), 3000);
+	child.once('error', fail); child.stdin.on('error', fail);
+	child.once('exit', (code, stopped) => fail(new (initial ? PeripheralRetry : PeripheralHelperUnavailable)(`Peripheral host exited (${stopped ?? code}); inspect its diagnostic and device access`)));
+	const reading = (async () => {
+		for await (const line of boundedLines(child.stdout, 8192)) {
+			const input = decodeInput(JSON.parse(line));
+			if (input.type !== 'delivered' && input.session !== session) throw new Error('Peripheral session changed');
+			if (input.type === 'ready') {
+				if (initial) throw new Error('Duplicate peripheral attachment');
+				validateHelperReady(input, config.inputMap); initial = input; clearTimeout(timeout); resolveReady(input);
+			} else if (input.type === 'detached') throw new PeripheralRetry('I-PAC disconnected');
+			else if (input.type !== 'delivered') {
+				if (!initial || input.sequence <= sequence) throw new Error('Peripheral input sequence is stale');
+				sequence = input.sequence;
+				if (input.type === 'motion' && !config.inputMap.axis) throw new Error('Unconfigured physical axis');
+				if (input.type === 'button') {
+					if (!initial.switches.some(value => value.controlId === input.controlId)) throw new Error('Unconfigured physical switch');
+					initial = { ...initial, switches: initial.switches.map(value => value.controlId === input.controlId ? { ...value, state: input.down ? 'held' : 'released' } : value) };
+				}
+			}
+			for (const listener of listeners) listener.input(input);
+		}
+		fail(new (initial ? PeripheralRetry : PeripheralHelperUnavailable)('Peripheral input stream ended'));
+	})().catch(fail);
+	let closed: Promise<void> | undefined;
+	const close = () => closed ??= (async () => {
+		closing = true; clearTimeout(timeout); signal.removeEventListener('abort', aborted);
+		if (child.stdin.writable) child.stdin.end('clear\nquit\n');
+		const terminate = setTimeout(() => child.kill('SIGTERM'), 1000);
+		const kill = setTimeout(() => child.kill('SIGKILL'), 2000);
+		await new Promise<void>(resolve => { if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', () => resolve()); });
+		clearTimeout(terminate); clearTimeout(kill); await reading;
+	})();
+	const aborted = () => { rejectReady(signal.reason); for (const listener of listeners) listener.failed(signal.reason); void close(); };
+	signal.addEventListener('abort', aborted, { once: true });
+	if (signal.aborted) aborted();
+	try { await ready; signal.throwIfAborted(); }
+	catch (error) { await close(); throw error; }
+	return { session, snapshot() { if (failure) throw failure; if (!initial) throw new Error('Peripheral is not ready'); return initial; },
+		subscribe(input, failed) { const listener = { input, failed }; listeners.add(listener); if (failure) failed(failure); return () => { listeners.delete(listener); }; }, write,
+		bind(key, revision) {
+			if (key !== engineKey) { engineKey = key; incarnation++; }
+			if (++fence > Number.MAX_SAFE_INTEGER || incarnation > Number.MAX_SAFE_INTEGER) throw new Error('Peripheral light identity exhausted; restart its service');
+			const tuple = `${incarnation} ${session} ${revision} ${fence}`; write(`bind ${tuple}`); return tuple;
+		}, close };
+}
+
+export class PeripheralOwnershipUnconfirmed extends Error {
+	constructor(readonly retired: () => Promise<boolean>, cause: unknown) {
+		super('Native source revocation is unconfirmed. Physical LED feedback remains available; musical input waits for exact retirement or verified audio recovery.', { cause });
+	}
+}
+
+async function nativeContext(config: PeripheralBridgeConfig, signal: AbortSignal) {
+	signal.throwIfAborted();
+	const abort = new AbortController();
+	const link = await connection(config, abort.signal);
+	const bootstrap = decodeDeskBootstrap(await link.json('/api/session'));
+	signal.throwIfAborted();
+	const audio = bootstrap.view.audio;
+	if (audio.kind !== 'ready') throw new PeripheralRetry('Hardware audio is off; physical feedback remains independent');
+	const target: NativeTarget = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
+	const bindingGeneration = audio.performance.state.inputRouting?.bindingGeneration;
+	if (bindingGeneration === undefined) throw new Error('Native input routing is unavailable; update the engine before connecting');
+	return { abort, link, bootstrap, target, bindingGeneration };
+}
+export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal: AbortSignal, sharedDevice?: PeripheralDevice) {
+	const context = await nativeContext(config, signal);
+	try {
+		const device = sharedDevice ?? await openPeripheralDevice(config, signal);
+		try { await attachNativeSession(config, signal, device, context); }
+		finally { if (!sharedDevice) await device.close(); }
+	} finally { context.abort.abort(); }
+}
+async function attachNativeSession(config: PeripheralBridgeConfig, signal: AbortSignal, device: PeripheralDevice, context: Awaited<ReturnType<typeof nativeContext>>) {
+	const { abort, link, bootstrap, target, bindingGeneration } = context;
+	const combined = AbortSignal.any([signal, abort.signal]);
+	const intentId = randomUUID();
+	let receipt: InputLeaseReceipt | undefined;
+	const initial = device.snapshot();
+	const tuple = device.bind(`${bootstrap.view.serverEpoch}/${target.attempt}/${target.hostEpoch}`, config.bindingRevision);
+	let commandSequence = 0, stopped = false, releaseRequired = false;
+	let failure: unknown;
+	let finishing = false;
+	let finish: () => void = () => {};
+	const done = new Promise<void>(resolve => { finish = resolve; });
+	const fail = (error: unknown) => { if (signal.aborted) { finish(); return; } if (!stopped && !finishing) { finishing = true; failure = error; finish(); } };
 	const send = async (event: PhysicalInputEvent) => {
 		const result = decodeNativeOutcome(await link.json('/api/command', {
 			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputEvent', args: { kind: 'physical', bindingGeneration, ...event },
@@ -250,115 +333,71 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 		if (result.outcome !== 'applied') {
 			if (result.outcome === 'unknown') throw new PeripheralRetry('Peripheral control outcome unknown; this input will not be replayed');
 			if (event.input !== 6 && event.value === 0) throw new Error('Native button release rejected');
-			process.stderr.write(`${JSON.stringify({ type: 'input-rejected', event, error: result.error })}\n`);
-			return;
+			process.stderr.write(`${JSON.stringify({ type: 'input-rejected', event, error: result.error })}\n`); return;
 		}
 		if (result.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed');
 	};
-	const relay = new PeripheralRelay(session, send, fail, config.jiggle !== null);
+	const relay = new PeripheralRelay(device.session, send, fail, config.jiggle !== null);
+	relay.input(initial);
+	const unsubscribe = device.subscribe(value => { try { if (value.type !== 'ready') relay.input(value); } catch (error) { fail(error); } }, fail);
+	const exactRetirement = (status: InputIntentStatus): boolean => {
+		if (status.kind !== 'retired') return false;
+		const proof = status.proof;
+		switch (proof.kind) {
+			case 'rejected-before-admission': return !receipt && proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch && proof.kindOfProducer === 'physical' && proof.bindingGeneration === bindingGeneration;
+			case 'old-engine-ended': return proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch && proof.serverEpoch === bootstrap.view.serverEpoch && proof.kindOfProducer === 'physical' && proof.bindingGeneration === bindingGeneration;
+			case 'exact-revoke-applied': return proof.receipt.target.attempt === target.attempt && proof.receipt.target.hostEpoch === target.hostEpoch && proof.receipt.kind === 'physical' && proof.receipt.bindingGeneration === bindingGeneration && BigInt(proof.revocationRevision) > BigInt(proof.receipt.admissionRevision) && (!receipt || proof.receipt.producer === receipt.producer && proof.receipt.session === receipt.session && proof.receipt.admissionRevision === receipt.admissionRevision);
+		}
+	};
+	const readRetirement = async () => {
+		const cleanup = await connection(config, AbortSignal.timeout(3000));
+		return exactRetirement(decodeInputIntentStatus(await cleanup.json('/api/input-intent-status', { inputOwnerToken: bootstrap.inputOwnerToken, intentId })));
+	};
 	let revocation: Promise<void> | undefined;
 	const revokeInput = () => revocation ??= (async () => {
 		const cleanup = await connection(config, AbortSignal.timeout(3000));
 		let revokeError: unknown;
 		try {
-			const result = decodeNativeOutcome(await cleanup.json('/api/command', {
-				sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputRevoke', args: { kind: 'physical' },
-			}));
+			const result = decodeNativeOutcome(await cleanup.json('/api/command', { sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputRevoke', args: { kind: 'physical' } }));
 			if (result.outcome !== 'applied') throw new Error('Native source revocation was not acknowledged');
 		} catch (error) { revokeError = error; }
-		const status = decodeInputIntentStatus(await cleanup.json('/api/input-intent-status', {
-			inputOwnerToken: bootstrap.inputOwnerToken, intentId,
-		}));
-		if (status.kind !== 'retired') throw revokeError ?? new Error('Native source retirement remains unconfirmed');
-		const proof = status.proof;
-		let exact: boolean;
-		switch (proof.kind) {
-			case 'rejected-before-admission':
-				exact = !receipt && proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch
-					&& proof.kindOfProducer === 'physical' && proof.bindingGeneration === bindingGeneration;
-				break;
-			case 'old-engine-ended':
-				exact = proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch
-					&& proof.serverEpoch === bootstrap.view.serverEpoch && proof.kindOfProducer === 'physical'
-					&& proof.bindingGeneration === bindingGeneration;
-				break;
-			case 'exact-revoke-applied':
-				exact = proof.receipt.target.attempt === target.attempt && proof.receipt.target.hostEpoch === target.hostEpoch
-					&& proof.receipt.kind === 'physical' && proof.receipt.bindingGeneration === bindingGeneration
-					&& BigInt(proof.revocationRevision) > BigInt(proof.receipt.admissionRevision)
-					&& (!receipt || proof.receipt.producer === receipt.producer && proof.receipt.session === receipt.session
-						&& proof.receipt.admissionRevision === receipt.admissionRevision);
-				break;
-		}
-		if (!exact) throw new Error('Native source retirement proof does not match this attachment');
+		if (!await readRetirement()) throw revokeError ?? new Error('Native source retirement remains unconfirmed');
 		releaseRequired = false;
 	})();
 	const light = (performance: NativePerformance) => {
 		if (performance.state.inputRouting?.bindingGeneration !== bindingGeneration) throw new PeripheralRetry('Song input bindings changed; reconnect the physical source');
-		if (attached) write(`light ${tuple} ${performance.lights.join(' ')}`);
+		if (!stopped) device.write(`light ${tuple} ${performance.lights.join(' ')}`);
 	};
-	const startupTimeout = setTimeout(() => fail(new Error('Peripheral helper did not qualify within 3 seconds; inspect device access')), 3000);
-	const helper = (async () => {
-		for await (const line of boundedLines(child.stdout, 8192)) {
-			const input: HelperInput = decodeInput(JSON.parse(line));
-			if (input.type === 'motion' && !config.inputMap.axis) throw new Error('Unconfigured physical axis');
-			relay.input(input);
-			if (input.type === 'ready') { validateHelperReady(input, config.inputMap); clearTimeout(startupTimeout); attached = true; write(`bind ${tuple}`); ready(input); }
-		}
-	})().catch(fail);
-	child.once('error', fail);
-	child.stdin.on('error', fail);
-	child.once('exit', (code, signal) => fail(new (attached ? PeripheralRetry : PeripheralHelperUnavailable)(`Peripheral host exited (${signal ?? code}); inspect its diagnostic above and verify device access`)));
-	combined.addEventListener('abort', finish, { once: true });
-	if (combined.aborted) finish();
+	combined.addEventListener('abort', finish, { once: true }); if (combined.aborted) finish();
 	const stream = (async () => {
-		const initial = await attachment;
-		if (!initial || stopped) return;
+		if (stopped || finishing) return;
 		if (config.jiggle !== null) {
-			const configured = decodeNativeOutcome(await link.json('/api/command', {
-				sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'configureJiggle', args: config.jiggle,
-			}));
-			if (configured.outcome !== 'applied') throw new Error(`Jiggle setup ${configured.outcome}: ${configured.error ?? 'native acknowledgement unavailable'}`);
-			if (configured.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed during jiggle setup');
+			const configured = decodeNativeOutcome(await link.json('/api/command', { sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'configureJiggle', args: config.jiggle }));
+			if (configured.outcome !== 'applied' || configured.hostEpoch !== target.hostEpoch) throw new Error('Jiggle setup was not acknowledged by the current engine');
 		}
 		releaseRequired = true;
-		const admission = decodeInputAttachOutcome(await link.json('/api/command', {
-			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputAttach',
-			args: { kind: 'physical', bindingGeneration, ...physicalReadyMasks(initial), intentId },
-		}));
+		const admission = decodeInputAttachOutcome(await link.json('/api/command', { sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputAttach', args: { kind: 'physical', bindingGeneration, ...physicalReadyMasks(initial), intentId } }));
 		if (admission.outcome !== 'applied' || admission.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Physical input admission was not acknowledged');
-		const admittedReceipt = admission.receipt;
-		if (admittedReceipt.target.attempt !== target.attempt || admittedReceipt.target.hostEpoch !== target.hostEpoch || admittedReceipt.kind !== 'physical'
-			|| admittedReceipt.bindingGeneration !== bindingGeneration || admittedReceipt.admissionRevision !== admission.revision
-			|| admission.state.inputRouting?.bindingGeneration !== bindingGeneration
-			|| !admission.state.inputRouting.producers.some(value => value.producer === admittedReceipt.producer && value.session === admittedReceipt.session && value.kind === 'physical'))
-			throw new Error('Physical input admission receipt does not match this attachment');
-		receipt = admittedReceipt;
-		relay.start();
+		const admitted = admission.receipt;
+		if (admitted.target.attempt !== target.attempt || admitted.target.hostEpoch !== target.hostEpoch || admitted.kind !== 'physical' || admitted.bindingGeneration !== bindingGeneration || admitted.admissionRevision !== admission.revision || admission.state.inputRouting?.bindingGeneration !== bindingGeneration || !admission.state.inputRouting.producers.some(value => value.producer === admitted.producer && value.session === admitted.session && value.kind === 'physical')) throw new Error('Physical input admission receipt does not match this attachment');
+		receipt = admitted; relay.start();
 		const fresh = decodeView(await link.json('/api/status'));
-		if (fresh.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted during I-PAC attachment');
-		if (fresh.audio.kind !== 'ready' || fresh.audio.attempt !== target.attempt || fresh.audio.performance.hostEpoch !== target.hostEpoch)
-			throw new PeripheralRetry('Hardware audio changed during I-PAC attachment');
+		if (fresh.serverEpoch !== bootstrap.view.serverEpoch || fresh.audio.kind !== 'ready' || fresh.audio.attempt !== target.attempt || fresh.audio.performance.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Hardware audio changed during I-PAC attachment');
 		light(fresh.audio.performance);
 		const response = await link.open('/api/events', undefined, { 'x-session-id': bootstrap.sessionId });
 		for await (const line of liveEventLines(response)) {
 			if (!line.startsWith('data: ')) continue;
 			if (line.length > 8 * 1024 * 1024) throw new Error('Peripheral publication is oversized');
 			const event = decodeDeskPublication(JSON.parse(line.slice(6)));
-			if (event.type === 'gap') {
-				await relay.close();
-				await revokeInput();
-				throw new PeripheralRetry('Native publication gap');
-			}
+			if (event.type === 'gap') throw new PeripheralRetry('Native publication gap');
 			if (event.type === 'event') continue;
 			if (event.type === 'desk') {
 				if (event.view.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted');
 				const state = event.view.audio;
-				if (state.kind !== 'ready' || state.attempt !== target.attempt || state.performance.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Hardware audio session changed; reconnect the I-PAC');
+				if (state.kind !== 'ready' || state.attempt !== target.attempt || state.performance.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Hardware audio session changed');
 				light(state.performance);
 			} else {
-				if (event.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted');
-				if (event.attempt !== target.attempt || event.performance.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Hardware audio session changed');
+				if (event.serverEpoch !== bootstrap.view.serverEpoch || event.attempt !== target.attempt || event.performance.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Hardware audio session changed');
 				light(event.performance);
 			}
 		}
@@ -366,22 +405,12 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	})().catch(fail);
 	try { await done; }
 	finally {
-		stopped = true; clearTimeout(startupTimeout); ready(undefined); const drained = relay.close();
-		if (attached && child.stdin.writable) child.stdin.end('clear\nquit\n');
-		else child.stdin.end();
+		stopped = true; unsubscribe(); combined.removeEventListener('abort', finish); const drained = relay.close();
+		try { device.write(`clear ${tuple}`); } catch (error) { if (!signal.aborted) failure ??= error; }
 		await drained;
-		try {
-			if (releaseRequired) await revokeInput();
-		} catch (error) {
-			failure = new AggregateError(failure ? [failure, error] : [error],
-				'I-PAC source revocation is unconfirmed. Automatic reconnect is blocked; confirm old source retirement or start a new hardware audio session before reconnecting.');
-			process.stderr.write(`I-PAC disconnected; source revocation unconfirmed: ${error instanceof Error ? error.message : String(error)}\n`);
-		}
-		abort.abort();
-		const terminate = setTimeout(() => child.kill('SIGTERM'), 1000);
-		const kill = setTimeout(() => child.kill('SIGKILL'), 2000);
-		await new Promise<void>(resolve => { if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) resolve(); else child.once('exit', () => resolve()); });
-		clearTimeout(terminate); clearTimeout(kill); await stream; await helper;
+		try { if (releaseRequired) await revokeInput(); }
+		catch (error) { failure = new PeripheralOwnershipUnconfirmed(readRetirement, error); }
+		abort.abort(); await stream;
 	}
 	if (failure) throw failure;
 }

@@ -108,6 +108,74 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn('owned-test-token', output.getvalue())
         return json.loads(output.getvalue())
 
+    def waiting_packet(self):
+        source = Path(m.__file__).parent.parent.joinpath('bridge-cli.ts').read_bytes()
+        self.write(self.release / m.WAITING_SOURCE, source)
+        self.manifest = {
+            'schemaVersion': 3, 'mode': 'waiting-configuration',
+            'sourceRevision': REVISION, 'installerSourceRevision': '3' * 40,
+            'waitingCliSourceSha256': m.digest(source),
+            'files': {name: value for name, value in self.manifest['files'].items() if name != 'profile.json'},
+            'releaseFiles': {**self.manifest['releaseFiles'], m.WAITING_SOURCE: m.digest(source)},
+        }
+        self.manifest_pin = self.pin_manifest()
+
+    def test_waiting_installs_only_unit_without_credentials_web_or_audio_calls(self):
+        self.waiting_packet()
+        self.web.unlink()
+        self.token.unlink()
+        result = self.run_apply()
+        self.assertEqual(result['mode'], 'waiting-configuration')
+        self.assertTrue(result['active'])
+        self.assertFalse(self.profile.exists())
+        self.assertEqual(self.unit.read_bytes(), self.unit_data)
+        self.assertTrue(self.wants.joinpath(m.UNIT_NAME).is_symlink())
+        self.assertTrue(all(call[:2] == ['/usr/bin/systemctl', '--user'] for call in self.calls))
+        self.calls.clear()
+        rerun = self.run_apply()
+        self.assertFalse(rerun['changed'])
+        self.assertEqual(rerun['mode'], 'waiting-configuration')
+        self.assertEqual([args[2] for args in self.calls], ['show-environment', 'show'])
+
+    def test_waiting_refuses_existing_valid_invalid_and_dangling_profile_before_service_calls(self):
+        self.waiting_packet()
+        for data in (self.profile_data, b'{}', b'not JSON'):
+            with self.subTest(data=data):
+                self.write(self.profile, data)
+                with self.assertRaisesRegex(ValueError, 'requires absent'): self.run_apply()
+                self.assertEqual(self.profile.read_bytes(), data)
+                self.assertEqual(self.calls, [])
+                self.profile.unlink()
+        self.profile.symlink_to(self.root / 'absent-target')
+        with self.assertRaisesRegex(ValueError, 'requires absent'): self.run_apply()
+        self.assertTrue(self.profile.is_symlink())
+        self.assertEqual(self.calls, [])
+
+    def test_waiting_late_configuration_blocks_start_and_preserves_installed_evidence(self):
+        self.waiting_packet()
+        original = self.command
+        def create_before_start(args, **kwargs):
+            result = original(args, **kwargs)
+            if args[2] == 'enable': self.write(self.profile, b'concurrent configuration')
+            return result
+        with patch.object(m, 'command', side_effect=create_before_start):
+            with self.assertRaisesRegex(ValueError, 'requires absent'): self.run_apply()
+        self.assertEqual(self.profile.read_bytes(), b'concurrent configuration')
+        self.assertEqual(self.unit.read_bytes(), self.unit_data)
+        self.assertFalse(any('start' in call for call in self.calls))
+        self.assertTrue(self.wants.joinpath(m.UNIT_NAME).is_symlink())
+
+    def test_waiting_source_pin_and_manifest_mode_gate_manager_calls(self):
+        self.waiting_packet()
+        source = self.release / m.WAITING_SOURCE
+        source.write_bytes(b'old CLI with no missing-configuration wait')
+        with self.assertRaisesRegex(ValueError, 'release checksum'): self.run_apply()
+        self.assertEqual(self.calls, [])
+        self.manifest['mode'] = 'unknown'
+        self.manifest_pin = self.pin_manifest()
+        with self.assertRaisesRegex(ValueError, 'manifest fields'): self.run_apply()
+        self.assertEqual(self.calls, [])
+
     def test_success_only_installs_named_controller_and_idempotent_active_rerun_has_no_mutation(self):
         result = self.run_apply()
         self.assertEqual(self.profile.read_bytes(), self.profile_data)
@@ -218,29 +286,44 @@ class InstallerTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'Wrong application host'): self.run_apply()
         self.assertEqual(self.calls, [])
 
-    def test_retained_private_group_0775_unit_ancestry_is_accepted_without_chmod(self):
+    def test_only_fixed_share_accepts_private_group_0775_ancestry_without_chmod(self):
         def metadata(uid, gid, mode):
             return os.stat_result((stat.S_IFDIR | mode, 1, 1, 1, uid, gid, 0, 0, 0, 0))
-        values = [metadata(0, 0, 0o755), metadata(0, 0, 0o755)] + [metadata(1000, 1000, 0o775)] * 4
-        with patch.object(m, 'HOME', '/home/anulman'), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.os, 'open', side_effect=range(10, 16)) as opened, patch.object(m.os, 'fstat', side_effect=values), patch.object(m.os, 'close'), patch.object(m.os, 'listxattr', return_value=[], create=True), patch.object(m.os, 'chmod') as chmod:
-            self.assertEqual(directory_impl('/home/anulman/.config/systemd/user'), 15)
+        values = [metadata(0, 0, 0o755), metadata(0, 0, 0o755), metadata(1000, 1000, 0o700),
+                  metadata(1000, 1000, 0o755), metadata(1000, 1000, 0o775)]
+        with patch.object(m, 'HOME', '/home/anulman'), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.os, 'open', side_effect=range(10, 15)) as opened, patch.object(m.os, 'fstat', side_effect=values), patch.object(m.os, 'close'), patch.object(m.os, 'listxattr', return_value=[], create=True), patch.object(m.os, 'chmod') as chmod:
+            self.assertEqual(directory_impl('/home/anulman/.local/share'), 14)
             self.assertTrue(all(call.args[1] & os.O_NOFOLLOW for call in opened.call_args_list[1:]))
             chmod.assert_not_called()
-        values[1] = metadata(0, 0, 0o775)
-        with patch.object(m, 'HOME', '/home/anulman'), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.os, 'open', side_effect=range(10, 16)), patch.object(m.os, 'fstat', side_effect=values), patch.object(m.os, 'close'), patch.object(m.os, 'listxattr', return_value=[], create=True):
-            with self.assertRaisesRegex(ValueError, 'group-writable ancestor'):
-                directory_impl('/home/anulman/.config/systemd/user')
+        for changed, mode in ((1, 0o775), (2, 0o755), (3, 0o775)):
+            changed_values = list(values)
+            old = changed_values[changed]
+            changed_values[changed] = metadata(old.st_uid, old.st_gid, mode)
+            with self.subTest(changed=changed), patch.object(m, 'HOME', '/home/anulman'), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.os, 'open', side_effect=range(10, 15)), patch.object(m.os, 'fstat', side_effect=changed_values), patch.object(m.os, 'close'), patch.object(m.os, 'listxattr', return_value=[], create=True):
+                with self.assertRaises(ValueError): directory_impl('/home/anulman/.local/share')
 
-    def test_private_group_exception_refuses_other_members_or_primary_group_users(self):
-        account = SimpleNamespace(pw_name='anulman', pw_gid=1000, pw_dir='/home/anulman')
-        group = SimpleNamespace(gr_name='anulman', gr_mem=[])
-        with patch.object(m, 'HOME', '/home/anulman'), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.pwd, 'getpwuid', return_value=account), patch.object(m.grp, 'getgrgid', return_value=group), patch.object(m.pwd, 'getpwall', return_value=[account]) as users:
+    def test_private_group_refuses_other_primary_supplementary_or_unresolved_users(self):
+        account = SimpleNamespace(pw_name='anulman', pw_uid=1000, pw_gid=1000, pw_dir='/home/anulman')
+        other = SimpleNamespace(pw_name='other', pw_uid=2000, pw_gid=2000, pw_dir='/home/other')
+        group = SimpleNamespace(gr_name='anulman', gr_gid=1000, gr_mem=[])
+        with patch.object(m, 'HOME', '/home/anulman'), patch.object(m, 'UID', 1000), patch.object(m, 'GID', 1000), patch.object(m.pwd, 'getpwuid', return_value=account), patch.object(m.grp, 'getgrgid', return_value=group), patch.object(m.pwd, 'getpwall', return_value=[account, other]) as users, patch.object(m.os, 'getgrouplist', side_effect=lambda name, gid: [gid]) as memberships:
             private_group_impl()
             group.gr_mem = ['other']
-            with self.assertRaisesRegex(ValueError, 'private group'): private_group_impl()
+            with self.assertRaisesRegex(ValueError, 'not private'): private_group_impl()
             group.gr_mem = []
-            users.return_value = [account, SimpleNamespace(pw_name='other', pw_gid=1000)]
-            with self.assertRaisesRegex(ValueError, 'private group'): private_group_impl()
+            other.pw_gid = 1000
+            with self.assertRaisesRegex(ValueError, 'primary or supplementary'): private_group_impl()
+            other.pw_gid = 2000
+            memberships.side_effect = lambda name, gid: [gid, 1000]
+            with self.assertRaisesRegex(ValueError, 'primary or supplementary'): private_group_impl()
+            memberships.side_effect = OSError('NSS lookup failed')
+            with self.assertRaises(OSError): private_group_impl()
+            memberships.side_effect = lambda name, gid: [gid]
+            account.pw_uid = 2000
+            with self.assertRaisesRegex(ValueError, 'identity'): private_group_impl()
+            account.pw_uid = 1000
+            users.return_value = [account, SimpleNamespace(pw_name='alias', pw_uid=1000, pw_gid=2000, pw_dir='/other')]
+            with self.assertRaisesRegex(ValueError, 'enumeration'): private_group_impl()
 
     def test_hostile_or_absent_manager_path_holds_before_any_install_or_activation(self):
         for environment in ('PATH=/tmp/unreviewed-bin:/usr/bin:/bin', 'LANG=C', 'PATH=:/usr/bin', 'PATH=relative:/usr/bin'):
