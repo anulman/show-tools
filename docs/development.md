@@ -276,7 +276,7 @@ Package a registered compiled song with `node --import tsx lib/remote-performanc
 
 The practice desk audio mode selector preserves the existing `?remote` gateway path. Verify that a busy browser session blocks switching, that leaving hardware only detaches the client, and that returning to browser mode does not start audio. Check the selector at desktop and 390px widths. Static hosting cannot connect Hardware mode without the gateway.
 
-The persistent gateway is started with `node --import tsx scripts/serve-hardware-desk.ts --profile PROFILE.json`. The profile binds the server, private credentials, one validated installed song package, native executable and exact device parameters. Starting it publishes an audio-off desk without opening a native socket or device. Authenticated Enable audio creates an owned native process and prepares it stopped; Terminate audio releases it without stopping HTTP. Native commands carry the current attempt and epoch. Update the gateway, shared schemas and `RemoteDesk` together when changing that protocol.
+The persistent gateway is started with `node --import tsx scripts/serve-hardware-desk.ts --profile PROFILE.json`. The version-two profile binds the server, private credentials, validated installed song catalog, private authoring database, restart policy, native executable, and exact device parameters. Starting it publishes an audio-off desk without opening a native socket or device. Authenticated Enable audio creates an owned native process and prepares it stopped; Terminate audio releases it without stopping HTTP. Native commands carry the current attempt and epoch. Update the gateway, shared schemas and `RemoteDesk` together when changing that protocol. Follow the [EliteDesk practice quickstart](practice-quickstart.md) for operator commands and target acceptance.
 
 Identified input attachment includes a client intent recorded before dispatch. The gateway assigns the native slot and session and returns a receipt containing the exact target, source role, binding generation and native admission revision. Bootstrap also supplies an opaque original-owner readback token. Keep these references out of URLs, logs and song exports. Update every gateway, browser and physical-bridge caller together when changing this strict protocol.
 
@@ -292,12 +292,15 @@ Build a relocatable Linux release after CI has produced the matching native arti
 
 ```sh
 node --import tsx scripts/build-peripheral-artifact.ts --out NEW_PERIPHERAL_ARTIFACT_DIRECTORY
-node --import tsx scripts/build-session-release.ts --native-artifact NATIVE_ARTIFACT_DIRECTORY --peripheral-artifact NEW_PERIPHERAL_ARTIFACT_DIRECTORY --node-runtime NODE22_DIRECTORY --song-package PREPARED_SONG_DIRECTORY --out NEW_RELEASE_DIRECTORY
+node --import tsx scripts/build-song-catalog.ts --spec CATALOG_SPEC.json --out NEW_CATALOG_DIRECTORY
+node --import tsx scripts/build-session-release.ts --native-artifact NATIVE_ARTIFACT_DIRECTORY --peripheral-artifact NEW_PERIPHERAL_ARTIFACT_DIRECTORY --node-runtime NODE22_DIRECTORY --song-catalog NEW_CATALOG_DIRECTORY --out NEW_RELEASE_DIRECTORY
 ```
 
 The peripheral artifact builder uses Zig to cross-compile a static Linux x86-64 helper from committed source. It records all compiled repository inputs, compiler identity, flags, source revision, and file checksums. It does not execute the resulting ELF or open hardware. Pass `--compiler PATH` to select the Zig executable.
 
-The release builder requires committed source and an output basename of `show-tools-session-release-<HEAD7>`. It verifies native and peripheral hashes and source equivalence, the reviewed standalone Linux Node executable, and song package integrity. It rebuilds the shared WASM and browser UI, bundles server/CLI/preparation tools, includes full lifecycle/native review sources, licenses and build provenance, refuses an existing output directory, and writes full file/archive checksums. Optional `--reviewed-revision FULL_SHA` requires the reviewed commit and packaged source to have identical Git trees. Private profiles, tokens and TLS files are installed separately and never enter the archive. The installed `bin/show-tools-session` accepts session subcommands directly. `bin/show-tools-peripheral` supplies the existing peripheral commands without checkout dependencies.
+The release builder requires committed source and an output basename of `show-tools-session-release-<HEAD7>`. It verifies native and peripheral hashes and source equivalence, the reviewed standalone Linux Node executable, and song package integrity. The catalog spec explicitly names each canonical MusicXML input and effects file. Missing effects fail the build; the packager does not choose presets. Production Drunk Girls and Tribulations packaging requires the operator's effects choice or qualified saved effects. Synthetic empty-effects test fixtures are not deployment authoring data.
+
+The version-two release contains `catalog/catalog.json` and all three song packages, including their canonical `source.musicxml`. It rebuilds the shared WASM and browser UI, bundles server/CLI/preparation tools and the three foreground commissioning readers, includes full lifecycle/native review sources, licenses and build provenance, refuses an existing output directory, and writes full file/archive checksums. Optional `--reviewed-revision FULL_SHA` requires the reviewed commit and packaged source to have identical Git trees. Private profiles, tokens and TLS files are installed separately and never enter the archive. The installed `bin/show-tools-session` accepts session subcommands directly. `bin/show-tools-peripheral` supplies peripheral commands without checkout dependencies. Explicit `profile migrate` writes a new V2 profile with the selected release paths; it does not activate that profile or alter services.
 
 Use the [EliteDesk installation handoff](implementation/elitedesk-install.md) for scope, private credential migration, stage-only verification, and target acceptance. Run `python3 scripts/tests/stage-session-release.test.py` for adversarial extraction and idempotent promotion checks. The managed ALSA profile requires explicit identity and monitoring policy; never replace it with a floating default device.
 
@@ -371,8 +374,7 @@ button and knob behavior remain target acceptance evidence.
 
 ### Verify web startup recovery policy
 
-The session unit renderer retries failed web startup/process exits with a
-three-second manager backoff and no start-limit cutoff. Each fresh server stays
+The session unit renderer preserves the profile's explicit restart policy. An `on-failure` profile retries failed web startup/process exits with a three-second manager backoff and no start-limit cutoff. A `no` profile does not restart automatically. Each fresh server stays
 audio-off; native faults under a healthy web process still require explicit
 operator recovery. Session CLI tests inspect the concrete unit and refuse silent
 replacement of an installed older policy. The server test occupies an owned

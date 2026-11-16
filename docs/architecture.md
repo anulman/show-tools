@@ -236,7 +236,9 @@ Desk lifecycle and native state are separate. Off, starting, stopping, and fault
 
 Transport Stop retains the engine and captured takes. Terminate audio reaps the native child, releases its device handles, and discards in-memory takes while leaving the web server available. Termination bypasses musical command capacity and wins over an in-progress startup. Child ownership is tracked through not-requested, pending acquisition, and known-handle states. If startup ends without publishing a requested child handle, the controller retains a stopping state because it cannot confirm cleanup. It rejects replacement attempts until managed-service recovery establishes that the owned process group has exited. A failed native child leaves the desk available with a fault and requires explicit enable; it is not automatically restarted. Managed children use a parent PID guard, and the installed web service uses group cleanup to prevent orphan audio after server failure.
 
-The [session CLI](implementation/session-cli.md) manages the web service and the separate audio lifecycle. `session start` starts the server with audio off or preserves an already-running session. `session stop` explicitly stops the service and its audio child. Neither command starts musical transport. The user service has no default session expiry; boot enabling and login lingering remain explicit host setup choices. The CLI reads the installed private profile and uses the same authenticated audio API as the web UI.
+The [session CLI](implementation/session-cli.md) manages the web service and the separate audio lifecycle. `session start` starts the server with audio off or preserves an already-running session. `session stop` explicitly stops the service and its audio child. Neither command starts musical transport. The user service has no default session expiry; boot enabling and login lingering remain explicit host setup choices. The CLI reads the installed private profile and uses the same authenticated audio API as the web UI. The [EliteDesk practice quickstart](practice-quickstart.md) covers installed commands, hardware capture, song assignments, and physical acceptance.
+
+Version-two session profiles declare an installed song catalog, a private SQLite authoring database, and the explicit web restart policy. Song selection and button assignment saves require audio off. The controller serializes configuration preparation with audio startup, and acknowledges an assignment only after the SQLite compare-and-swap commits. MusicXML remains the song interchange format. The sidecar stores per-song physical bindings against the chart source digest. A changed source digest fails visibly instead of reusing an unqualified assignment.
 
 The native owner publishes copied state and events with a process epoch, run identity, and publication revision. Commands report the result applied by the owner. A lost connection leaves an in-flight outcome unknown; neither gateway nor desk replays it. The gateway validates package metadata and hashes before submitting the compiled packet and initial profiles. The native owner prepares a replacement while stopped and retains the existing instrument if preparation fails.
 
@@ -296,9 +298,9 @@ USB timing and visible light output remain hardware acceptance checks.
 
 Session CLI and native peripheral bridge share an optional explicit-IP connection route. The configured origin remains the HTTP and TLS identity; routing does not modify host DNS or relax certificate verification. Server TLS certificates and keys configure the listener only. Client trust uses Node default roots or an explicit `caFile` bundle.
 
-The optional Linux peripheral `serve` supervisor waits for gateway audio and USB
-readiness, then owns one bridge/helper session at a time. Each reconnect discards
-old controls and waits for child cleanup before acquiring a fresh identity. USB
+The optional Linux peripheral `serve` supervisor owns one qualified helper independently of gateway audio. With no configured input map it waits without opening USB. With a valid map it keeps physical button feedback available while audio is off or the gateway is unavailable. The helper combines observed physical holds with the latest fenced C++ sequenced baseline. A hold sets full brightness; release restores the baseline. Baseline clear does not erase a physical hold. Shutdown clears the owned outputs.
+
+Musical attachment waits for a ready native engine. Offline input edges are discarded rather than replayed on attachment. Each native reconnect uses a fresh fenced attachment while retaining the qualified device helper. USB
 ports, event/hidraw node names and PIDs are discovery results, never configuration
 pins. Gateway SSE heartbeat deadlines detect lost connections; they do not
 advance musical time or schedule lights. Only C++ supplies the musical light
@@ -309,9 +311,7 @@ stream alone cannot establish retirement of a source in a running engine. Its
 persistent user-unit renderer is source preparation, not an installed host capability.
 
 
-The rendered web user unit retries failed server startup/process exits with a
-three-second systemd backoff, allowing a configured local Tailscale address to
-appear after the user manager starts. A new gateway always starts audio-off.
+The rendered web user unit uses the profile's explicit `no` or `on-failure` restart policy. The latter uses a three-second systemd backoff. A new gateway always starts audio-off.
 Native faults while the gateway remains available do not trigger that restart
 policy. Explicit service Stop stays stopped, and healthy performances are not
 restarted. Applying the rendered policy to an installed unit remains a reviewed
