@@ -2,7 +2,7 @@
 
 Read [how the instrument fits together](architecture.md) before changing its timing or audio routes. Use the [practice contract](../ui/practice/CONTRACT.md) for commands and state, and the [practice guide](../ui/practice/README.md) to perform a take.
 
-The [four-workstream planning brief](workstreams.md) records the current priorities: slapback patches, the Performance Engine and deterministic chart compiler, peripheral management, and the Video Assistant. It supersedes the initial UI-only and audio-hosting-first assignments below.
+The [four-workstream planning brief](workstreams.md) records the workstream priorities. The commands and ownership below describe the current implementation. Historical plans do not override them.
 
 The [canonical-data and retention policy](data-retention.md) governs promotion and cleanup. Preserve completed designs and concise lessons rather than every experiment. Figma owns promoted animation. Git owns canonical effects and tools. Operator authoring data needs a database sidecar and independent backup; current browser SQLite storage does not yet satisfy that target. Review temporary material at milestone handoff and during periodic housekeeping, after verifying the canonical handoff.
 
@@ -10,15 +10,15 @@ The [deterministic command plan](implementation/deterministic-pipelines.md) sepa
 
 ## Run deterministic product commands
 
-Use the [native performance guide](../lib/performance/README.md) for chart options and source mappings. Each command publishes one output. Inspect the JSON before encoding the exact inspected file for the engine.
+Use the [canonical MusicXML guide](implementation/musicxml-cutover.md#commands) for chart inputs and the [native performance guide](../lib/performance/README.md) for engine compilation. Inspect the canonical document, compile it to reviewable JSON, then encode that exact derived file. Compilation also prints the inspection report. Each output command publishes one file.
 
 ```sh
-./show-tools chart compile --source SOURCE.json --mapping MAPPING.json --out SONG.json
-./show-tools chart inspect SONG.json
+./show-tools chart inspect SONG.musicxml
+./show-tools chart compile --musicxml SONG.musicxml --out SONG.json
 ./show-tools chart encode --song SONG.json --out SONG.pfp
 ```
 
-The removed `--native-out` option reports a migration instruction. A draft can be inspected but cannot be encoded for execution. Add `--json` to receive a structured failure without preceding human output.
+Sheets JSON and mapping are ingestion inputs for `chart musicxml`, not inputs for `chart compile`. A Sheets reimport creates an explicit canonical revision. The removed `--native-out` option reports a migration instruction. A draft can be inspected but cannot be encoded for execution. Add `--json` to receive a structured failure without preceding human output.
 
 Use the [audition guide](../lib/patches/tools/README.md) to render approved shared effects from explicit synthetic or WAV input. Supply both linear gains and a fresh output directory.
 
@@ -70,7 +70,7 @@ Run those commands after the handoff documentation commit lands. Start each sess
 
 Assign one owner to a shared contract change before editing it. The likely overlap points are `lib/performance/include/performance_engine.h`, `lib/performance/wasm-performance.ts`, `lib/sequencer/include/audio_sequence_engine.h`, `lib/sampler/include/sample_engine.h`, `lib/performance/model.ts`, `ui/practice/audio.ts`, `ui/practice/practice-worklet.ts`, `ui/practice/app.ts`, and `scripts/build-ui.ts`. Separate worktrees prevent accidental overwrites. They do not resolve conflicting designs for these files.
 
-For native hosting, follow the [EliteDesk inventory procedure](operations/elitedesk-inventory.md) and [handoff](operations/elitedesk-handoff.md). Hardware - EliteDesk owns host and device adapters; Performance Engine owns shared musical and clock contracts. The remote-desk milestone keeps audio on the EliteDesk while a locally served browser UI sends controls. Until the device adapter exists and passes its checks, native library tests establish PCM behavior only. Restricted agent messaging does not authorize host or audio changes.
+For native hosting, follow the [EliteDesk inventory procedure](operations/elitedesk-inventory.md) and [practice quickstart](practice-quickstart.md). Hardware - EliteDesk owns the existing native ALSA host and peripheral adapters. Performance Engine owns shared musical and clock contracts. The persistent gateway serves the desk while audio stays on the native host. Native fixtures establish PCM and lifecycle behavior; installed device readiness and physical behavior require target evidence. Follow the [handoff guide](implementation/lean-handoff.md) to keep source evidence separate from host capability and readiness.
 
 Treat the Sheets helper and its Chrome profile as shared state too. Use one owner for a live chart-follow test so different practice sessions do not compete to select columns.
 
@@ -140,29 +140,29 @@ Use this starting brief for a new session.
 
 > Read AGENTS.md, docs/architecture.md, docs/development.md, and ui/practice/CONTRACT.md. Iterate on the practice UI under ui/. Keep musical state and chart actions in the audio engine, and keep songs loadable from songs/. Preserve the established keyboard layout, cue lights, capture workflow, and recording lifecycle. Verify the changed interactions in the browser at mobile and desktop widths. Coordinate shared app.ts or audio.ts edits with the other workstreams. Commit each verified milestone.
 
-## Start the EliteDesk workstream
+## Continue the EliteDesk workstream
 
-Read the [confirmed hardware inventory](hardware-inventory.md) and the operator's PR #3 review before revising this plan. Unknown installation facts block their dependent design decisions; ask the operator rather than selecting a controller, role, cadence, or API by assumption. The inventory and current workstream brief supersede speculative examples below.
+Read the [confirmed hardware inventory](hardware-inventory.md), [native host guide](../lib/native-host/README.md), and [session CLI guide](implementation/session-cli.md). Unknown installation facts block their dependent decisions. Ask the operator rather than selecting a controller, role, cadence, or API by assumption.
 
-Begin with [the native performance guide](../lib/performance/README.md), `lib/performance/include/performance_engine.h`, and `lib/relay/README.md`. Build and test the complete native engine before adding device code. Its manual-tempo CMake target already links the clock, sequencer, and sampler without aubio or libsndfile.
+The existing `native_alsa_host` connects the complete C++ engine to explicit ALSA capture and playback devices. `native_fake_host` exercises the same engine and IPC with synthetic PCM. The persistent gateway owns native process attempts and exposes authenticated controls. Help and status open no audio device. Use the supported session commands and confirmed profile rather than choosing another backend.
 
-Choose an audio-device backend and give one thread ownership of the performance engine. Clear each output block, pass microphone PCM to `pf_process()`, and route the rendered channels to the device. Do not also call `bt_process()` or dispatch `sq_on_beat()` on the borrowed component handles. The performance engine owns those calls.
+Preserve one audio thread's ownership of the performance engine when changing the host. Pass microphone PCM to `pf_process()` and route its rendered channels to the device. Do not also call `bt_process()` or dispatch `sq_on_beat()` on borrowed component handles. The performance engine owns those calls.
 
 Use `pf_load_compiled_bytes()` to load the compiler's portable `.pfp` artifact while stopped. Browser song modules use the same numeric tables through `pf_configure_compiled()`. No JavaScript runtime is required to execute those instructions. The native host accepts the packet and explicit effect profiles while stopped.
 
-Drain native events on the engine's owning thread into a bounded host queue. Add run IDs and chart metadata and publish copied records outside the device callback. Do not query the engine concurrently from an observer thread. Preserve source audio-frame timestamps. A relay receipt is not a musical boundary.
+Preserve bounded native event transfer from the engine's owning thread and IPC serialization outside the device callback. Do not query the engine concurrently from an observer thread. Preserve source audio-frame timestamps. A network receipt is not a musical boundary.
 
-Keep reset and fresh-audio operations that may allocate outside the processing callback. Audit native device buffers, command queues, and lifecycle behavior directly. Preserve capture bounds, commit-and-autoplay, replacement capture, channel gain and mute, explicit stops, and song position when adding the host.
+Keep reset and fresh-audio operations that may allocate outside the processing callback. Audit native device buffers, command queues, and lifecycle behavior directly. Preserve capture bounds, commit-and-autoplay, replacement capture, channel gain and mute, explicit stops, and song position.
 
-Add hardware inputs as domain controls, including debounce and knob mapping. Keep the EliteDesk focused on audio and hardware. The remote gateway can serve the practice desk from that host. Implement the hardware producer and browser hardware adapter explicitly; neither is already supplied by starting the relay.
+The existing Mac and Linux peripheral adapters submit identified physical input through the gateway. Songs declare musical bindings, and C++ resolves them. Installation profiles contain observed interfaces and output mappings. Keep physical ingress separate from browser and network control. Starting the relay does not attach a peripheral or establish installed readiness.
 
 Use this starting brief for a new session.
 
-> Read AGENTS.md, docs/architecture.md, docs/development.md, lib/performance/README.md, and lib/relay/README.md. Use the existing complete C++ performance engine. Validate the native audio host and add hardware controls. Give one thread ownership of the engine and let pf_process execute musical timing and rendering. Preserve browser behavior through conformance checks. Keep audio on the host and flag copyleft choices. Commit each verified milestone.
+> Read AGENTS.md, docs/architecture.md, docs/development.md, lib/native-host/README.md, and lib/peripherals/README.md. Extend the existing native host, persistent gateway, and identified peripheral adapters. Keep musical timing and rendering in C++. Verify the changed ownership and lifecycle boundaries with synthetic fixtures. Record target acceptance separately. Preserve active performances and commit each verified milestone.
 
 ## Verify and report the changed behavior
 
-For [the shared-session tuner](implementation/tuner.md), run the native and WASM tuner tests, then build the desk and run `node --import tsx scripts/build-tuner-check.ts`. Open `/tuner-check/index.html?test=1` on the isolated static server and click **Run shared tuner checks**. This fixture supplies synthetic C3 input through the desk's own context and counts context creation and microphone acquisition. Verify the displayed result in a real browser. It does not test an installed microphone. Include tuner changes in native release source-equivalence checks and Linux CI triggers.
+For [the shared-session tuner](implementation/tuner.md), run the native and WASM tuner tests, then build the desk and run `node --import tsx scripts/build-tuner-check.ts`. Publish the check through `./show-tools ui preview --session tuner-check`. Open `/tuner-check/index.html?test=1` at the printed origin and click **Run shared tuner checks**. This fixture supplies synthetic C3 input through the desk's own context and counts context creation and microphone acquisition. Verify the displayed result in a real browser. It does not test an installed microphone. Include tuner changes in native release source-equivalence checks and Linux CI triggers.
 
 Build the fake native host at `build/native-host/native_fake_host` before `npm test`, or set `NATIVE_FAKE_HOST` to its built path. The default suite includes the real native IPC vertical test and fails if the executable is missing. Run the common checks from the worktree root.
 
@@ -178,7 +178,7 @@ Use [native performance build and test instructions](../lib/performance/README.m
 
 For audio changes, inspect rendered PCM and exercise the browser path that users run. For Sheets changes, observe intermediate frames as well as final selection. The earlier viewport test missed visible jumps because it checked only the final state.
 
-Record which checks ran and what remains unverified. After the complete performance migration, the default suite passed 169 tests with two optional follower skips. The follower-enabled suite passed all 171 tests. Both WASM builds, typecheck, browser build, and layout checks passed. The native CMake target passed all three component tests. AddressSanitizer, undefined-behavior, and float-cast-overflow checks also passed. Separate worklet tests verified click PCM frame by frame, reset and mute tails, analyzer isolation, and bounded telemetry.
+Record each check's inputs, verdict, evidence path, and limitations using the [handoff guide](implementation/lean-handoff.md). Historical migration results below describe those runs, not the current checkout's acceptance. After the complete performance migration, the default suite passed 169 tests with two optional follower skips. The follower-enabled suite passed all 171 tests. Both WASM builds, typecheck, browser build, and layout checks passed. The native CMake target passed all three component tests. AddressSanitizer, undefined-behavior, and float-cast-overflow checks also passed. Separate worklet tests verified click PCM frame by frame, reset and mute tails, analyzer isolation, and bounded telemetry.
 
 Chrome verified the production adapter with synthetic microphone input. Four native lead-in clicks remained audible with song click off. Capture retained exactly two bars as 88,200 frames at 44,100 Hz, autoplay began on bar 3, MP3 export decoded into two audible channels, and Stop left zero active voices. Physical microphone quality, phone behavior, the complete installed extension path, and EliteDesk device behavior remain separate verification tasks.
 
@@ -417,7 +417,7 @@ Tuning capture UI and native singing checks run with `node --import tsx --test u
 
 ### Verify main-view effect rows
 
-Run `node --import tsx --test ui/practice/tests/voice-effects.test.ts ui/practice/tests/voice-catalog.test.ts ui/practice/tests/audio-lifecycle.test.mjs`. After `npm run build:ui`, build the browser check with `node --import tsx scripts/build-voice-effects-check.ts --out-dir dist/fx-check`. Serve `dist/` and open `/fx-check/index.html` on an isolated preview origin. The page checks real DOM draft edits, native acknowledgements, per-profile Apply, pending dry changes, remote stack management, exact saved decimals, invalid drafts and 390px overflow. Its final title must read `PASS: effect rows`.
+Run `node --import tsx --test ui/practice/tests/voice-effects.test.ts ui/practice/tests/voice-catalog.test.ts ui/practice/tests/audio-lifecycle.test.mjs`. After `npm run build:ui`, build the browser check with `node --import tsx scripts/build-voice-effects-check.ts --out-dir dist/fx-check`. Publish it with `./show-tools ui preview --session fx-check` and open `/fx-check/index.html` at the printed origin. The page checks real DOM draft edits, native acknowledgements, per-profile Apply, pending dry changes, remote stack management, exact saved decimals, invalid drafts and 390px overflow. Its final title must read `PASS: effect rows`.
 
 In the actual practice desk, verify keyboard arrows adjust a focused knob without triggering Q/W/A/S or Space transport shortcuts. Verify Apply readback and reload persistence while stopped. Drag up/right to increase, down/left to decrease; Shift gives fine control. Keep the operator's active desk and audio session untouched. Main-view controls lock during practice; native DSP and the existing save/apply boundary own the effect change.
 
