@@ -1,5 +1,4 @@
 """Owned files/pipes only. No USB, input, HID, audio or service is accessed."""
-import ctypes
 import importlib.util
 import json
 import os
@@ -28,41 +27,13 @@ def decoded(value, micros=1000, device='owned-pipe', code=30):
     return next(raw.decode(event(value, micros, code), device))
 
 
-def write_marker(directory, op, trial='trial1', nonce='a' * 32, **extra):
-    path = directory / (op + '.json')
-    fd, temporary = tempfile.mkstemp(prefix='.marker-', dir=directory)
-    try:
-        data = memoryview(json.dumps({'op': op, 'trialId': trial, 'nonce': nonce, **extra}).encode())
-        while data:
-            count = os.write(fd, data)
-            if count <= 0:
-                raise RuntimeError('Marker write made no progress')
-            data = data[count:]
-        os.fsync(fd)
-    except BaseException:
-        os.unlink(temporary)
-        raise
-    finally:
-        os.close(fd)
-    try:
-        libc = ctypes.CDLL(None, use_errno=True)
-        if sys.platform == 'darwin':
-            publish = libc.renamex_np
-            publish.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
-            result = publish(os.fsencode(temporary), os.fsencode(path), 4)
-        elif sys.platform == 'linux':
-            publish = libc.renameat2
-            publish.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
-            result = publish(-100, os.fsencode(temporary), -100, os.fsencode(path), 1)
-        else:
-            raise RuntimeError('Atomic marker publication requires Linux or macOS')
-        if result:
-            error = ctypes.get_errno()
-            raise OSError(error, os.strerror(error), path)
-    finally:
-        if os.path.exists(temporary):
-            os.unlink(temporary)
-    return path
+producer_spec = importlib.util.spec_from_file_location('publish_marker', SOURCE.with_name('publish_marker.py'))
+producer = importlib.util.module_from_spec(producer_spec)
+producer_spec.loader.exec_module(producer)
+
+
+def write_marker(directory, op, trial='trial1', nonce='a' * 32):
+    return producer.publish_marker(directory, op, trial, nonce)
 
 
 class ParserTests(unittest.TestCase):
@@ -167,6 +138,105 @@ class FileTests(unittest.TestCase):
         with patch.object(os, 'write', side_effect=partial_write):
             write_marker(self.directory, 'arm')
         self.assertTrue(self.marker())
+
+    def test_producer_rejects_invalid_identity_before_writes(self):
+        for args in (('other', 'trial1', 'a' * 32), ('arm', '../trial', 'a' * 32), ('arm', 'trial1', 'b' * 31)):
+            with self.subTest(args=args), self.assertRaises(RuntimeError):
+                producer.publish_marker(self.directory, *args)
+        self.assertEqual(list(self.directory.iterdir()), [])
+
+    def test_producer_refuses_directory_mode_owner_and_symlink(self):
+        self.directory.chmod(0o775)
+        try:
+            with self.assertRaises(RuntimeError):
+                write_marker(self.directory, 'arm')
+        finally:
+            self.directory.chmod(0o700)
+        with patch.object(producer.os, 'getuid', return_value=self.uid + 1), self.assertRaises(RuntimeError):
+            write_marker(self.directory, 'arm')
+        alias = self.directory / 'alias'
+        alias.symlink_to(self.directory)
+        with self.assertRaises(RuntimeError):
+            write_marker(alias, 'arm')
+        self.assertEqual(list(self.directory.iterdir()), [alias])
+
+    def test_producer_never_replaces_existing_destination(self):
+        destination = self.directory / 'arm.json'
+        other = self.directory / 'other'
+        other.write_bytes(b'preserve'); other.chmod(0o600)
+        for kind in ('symlink', 'hardlink', 'directory'):
+            if kind == 'symlink': destination.symlink_to(other)
+            elif kind == 'hardlink': os.link(other, destination)
+            else: destination.mkdir()
+            before = destination.lstat()
+            with self.subTest(kind=kind), self.assertRaises(FileExistsError):
+                write_marker(self.directory, 'arm')
+            self.assertEqual(destination.lstat(), before)
+            self.assertEqual(other.read_bytes(), b'preserve')
+            if kind == 'directory': destination.rmdir()
+            else: destination.unlink()
+        self.assertEqual(list(self.directory.iterdir()), [other])
+
+    def test_producer_write_failure_cleans_only_temporary(self):
+        with patch.object(producer.os, 'write', side_effect=OSError('synthetic write failure')), self.assertRaises(OSError):
+            write_marker(self.directory, 'arm')
+        self.assertEqual(list(self.directory.iterdir()), [])
+
+    def test_producer_refuses_linked_temporary(self):
+        fsync = os.fsync
+        alias = self.directory / 'second-link'
+        def linked(fd):
+            if stat.S_ISREG(os.fstat(fd).st_mode):
+                temporary = next(self.directory.glob('.marker-*'))
+                os.link(temporary, alias)
+            fsync(fd)
+        with patch.object(producer.os, 'fsync', side_effect=linked), self.assertRaises(RuntimeError):
+            write_marker(self.directory, 'arm')
+        self.assertFalse((self.directory / 'arm.json').exists())
+        self.assertEqual(list(self.directory.iterdir()), [alias])
+
+    def test_concurrent_publication_has_one_immutable_winner(self):
+        barrier = threading.Barrier(2)
+        results = []
+        def publish(nonce):
+            barrier.wait(timeout=3)
+            try:
+                write_marker(self.directory, 'arm', nonce=nonce)
+                results.append(('published', nonce))
+            except FileExistsError:
+                results.append(('exists', nonce))
+            except BaseException as failure:
+                results.append(('error', failure))
+        threads = [threading.Thread(target=publish, args=(value * 32,)) for value in ('a', 'b')]
+        for thread in threads: thread.start()
+        for thread in threads: thread.join(timeout=3)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(sorted(result[0] for result in results), ['exists', 'published'])
+        nonce = next(result[1] for result in results if result[0] == 'published')
+        self.assertTrue(raw.marker(self.fd, 'arm', 'trial1', nonce, self.uid, self.gid))
+        self.assertEqual([path.name for path in self.directory.iterdir()], ['arm.json'])
+
+    def test_producer_refuses_changed_temporary_mode(self):
+        fsync = os.fsync
+        def changed(fd):
+            if stat.S_ISREG(os.fstat(fd).st_mode):
+                os.fchmod(fd, 0o644)
+            fsync(fd)
+        with patch.object(producer.os, 'fsync', side_effect=changed), self.assertRaises(RuntimeError):
+            write_marker(self.directory, 'arm')
+        self.assertEqual(list(self.directory.iterdir()), [])
+
+    def test_publication_fsync_failure_retains_marker_without_success(self):
+        fsync = os.fsync
+        def failed(fd):
+            if stat.S_ISDIR(os.fstat(fd).st_mode):
+                raise OSError('synthetic directory fsync failure')
+            fsync(fd)
+        with patch.object(producer.os, 'fsync', side_effect=failed), self.assertRaises(OSError):
+            write_marker(self.directory, 'arm')
+        self.assertTrue(self.marker())
+        with self.assertRaises(FileExistsError):
+            write_marker(self.directory, 'arm')
 
     def test_invalid_marker_bytes(self):
         path = self.directory / 'arm.json'
