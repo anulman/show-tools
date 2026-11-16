@@ -127,8 +127,10 @@ playback, tempo, or Panic action. Songs and the Performance Engine own those
 bindings. The same distinction applies to the remaining controls.
 
 The operator reported LED pins 1 through 4 on the ordinary 96-channel header.
-Moving them to MOSFET screw-terminal outputs `1`, `2`, `3`, and `49` is a
-tentative future plan, not the current wiring or a confirmed colour mapping.
+The operator plans a later move to MOSFET outputs and separately reported
+possible future LED outputs `1`, `2`, `3`, and `49`. The connection and header
+details remain unconfirmed. This is not the current wiring or a confirmed
+colour mapping.
 The current supply and LED module rating still
 need confirmation before LED writes. No new LED polarity or visible-output test
 is recorded.
