@@ -301,8 +301,10 @@ ports, event/hidraw node names and PIDs are discovery results, never configurati
 pins. Gateway SSE heartbeat deadlines detect lost connections; they do not
 advance musical time or schedule lights. Only C++ supplies the musical light
 image and native audio continues independently of laptop/phone connectivity.
-The supervisor never enables audio or starts/stops transport. Its persistent
-user-unit renderer is source preparation, not an installed host capability.
+The supervisor never enables audio or starts/stops transport. Unconfirmed native
+source revocation blocks automatic reconnect; helper exit or an ended event
+stream alone cannot establish retirement of a source in a running engine. Its
+persistent user-unit renderer is source preparation, not an installed host capability.
 
 
 The rendered web user unit retries failed server startup/process exits with a

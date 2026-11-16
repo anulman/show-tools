@@ -78,7 +78,7 @@ test('persistent unit restarts abnormal exits with backoff, but holds normal con
 	assert.throws(() => renderPeripheralUnit('/app\nother', '/config'), /absolute/);
 });
 
-test('late interface/access changes qualify once per change; disconnect fully exits before a fresh session', { timeout: 20000 }, async () => {
+test('qualification changes and confirmed USB loss reconnect; uncertain source cleanup blocks retry', { timeout: 20000 }, async () => {
 	const { createGateway } = await import('../../remote-performance/gateway.js');
 	const directory = await mkdtemp(join(tmpdir(), 'ps-'));
 	const token = 'b'.repeat(32), tokenFile = join(directory, 'token'), helper = join(directory, 'helper'), log = join(directory, 'log'), stageFile = join(directory, 'stage'), disconnect = join(directory, 'disconnect');
@@ -104,8 +104,11 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 	};
 	const controller = new PersistentDesk(sessionProfile(directory), installedPackage().installed);
 	const config = { host: '127.0.0.1', port: 0, origin: 'http://127.0.0.1', token: Buffer.from(token), staticRoot: directory };
-	let audioCommands = 0;
-	const server = createGateway(config, { ...controller, snapshot: () => controller.snapshot(), subscribe: listener => controller.subscribe(listener), command: (target, input) => controller.command(target, input), close: () => controller.close(), setAudio: () => { audioCommands++; throw new Error('supervisor must not control audio'); } });
+	let audioCommands = 0, failCleanup = false;
+	const server = createGateway(config, { ...controller, snapshot: () => controller.snapshot(), subscribe: listener => controller.subscribe(listener), command: (target, input) => {
+		if (failCleanup && input && typeof input === 'object' && 'command' in input && input.command === 'inputRevoke') return Promise.resolve({ outcome: 'unknown' });
+		return controller.command(target, input);
+	}, close: () => controller.close(), setAudio: () => { audioCommands++; throw new Error('supervisor must not control audio'); } });
 	const abort = new AbortController(); let running: Promise<void> | undefined;
 	try {
 		controller.setAudio('on');
@@ -114,6 +117,7 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		const address = server.address(); assert.ok(address && typeof address !== 'string'); config.origin = `http://127.0.0.1:${address.port}`;
 		let present = false;
 		running = servePeripheral({ version: 2, origin: config.origin, tokenFile, helperExecutable: helper, inputMap, bindingRevision: 1, jiggle: null }, abort.signal, { present: async () => present, fingerprint: () => readFile(stageFile, 'utf8'), retryMs: 10, report: () => {} });
+		const settled = running.then(() => ({ ok: true }), error => ({ ok: false, error }));
 		await new Promise(resolve => setTimeout(resolve, 50)); assert.equal((await records()).length, 0, 'absent hardware never starts a child');
 		present = true;
 		for (let stage = 0; stage < 3; stage++) {
@@ -133,13 +137,17 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		if (started.outcome !== 'applied') throw new Error('Missing native start acknowledgement');
 		await writeFile(disconnect, 'yes');
 		await waitRecords(history => new Set(history.filter(record => record.line?.startsWith('light ')).map(record => record.session)).size === 2);
+		failCleanup = true;
 		server.closeAllConnections();
-		await waitRecords(history => new Set(history.filter(record => record.line?.startsWith('light ')).map(record => record.session)).size === 3);
-		abort.abort(); await running;
+		const result = await settled;
+		assert.equal(result.ok, false);
+		if ('error' in result) assert.match(String(result.error), /revocation is unconfirmed/);
+		await new Promise(resolve => setTimeout(resolve, 60));
+		assert.equal(new Set((await records()).filter(record => record.line?.startsWith('light ')).map(record => record.session)).size, 2, 'uncertain cleanup never creates a replacement source');
 		const history = await records(); const starts = history.filter(record => record.type === 'start');
 		assert.equal(new Set(starts.map(record => record.session)).size, starts.length, 'every attempt has a fresh helper identity');
 		for (let i = 1; i < starts.length; i++) assert.ok(history.findIndex(record => record.type === 'exit' && record.session === starts[i-1].session) < history.indexOf(starts[i]), 'old process exits before another child starts');
-		assert.equal(history.filter(record => record.line === 'clear').length, 3);
+		assert.equal(history.filter(record => record.line === 'clear').length, 2);
 		assert.equal(history.at(-1)?.type, 'exit');
 		assert.equal(audioCommands, 0);
 		const final = controller.snapshot().audio;

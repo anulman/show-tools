@@ -335,7 +335,11 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 		await drained;
 		try {
 			if (releaseRequired) await revokeInput();
-		} catch (error) { process.stderr.write(`I-PAC disconnected; source revocation unconfirmed: ${error instanceof Error ? error.message : String(error)}\n`); }
+		} catch (error) {
+			failure = new AggregateError(failure ? [failure, error] : [error],
+				'I-PAC source revocation is unconfirmed. Automatic reconnect is blocked; confirm old source retirement or start a new hardware audio session before reconnecting.');
+			process.stderr.write(`I-PAC disconnected; source revocation unconfirmed: ${error instanceof Error ? error.message : String(error)}\n`);
+		}
 		abort.abort();
 		const terminate = setTimeout(() => child.kill('SIGTERM'), 1000);
 		const kill = setTimeout(() => child.kill('SIGKILL'), 2000);

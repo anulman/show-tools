@@ -4,7 +4,7 @@ import { chmod, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
-import { decodePeripheralInputMap, peripheralHelperArgs, runPeripheralBridge } from '../bridge.js';
+import { decodePeripheralInputMap, peripheralHelperArgs, PeripheralRetry, runPeripheralBridge } from '../bridge.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
 import { PersistentDesk } from '../../remote-performance/controller.js';
 import { createGateway } from '../../remote-performance/gateway.js';
@@ -25,11 +25,12 @@ const inputMap = decodePeripheralInputMap({
   axis: { sourceId: 'motion', type: 2, code: 1 }, leds: [], confirmWiring: false,
 });
 
-const attachments: readonly { playing: boolean; disabled?: boolean; gap?: boolean }[] = [
+const attachments: readonly { playing: boolean; disabled?: boolean; gap?: boolean; cleanupUnknown?: boolean }[] = [
   { playing: false }, { playing: true },
   { playing: true, disabled: true }, { playing: true, disabled: true, gap: true },
+  { playing: true, disabled: true, cleanupUnknown: true },
 ];
-for (const { playing, disabled = false, gap = false } of attachments) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with an explicit Blue map${disabled ? ' and musical knob disabled' : ''} and ${gap ? 'publication gap' : 'abort'} clears native held state and helper output`, { timeout: 20000 }, async () => {
+for (const { playing, disabled = false, gap = false, cleanupUnknown = false } of attachments) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with an explicit Blue map${disabled ? ' and musical knob disabled' : ''} and ${cleanupUnknown ? 'unknown cleanup blocks automatic retry' : `${gap ? 'publication gap' : 'abort'} clears native held state and helper output`}`, { timeout: 20000 }, async () => {
   await stat(resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'));
   const directory = await mkdtemp(join(tmpdir(), 'pb-'));
   const tokenFile = join(directory, 'token');
@@ -66,7 +67,12 @@ process.on('exit', code => record({ type: 'exit', code }));
   const forwarded: DeskController = {
     snapshot: () => controller.snapshot(),
     subscribe: listener => { publish = listener; return controller.subscribe(listener); },
-    command: (target, input) => { commands.push(input); return controller.command(target, input); },
+    command: (target, input) => {
+      commands.push(input);
+      if (cleanupUnknown && input && typeof input === 'object' && 'command' in input && input.command === 'inputRevoke')
+        return Promise.resolve({ outcome: 'unknown' });
+      return controller.command(target, input);
+    },
     setAudio: goal => { lifecycleChanges++; return controller.setAudio(goal); },
     close: () => controller.close(),
   };
@@ -128,13 +134,18 @@ process.on('exit', code => record({ type: 'exit', code }));
     const firstRecord = (await records())[0];
     assert.equal(firstRecord.type, 'ready');
     assert.deepEqual(firstRecord.args, peripheralHelperArgs(1, inputMap).slice(1), 'the helper receives only explicit installation facts');
-    if (gap) {
+    if (gap || cleanupUnknown) {
       for (let count = 0; count < 100 && (await records()).filter(entry => entry.line?.startsWith('light ')).length < 2; count++) await new Promise(resolve => setTimeout(resolve, 10));
       assert.ok((await records()).filter(entry => entry.line?.startsWith('light ')).length >= 2, 'event stream attached before gap');
-      publish?.({ type: 'gap' });
+      if (cleanupUnknown) publish?.({ type: 'desk', view: { ...controller.snapshot(), audio: { kind: 'off' } } });
+      else publish?.({ type: 'gap' });
     } else abort.abort();
     const result = await settled;
-    if (gap) { assert.equal(result.ok, false); if ('error' in result) assert.match(String(result.error), /publication gap/); }
+    if (cleanupUnknown) {
+      assert.equal(result.ok, false);
+      assert.ok(bridgeFailure instanceof Error && !(bridgeFailure instanceof PeripheralRetry), 'unconfirmed native revocation must prevent automatic same-engine retry');
+      assert.match(bridgeFailure.message, /revocation.*unconfirmed/i);
+    } else if (gap) { assert.equal(result.ok, false); if ('error' in result) assert.match(String(result.error), /publication gap/); }
     else assert.deepEqual(result, { ok: true });
     const final = controller.snapshot().audio;
     assert.equal(final.kind, 'ready');
@@ -142,8 +153,13 @@ process.on('exit', code => record({ type: 'exit', code }));
     assert.equal(final.attempt, initial.attempt);
     assert.equal(final.performance.state.runId, beforeBridge.performance.state.runId);
     assert.equal(final.performance.state.phase, playing ? 'playing' : 'idle');
-    assert.ok(level(final.performance.lights) < 1, 'source revocation removes held brightness without stopping the transport');
-    assert.equal(final.performance.state.inputRouting?.producers.length, 0);
+    if (cleanupUnknown) {
+      assert.equal(level(final.performance.lights), 1, 'an unknown revoke never fabricates native retirement');
+      assert.equal(final.performance.state.inputRouting?.producers.length, 1);
+    } else {
+      assert.ok(level(final.performance.lights) < 1, 'source revocation removes held brightness without stopping the transport');
+      assert.equal(final.performance.state.inputRouting?.producers.length, 0);
+    }
     assert.equal(lifecycleChanges, 0, 'attaching and aborting never change the audio lifecycle');
     assert.equal(commands.length, expected.length + 1);
     assert.deepEqual(commands.at(-1), { command: 'inputRevoke', args: { producer: 0, session: 1 } });
