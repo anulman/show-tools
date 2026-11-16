@@ -76,32 +76,53 @@ def private_group():
 
 def directory(path):
     require(path == HOME or path.startswith(HOME + '/'), 'Directory outside fixed application home')
-    current = ''
-    fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    require(str(Path(path)) == path, 'Noncanonical directory')
+    managed = {HOME + suffix for suffix in (
+        '/.local/share', '/.local/bin', '/.config/systemd', '/.config/systemd/user',
+    )}
+    current, home_fd = '', None
+    chain = []
+    identity = lambda info: (info.st_dev, info.st_ino, info.st_mode, info.st_uid, info.st_gid)
+    root_fd = os.open('/', os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
+    chain.append((root_fd, None, None, None))
     try:
-        root = os.fstat(fd)
+        root = os.fstat(root_fd)
+        chain[0] = (root_fd, None, None, root)
         require(root.st_uid == root.st_gid == 0 and not root.st_mode & 0o022, 'Unexpected root directory ownership/mode')
         for part in Path(path).parts[1:]:
             require(part not in ('', '.', '..'), 'Noncanonical directory')
-            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=fd)
-            os.close(fd)
-            fd = child
+            parent = chain[-1][0]
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC, dir_fd=parent)
+            chain.append((child, parent, part, None))
+            info = os.fstat(child)
+            chain[-1] = (child, parent, part, info)
             current += '/' + part
-            info = os.fstat(fd)
             expected = UID if current == HOME or current.startswith(HOME + '/') else 0
             require(info.st_uid == expected and info.st_gid == (GID if expected else 0), 'Unexpected directory owner/group: ' + current)
             require(not info.st_mode & 0o002, 'Other-writable directory: ' + current)
             if current == HOME:
                 require(stat.S_IMODE(info.st_mode) == 0o700, 'Assigned home must be mode0700')
+                home_fd = child
             if info.st_mode & 0o020:
-                require(current == HOME + '/.local/share' and stat.S_IMODE(info.st_mode) == 0o775,
-                        'Group-writable ancestor is outside the fixed private-share exception: ' + current)
+                require(current in managed and stat.S_IMODE(info.st_mode) == 0o775 and home_fd is not None,
+                        'Group-writable ancestor is outside the fixed managed-path exception: ' + current)
+                home = os.fstat(home_fd)
+                require((home.st_uid, home.st_gid, stat.S_IMODE(home.st_mode)) == (UID, GID, 0o700)
+                        and identity(home) == identity(os.stat(HOME, follow_symlinks=False)),
+                        'Assigned home private barrier changed')
                 private_group()
-            require(not {'system.posix_acl_access', 'system.posix_acl_default'} & set(os.listxattr(fd)), 'Extended ACL requires separate review: ' + current)
-        return fd
-    except BaseException:
-        os.close(fd)
-        raise
+            require(not {'system.posix_acl_access', 'system.posix_acl_default'} & set(os.listxattr(child)), 'Extended ACL requires separate review: ' + current)
+        for fd, parent, name, before in chain:
+            require(identity(os.fstat(fd)) == identity(before), 'Directory metadata changed during qualification')
+            if parent is not None:
+                require(identity(os.stat(name, dir_fd=parent, follow_symlinks=False)) == identity(before),
+                        'Directory pathname changed during qualification')
+            require(not {'system.posix_acl_access', 'system.posix_acl_default'} & set(os.listxattr(fd)),
+                    'Extended ACL changed during qualification')
+        return chain.pop()[0]
+    finally:
+        for fd, _parent, _name, _before in reversed(chain):
+            os.close(fd)
 
 
 def file_bytes(path, private=False, maximum=256 * 1024 * 1024):
