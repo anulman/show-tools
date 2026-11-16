@@ -16,20 +16,20 @@ void map_checks() {
     return accepted;
   };
   // Synthetic capabilities and usages; these are not a device wiring assignment.
-  const std::vector<std::string> linux{"host", "7", "--map-version", "2",
+  const std::vector<std::string> linux_args{"host", "7", "--map-version", "2",
     "--linux-source", "keys", "2", "0,1", "41,42", "-",
     "--linux-source", "motion", "3", "0,2", "-", "1",
     "--switch", "yellow", "keys", "1", "42", "--switch", "blue", "keys", "1", "41",
     "--axis", "knob", "motion", "2", "1"};
   HostConfig map;
-  require(parse(linux, Platform::Linux, map));
+  require(parse(linux_args, Platform::Linux, map));
   require(map.session == 7 && map.map.sources.size() == 2 && map.map.switches.size() == 2);
   require(map.map.switches[0].control == PhysicalControl::Blue && map.map.axis->source == 1);
   require(map.map.leds.empty() && light_bindings(map.map).empty());
   auto add = [&](std::initializer_list<const char*> extra) {
-    auto args = linux; for (auto value : extra) args.emplace_back(value); return args;
+    auto args = linux_args; for (auto value : extra) args.emplace_back(value); return args;
   };
-  require(!parse(linux, Platform::MacOS, map));
+  require(!parse(linux_args, Platform::MacOS, map));
   require(!parse(add({"--led", "blue", "0"}), Platform::Linux, map));
   require(parse(add({"--led", "yellow", "1", "--led", "blue", "0", "--confirm-wiring"}), Platform::Linux, map));
   auto lights = light_bindings(map.map);
@@ -46,7 +46,7 @@ void map_checks() {
   require(!parse(add({"--linux-source", "unused", "4", "0,1", "41", "-"}), Platform::Linux, map));
   require(!parse(add({"--linux-source", "alias", "2", "0,1", "41,42", "-", "--switch", "red", "alias", "1", "41"}), Platform::Linux, map));
   for (auto invalid : {"42,41", "41,41", "41,", "-1", "65536", ""}) {
-    auto args = linux; args[9] = invalid;
+    auto args = linux_args; args[9] = invalid;
     require(!parse(args, Platform::Linux, map));
   }
   const std::vector<std::string> hid{"host", "8", "--map-version", "2", "--hid-source", "keys", "2", "1", "6",

@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <iterator>
 
 #include "performance_engine.h"
 #include "peripheral_controls.h"
