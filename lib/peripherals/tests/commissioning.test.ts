@@ -3,7 +3,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { assembleInstallationMap, commissionDial, commissionHardware, profileSnapshot, saveCommissionedProfile, switchFromEvidence, type CapturedSwitch, type PeripheralBaseProfile } from '../commissioning.js';
+import { assembleInstallationMap, motionFromEvidence, commissionDial, commissionHardware, profileSnapshot, saveCommissionedProfile, switchFromEvidence, type CapturedSwitch, type PeripheralBaseProfile } from '../commissioning.js';
 
 const source = { interfaceNumber: 0, eventTypes: [0, 1], keyCodes: [30, 31], relativeAxes: [] };
 const base: PeripheralBaseProfile = { version: 2, origin: 'http://127.0.0.1:8443', tokenFile: '/home/test/token',
@@ -139,5 +139,43 @@ test('adding an observed dial preserves existing switches, LEDs and explicit jig
     assert.deepEqual(profile.jiggle, original.jiggle);
     assert.equal(profile.bindingRevision, 2); assert.equal(profile.inputMap.axis?.sourceId, 'source-2');
     assert(restored);
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+
+function motionEvidence() {
+  const events = [5, -5, 5, -5].map(value => ({ type: 'motion', device: '/dev/input/event24', eventType: 2, code: 1, value }));
+  return [{ type: 'source', device: '/dev/input/event24', canonical: '/sys/synthetic/event24', eventClock: 'CLOCK_MONOTONIC',
+    interfaceNumber: 2, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] }, ...events,
+    { type: 'terminal', schemaVersion: 1, trialId: 'motion-synthetic', controlId: 'knob', operatorDirection: 'clockwise',
+      complete: true, inputsClosed: true, requiresSuccessfulExit: true, error: null,
+      observedAxes: [{ device: '/dev/input/event24', interfaceNumber: 2, eventType: 2, code: 1, samples: 4, delta: 0, positiveCounts: 10, negativeCounts: 10 }] }];
+}
+
+test('zero net dial displacement remains valid nonzero motion with direction reversals', () => {
+  const axes = motionFromEvidence({ values: motionEvidence(), direction: 'clockwise', trialId: 'motion-synthetic', exitCode: 0 });
+  assert.equal(axes.length, 1); assert.equal(axes[0].delta, 0); assert.equal(axes[0].samples, 4);
+  assert.equal(axes[0].positiveCounts, 10); assert.equal(axes[0].negativeCounts, 10);
+  assert.throws(() => motionFromEvidence({ values: motionEvidence(), direction: 'counterclockwise', trialId: 'motion-synthetic', exitCode: 0 }), /did not complete/);
+});
+
+test('dial reports must match actual durable raw samples and source capabilities', () => {
+  const missing = motionEvidence(); missing.splice(1, 1);
+  assert.throws(() => motionFromEvidence({ values: missing, direction: 'clockwise', trialId: 'motion-synthetic', exitCode: 0 }), /sample counts/);
+  const duplicateSource = motionEvidence(); duplicateSource.splice(1, 0, { type: 'source', device: '/dev/input/event99', canonical: '/sys/synthetic/event99',
+    eventClock: 'CLOCK_MONOTONIC', interfaceNumber: 2, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] });
+  assert.throws(() => motionFromEvidence({ values: duplicateSource, direction: 'clockwise', trialId: 'motion-synthetic', exitCode: 0 }), /do not select one/);
+});
+
+test('a schema-valid profile larger than the installed runtime limit is never published', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-bounds-')));
+  const path = join(directory, 'peripheral.json');
+  const identities: CapturedSwitch['controlId'][] = ['blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'];
+  const inputMap = assembleInstallationMap({ switches: identities.map((controlId, index) => ({ controlId,
+    source: { interfaceNumber: index, eventTypes: [0, 1], keyCodes: Array.from({ length: 1000 }, (_, code) => code), relativeAxes: [] },
+    type: 1, code: index, evidencePath: '/tmp/synthetic' })), leds: [], confirmWiring: false });
+  try {
+    await assert.rejects(saveCommissionedProfile(path, null, { ...base, inputMap }), /16 KiB/);
+    assert.equal(await profileSnapshot(path), null);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });

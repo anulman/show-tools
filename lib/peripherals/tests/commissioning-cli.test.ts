@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { captureSwitch, profileSnapshot } from '../commissioning.js';
+import { assembleInstallationMap, captureAxis, captureSwitch, profileSnapshot, saveCommissionedProfile } from '../commissioning.js';
 import { commissioningService, runCommissioningCli } from '../commissioning-cli.js';
 import { renderPeripheralUnit } from '../service-unit.js';
 import { sessionProfile } from '../../remote-performance/tests/session-fixture.js';
@@ -159,4 +159,102 @@ finally:
     if (cancel) assert.equal(await profileSnapshot(config), null);
     else { assert.match(result.transcript, /Saved 2 switch identities/); assert.equal(JSON.parse(await readFile(config, 'utf8')).inputMap.switches.length, 2); }
   } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+
+async function motionFixture(multiple = false) {
+  const f = await fixture();
+  const reader = join(f.directory, 'raw_motion.py');
+  await writeFile(reader, `import argparse,json,os,pathlib,time
+p=argparse.ArgumentParser()
+for n in ('directory','trial','direction','capture-seconds'):p.add_argument('--'+n,required=True)
+a=p.parse_args();d=pathlib.Path(a.directory)
+f=os.open(d/'trial.ndjson',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+def record(v,public=False):
+ os.write(f,(json.dumps(v)+'\\n').encode())
+ if public:print(json.dumps(v),flush=True)
+record(dict(type='source',device='/dev/input/event24',canonical='/sys/synthetic/event24',eventClock='CLOCK_MONOTONIC',interfaceNumber=2,eventTypes=[0,2],keyCodes=[],relativeAxes=[0,1]))
+nonce='b'*32
+context=dict(schemaVersion=1,trialId=a.trial,controlId='knob',operatorDirection=a.direction)
+record(dict(type='ready',nonce=nonce,**context),True)
+start=time.monotonic()
+while not (d/'arm.json').exists():
+ if time.monotonic()-start>3:raise RuntimeError('no arm')
+ time.sleep(.005)
+record(dict(type='armed',nonce=nonce,**context),True)
+axes=[]
+for code in (${multiple ? '[0,1]' : '[1]'}):
+ for value in (5,-5,5,-5):record(dict(type='motion',device='/dev/input/event24',eventType=2,code=code,value=value))
+ axes.append(dict(device='/dev/input/event24',interfaceNumber=2,eventType=2,code=code,samples=4,delta=0,positiveCounts=10,negativeCounts=10))
+terminal=dict(type='terminal',complete=True,inputsClosed=True,requiresSuccessfulExit=True,error=None,observedAxes=axes,**context)
+record(terminal);os.fsync(f);os.close(f);print(json.dumps(terminal),flush=True)
+`, { mode: 0o600 });
+  return { ...f, reader };
+}
+
+test('foreground motion capture accepts a unique observed axis without guessing its polarity', async () => {
+  const f = await motionFixture(); const prompts: string[] = [];
+  try {
+    const axis = await captureAxis({ readerPath: f.reader, publisherPath: f.publisher, stagingRoot: f.directory,
+      direction: 'counterclockwise', captureSeconds: 1, onArmed: direction => prompts.push(direction), timeoutMs: 5000 });
+    assert.deepEqual(prompts, ['counterclockwise']); assert.equal(axis.code, 1);
+    assert.equal(axis.observations[0].delta, 0); assert.equal(axis.observations[0].samples, 4);
+    assert.equal(axis.direction, 'counterclockwise');
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+for (const explicit of [false, true]) test(`multiple observed axes ${explicit ? 'require and preserve explicit choice' : 'are rejected without an explicit choice'}`, async () => {
+  const f = await motionFixture(true);
+  try {
+    const operation = captureAxis({ readerPath: f.reader, publisherPath: f.publisher, stagingRoot: f.directory,
+      direction: 'clockwise', captureSeconds: 1, onArmed: () => {}, timeoutMs: 5000,
+      ...(explicit ? { chooseAxis: async axes => { assert.deepEqual(axes.map(value => value.code), [0, 1]); return 1; } } : {}) });
+    if (explicit) assert.equal((await operation).code, 1);
+    else await assert.rejects(operation, /Multiple relative axes/);
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('the installed dial CLI uses the motion reader and preserves the existing button map', async () => {
+  const f = await motionFixture();
+  const config = join(f.directory, 'peripheral.json'); const session = join(f.directory, 'session.json');
+  const desk = sessionProfile(f.directory);
+  await writeFile(session, JSON.stringify(desk), { mode: 0o600 });
+  const source = { interfaceNumber: 0, eventTypes: [0, 1], keyCodes: [30, 31], relativeAxes: [] };
+  const inputMap = assembleInstallationMap({ switches: [{ controlId: 'blue', source, type: 1, code: 30, evidencePath: '/tmp/synthetic' },
+    { controlId: 'yellow', source, type: 1, code: 31, evidencePath: '/tmp/synthetic' }], leds: [], confirmWiring: false });
+  await saveCommissionedProfile(config, null, { version: 2, origin: desk.origin, tokenFile: desk.tokenFile,
+    helperExecutable: '/release/native/peripheral/peripheral-host', bindingRevision: 1, jiggle: null, inputMap });
+  const output: string[] = [];
+  try {
+    await runCommissioningCli(['--dial', '--direction', 'counterclockwise', '--capture-seconds', '1', '--jiggle-travel', '4', '--jiggle-reversal', '2', '--config', config,
+      '--session-profile', session, '--runner', '/release/bin/show-tools-peripheral', '--bench-dir', f.directory], {
+      stagingRoot: f.directory, audioOff: async () => {}, service: { inspect: async () => ({ active: false }), stop: async () => {}, start: async () => {} },
+      io: { question: async () => '', write: text => output.push(text) } });
+    const saved = JSON.parse(await readFile(config, 'utf8'));
+    assert.deepEqual(saved.inputMap.switches, inputMap.switches); assert.equal(saved.inputMap.axis.code, 1);
+    assert.deepEqual(saved.jiggle, { minimumTravel: 4, minimumReversal: 2 }); assert.match(output.join(''), /4 nonzero samples, signed delta 0/);
+    const exact = await readFile(config);
+    for (const flags of [['--jiggle-travel', '4'], ['--jiggle-travel', '4', '--jiggle-reversal', '0'],
+      ['--jiggle-travel', '1', '--jiggle-reversal', '2'], ['--jiggle-travel', '32768', '--jiggle-reversal', '2'],
+      ['--disable-jiggle', '--jiggle-travel', '4', '--jiggle-reversal', '2']]) {
+      let inspected = false;
+      await assert.rejects(runCommissioningCli(['--dial', '--config', config, '--session-profile', session,
+        '--runner', '/release/bin/show-tools-peripheral', '--bench-dir', f.directory, ...flags], {
+        stagingRoot: f.directory, audioOff: async () => {},
+        service: { inspect: async () => { inspected = true; return { active: false }; }, stop: async () => {}, start: async () => {} },
+        io: { question: async () => '', write: () => {} } }), /jiggle/);
+      assert.equal(inspected, false); assert.deepEqual(await readFile(config), exact);
+    }
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('service status reports the normal unconfigured state without inventing a map', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-empty-status-')));
+  const config = join(directory, 'peripheral.json'); const output: string[] = [];
+  try {
+    await runCommissioningCli(['--status', '--config', config, '--runner', '/release/bin/show-tools-peripheral'], {
+      service: { inspect: async () => ({ active: true }), stop: async () => { throw Error('must not stop'); }, start: async () => { throw Error('must not start'); } },
+      io: { question: async () => { throw Error('must not ask'); }, write: value => output.push(value) } });
+    assert.match(output.join(''), /active\. No input map is saved/); assert.equal(await profileSnapshot(config), null);
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });

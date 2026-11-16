@@ -16,6 +16,7 @@ const SourceSchema = Schema.Struct({ type: Schema.Literal('source'), device: abs
   interfaceNumber: integer(0, 255), eventClock: Schema.Literal('CLOCK_MONOTONIC'), eventTypes: codes, keyCodes: codes, relativeAxes: codes });
 const KeySchema = Schema.Struct({ type: Schema.Literal('key'), device: absolute, code: integer(0, 65535), value: integer(0, 2) });
 const TagSchema = Schema.Struct({ type: Schema.String });
+const decodeReaderError = Schema.decodeUnknownSync(Schema.Struct({ type: Schema.Literal('error'), message: Schema.String }));
 const ReadySchema = Schema.Struct({ type: Schema.Literal('ready'), schemaVersion: Schema.Literal(2), trialId: Schema.String,
   controlId: control, nonce: Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/)) });
 const ArmedSchema = Schema.Struct({ ...ReadySchema.fields, type: Schema.Literal('armed') });
@@ -24,6 +25,20 @@ const TerminalSchema = Schema.Struct({ type: Schema.Literal('terminal'), schemaV
   controlId: control, complete: Schema.Boolean, inputsClosed: Schema.Boolean, requiresSuccessfulExit: Schema.Literal(true),
   error: Schema.NullOr(Schema.String), keySignatures: Schema.Array(Schema.Struct({ device: absolute, code: integer(0, 65535),
     presses: integer(0, 32768), releases: integer(0, 32768), repeats: integer(0, 32768) })) });
+const direction = Schema.Literals(['clockwise', 'counterclockwise']);
+const MotionPhaseSchema = Schema.Struct({ type: Schema.Literals(['ready', 'armed']), schemaVersion: Schema.Literal(1), trialId: Schema.String,
+  controlId: Schema.Literal('knob'), operatorDirection: direction, nonce: Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/)) });
+const MotionSchema = Schema.Struct({ type: Schema.Literal('motion'), device: absolute, eventType: Schema.Literal(2),
+  code: integer(0, 65535), value: integer(-2147483648, 2147483647) });
+const ObservedAxisSchema = Schema.Struct({ device: absolute, interfaceNumber: integer(0, 255), eventType: Schema.Literal(2),
+  code: integer(0, 65535), samples: integer(1, 32768), delta: integer(-Number.MAX_SAFE_INTEGER, Number.MAX_SAFE_INTEGER),
+  positiveCounts: integer(0, Number.MAX_SAFE_INTEGER), negativeCounts: integer(0, Number.MAX_SAFE_INTEGER) });
+const MotionTerminalSchema = Schema.Struct({ type: Schema.Literal('terminal'), schemaVersion: Schema.Literal(1), trialId: Schema.String,
+  controlId: Schema.Literal('knob'), operatorDirection: direction, complete: Schema.Boolean, inputsClosed: Schema.Boolean,
+  requiresSuccessfulExit: Schema.Literal(true), error: Schema.NullOr(Schema.String), observedAxes: Schema.Array(ObservedAxisSchema).check(Schema.isMaxLength(16)) });
+const decodeMotionPhase = Schema.decodeUnknownSync(MotionPhaseSchema);
+const decodeMotion = Schema.decodeUnknownSync(MotionSchema);
+const decodeMotionTerminal = Schema.decodeUnknownSync(MotionTerminalSchema);
 const decodeSource = Schema.decodeUnknownSync(SourceSchema);
 const decodeKey = Schema.decodeUnknownSync(KeySchema);
 const decodeTag = Schema.decodeUnknownSync(TagSchema);
@@ -33,6 +48,10 @@ export type PhysicalControlId = typeof control.Type;
 export type ObservedSource = Omit<typeof SourceSchema.Type, 'type' | 'device' | 'canonical' | 'eventClock'>;
 export interface CapturedSwitch { readonly controlId: PhysicalControlId; readonly source: ObservedSource; readonly type: 1; readonly code: number; readonly evidencePath: string }
 export interface CapturedAxis { readonly source: ObservedSource; readonly type: 2; readonly code: number; readonly evidencePath: string }
+export type MotionDirection = typeof direction.Type;
+export const decodeMotionDirection = Schema.decodeUnknownSync(direction);
+export type ObservedMotionAxis = typeof ObservedAxisSchema.Type & { readonly source: ObservedSource };
+export interface CapturedMotionAxis extends CapturedAxis { readonly observations: readonly ObservedMotionAxis[]; readonly direction: MotionDirection }
 export interface LedAssignment { readonly controlId: PhysicalControlId; readonly sdkChannel: number }
 export type PeripheralBaseProfile = Omit<PeripheralBridgeConfig, 'inputMap'>;
 export interface CommissioningService { inspect(): Promise<{ readonly active: boolean }>; stop(): Promise<void>; start(): Promise<void> }
@@ -52,7 +71,7 @@ async function configurationDirectory(path: string) {
 async function withCommissioningLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
   await configurationDirectory(path);
   const name = path + '.commissioning.lock';
-  let lock;
+  let lock: Awaited<ReturnType<typeof open>>;
   try { lock = await open(name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); }
   catch (error) {
     if (error instanceof Error && 'code' in error && error.code === 'EEXIST')
@@ -81,7 +100,15 @@ async function privateBytes(path: string, maximum: number, live = false) {
   try {
     const before = await file.stat(); owner(before);
     if (before.size > maximum) throw new Error('Commissioning evidence exceeds its size limit.');
-    const bytes = await file.readFile();
+    const buffer = Buffer.alloc(maximum + 1);
+    let length = 0;
+    for (;;) {
+      const read = await file.read(buffer, length, buffer.length - length, null);
+      length += read.bytesRead;
+      if (length > maximum) throw new Error('Commissioning evidence exceeds its size limit.');
+      if (!read.bytesRead) break;
+    }
+    const bytes = buffer.subarray(0, length);
     const after = await file.stat();
     if (bytes.length > maximum || before.ino !== after.ino || (!live && (before.size !== after.size || before.mtimeMs !== after.mtimeMs)))
       throw new Error('Commissioning file changed while being read.');
@@ -108,6 +135,12 @@ function threePairs(values: readonly unknown[]) {
   return !held && presses === 3 && releases === 3;
 }
 
+function sourceSignature(source: ObservedSource) { return JSON.stringify([source.interfaceNumber, source.eventTypes, source.keyCodes, source.relativeAxes]); }
+function requireUniqueSelector(sources: readonly ObservedSource[], selected: ObservedSource) {
+  if (sources.filter(source => sourceSignature(source) === sourceSignature(selected)).length !== 1)
+    throw new Error('The observed interface and capabilities do not select one input source. Correct the board interface configuration before saving its map.');
+}
+
 export function switchFromEvidence({ values, controlId, trialId, evidencePath, exitCode }: {
   values: readonly unknown[]; controlId: PhysicalControlId; trialId: string; evidencePath: string; exitCode: number | null;
 }): CapturedSwitch {
@@ -123,6 +156,7 @@ export function switchFromEvidence({ values, controlId, trialId, evidencePath, e
   const matching = sources.filter(source => source.device === signature.device);
   if (matching.length !== 1) throw new Error('Captured switch has no unique observed source capabilities.');
   const source = matching[0];
+  requireUniqueSelector(sources, source);
   if (!source.eventTypes.includes(1) || !source.keyCodes.includes(signature.code)) throw new Error('Captured key is absent from its source capabilities.');
   return { controlId, source: { interfaceNumber: source.interfaceNumber, eventTypes: source.eventTypes, keyCodes: source.keyCodes,
     relativeAxes: source.relativeAxes }, type: 1, code: signature.code, evidencePath };
@@ -133,8 +167,8 @@ export function assembleInstallationMap({ switches, leds, axis, confirmWiring }:
 }): PeripheralInputMap {
   const sources: Array<{ kind: 'linux'; id: string } & ObservedSource> = [];
   const identify = (source: ObservedSource) => {
-    const key = JSON.stringify([source.interfaceNumber, source.eventTypes, source.keyCodes, source.relativeAxes]);
-    const index = sources.findIndex(value => JSON.stringify([value.interfaceNumber, value.eventTypes, value.keyCodes, value.relativeAxes]) === key);
+    const key = sourceSignature(source);
+    const index = sources.findIndex(value => sourceSignature(value) === key);
     if (index >= 0) return sources[index].id;
     const id = `source-${sources.length + 1}`;
     sources.push({ kind: 'linux', id, ...source });
@@ -154,7 +188,7 @@ async function runMarker({ publisherPath, directory, operation, trialId, nonce, 
   const child = spawn(python, ['-I', '-B', publisherPath, '--directory', directory, '--op', operation, '--trial', trialId, '--nonce', nonce],
     { stdio: ['ignore', 'pipe', 'pipe'], signal: AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(5000)]) });
   let diagnostics = '';
-  child.stderr.on('data', chunk => { diagnostics += chunk.toString(); if (diagnostics.length > 8192) child.kill('SIGTERM'); });
+  child.stderr.on('data', chunk => { diagnostics = (diagnostics + chunk.toString()).slice(0, 8192); if (diagnostics.length === 8192) child.kill('SIGTERM'); });
   child.stdout.resume();
   await new Promise<void>((resolve, reject) => {
     child.once('error', reject);
@@ -162,18 +196,20 @@ async function runMarker({ publisherPath, directory, operation, trialId, nonce, 
   });
 }
 
-export async function captureSwitch({ controlId, observerPath, publisherPath, stagingRoot, onArmed, signal,
-  python = '/usr/bin/python3', timeoutMs = 160000 }: {
-  controlId: PhysicalControlId; observerPath: string; publisherPath: string; stagingRoot: string;
-  onArmed(control: PhysicalControlId): void; signal?: AbortSignal; python?: string; timeoutMs?: number;
-}): Promise<CapturedSwitch> {
-  const trialId = `setup-${controlId}-${randomUUID()}`;
+interface ForegroundTrialOptions {
+  readerPath: string; publisherPath: string; stagingRoot: string; trialPrefix: string; readerArgs: readonly string[];
+  onArmed(): void; phase(value: unknown, type: 'ready' | 'armed'): { readonly trialId: string; readonly nonce: string };
+  stopWhen?: (values: readonly unknown[]) => boolean; signal?: AbortSignal; python?: string; timeoutMs?: number;
+}
+async function foregroundTrial({ readerPath, publisherPath, stagingRoot, trialPrefix, readerArgs, onArmed, phase, stopWhen, signal,
+  python = '/usr/bin/python3', timeoutMs = 160000 }: ForegroundTrialOptions) {
+  const trialId = `${trialPrefix}-${randomUUID()}`;
   const directory = join(stagingRoot, trialId);
   await mkdir(directory, { mode: 0o700 });
   const evidencePath = join(directory, 'trial.ndjson');
   const abort = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(timeoutMs)]);
   abort.throwIfAborted();
-  const child = spawn(python, ['-I', '-B', observerPath, '--directory', directory, '--trial', trialId, '--control-id', controlId],
+  const child = spawn(python, ['-I', '-B', readerPath, '--directory', directory, '--trial', trialId, ...readerArgs],
     { stdio: ['ignore', 'pipe', 'pipe'] });
   let ended = false, armed = false, stopped = false, readyNonce: string | undefined, terminal: unknown;
   let diagnostics = '';
@@ -183,7 +219,7 @@ export async function captureSwitch({ controlId, observerPath, publisherPath, st
   });
   const stop = () => { child.kill('SIGTERM'); };
   abort.addEventListener('abort', stop, { once: true });
-  child.stderr.on('data', chunk => { diagnostics += chunk.toString(); if (diagnostics.length > 16384) child.kill('SIGTERM'); });
+  child.stderr.on('data', chunk => { diagnostics = (diagnostics + chunk.toString()).slice(0, 16384); if (diagnostics.length === 16384) child.kill('SIGTERM'); });
   try {
     const output = (async () => {
       for await (const line of boundedLines(child.stdout, 8192)) {
@@ -191,24 +227,25 @@ export async function captureSwitch({ controlId, observerPath, publisherPath, st
         const tag = decodeTag(value).type;
         if (tag === 'ready') {
           if (readyNonce) throw new Error('Duplicate capture readiness.');
-          const ready = decodeReady(value);
-          if (ready.trialId !== trialId || ready.controlId !== controlId) throw new Error('Reader readiness does not match this trial.');
+          const ready = phase(value, 'ready');
+          if (ready.trialId !== trialId) throw new Error('Reader readiness does not match this trial.');
           readyNonce = ready.nonce;
           await runMarker({ publisherPath, directory, operation: 'arm', trialId, nonce: readyNonce, python, signal: abort });
         } else if (tag === 'armed') {
-          const ready = decodeArmed(value);
-          if (armed || ready.trialId !== trialId || ready.controlId !== controlId || ready.nonce !== readyNonce) throw new Error('Reader ARM acknowledgement differs.');
-          armed = true; onArmed(controlId);
+          const ready = phase(value, 'armed');
+          if (armed || ready.trialId !== trialId || ready.nonce !== readyNonce) throw new Error('Reader ARM acknowledgement differs.');
+          armed = true; onArmed();
         } else if (tag === 'terminal') terminal = value;
+        else if (tag === 'error') throw new Error(`Reader failed: ${decodeReaderError(value).message}`);
         else throw new Error(`Unexpected reader record: ${tag}.`);
       }
     })();
     const monitor = (async () => {
       while (!ended) {
         abort.throwIfAborted();
-        if (armed && !stopped && readyNonce) {
+        if (armed && !stopped && readyNonce && stopWhen) {
           const evidence = await privateBytes(evidencePath, 524288, true);
-          if (threePairs(records(evidence, false))) {
+          if (stopWhen(records(evidence, false))) {
             await runMarker({ publisherPath, directory, operation: 'stop', trialId, nonce: readyNonce, python, signal: abort });
             stopped = true;
           }
@@ -220,10 +257,7 @@ export async function captureSwitch({ controlId, observerPath, publisherPath, st
     abort.throwIfAborted();
     if (!terminal) throw new Error(`Reader ended without a terminal record. ${diagnostics.slice(0, 1000)}`);
     const values = records(await privateBytes(evidencePath, 524288), true);
-    const captured = switchFromEvidence({ values, controlId, trialId, evidencePath, exitCode: code });
-    const durable = values.findLast(value => decodeTag(value).type === 'terminal');
-    if (JSON.stringify(decodeTerminal(terminal)) !== JSON.stringify(decodeTerminal(durable))) throw new Error('Public and durable trial outcomes differ.');
-    return captured;
+    return { values, terminal, exitCode: code, trialId, evidencePath };
   } finally {
     abort.removeEventListener('abort', stop);
     if (!ended) {
@@ -234,6 +268,84 @@ export async function captureSwitch({ controlId, observerPath, publisherPath, st
   }
 }
 
+
+export async function captureSwitch({ controlId, observerPath, publisherPath, stagingRoot, onArmed, signal,
+  python = '/usr/bin/python3', timeoutMs = 160000 }: {
+  controlId: PhysicalControlId; observerPath: string; publisherPath: string; stagingRoot: string;
+  onArmed(control: PhysicalControlId): void; signal?: AbortSignal; python?: string; timeoutMs?: number;
+}): Promise<CapturedSwitch> {
+  const result = await foregroundTrial({ readerPath: observerPath, publisherPath, stagingRoot, trialPrefix: `setup-${controlId}`,
+    readerArgs: ['--control-id', controlId], onArmed: () => onArmed(controlId), stopWhen: threePairs, signal, python, timeoutMs,
+    phase: (value, type) => {
+      const ready = type === 'ready' ? decodeReady(value) : decodeArmed(value);
+      if (ready.controlId !== controlId) throw new Error('Reader identity differs from the named switch.');
+      return ready;
+    } });
+  const captured = switchFromEvidence({ ...result, controlId });
+  const durable = result.values.findLast(value => decodeTag(value).type === 'terminal');
+  if (JSON.stringify(decodeTerminal(result.terminal)) !== JSON.stringify(decodeTerminal(durable))) throw new Error('Public and durable trial outcomes differ.');
+  return captured;
+}
+
+export function motionFromEvidence({ values, direction, trialId, exitCode }: {
+  values: readonly unknown[]; direction: MotionDirection; trialId: string; exitCode: number | null;
+}): readonly ObservedMotionAxis[] {
+  const sources = values.filter(value => decodeTag(value).type === 'source').map(value => decodeSource(value));
+  const terminals = values.filter(value => decodeTag(value).type === 'terminal').map(value => decodeMotionTerminal(value));
+  if (terminals.length !== 1) throw new Error('Need exactly one durable motion terminal record.');
+  const terminal = terminals[0];
+  if (exitCode !== 0 || terminal.trialId !== trialId || terminal.operatorDirection !== direction || !terminal.complete || !terminal.inputsClosed || terminal.error !== null)
+    throw new Error(`Dial capture did not complete: ${terminal.error ?? 'closed inputs and successful exit are unconfirmed'}. Leave all switches released and run dial capture again.`);
+  if (!terminal.observedAxes.length) throw new Error('No nonzero relative motion was observed. Turn the dial during the armed capture.');
+  const events = values.filter(value => decodeTag(value).type === 'motion').map(value => decodeMotion(value)).filter(value => value.value !== 0);
+  const signatures = new Set(events.map(value => JSON.stringify([value.device, value.code])));
+  if (signatures.size !== terminal.observedAxes.length) throw new Error('Observed motion signatures differ from the terminal report.');
+  const seen = new Set<string>();
+  return terminal.observedAxes.map(axis => {
+    const signature = JSON.stringify([axis.device, axis.code]);
+    if (seen.has(signature)) throw new Error('Duplicate observed motion axis.');
+    seen.add(signature);
+    const matching = sources.filter(source => source.device === axis.device);
+    if (matching.length !== 1) throw new Error('Motion axis has no unique observed source capabilities.');
+    const source = matching[0];
+    requireUniqueSelector(sources, source);
+    if (source.interfaceNumber !== axis.interfaceNumber || !source.eventTypes.includes(2) || !source.relativeAxes.includes(axis.code))
+      throw new Error('Motion axis is absent from its declared interface capabilities.');
+    const samples = events.filter(value => value.device === axis.device && value.code === axis.code);
+    const positive = samples.reduce((sum, sample) => sum + Math.max(0, sample.value), 0);
+    const negative = samples.reduce((sum, sample) => sum + Math.max(0, -sample.value), 0);
+    if (samples.length !== axis.samples || positive !== axis.positiveCounts || negative !== axis.negativeCounts || positive - negative !== axis.delta)
+      throw new Error('Motion sample counts differ from the durable observations.');
+    return { ...axis, source: { interfaceNumber: source.interfaceNumber, eventTypes: source.eventTypes,
+      keyCodes: source.keyCodes, relativeAxes: source.relativeAxes } };
+  });
+}
+
+export async function captureAxis({ readerPath, publisherPath, stagingRoot, direction, captureSeconds, onArmed, chooseAxis,
+  signal, python = '/usr/bin/python3', timeoutMs = 160000 }: {
+  readerPath: string; publisherPath: string; stagingRoot: string; direction: MotionDirection; captureSeconds: number;
+  onArmed(direction: MotionDirection, seconds: number): void;
+  chooseAxis?: (axes: readonly ObservedMotionAxis[]) => Promise<number>;
+  signal?: AbortSignal; python?: string; timeoutMs?: number;
+}): Promise<CapturedMotionAxis> {
+  Schema.decodeUnknownSync(integer(1, 30))(captureSeconds);
+  const result = await foregroundTrial({ readerPath, publisherPath, stagingRoot, trialPrefix: 'setup-knob',
+    readerArgs: ['--direction', direction, '--capture-seconds', String(captureSeconds)], signal, python, timeoutMs,
+    onArmed: () => onArmed(direction, captureSeconds), phase: (value, type) => {
+      const phase = decodeMotionPhase(value);
+      if (phase.type !== type || phase.operatorDirection !== direction) throw new Error('Motion capture direction or phase differs.');
+      return phase;
+    } });
+  const axes = motionFromEvidence({ ...result, direction });
+  const durable = result.values.findLast(value => decodeTag(value).type === 'terminal');
+  if (JSON.stringify(decodeMotionTerminal(result.terminal)) !== JSON.stringify(decodeMotionTerminal(durable))) throw new Error('Public and durable motion outcomes differ.');
+  const selected = axes.length === 1 ? 0 : chooseAxis ? await chooseAxis(axes) : -1;
+  if (!Number.isInteger(selected) || selected < 0 || selected >= axes.length)
+    throw new Error('Multiple relative axes were observed. Select an explicitly listed axis; no dominant axis or polarity is inferred.');
+  const axis = axes[selected];
+  return { source: axis.source, type: 2, code: axis.code, evidencePath: result.evidencePath, observations: axes, direction };
+}
+
 export async function profileSnapshot(path: string): Promise<Buffer | null> {
   try { return await privateBytes(path, 16384); }
   catch (error) { if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return null; throw error; }
@@ -241,6 +353,8 @@ export async function profileSnapshot(path: string): Promise<Buffer | null> {
 
 export async function saveCommissionedProfile(path: string, expected: Buffer | null, profile: PeripheralBridgeConfig) {
   const valid = decodePeripheralBridgeConfig(profile);
+  const encoded = Buffer.from(JSON.stringify(valid, null, 2) + '\n');
+  if (encoded.length > 16384) throw new Error('The installation profile exceeds the runtime 16 KiB limit. Reduce the configured source set before saving.');
   const parent = await configurationDirectory(path);
   const current = await profileSnapshot(path);
   if ((expected === null) !== (current === null) || (expected && current && hash(expected) !== hash(current)))
@@ -249,7 +363,7 @@ export async function saveCommissionedProfile(path: string, expected: Buffer | n
   const file = await open(temporary, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
   let published = false, temporaryPresent = true;
   try {
-    await file.writeFile(JSON.stringify(valid, null, 2) + '\n');
+    await file.writeFile(encoded);
     await file.sync();
     await file.close();
     const latest = await profileSnapshot(path);
@@ -330,11 +444,12 @@ async function commissionHardwareUnderLock({ profilePath, baseProfile, service, 
 
 export interface DialCommissioningOptions {
   profilePath: string; service: CommissioningService; audioOff(): Promise<void>; io: CommissioningIo; captureAxis(): Promise<CapturedAxis>;
+  jiggle?: PeripheralBridgeConfig['jiggle'];
 }
 export async function commissionDial(options: DialCommissioningOptions) {
   return withCommissioningLock(options.profilePath, () => commissionDialUnderLock(options));
 }
-async function commissionDialUnderLock({ profilePath, service, audioOff, io, captureAxis }: DialCommissioningOptions) {
+async function commissionDialUnderLock({ profilePath, service, audioOff, io, captureAxis, jiggle }: DialCommissioningOptions) {
   const expected = await profileSnapshot(profilePath);
   if (!expected) throw new Error('Capture and save the button map before adding the dial.');
   const original = decodePeripheralBridgeConfig(JSON.parse(expected.toString('utf8')));
@@ -353,7 +468,8 @@ async function commissionDialUnderLock({ profilePath, service, audioOff, io, cap
     await audioOff();
     const axis = await captureAxis();
     const inputMap = assembleInstallationMap({ switches, leds: original.inputMap.leds, axis, confirmWiring: original.inputMap.confirmWiring });
-    const profile = decodePeripheralBridgeConfig({ ...original, inputMap, bindingRevision: original.bindingRevision + 1 });
+    const profile = decodePeripheralBridgeConfig({ ...original, inputMap, bindingRevision: original.bindingRevision + 1,
+      ...(jiggle !== undefined ? { jiggle } : {}) });
     await audioOff();
     await saveCommissionedProfile(profilePath, expected, profile);
     saved = true;

@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs, promisify } from 'node:util';
 import { decodePeripheralBridgeConfig } from './bridge.js';
-import { captureSwitch, commissionDial, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo,
+import { captureAxis, captureSwitch, commissionDial, decodeMotionDirection, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo,
   type CommissioningService, type PeripheralBaseProfile } from './commissioning.js';
 import { renderPeripheralUnit } from './service-unit.js';
 import { decodeSessionProfile } from '../remote-performance/session-profile.js';
@@ -14,14 +14,17 @@ import { createSessionClient } from '../remote-performance/session-client.js';
 const UNIT = 'show-tools-peripheral.service';
 const exec = promisify(execFile);
 export const COMMISSIONING_HELP = `Usage: show-tools peripheral setup --config FILE --session-profile FILE --helper FILE --bench-dir DIRECTORY --runner FILE
-       show-tools peripheral setup --dial --config FILE --session-profile FILE --helper FILE --bench-dir DIRECTORY --runner FILE
+       show-tools peripheral setup --dial --direction clockwise --capture-seconds 5 --config FILE --session-profile FILE --helper FILE --bench-dir DIRECTORY --runner FILE
        show-tools peripheral setup --test --config FILE --runner FILE
        show-tools peripheral setup --status --config FILE --runner FILE
 
 Run setup in a foreground terminal on the EliteDesk. Audio must be off.
 Setup captures two to six named buttons and asks for each LED output explicitly.
 Only the verified show-tools-peripheral.service is stopped and restored.
+Add --start to button setup to start a previously inactive service after saving.
 --dial adds the observed relative-Y source without recapturing the button map.
+Add --jiggle-travel N --jiggle-reversal N to save explicit motion thresholds,
+or --disable-jiggle. Existing thresholds are retained when neither is supplied.
 --test asks you to confirm held and released LED feedback while the service runs.
 No song cue assignments, audio activation or root policy changes are inferred.
 `;
@@ -86,8 +89,12 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
   if (args.includes('--help') || args.includes('-h')) { (options.io?.write ?? (message => process.stdout.write(message)))(COMMISSIONING_HELP); return; }
   const { values } = parseArgs({ args: [...args], options: { config: { type: 'string' }, 'session-profile': { type: 'string' },
     helper: { type: 'string' }, 'bench-dir': { type: 'string' }, runner: { type: 'string' }, 'staging-root': { type: 'string' },
-    dial: { type: 'boolean' }, test: { type: 'boolean' }, status: { type: 'boolean' }, start: { type: 'boolean' } } });
+    'jiggle-travel': { type: 'string' }, 'jiggle-reversal': { type: 'string' }, 'disable-jiggle': { type: 'boolean' },
+    direction: { type: 'string' }, 'capture-seconds': { type: 'string' }, dial: { type: 'boolean' }, test: { type: 'boolean' }, status: { type: 'boolean' }, start: { type: 'boolean' } } });
   if (Number(Boolean(values.dial)) + Number(Boolean(values.test)) + Number(Boolean(values.status)) > 1) throw new Error('Choose setup, --dial, --test or --status.');
+  if (!values.dial && (values.direction || values['capture-seconds'] || values['jiggle-travel'] || values['jiggle-reversal'] || values['disable-jiggle']))
+    throw new Error('Use direction, capture duration and jiggle settings with --dial.');
+  if (values.start && (values.dial || values.test || values.status)) throw new Error('--start applies to button setup. Start the named peripheral service separately after other commands.');
   const profilePath = resolve(values.config ?? options.configPath ?? join(homedir(), '.config/show-tools/peripheral.json'));
   const existing = await profileSnapshot(profilePath);
   const previous = existing ? decodePeripheralBridgeConfig(JSON.parse(existing.toString('utf8'))) : undefined;
@@ -106,8 +113,9 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
   }, write: (message: string) => { process.stdout.write(message); } };
   try {
     if (values.status || values.test) {
-      if (!previous) throw new Error('No commissioned peripheral configuration exists. Run setup first.');
+      if (!previous && values.test) throw new Error('No commissioned peripheral configuration exists. Run setup first.');
       const state = await service.inspect();
+      if (!previous) { io.write(`${UNIT}: ${state.active ? 'active' : 'inactive'}. No input map is saved. Run setup to capture the connected controls.\n`); return; }
       io.write(`${UNIT}: ${state.active ? 'active' : 'inactive'}. Configured switches: ${previous.inputMap.switches.map(value => value.controlId).join(', ')}. Dial: ${previous.inputMap.axis ? 'configured' : 'not configured'}.\n`);
       if (values.test) {
         if (!state.active) throw new Error(`Start ${UNIT} before checking its LED feedback.`);
@@ -134,11 +142,36 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
     });
     const stagingRoot = values['staging-root'] ?? options.stagingRoot ?? '/home/anulman/.local/share/show-tools/staging';
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
-    const captureAxis = options.captureAxis;
-    const axisCapture = captureAxis ? () => captureAxis({ benchDirectory, stagingRoot, io }) : undefined;
+    const capture = options.captureAxis;
     if (values.dial) {
-      if (!axisCapture) throw new Error('The reviewed dial reader is not installed. Install the motion commissioning component before --dial.');
-      return await commissionDial({ profilePath, service, audioOff, io, captureAxis: axisCapture });
+      const direction = decodeMotionDirection(values.direction ?? 'clockwise');
+      const seconds = values['capture-seconds'] ?? '5';
+      if (!/^(?:[1-9]|[12][0-9]|30)$/.test(seconds)) throw new Error('Dial capture seconds must be an integer from 1 through 30.');
+      const captureSeconds = Number(seconds);
+      const hasThresholds = values['jiggle-travel'] !== undefined || values['jiggle-reversal'] !== undefined;
+      if (hasThresholds && values['disable-jiggle']) throw new Error('Choose explicit jiggle thresholds or --disable-jiggle.');
+      let jiggle: PeripheralBaseProfile['jiggle'] | undefined;
+      if (values['disable-jiggle']) jiggle = null;
+      else if (hasThresholds) {
+        const travel = values['jiggle-travel'], reversal = values['jiggle-reversal'];
+        if (!travel || !reversal || !/^[1-9][0-9]{0,4}$/.test(travel) || !/^[1-9][0-9]{0,4}$/.test(reversal)
+          || Number(travel) > 32767 || Number(reversal) > Number(travel))
+          throw new Error('Supply both jiggle thresholds as integer counts, 1 <= reversal <= travel <= 32767.');
+        jiggle = { minimumTravel: Number(travel), minimumReversal: Number(reversal) };
+      }
+      const axisCapture = capture ? () => capture({ benchDirectory, stagingRoot, io }) : async () => {
+        const captured = await captureAxis({ readerPath: join(benchDirectory, 'raw_motion.py'), publisherPath: join(benchDirectory, 'publish_marker.py'),
+          stagingRoot, direction, captureSeconds, signal,
+          onArmed: (direction, seconds) => io.write(`ARMED: turn only the dial ${direction} for ${seconds} seconds.\n`),
+          chooseAxis: async axes => {
+            for (const [index, axis] of axes.entries()) io.write(`${index + 1}. Interface ${axis.interfaceNumber}, relative axis ${axis.code}, ${axis.samples} samples, signed delta ${axis.delta}.\n`);
+            const answer = (await io.question('Choose the dial axis by its listed number: ')).trim();
+            return /^[1-9][0-9]*$/.test(answer) ? Number(answer) - 1 : -1;
+          } });
+        for (const axis of captured.observations) io.write(`Observed relative axis ${axis.code} on interface ${axis.interfaceNumber}: ${axis.samples} nonzero samples, signed delta ${axis.delta}, positive counts ${axis.positiveCounts}, negative counts ${axis.negativeCounts}.\n`);
+        return captured;
+      };
+      return await commissionDial({ profilePath, service, audioOff, io, captureAxis: axisCapture, ...(jiggle !== undefined ? { jiggle } : {}) });
     }
     const baseProfile: PeripheralBaseProfile = { version: 2, origin: session.origin, tokenFile: session.tokenFile,
       ...(session.connectAddress ? { connectAddress: session.connectAddress } : {}), ...(session.caFile ? { caFile: session.caFile } : {}),
