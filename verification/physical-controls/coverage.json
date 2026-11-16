@@ -1,5 +1,5 @@
 {
-  "syncCommit": "5edc12a4d6a23f1b19f9e1fcb5265da8fe66d74d",
+  "syncCommit": "eb994928dab680d594860152b65b677dc47d71d0",
   "domain": {
     "physicalControls": 6,
     "physicalProducers": 2,
@@ -25,8 +25,13 @@
       0.7,
       1
     ],
-    "deliveryCases": 12288,
-    "baselineWitnesses": 1
+    "deliveryCases": 24576,
+    "baselineWitnesses": 1,
+    "baselineHeldPairs": 4096,
+    "lightIdentityBases": [
+      257,
+      513
+    ]
   },
   "files": {
     "lib/beat-tracker/include/beat_tracker.h": "a4087a8506e423ae511b0f544caf2b599d9fac4c8670f3b3012184c4e8cd7378",
@@ -51,15 +56,15 @@
     "lib/patches/src/tribulations_string.cpp": "799e0355ccd6e78ce1a37d959919477bf66d1db492b5b52f4758e9a966b64baa",
     "lib/performance/CMakeLists.txt": "69ef7918fe679f6da3f0e72c29721fe21820da53703b32e380112d366ee52470",
     "lib/performance/include/performance_engine.h": "bc2ab8b668359100f70e7df6027914c5caaab5ef1388e50a6108def157f949c9",
-    "lib/performance/include/performance_light_output.h": "5ca26325f4fcfa44de4e2bc3898a147e488e078b3340829c8ada40699b464265",
+    "lib/performance/include/performance_light_output.h": "a20d9ce3f3f6d5dc573765551793160628b6f8767a54ede7b478e38e63619d09",
     "lib/performance/src/compiled_program.cpp": "6a07b7613e59db67de4ef702e184c72dcf54d631a7d511edee7b29afd16a50cc",
     "lib/performance/src/compiled_program.h": "998997281c5701ac214cc246f90f0be01ab162f0a43c47c8dee0b477a8f49b17",
     "lib/performance/src/input_router.h": "7357d56f107d386ea137d8f7d0ccd3d382b061a054d33c159e75109c11b12b80",
-    "lib/performance/src/performance_engine.cpp": "ff6dd0611a846a0bdfaee502b02b1134f14b8f2d6cedef75e61b9c992eb95357",
+    "lib/performance/src/performance_engine.cpp": "6668b39e8268da93a2128c0e44565c23180b261fcf9f396416d30c98662dd502",
     "lib/performance/src/performance_lights.cpp": "99567a6669033d8cf9d659cb543371604428b7c9ca7fd32757530719cc478012",
     "lib/performance/src/performance_lights.h": "a1dce69693e42d57a86971bac54964c2db38b2a2fe23ae522afdae0cb6f5fc85",
     "lib/performance/tests/cue_light_tests.cpp": "b49d201839e47f3b40b7716661a2163d38926a9702457ceff4becf1736341c09",
-    "lib/performance/tests/physical_input_tests.cpp": "82674394ed2a78aaed60918fe9d006ab585acbec0227677fb013b8078e9449e0",
+    "lib/performance/tests/physical_input_tests.cpp": "5a3d18e2419c8aaf795ccdd6e9cdfee4a86619f0ebbb14070ad398f09a154ab9",
     "lib/peripherals/include/peripheral_controls.h": "96659635a0cc1ff63c178d1c47935c3f23ad3cc54f408098808df2abd03b4c8f",
     "lib/peripherals/include/peripheral_light_delivery.h": "b757bc4577013b2aa82e24861861f043161473c26d05b11604490c71dcff90f0",
     "lib/peripherals/include/peripheral_lights.h": "12fbde88ee59f991bdc59e7f1be862646864a25a850376d9a5cdeb0c31c94954",

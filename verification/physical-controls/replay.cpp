@@ -24,10 +24,10 @@ std::array<double, PF_LIGHT_FIELDS> image(pf_engine* engine) {
   pf_light_output(engine, result.data());
   return result;
 }
-double level(const std::array<double, PF_LIGHT_FIELDS>& data, unsigned input) {
+double level(const std::array<double, PF_LIGHT_FIELDS>& data, unsigned input, unsigned base = PF_INPUT_LIGHT_BASE) {
   for (unsigned row = 0; row < unsigned(data[PF_LIGHT_COUNT]); ++row) {
     const auto offset = PF_LIGHT_SAMPLES + row * PF_LIGHT_SAMPLE_FIELDS;
-    if (data[offset + PF_LIGHT_SAMPLE_ID] == PF_INPUT_LIGHT_BASE + input)
+    if (data[offset + PF_LIGHT_SAMPLE_ID] == base + input)
       return data[offset + PF_LIGHT_SAMPLE_LEVEL];
   }
   return -1;
@@ -57,17 +57,23 @@ void held_domain() {
     attach(engine, 0, first_session, first);
     attach(engine, 1, second_session, second);
     const auto together = image(engine);
-    require(together[PF_LIGHT_COUNT] == 7, "HELD_IMAGE_COMPLETE");
-    for (unsigned input = 0; input < 6; ++input)
+    require(together[PF_LIGHT_COUNT] == 13, "HELD_IMAGE_COMPLETE");
+    for (unsigned input = 0; input < 6; ++input) {
       require(level(together, input) == double(((first | second) >> input) & 1), "HELD_IMAGE_OR");
+      require(level(together, input, PF_LIGHT_PHYSICAL_BASELINE_BASE) == 0, "BASELINE_INDEPENDENT_OF_HELD");
+    }
     ok(pf_input_revoke(engine, 0, first_session));
     const auto remaining = image(engine);
-    for (unsigned input = 0; input < 6; ++input)
+    for (unsigned input = 0; input < 6; ++input) {
       require(level(remaining, input) == double((second >> input) & 1), "HELD_REVOKE_ISOLATION");
+      require(level(remaining, input, PF_LIGHT_PHYSICAL_BASELINE_BASE) == 0, "BASELINE_REVOKE_INDEPENDENT");
+    }
     ok(pf_input_revoke(engine, 1, second_session));
     const auto cleared = image(engine);
-    for (unsigned input = 0; input < 6; ++input)
+    for (unsigned input = 0; input < 6; ++input) {
       require(level(cleared, input) == 0, "HELD_ALL_REVOKED_OFF");
+      require(level(cleared, input, PF_LIGHT_PHYSICAL_BASELINE_BASE) == 0, "BASELINE_ALL_REVOKED_OFF");
+    }
   }
 }
 void render(pf_engine* engine, unsigned frames = 1) {
@@ -119,15 +125,27 @@ void baseline_witness() {
   render(engine, 1000);
   const double pulse = level(image(engine), 0);
   require(pulse > .3 && pulse < .4, "BASELINE_RECORDING_PULSE");
+  require(level(image(engine), 0, PF_LIGHT_PHYSICAL_BASELINE_BASE) == pulse, "BASELINE_RECORDING_IMAGE");
   edge(0, 1);
   require(level(image(engine), 0) == 1, "BASELINE_HELD_FULL");
+  require(level(image(engine), 0, PF_LIGHT_PHYSICAL_BASELINE_BASE) == pulse, "BASELINE_HELD_CURRENT_PULSE");
   edge(0, 0);
   require(level(image(engine), 0) == pulse, "BASELINE_RELEASE_PULSE");
+  attach(engine, 1, 2, 1);
+  render(engine, 500);
+  const double advanced = level(image(engine), 0, PF_LIGHT_PHYSICAL_BASELINE_BASE);
+  require(advanced >= 0 && advanced <= .7 && std::abs(advanced - pulse) > .1,
+    "BASELINE_PULSE_ADVANCES_WHILE_HELD");
+  require(level(image(engine), 0) == 1, "BASELINE_ADVANCING_HELD_FULL");
+  ok(pf_input_revoke(engine, 1, 2));
+  require(level(image(engine), 0) == advanced, "BASELINE_RELEASE_ADVANCED_PULSE");
   until(engine, 3);
   require(level(image(engine), 0) == .7, "BASELINE_PLAYING_LEVEL");
+  require(level(image(engine), 0, PF_LIGHT_PHYSICAL_BASELINE_BASE) == .7, "BASELINE_PLAYING_IMAGE");
   for (unsigned input = 0; input < 4; ++input) edge(input, 1);
   for (unsigned input = 0; input < 4; ++input)
     require(level(image(engine), input) == 1, "BASELINE_FOUR_HELD_FULL");
+  require(level(image(engine), 0, PF_LIGHT_PHYSICAL_BASELINE_BASE) == .7, "BASELINE_PLAYING_WHILE_HELD");
   edge(0, 0);
   require(level(image(engine), 0) == .7, "BASELINE_RELEASE_PLAYING");
   for (unsigned input = 1; input < 4; ++input)
@@ -135,7 +153,7 @@ void baseline_witness() {
   ok(pf_input_revoke(engine, 0, 1));
   require(level(image(engine), 0) == .7, "BASELINE_REVOKE_PRESERVES_PLAYING");
 }
-std::array<double, PF_LIGHT_FIELDS> publication(unsigned revision, const std::array<double, 4>& levels) {
+std::array<double, PF_LIGHT_FIELDS> publication(unsigned revision, const std::array<double, 4>& levels, unsigned base) {
   std::array<double, PF_LIGHT_FIELDS> data{};
   data[PF_LIGHT_FORMAT] = PF_LIGHT_VERSION;
   data[PF_LIGHT_GENERATION] = data[PF_LIGHT_EPOCH] = 1;
@@ -144,17 +162,17 @@ std::array<double, PF_LIGHT_FIELDS> publication(unsigned revision, const std::ar
   data[PF_LIGHT_COUNT] = 4;
   for (unsigned input = 0; input < 4; ++input) {
     const auto offset = PF_LIGHT_SAMPLES + input * PF_LIGHT_SAMPLE_FIELDS;
-    data[offset + PF_LIGHT_SAMPLE_ID] = PF_INPUT_LIGHT_BASE + input;
+    data[offset + PF_LIGHT_SAMPLE_ID] = base + input;
     data[offset + PF_LIGHT_SAMPLE_LEVEL] = levels[input];
   }
   return data;
 }
 void report_bytes(const pp_light_delivery_frame& frame, const std::array<pp_light_binding, 4>& bindings,
-    const std::array<double, 4>& levels) {
+    const std::array<double, 4>& levels, unsigned base) {
   require(frame.count == 4, "FOUR_LED_REPORT_COUNT");
   for (unsigned row = 0; row < 4; ++row) {
     const auto& report = frame.reports[row];
-    const unsigned logical = bindings[row].led_id - PF_INPUT_LIGHT_BASE;
+    const unsigned logical = bindings[row].led_id - base;
     require(report[0] == 3 && report[1] == bindings[row].sdk_channel &&
       report[2] == unsigned(std::lround(levels[logical] * 255)) && report[3] == 0 && report[4] == 0,
       "FOUR_LED_REPORT_BYTES");
@@ -165,40 +183,42 @@ void report_bytes(const pp_light_delivery_frame& frame, const std::array<pp_ligh
 void delivery_domain() {
   constexpr std::array<double, 4> alphabet{0, .25, .7, 1};
   unsigned revision = 0, fence = 0;
-  for (unsigned final_channel : {3u, 48u}) {
-    std::array<unsigned, 4> order{0, 1, 2, 3};
-    do {
-      pp_light_delivery* delivery = pp_light_delivery_create();
-      require(delivery, "DELIVERY_CREATED");
-      const pp_light_connection connection{1, 1, 1, double(++fence)};
-      std::array<pp_light_binding, 4> bindings{};
-      for (unsigned row = 0; row < 4; ++row) {
-        const unsigned control = order[row];
-        bindings[row] = {PF_INPUT_LIGHT_BASE + control, control == 3 ? final_channel : control};
-      }
-      ok(pp_light_delivery_bind(delivery, &connection, bindings.data(), bindings.size()));
-      for (unsigned code = 0; code < 256; ++code) {
-        ++delivery_cases;
-        unsigned digits = code;
-        std::array<double, 4> levels{};
-        for (auto& value : levels) { value = alphabet[digits % 4]; digits /= 4; }
-        const auto data = publication(++revision, levels);
-        pp_light_delivery_frame frame{};
-        require(pp_light_delivery_prepare(delivery, &connection, data.data(), data.size(), &frame) == 1, "DELIVERY_PREPARED");
-        report_bytes(frame, bindings, levels);
-        pp_light_delivery_frame retry{};
-        require(pp_light_delivery_prepare(delivery, &connection, data.data(), data.size(), &retry) == 1, "DELIVERY_UNCOMMITTED_RETRY");
-        auto partial = frame; --partial.count;
-        require(pp_light_delivery_commit(delivery, &partial) == PP_INVALID, "DELIVERY_COMPLETE_COMMIT");
-        auto modified = frame; modified.reports[0][2] ^= 1;
-        require(pp_light_delivery_commit(delivery, &modified) == PP_INVALID, "DELIVERY_IMMUTABLE_COMMIT");
-        require(pp_light_delivery_commit(delivery, &frame) == 1, "DELIVERY_FULL_COMMIT");
-        require(pp_light_delivery_commit(delivery, &frame) == PP_STALE, "DELIVERY_DUPLICATE_COMMIT");
-        require(pp_light_delivery_prepare(delivery, &connection, data.data(), data.size(), &retry) == PP_STALE,
-          "DELIVERY_COMMITTED_REPLAY");
-      }
-      pp_light_delivery_destroy(delivery);
-    } while (std::next_permutation(order.begin(), order.end()));
+  for (unsigned base : std::array<unsigned, 2>{PF_INPUT_LIGHT_BASE, PF_LIGHT_PHYSICAL_BASELINE_BASE}) {
+    for (unsigned final_channel : {3u, 48u}) {
+      std::array<unsigned, 4> order{0, 1, 2, 3};
+      do {
+        pp_light_delivery* delivery = pp_light_delivery_create();
+        require(delivery, "DELIVERY_CREATED");
+        const pp_light_connection connection{1, 1, 1, double(++fence)};
+        std::array<pp_light_binding, 4> bindings{};
+        for (unsigned row = 0; row < 4; ++row) {
+          const unsigned control = order[row];
+          bindings[row] = {base + control, control == 3 ? final_channel : control};
+        }
+        ok(pp_light_delivery_bind(delivery, &connection, bindings.data(), bindings.size()));
+        for (unsigned code = 0; code < 256; ++code) {
+          ++delivery_cases;
+          unsigned digits = code;
+          std::array<double, 4> levels{};
+          for (auto& value : levels) { value = alphabet[digits % 4]; digits /= 4; }
+          const auto data = publication(++revision, levels, base);
+          pp_light_delivery_frame frame{};
+          require(pp_light_delivery_prepare(delivery, &connection, data.data(), data.size(), &frame) == 1, "DELIVERY_PREPARED");
+          report_bytes(frame, bindings, levels, base);
+          pp_light_delivery_frame retry{};
+          require(pp_light_delivery_prepare(delivery, &connection, data.data(), data.size(), &retry) == 1, "DELIVERY_UNCOMMITTED_RETRY");
+          auto partial = frame; --partial.count;
+          require(pp_light_delivery_commit(delivery, &partial) == PP_INVALID, "DELIVERY_COMPLETE_COMMIT");
+          auto modified = frame; modified.reports[0][2] ^= 1;
+          require(pp_light_delivery_commit(delivery, &modified) == PP_INVALID, "DELIVERY_IMMUTABLE_COMMIT");
+          require(pp_light_delivery_commit(delivery, &frame) == 1, "DELIVERY_FULL_COMMIT");
+          require(pp_light_delivery_commit(delivery, &frame) == PP_STALE, "DELIVERY_DUPLICATE_COMMIT");
+          require(pp_light_delivery_prepare(delivery, &connection, data.data(), data.size(), &retry) == PP_STALE,
+            "DELIVERY_COMMITTED_REPLAY");
+        }
+        pp_light_delivery_destroy(delivery);
+      } while (std::next_permutation(order.begin(), order.end()));
+    }
   }
 }
 }
@@ -206,6 +226,6 @@ int main() {
   held_domain();
   baseline_witness();
   delivery_domain();
-  require(held_pairs == 4096 && delivery_cases == 12288, "FINITE_DOMAIN_CARDINALITY");
-  std::puts("{\"status\":\"PASS\",\"heldPairs\":4096,\"physicalControls\":6,\"outputLayouts\":2,\"mappingOrders\":24,\"levelAssignments\":256,\"deliveryCases\":12288,\"baselineWitnesses\":1}");
+  require(held_pairs == 4096 && delivery_cases == 24576, "FINITE_DOMAIN_CARDINALITY");
+  std::puts("{\"status\":\"PASS\",\"heldPairs\":4096,\"baselineHeldPairs\":4096,\"physicalControls\":6,\"lightIdentityFamilies\":2,\"outputLayouts\":2,\"mappingOrders\":24,\"levelAssignments\":256,\"deliveryCases\":24576,\"baselineWitnesses\":1}");
 }

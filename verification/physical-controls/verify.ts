@@ -13,8 +13,8 @@ const output = await mkdtemp(join(tmpdir(), 'show-tools-physical-controls-'));
 const source = join(output, 'source');
 const project = join(output, 'project');
 const build = join(output, 'build');
-const expected = { status: 'PASS', heldPairs: 4096, physicalControls: 6, outputLayouts: 2,
-  mappingOrders: 24, levelAssignments: 256, deliveryCases: 12288, baselineWitnesses: 1 };
+const expected = { status: 'PASS', heldPairs: 4096, baselineHeldPairs: 4096, physicalControls: 6, lightIdentityFamilies: 2, outputLayouts: 2,
+  mappingOrders: 24, levelAssignments: 256, deliveryCases: 24576, baselineWitnesses: 1 };
 const logFiles: string[] = [];
 
 async function sourceHashes() {
@@ -119,14 +119,20 @@ const mutants = [
     changed: replaceOnce(engine, '    const uint32_t rows = binding.kind == PF_INPUT_CUES ? binding.rows : 0;',
       '    if (binding.kind != PF_INPUT_CUES) continue;\n    const uint32_t rows = binding.rows;') },
   { name: 'held-peak-limited-to-seventy', path: enginePath, marker: 'HELD_IMAGE_OR', original: engine,
-    changed: replaceOnce(engine, '    if (engine->inputs.physical_held(input)) physical_level = 1;',
-      '    if (engine->inputs.physical_held(input)) physical_level = .7;') },
+    changed: replaceOnce(engine, '    sample[PF_LIGHT_SAMPLE_LEVEL] = engine->inputs.physical_held(input) ? 1 : baseline;',
+      '    sample[PF_LIGHT_SAMPLE_LEVEL] = engine->inputs.physical_held(input) ? .7 : baseline;') },
   { name: 'recording-baseline-removed', path: enginePath, marker: 'BASELINE_RECORDING_PULSE', original: engine,
-    changed: replaceOnce(engine, '    else if (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows)))',
-      '    else if (false)') },
+    changed: replaceOnce(engine, '    if (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows)))',
+      '    if (false)') },
   { name: 'playing-baseline-removed', path: enginePath, marker: 'BASELINE_PLAYING_LEVEL', original: engine,
-    changed: replaceOnce(engine, '    else if (playing_rows) physical_level = .7;',
-      '    else if (playing_rows) physical_level = 0;') },
+    changed: replaceOnce(engine, '    else if (playing_rows) baseline = .7;',
+      '    else if (playing_rows) baseline = 0;') },
+  { name: 'baseline-reuses-held-override', path: enginePath, marker: 'BASELINE_INDEPENDENT_OF_HELD', original: engine,
+    changed: replaceOnce(engine, '    baseline_sample[PF_LIGHT_SAMPLE_LEVEL] = baseline;',
+      '    baseline_sample[PF_LIGHT_SAMPLE_LEVEL] = engine->inputs.physical_held(input) ? 1 : baseline;') },
+  { name: 'recording-baseline-suppressed-while-held', path: enginePath, marker: 'BASELINE_HELD_CURRENT_PULSE', original: engine,
+    changed: replaceOnce(engine, '    if (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows)))',
+      '    if (!engine->inputs.physical_held(input) && (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows))))') },
   { name: 'revoke-clears-other-source-held-bits', path: enginePath, marker: 'HELD_REVOKE_ISOLATION', original: engine,
     changed: replaceOnce(engine, '  producer->active = false; std::fill(std::begin(producer->ownership), std::end(producer->ownership), 0);',
       '  for (unsigned index = 0; index < PF_INPUT_PRODUCERS; ++index) engine->inputs.producer(index)->held = 0;\n  producer->active = false; std::fill(std::begin(producer->ownership), std::end(producer->ownership), 0);') },

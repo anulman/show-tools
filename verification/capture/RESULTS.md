@@ -1,5 +1,9 @@
 # Capture verification result
 
+## Independent light baseline source sync
+
+Outcome: **updated** at `eb994928dab680d594860152b65b677dc47d71d0`. The source gate first rejected expected drift in the light-publication function and identity header. Capture policy and the finite model are unchanged. The fresh pinned run exhausts 11,894 main, 782 display and 102 overview states with all eleven invariants. All six model mutants and seven actual-source mutants fail their intended checks; twelve native scenarios pass before and after mutation. Nine statechart interpretations check every rule and retain the existing graph and shortest violation paths. Full receipt: `/private/tmp/idle-light-capture-final/receipt.json`. See [source classification](SOURCE-SYNC.md#independent-light-baselines-at-eb99492).
+
 ## Independent held-light maintenance
 
 Outcome: **updated** at `0f178bc`. The source-fence rejection correctly identified the changed light-image loop. Source review confirms that capture state and serialized admission are unchanged. The complete pinned rerun passes 201,097 generated and 11,894 distinct main states, 782 display states and 102 overview states. All six model mutants, seven actual-source mutants and twelve pristine/restored native scenarios pass their expected checks. Receipt: `/private/tmp/capture-six-control-final-unconfined/receipt.json`.

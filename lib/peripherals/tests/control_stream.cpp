@@ -33,8 +33,8 @@ void map_checks() {
   require(!parse(add({"--led", "blue", "0"}), Platform::Linux, map));
   require(parse(add({"--led", "yellow", "1", "--led", "blue", "0", "--confirm-wiring"}), Platform::Linux, map));
   auto lights = light_bindings(map.map);
-  require(lights.size() == 2 && lights[0].led_id == 257 && lights[0].sdk_channel == 0
-    && lights[1].led_id == 258 && lights[1].sdk_channel == 1);
+  require(lights.size() == 2 && lights[0].led_id == 513 && lights[0].sdk_channel == 0
+    && lights[1].led_id == 514 && lights[1].sdk_channel == 1);
   require(!parse(add({"--led", "blue", "0", "--led", "yellow", "0", "--confirm-wiring"}), Platform::Linux, map));
   require(!parse(add({"--switch", "blue", "keys", "1", "42"}), Platform::Linux, map));
   require(!parse(add({"--switch", "red", "keys", "1", "41"}), Platform::Linux, map));
@@ -68,8 +68,36 @@ void map_checks() {
   require(!emit_button(button, 8, 0, PhysicalControl::Blue, false));
   require(parse({"host", "--inspect"}, Platform::Linux, map) && map.inspect && map.map.sources.empty());
 }
+void feedback_checks() {
+  using namespace peripheral_host;
+  InitialStates states{};
+  PhysicalFeedback feedback(states);
+  std::vector<LedBinding> leds{{PhysicalControl::Blue, 0}, {PhysicalControl::Yellow, 1},
+    {PhysicalControl::Red, 2}, {PhysicalControl::Green, 3}, {PhysicalControl::Pedal, 4}, {PhysicalControl::Mushroom, 5}};
+  pp_light_delivery_frame frame{}; frame.count = uint32_t(leds.size());
+  for (uint32_t mask = 0; mask < 64; ++mask) for (uint32_t baseline = 0; baseline < 729; ++baseline) {
+    uint32_t code = baseline;
+    for (size_t input = 0; input < states.size(); ++input) {
+      states[input] = mask & (1u << input) ? InitialState::Held : InitialState::Released;
+      frame.reports[input][2] = std::array<uint8_t, 3>{0, 64, 179}[code % 3]; code /= 3;
+    }
+    feedback.commit_baseline(leds, frame);
+    for (size_t input = 0; input < states.size(); ++input)
+      require(feedback.level(PhysicalControl(input)) == (mask & (1u << input) ? 255 : frame.reports[input][2]));
+    feedback.clear_baseline();
+    for (size_t input = 0; input < states.size(); ++input)
+      require(feedback.level(PhysicalControl(input)) == (mask & (1u << input) ? 255 : 0));
+  }
+  states.fill(InitialState::Unknown); require(feedback.level(PhysicalControl::Blue) == 0);
+  states[0] = InitialState::Held; frame.reports[0][2] = 179; feedback.commit_baseline(leds, frame);
+  require(feedback.level(PhysicalControl::Blue) == 255);
+  frame.reports[0][2] = 64; feedback.commit_baseline(leds, frame);
+  states[0] = InitialState::Released; require(feedback.level(PhysicalControl::Blue) == 64);
+}
+
 int main() {
   map_checks();
+  feedback_checks();
   using namespace peripheral_host;
   Command command;
   require(parse_command("bind 1 2 3 4", command));
@@ -84,7 +112,10 @@ int main() {
   require(command.operation == Operation::Light && command.image.back() == PF_LIGHT_FIELDS - 1);
   require(!parse_command(light.str() + " 0", command));
   require(!parse_command("light 1 2 3 4 1", command));
-  require(parse_command("clear", command));
+  require(parse_command("clear", command) && !command.scoped);
+  require(parse_command("clear 100 7 1 2", command) && command.scoped && command.connection.request_fence == 2);
+  require(!parse_command("clear 100 7 1 0", command));
+  require(!parse_command("clear 100 7 1 2 3", command));
   require(parse_command("quit", command));
   require(!parse_command("clear 1", command));
   require(!parse_command(std::string(16385, ' '), command));
