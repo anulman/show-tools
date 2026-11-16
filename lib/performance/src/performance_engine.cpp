@@ -1164,16 +1164,16 @@ void pf_light_output(pf_engine* engine, double* out) {
   uint32_t light_count = 1;
   for (uint32_t input = 0; input < PF_INPUT_SWITCHES; ++input) {
     const auto& binding = engine->inputs.binding(input);
-    if (binding.kind != PF_INPUT_CUES) continue;
-    bool recording_rows = engine->compiled && engine->compiled->recording_rows(binding.rows), playing_rows = false;
-    for (int row = 0; row < PF_CHANNELS; ++row) if (binding.rows & (1u << row)) {
+    const uint32_t rows = binding.kind == PF_INPUT_CUES ? binding.rows : 0;
+    bool recording_rows = rows && engine->compiled && engine->compiled->recording_rows(rows), playing_rows = false;
+    for (int row = 0; row < PF_CHANNELS; ++row) if (rows & (1u << row)) {
       double channel[PF_CHANNEL_FIELDS]; pf_channel_info(engine, row, channel);
       recording_rows = recording_rows || (!engine->compiled && recording(engine, row));
       playing_rows = playing_rows || channel[PF_CHANNEL_LOOPING] != 0;
     }
     double physical_level = 0;
     if (engine->inputs.physical_held(input)) physical_level = 1;
-    else if (recording_rows || (engine->compiled && engine->compiled->cue_warning(engine->end, binding.rows)))
+    else if (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows)))
       physical_level = .7 * (1 + std::cos(6.2831853071795864769 * clock[BT_S_PHASE])) / 2;
     else if (playing_rows) physical_level = .7;
     auto* sample = image + PF_LIGHT_SAMPLES + light_count++ * PF_LIGHT_SAMPLE_FIELDS;

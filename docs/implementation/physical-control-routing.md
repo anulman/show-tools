@@ -131,3 +131,27 @@ Migrate version-one profiles explicitly. Migration requires a confirmed physical
 Acceptance must cover independent Blue/Yellow edges, initial held/unknown inputs, ignored repeats, stale sequences, reconnects, mixed input sources, overlapping binding rejection and held-release isolation. Native/WASM witnesses must prove correct cue-row selection, unchanged quantization, grouped actions and missed-commit policy, plus independent complete LED feedback. Same-host browser integration must prevent a raw physical key from also triggering its DOM shortcut.
 
 Hardware acceptance additionally requires EliteDesk's actual type/code/value, interface identity, timestamps, press/release/repeat evidence and Wiring's electrical confirmation. Raw trials wait for EliteDesk's listener READY. Recovering service availability is separate from application-deployment consent. No musical assignments, deployment, LED writes or physical acceptance are implied by offline tests.
+
+
+## Six-control practice acceptance
+
+The operator's November 16 target includes four arcade buttons, mushroom and pedal, four concurrent LED levels, and spinner measurement. Recognition and held-light feedback do not require a musical assignment. Runtime lookup uses the validated installation map; a discovery tool may propose a map, but cannot supply an inferred fallback during practice.
+
+| Installation input | Operator-reported connection | Remaining correlation |
+| --- | --- | --- |
+| Blue arcade | `2SW7`, LED output `1` | Current host type/code and interface capture |
+| Yellow arcade | `1A`, LED output `2` | Current host type/code and interface capture |
+| Red and Green arcade | Remaining switches `2A`, `2SW8`; remaining LEDs `3`, `4` | Individual colour, switch and LED correspondence |
+| Mushroom | `1B` | Current host type/code and interface capture |
+| Pedal | `2B` | Current host type/code and interface capture |
+| Spinner | Signed relative mouse Y | Current source selector and timestamped motion capture |
+
+Current reported LED outputs are `1`, `2`, `3`, `4`. The proposed move to `1`, `2`, `3`, `49` is a future configuration change. Output number and SDK channel remain distinct fields of the confirmed installation. Four channels maintain independent levels in the complete image; serial USB reports do not promise electrically atomic transitions.
+
+Every physical control publishes held brightness `1`, including an unbound control. Release removes only that override and samples its current sequenced baseline. For a cue binding this preserves the current warning/recording pulse or playing level; an unbound control has baseline zero. Device detach removes its held contribution without changing transport.
+
+Spinner measurement requires signed cumulative raw counts relative to an explicit zero epoch, monotonic observation timestamps, and a rate query over a requested interval. Raw counts do not imply calibrated degrees. Movement history must remain independent of musical jiggle admission and same-direction transport coalescing. A reset or loss cannot silently preserve an invalid absolute reference. Queries outside available history must report that limitation rather than fabricate a rate. Current source does not yet implement this measurement contract.
+
+Readiness requires one repeatable practice run for each current canonical Dance Yrself Clean, Drunk Girls and Tribulations document, with its actual effect metadata and explicit song input bindings, plus the validated board configuration. Each run must exercise the identified physical path, capture/commit/playback, source cleanup, four independent output levels and release-to-baseline behavior. Song changes must happen while stopped. Compilation success alone is insufficient.
+
+The audit found all three canonical songs executable with no compilation diagnostics, but without physical input bindings. The current remote desk has one installed song package. Full-hardware formal coverage, spinner measurement, stopped-only song selection and installed physical acceptance remain open. Existing Capture and NativeAudio models do not claim these properties. The six-control input and four-output witnesses must be checked against the actual native engine and helper, with assertion-specific broken variants, before calling this setup ready.

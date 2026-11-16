@@ -132,6 +132,45 @@ void prepare_first_take(pf_engine* engine) {
   ok(engine, pf_control(engine, 0, 0, nullptr, 0));
   until(engine, 3);
 }
+void unbound_light_checks() {
+  Engine engine;
+  load(engine, empty_program());
+  attach(engine, 0, 1, PF_INPUT_PHYSICAL, 63);
+  for (int input = 0; input < 6; ++input)
+    require(level(engine, PF_INPUT_LIGHT_BASE + input) == 0, "unbound controls publish an off baseline");
+  for (int input = 0; input < 4; ++input) event(engine, 0, 1, input + 1, input, 1);
+  for (int input = 0; input < 4; ++input)
+    require(level(engine, PF_INPUT_LIGHT_BASE + input) == 1, "four unbound arcade buttons light simultaneously");
+  event(engine, 0, 1, 5, 1, 0);
+  require(level(engine, PF_INPUT_LIGHT_BASE + 1) == 0, "released unbound button restores its off baseline");
+  for (int input : {0, 2, 3})
+    require(level(engine, PF_INPUT_LIGHT_BASE + input) == 1, "one release preserves other held lights");
+  event(engine, 0, 1, 6, 4, 1);
+  event(engine, 0, 1, 7, 5, 1);
+  require(level(engine, PF_INPUT_LIGHT_BASE + 4) == 1 && level(engine, PF_INPUT_LIGHT_BASE + 5) == 1,
+          "pedal and mushroom observations are independent of musical bindings");
+  ok(engine, pf_input_revoke(engine, 0, 1));
+  for (int input = 0; input < 6; ++input)
+    require(level(engine, PF_INPUT_LIGHT_BASE + input) == 0, "revoke clears only physical held overrides");
+}
+void exhaustive_held_image_checks() {
+  Engine engine;
+  load(engine, empty_program());
+  int session = 0;
+  for (uint32_t first = 0; first < 64; ++first) for (uint32_t second = 0; second < 64; ++second) {
+    const int first_session = ++session, second_session = ++session;
+    attach(engine, 0, first_session, PF_INPUT_PHYSICAL, 63 ^ first, first);
+    attach(engine, 1, second_session, PF_INPUT_PHYSICAL, 63 ^ second, second);
+    for (int input = 0; input < 6; ++input)
+      require(level(engine, PF_INPUT_LIGHT_BASE + input) == double(((first | second) >> input) & 1),
+              "all 4096 two-source held combinations preserve six independent light levels");
+    ok(engine, pf_input_revoke(engine, 0, first_session));
+    for (int input = 0; input < 6; ++input)
+      require(level(engine, PF_INPUT_LIGHT_BASE + input) == double((second >> input) & 1),
+              "source revoke preserves every other source held combination");
+    ok(engine, pf_input_revoke(engine, 1, second_session));
+  }
+}
 void protocol_checks() {
   Engine engine;
   load(engine, empty_program({0, PF_INPUT_CUES, 1, 1, PF_INPUT_CUES, 2, 5, PF_INPUT_PANIC, 0}));
@@ -368,6 +407,8 @@ void ordered_batch_checks() {
 }
 }  // namespace
 int main() {
+  unbound_light_checks();
+  exhaustive_held_image_checks();
   protocol_checks();
   ownership_checks(false);
   ownership_checks(true);

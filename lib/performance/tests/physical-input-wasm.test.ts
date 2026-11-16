@@ -44,6 +44,26 @@ function until(native: NativePerformance, bar: number) {
   throw new Error(`Did not reach bar ${bar}`);
 }
 
+test('WASM publishes all six unbound controls and four simultaneous held arcade lights', () => {
+  const native = engine([...emptyProgram().slice(0, 16), PF.INPUT_MAGIC, 0]);
+  try {
+    const bindingGeneration = native.inputRouting().bindingGeneration;
+    native.inputAttach({ producer: 0, session: 1, bindingGeneration, kind: 'physical', releasedMask: 63, heldMask: 0 });
+    let sequence = 0;
+    const edge = (input: number, value: number) => native.inputEvent({ producer: 0, session: 1, bindingGeneration, sequence: ++sequence, input, value });
+    for (let input = 0; input < 6; input++) assert.equal(level(native, 257 + input), 0);
+    for (let input = 0; input < 4; input++) edge(input, 1);
+    for (let input = 0; input < 4; input++) assert.equal(level(native, 257 + input), 1);
+    edge(1, 0);
+    assert.equal(level(native, 258), 0);
+    for (const input of [0, 2, 3]) assert.equal(level(native, 257 + input), 1);
+    edge(4, 1); edge(5, 1);
+    assert.equal(level(native, 261), 1); assert.equal(level(native, 262), 1);
+    native.inputRevoke({ producer: 0, session: 1 });
+    for (let input = 0; input < 6; input++) assert.equal(level(native, 257 + input), 0);
+  } finally { native.dispose(); }
+});
+
 test('WASM producer leases, initial release barriers and independent native light IDs roundtrip', () => {
   const native = engine(emptyProgram());
   try {
