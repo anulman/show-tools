@@ -99,28 +99,37 @@ raw key capture
 `cf64ce545a8df43d9823871ddbd157ec6cdd0eed8ae98473612d68eaa96ec0d5`.
 The concise findings are retained here; raw process logs remain temporary evidence.
 
-## November 15 button wiring map
+## November 15 and 16 control wiring map
 
 The operator reported two connected arcade buttons after remapping the first
-button. These physical reports do not establish their current Linux keycodes.
+button. A subsequent report adds the remaining arcade switches, pedal, and
+mushroom. These physical reports do not establish their current Linux keycodes.
 The earlier anonymous Escape observation does not identify either colour.
 
 | Physical control identity | Reported controller switch label | Reported ordinary-header LED output | Current Linux input observation | Verification state |
 | --- | --- | --- | --- | --- |
 | Blue | `2SW7` | `1` | Not captured after remapping | Operator-reported wiring |
 | Yellow | `1A` | `2` | Not captured after remapping | Operator-reported wiring |
-| Red | Not assigned | Not assigned | Not captured | Planned |
-| Green | Not assigned | Not assigned | Not captured | Planned |
-| Pedal | Not assigned | Not applicable | Not captured | Planned |
-| Mushroom | Not assigned | Not applicable | Not captured | Planned |
+| Red | Colour correlation pending | Colour correlation pending | Not captured | Connected arcade set reported; individual mapping unknown |
+| Green | Colour correlation pending | Colour correlation pending | Not captured | Connected arcade set reported; individual mapping unknown |
+| Pedal | `2B` | Not applicable | Not captured | Operator-reported wiring |
+| Mushroom | `1B` | Not applicable | Not captured | Operator-reported wiring |
+| Knob | Direct SpinTrak header; exact row and pin record incomplete | Not applicable | Bidirectional signed relative Y observed on November 10 | Historical Linux observation; physical direction calibration pending |
+
+The four reported arcade switch labels are `2SW7`, `1A`, `2A`, and `2SW8`.
+The four reported ordinary-header LED outputs are `1`, `2`, `3`, and `4`.
+Blue and Yellow have the individual correspondences shown above. The remaining
+`2A` and `2SW8` inputs and LED outputs `3` and `4` are not yet correlated to
+Red and Green. Table order does not imply a pairing.
 
 Blue and Yellow name physical controls. They do not assign a voice, capture,
 playback, tempo, or Panic action. Songs and the Performance Engine own those
 bindings. The same distinction applies to the remaining controls.
 
-The operator confirmed that LED pins 1 and 2 are on the ordinary 96-channel
-header. Moving them to the MOSFET screw-terminal outputs is planned for later
-and is not the current wiring. The current supply and LED module rating still
+The operator reported LED pins 1 through 4 on the ordinary 96-channel header.
+Moving them to MOSFET screw-terminal outputs `1`, `2`, `3`, and `49` is a
+tentative future plan, not the current wiring or a confirmed colour mapping.
+The current supply and LED module rating still
 need confirmation before LED writes. No new LED polarity or visible-output test
 is recorded.
 
@@ -140,8 +149,11 @@ brightness, and the operator's visible result. Raw captures remain temporary.
 The Wiring Assistant owns physical correlation and this inventory. Hardware -
 EliteDesk owns host discovery, serialized input captures, LED tests, and service
 coordination. Tests use one named control at a time. A raw capture can identify
-keys outside the runtime helper's current Tab and Escape selection. Mapping
-these controls does not claim that multi-button runtime routing is installed.
+keys outside the runtime helper's current Tab and Escape selection. This table
+records physical wiring and observations, not executable runtime configuration.
+The Performance Engine owns the versioned control identities and explicit song
+bindings. EliteDesk owns adapter configuration and Linux delivery. Mapping these
+controls does not claim that six-button routing or knob actions are installed.
 
 ## Confirmed intended behavior
 
