@@ -3,6 +3,7 @@ import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
 import { decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome } from './remote-schema.js';
 import type { DeskView, NativePerformance, NativeTarget } from '../../lib/remote-performance/session-schema.js';
 import type { ChannelId, ChannelSettings, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
+import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
 
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -119,6 +120,7 @@ export class RemoteDesk {
 }
 
 export class RemoteSession {
+  get inputScope() { return JSON.stringify([this.target.attempt, this.target.hostEpoch]); }
   private readonly listeners = new Set<(state: PracticeState) => void>();
   private readonly tunerListeners = new Set<(state: TunerState) => void>();
   readonly tuner: TunerPort;
@@ -154,6 +156,9 @@ export class RemoteSession {
   start(options: StartOptions = {}) { return this.command('start', options); }
   stop() { return this.command('stop'); }
   control(control: Control, options: { commandId?: string } | string = {}) { return this.command('control', { control, commandId: typeof options === 'string' ? options : options.commandId }); }
+  inputAttach(args: InputAttachArgs) { return this.command('inputAttach', args); }
+  inputEvent(args: InputEventArgs) { return this.command('inputEvent', args); }
+  inputRevoke(args: InputRevokeArgs) { return this.command('inputRevoke', args); }
   selectChannel(channelId: ChannelId) { return this.command('selectChannel', { channelId }); }
   setChannel(channelId: ChannelId, settings: ChannelSettings) { return this.command('setChannel', { channelId, settings }); }
   setClick(enabled: boolean) { return this.command('setClick', { enabled }); }

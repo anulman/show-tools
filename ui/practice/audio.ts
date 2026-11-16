@@ -8,6 +8,8 @@ import { encodeCompiledProgram } from '../../lib/performance/compiled-native.js'
 import type { CompiledSong } from '../../lib/performance/compiled-song.js';
 import type { TunerPort, TunerState, TuningBankOptions, TuningBankState } from '../../lib/tuner/model.js';
 import type { ChannelId, ChannelSettings, Chart, ChartMetadata, Control, PracticeEvent, PracticeState, Program, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
+import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
+import { musicalInputPolicyEvent } from './musical-input-policy.js';
 
 export type MonitoringRelationship = 'unknown' | 'different-devices' | 'same-usb-interface' | 'same-non-usb';
 type MonitoringConfirmation = { kind: 'unconfirmed' } | { kind: 'confirmed'; stream: MediaStream; relationship: Exclude<MonitoringRelationship, 'unknown'> };
@@ -51,8 +53,12 @@ export class PracticeAudio {
   };
   readonly onMessage: (event: MessageEvent<{ event?: PracticeEvent }>) => void;
   readonly detachState: () => void;
-  detachPeripheral: () => void = () => {};
+  detachPeripheral: () => void | Promise<void> = () => {};
   peripheralReady: Promise<void> = Promise.resolve();
+  private peripheralTransition: Promise<void> = Promise.resolve();
+  private peripheralClosing = false;
+  private disposal: Promise<void> | undefined;
+  private readonly onInputPolicy = () => { if (!this.disposed && !this.peripheralClosing) this.attachPeripheral(); };
   readonly detachTracker: () => void;
   readonly onDeviceChange: () => void;
   latest: PracticeState;
@@ -155,6 +161,7 @@ export class PracticeAudio {
       this.syncMonitoring();
       this.publish();
     });
+    globalThis.window?.addEventListener(musicalInputPolicyEvent, this.onInputPolicy);
     if (!deferPeripheral) this.attachPeripheral();
     this.detachTracker = tracker.subscribe(state => {
       const wasMicrophone = this.microphone;
@@ -201,6 +208,7 @@ export class PracticeAudio {
     return { ...this.latest, microphone: this.microphone || false, error: this.error,
       lifecycle: this.tracker.lifecycle, chart: this.chartMetadata };
   }
+  get inputScope() { return this.sessionId; }
 
   subscribe(listener: (state: PracticeState) => void) {
     this.listeners.add(listener);
@@ -227,9 +235,18 @@ export class PracticeAudio {
   }
 
   private attachPeripheral() {
-    const peripheral = connectBrowserPeripheral(this);
-    this.detachPeripheral = () => peripheral.stop();
-    this.peripheralReady = peripheral.ready;
+    let connected: Promise<void> = Promise.resolve();
+    const transition = this.peripheralTransition.then(async () => {
+      await this.detachPeripheral();
+      if (this.disposed || this.peripheralClosing) return;
+      const peripheral = connectBrowserPeripheral(this);
+      this.detachPeripheral = () => peripheral.stop();
+      connected = peripheral.ready;
+    });
+    this.peripheralTransition = transition.catch(error => { this.fail(error); throw error; });
+    void this.peripheralTransition.catch(() => {});
+    this.peripheralReady = transition.then(() => connected);
+    void this.peripheralReady.catch(error => this.fail(error));
   }
   async request(command: string, payload: object = {}) {
     if (this.disposed) throw new Error('Practice audio is disposed');
@@ -259,6 +276,15 @@ export class PracticeAudio {
     const commandId = typeof options === 'string' ? options : options.commandId;
     return this.request('practice.control', { control, commandId });
   }
+  inputAttach(args: InputAttachArgs) { return this.request('practice.input-attach', args); }
+  inputEvent(args: InputEventArgs) {
+    const routing = this.latest.inputRouting;
+    const panic = args.value === 1 && routing?.bindingGeneration === args.bindingGeneration
+      && (args.kind === 'physical' ? Boolean(routing.panicMask & 1 << args.input) : args.input === 4);
+    if (panic) { this.startGeneration++; this.microphoneGeneration++; this.clearMonitoring(); }
+    return this.request('practice.input-event', args);
+  }
+  inputRevoke(args: InputRevokeArgs) { return this.request('practice.input-revoke', args); }
   configureLiveEffects(effects: readonly LiveEffectDefinition[]) { return this.request('practice.effects', { effects }); }
   configureVoiceEffects(configurations: readonly VoiceEffectConfiguration[]) { return this.request('practice.voice-effects', { configurations }); }
   setChannel(channelId: ChannelId, settings: ChannelSettings) { return this.request('practice.channel', { channelId, settings }); }
@@ -305,11 +331,16 @@ export class PracticeAudio {
     await this.sampler.loadFile(id, file);
   }
 
-  async dispose() {
-    this.detachPeripheral();
+  dispose() { return this.disposal ??= this.disposeResources(); }
+  private async disposeResources() {
     if (this.disposed) return;
+    this.peripheralClosing = true;
+    globalThis.window?.removeEventListener(musicalInputPolicyEvent, this.onInputPolicy);
     this.startGeneration++;
     this.microphoneGeneration++;
+    let peripheralFailure: unknown;
+    try { await this.peripheralTransition; await this.detachPeripheral(); }
+    catch (error) { peripheralFailure = error; }
     this.disposed = true;
     this.clearMonitoring();
     this.detachState?.();
@@ -326,5 +357,6 @@ export class PracticeAudio {
     this.listeners.clear();
     this.tunerListeners.clear();
     this.eventListeners.clear();
+    if (peripheralFailure) throw peripheralFailure;
   }
 }

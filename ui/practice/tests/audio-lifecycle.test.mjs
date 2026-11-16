@@ -3,19 +3,22 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
 import vm from 'node:vm';
+import { readFile } from 'node:fs/promises';
+import { PF } from '../../../lib/performance/wasm-abi.ts';
 import { webcrypto } from 'node:crypto';
 import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.ts';
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
 import { audioMode, canChangeAudioMode, changeAudioMode } from '../audio-mode.ts';
 
 function prepareUIContext(context) {
-  for (const [key, value] of Object.entries({ chartBarLabel, chartBarOrdinal, URL, URLSearchParams, AbortController, preparationAbort: undefined, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
+  for (const [key, value] of Object.entries({ postPerformanceEvent() {}, createMusicalInputProducer, createMusicalInputPolicy, CONTROL_IDS: ['L1', 'L2', 'R1', 'R2'], chartBarLabel, chartBarOrdinal, URL, URLSearchParams, AbortController, preparationAbort: undefined, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
   vm.createContext(context);
 }
 import { loadSong } from '../../../songs/index.ts';
 import { PracticeAudio } from '../audio.js';
 import { NativePerformance } from '../../../lib/performance/wasm-performance.ts';
-import { createPeripheralInput, peripheralCommandId } from '../peripheral-input.ts';
+import { createMusicalInputProducer } from '../peripheral-input.ts';
+import { createMusicalInputPolicy } from '../musical-input-policy.ts';
 
 function deferred() {
   let resolve;
@@ -23,13 +26,13 @@ function deferred() {
   return { promise, resolve };
 }
 
-for (const gate of ['resume']) for (const action of ['stop', 'panic']) {
+for (const gate of ['resume']) for (const action of ['stop', 'panic', 'physical-panic']) {
   test(`${action} cancels a start waiting for ${gate}`, async () => {
     const waiting = deferred();
     const entered = deferred();
     const commands = [];
     const audio = Object.assign(Object.create(PracticeAudio.prototype), {
-      latest: { phase: 'idle' }, chart: { bpm: 98 }, startGeneration: 0, runCounter: 0,
+      latest: { phase: 'idle', inputRouting: { bindingGeneration: 1, panicMask: 1 } }, chart: { bpm: 98 }, startGeneration: 0, runCounter: 0,
       sessionId: 'test', disposed: false, listeners: new Set(),
       tracker: {
         async resume() { if (gate === 'resume') { entered.resolve(); await waiting.promise; } },
@@ -40,10 +43,11 @@ for (const gate of ['resume']) for (const action of ['stop', 'panic']) {
     const starting = audio.start();
     await entered.promise;
     if (action === 'stop') await audio.stop();
-    else await audio.control({ id: 'mushroom' });
+    else if (action === 'panic') await audio.control({ id: 'mushroom' });
+    else await audio.inputEvent({ kind: 'physical', bindingGeneration: 1, sequence: 1, input: 0, value: 1 });
     waiting.resolve();
     await starting;
-    assert.deepEqual(commands, [action === 'stop' ? 'practice.stop' : 'practice.control']);
+    assert.deepEqual(commands, [action === 'stop' ? 'practice.stop' : action === 'panic' ? 'practice.control' : 'practice.input-event']);
   });
 }
 
@@ -141,7 +145,7 @@ function startupHarness(microphone = async () => {}, { autoPlay = true, convert 
     stop() { this.state = 'inactive'; commands.push('record-stop'); this.listeners.get('stop')?.(); }
   }
   const audio = {
-    subscribe() {}, onEvent() {}, outputStream: {},
+    subscribe() {}, onEvent(listener) { this.eventListener = listener; }, outputStream: {},
     async configureVoiceEffects(effects) { commands.push('effects'); this.configuredEffects = effects; },
     async enableMicrophone() { commands.push('microphone'); await microphone(); },
     async disableMicrophone() { commands.push('microphone-off'); },
@@ -286,6 +290,35 @@ test('Start opens the microphone and records by default on every run, with song 
   assert.deepEqual(commands.slice(-3), ['record-stop', 'panic', 'microphone-off']);
 });
 
+test('a physical Panic event from real WASM cleans up the UI without another musical command', async () => {
+  const module = await WebAssembly.compile(await readFile(new URL('../wasm/manual-clock.wasm', import.meta.url)));
+  let memory;
+  const instance = new WebAssembly.Instance(module, {
+    env: { abort() { throw new Error('WASM aborted'); }, emscripten_notify_memory_growth() {} },
+    wasi_snapshot_preview1: {
+      fd_write(_fd, _vectors, _count, written) { new DataView(memory.buffer).setUint32(written, 0, true); return 0; },
+      fd_close: () => 0, fd_seek: () => 0, proc_exit(code) { throw new Error(`WASM exited ${code}`); },
+    },
+  });
+  memory = instance.exports.memory;
+  instance.exports._initialize?.();
+  const native = new NativePerformance({ api: instance.exports, sampleRate: 8000, mode: PF.PRACTICE, clickGain: 0,
+    compiledProgram: [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 4, 120, 4, 25, 25, 0, 0, 0, 0, 0, 1, 2, 3,
+      PF.INPUT_MAGIC, 1, 0, PF.INPUT_PANIC, 0] });
+  try {
+    const h = startupHarness(); await h.controls.startPractice();
+    const bindingGeneration = native.inputRouting().bindingGeneration;
+    native.inputAttach({ producer: 0, session: 1, bindingGeneration, kind: 'physical', releasedMask: 1, heldMask: 0 });
+    native.inputEvent({ producer: 0, session: 1, bindingGeneration, sequence: 1, input: 0, value: 1 });
+    const event = native.events().find(value => value.type === 'control' && value.control?.id === 'mushroom' && value.applied);
+    assert(event, 'the engine publishes the accepted physical Panic as a normal control event');
+    h.audio.eventListener(event);
+    await Promise.resolve();
+    assert.deepEqual(h.commands.slice(-2), ['record-stop', 'microphone-off']);
+    assert(!h.commands.includes('panic'), 'readback cleanup never submits a second Panic');
+  } finally { native.dispose(); }
+});
+
 test('demo recording excludes count-in and starts once at the first playing state', async () => {
   const { commands, controls } = startupHarness(undefined, { autoPlay: false });
   await controls.startPractice();
@@ -399,13 +432,13 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   let panicCalls = 0;
   let padCalls = 0;
   class Element { closest() { return true; } }
-  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+  const context = { Element, Map, Set, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
     document: { querySelector: () => null },
     window: { addEventListener(_type, listener) { keydown = listener; } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: () => padCalls++,
   };
   prepareUIContext(context);
-  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const liveVoiceStates'));
+  const adapterSource = '';
   vm.runInContext(adapterSource + keyboardSource, context);
   const event = { target: new Element(), repeat: false, timeStamp: 0, preventDefault() {} };
   keydown({ ...event, code: 'KeyQ' });
@@ -414,7 +447,28 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   assert.equal(panicCalls, 1);
 });
 
-test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses held/repeat events', async () => {
+for (const policy of ['unselected', 'native-controls']) {
+  test(`${policy} guards every musical DOM path before Escape, transport, pads and wheel`, async () => {
+    const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+    const handlers = source.slice(source.indexOf('window.addEventListener("wheel"'), source.indexOf('function postPerformanceEvent'));
+    const listeners = new Map();
+    let commands = 0;
+    class Element { closest() { return null; } }
+    const context = vm.createContext({ Element, inputPolicy: { allowsDomInput: () => false },
+      window: { addEventListener: (type, listener) => listeners.set(type, listener) },
+      panic() { commands++; }, triggerPad() { commands++; }, releasePad() { commands++; },
+      rotate() { commands++; }, startPractice() { commands++; }, stopPractice() { commands++; } });
+    vm.runInContext(handlers, context);
+    for (const code of ['Escape', 'Space', 'KeyQ', 'KeyW', 'KeyA', 'KeyS']) {
+      const event = { code, target: new Element(), preventDefault() {}, repeat: false };
+      listeners.get('keydown')(event); listeners.get('keyup')(event);
+    }
+    listeners.get('wheel')({ deltaY: 3, target: new Element(), preventDefault() {} });
+    assert.equal(commands, 0);
+  });
+}
+
+test('keyboard forwards fresh observations after focus loss while native admission owns release barriers', async () => {
   const source = await sourceForVM(new URL('../app.ts', import.meta.url));
   const listeners = new Map();
   const commands = [];
@@ -425,13 +479,13 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
     closest() { return this.editing; }
   }
   const controls = [{ key: 'KeyQ', id: 'L1' }, { key: 'KeyW', id: 'R1' }, { key: 'KeyA', id: 'L2' }, { key: 'KeyS', id: 'R2' }];
-  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: controls,
+  const context = { Element, Map, Set, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: controls,
     document: { querySelector: () => null, querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }), releasePad: (id, commandId) => releases.push({ id, commandId }),
   };
   prepareUIContext(context);
-  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const liveVoiceStates'));
+  const adapterSource = '';
   const releaseSource = source.slice(source.indexOf('function releasePresses'), source.indexOf('const pendingPadPresses'));
   const handlers = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('function postPerformanceEvent'));
   vm.runInContext(adapterSource + releaseSource + handlers, context);
@@ -465,7 +519,8 @@ test('keyboard bridge accepts fresh DOM presses after focus loss and suppresses 
   assert.equal(commands.length, 8);
   assert.equal(releases.length, 8, "every accepted key-up forwards a pad release");
   assert.deepEqual(releases.map(control => control.id), commands.map(control => control.id));
-  assert.equal(new Set(commands.map(command => command.commandId)).size, 8);
+  assert(commands.every(command => command.commandId === 'keyboard'));
+  assert(releases.every(command => command.commandId === 'keyboard'));
 });
 
 for (const bypass of [false, true]) {
@@ -502,14 +557,14 @@ test('Stop cancels a start waiting for effects preparation', async () => {
 test('Space on an effect disclosure, action button or link never toggles transport', async () => {
   const source = await sourceForVM(new URL('../app.ts', import.meta.url));
   const keyboardSource = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('window.addEventListener("keyup"'));
-  const adapterSource = source.slice(source.indexOf('let keyboardInput'), source.indexOf('const liveVoiceStates'));
+  const adapterSource = '';
   let keydown;
   let starts = 0, panics = 0, pads = 0, prevented = 0;
   class Element {
     constructor(kind) { this.kind = kind; }
     closest(selector) { return selector.split(',').includes(this.kind) ? this : null; }
   }
-  const context = { Element, Map, Set, heldKeys: new Set(), createPeripheralInput, peripheralCommandId, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+  const context = { Element, Map, Set, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
     document: { querySelector: () => null },
     window: { addEventListener(_type, callback) { keydown = callback; } },
     act: action => action(), flash() {}, isRunning: () => false, startPractice: () => starts++, stopPractice() {}, panic: () => panics++, triggerPad: () => pads++,

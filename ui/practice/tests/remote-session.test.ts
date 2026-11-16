@@ -58,6 +58,23 @@ test('off desk enables without transport start and shares command sequencing acr
   });
 });
 
+test('role-only input commands preserve source fields and a replaced endpoint cannot revoke its successor', async () => {
+  await fixture(async ({ desk, calls, publish }) => {
+    await publish({ type: 'desk', view: ready });
+    const session = desk.performance();
+    await session.inputAttach({ kind: 'keyboard', bindingGeneration: 3, releasedMask: 0, heldMask: 0 });
+    await session.inputEvent({ kind: 'keyboard', bindingGeneration: 3, sequence: 100, input: 0, value: 0 });
+    await session.inputRevoke({ kind: 'keyboard' });
+    assert.deepEqual(calls.map(value => value.body.command), ['inputAttach', 'inputEvent', 'inputRevoke']);
+    assert.deepEqual(calls[0].body.args, { kind: 'keyboard', bindingGeneration: 3, releasedMask: 0, heldMask: 0 });
+    assert.deepEqual(calls[1].body.args, { kind: 'keyboard', bindingGeneration: 3, sequence: 100, input: 0, value: 0 });
+    await publish({ type: 'desk', view: { ...ready, revision: '7', audio: { ...ready.audio, attempt: 'next', performance: { ...performance, hostEpoch: 'next-host' } } } });
+    await assert.rejects(session.inputRevoke({ kind: 'keyboard' }), /stale/);
+    assert.equal(calls.length, 3);
+    assert.notEqual(desk.performance().inputScope, session.inputScope);
+  });
+});
+
 test('native patches retain song, reject old revisions and filter stale attempt events', async () => {
   await fixture(async ({ desk, publish }) => {
     await publish({ type: 'desk', view: ready });
