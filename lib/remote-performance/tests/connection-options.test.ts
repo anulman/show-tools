@@ -9,7 +9,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { TLSSocket } from 'node:tls';
 import { Schema } from 'effect';
-import { decodePeripheralBridgeConfig, runPeripheralBridge } from '../../peripherals/bridge.js';
+import { decodePeripheralBridgeConfig, decodePeripheralInputMap, runPeripheralBridge } from '../../peripherals/bridge.js';
 import { ConnectAddressSchema, connectionOptions } from '../connection-options.js';
 import { createSessionClient, DeskUnavailableError, SessionHttpError } from '../session-client.js';
 import { decodeSessionProfile } from '../session-profile.js';
@@ -17,6 +17,11 @@ import { deskFixture, sessionProfile } from './session-fixture.js';
 
 const address = Schema.decodeUnknownSync(ConnectAddressSchema);
 const token = 'explicit-route-test-token-0123456789abcdef';
+
+const inputMap = decodePeripheralInputMap({
+  sources: [{ kind: 'linux', id: 'synthetic', interfaceNumber: 2, eventTypes: [0, 1], keyCodes: [41], relativeAxes: [] }],
+  switches: [{ controlId: 'blue', sourceId: 'synthetic', type: 1, code: 41 }], leds: [], confirmWiring: false,
+});
 
 test('explicit routes preserve authority, TLS identity and failure boundaries for both clients', async t => {
   const directory = await mkdtemp(join(tmpdir(), 'show-tools-connect-'));
@@ -44,9 +49,9 @@ test('explicit routes preserve authority, TLS identity and failure boundaries fo
   const origin = `https://desk.invalid:${bound.port}`;
   const profile = (value = origin, connectAddress: unknown = '127.0.0.1') => decodeSessionProfile({ ...sessionProfile(directory), origin: value,
     connectAddress, caFile: cert, tls: { cert, key } });
-  const bridge = (value = origin, connectAddress: unknown = '127.0.0.1') => decodePeripheralBridgeConfig({ version: 1, origin: value,
+  const bridge = (value = origin, connectAddress: unknown = '127.0.0.1') => decodePeripheralBridgeConfig({ version: 2, origin: value,
     connectAddress, tokenFile: join(directory, 'token'), caFile: cert, helperExecutable: '/no-helper-must-run',
-    sdkChannel: 1, bindingRevision: 1, jiggle: { minimumTravel: 10, minimumReversal: 2 } });
+    inputMap, bindingRevision: 1, jiggle: { minimumTravel: 10, minimumReversal: 2 } });
   await t.test('unresolvable DNS name reaches explicit IP with original Host, Origin, auth and SNI', async () => {
     assert.equal((await (await createSessionClient(profile())).status()).audio.kind, 'off');
     await assert.rejects(runPeripheralBridge(bridge(), new AbortController().signal), /Enable hardware audio/);
@@ -115,8 +120,8 @@ test('HTTP legacy and explicit loopback routes reach both actual clients', async
     const route = explicit ? { connectAddress: '127.0.0.1' } : {};
     const profile = decodeSessionProfile({ ...sessionProfile(directory), origin, ...route });
     assert.equal((await (await createSessionClient(profile)).status()).audio.kind, 'off');
-    const bridge = decodePeripheralBridgeConfig({ version: 1, origin, ...route, tokenFile: join(directory, 'token'),
-      helperExecutable: '/no-helper-must-run', sdkChannel: 1, bindingRevision: 1, jiggle: { minimumTravel: 10, minimumReversal: 2 } });
+    const bridge = decodePeripheralBridgeConfig({ version: 2, origin, ...route, tokenFile: join(directory, 'token'),
+      helperExecutable: '/no-helper-must-run', inputMap, bindingRevision: 1, jiggle: { minimumTravel: 10, minimumReversal: 2 } });
     await assert.rejects(runPeripheralBridge(bridge, new AbortController().signal), /Enable hardware audio/);
     for (const request of requests.slice(-2)) { assert.equal(request.headers.host, new URL(origin).host); assert.equal(request.headers.origin, origin); }
   }
