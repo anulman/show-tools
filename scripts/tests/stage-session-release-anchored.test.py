@@ -384,8 +384,7 @@ class AnchoredStagingTests(unittest.TestCase):
         self.loader.stop()
         try:
             old = self.root / 'pre-catalog-validator.py'
-            current = subprocess.check_output(['git', 'show',
-                '4ecf9c3ee866b20c115d73d93f45816f24b0925e:scripts/stage-session-release.py'], cwd=SCRIPTS)
+            current = (SCRIPTS / 'tests/fixtures/stage-session-release-4fd35fce.py.fixture').read_bytes()
             legacy = current.replace(b'    "lib/peripherals/host/linux_input_map.h",\n', b'')
             for data, expected in ((current, anchored.PRE_CATALOG_VALIDATOR_SHA256),
                                    (legacy, anchored.LEGACY_VALIDATOR_SHA256)):
