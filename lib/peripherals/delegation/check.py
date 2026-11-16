@@ -49,20 +49,13 @@ TARGET = {'id': 'proxmox/anulman/show-tools-peripheral',
              'connectAddress': '100.93.139.99',
              'tokenFile': '/home/anulman/.config/show-tools/credentials/token',
              'caFile': None},
- 'peripheralAssignment': {'usbVendor': 'd209',
-                          'usbProduct': '0410',
-                          'reportedSerial': '4',
-                          'serialIsAuthenticatedUnique': False,
-                          'buttonKey': 'escape',
-                          'linuxKeyCode': 1,
-                          'hidUsagePage': 7,
-                          'hidButtonUsage': 41,
-                          'relativeYUsage': 49,
-                          'logicalLed': 1,
-                          'sdkChannel': 0,
-                          'inputAccess': 'evdev-read-only',
-                          'outputAccess': 'validated-brightness-only-hidraw',
-                          'preserveEnableMasks': True}}
+}
+ASSIGNMENT = {'mapVersion': 2, 'usbVendor': 'd209', 'usbProduct': '0410',
+ 'reportedSerial': '4', 'serialIsAuthenticatedUnique': False,
+ 'inputAccess': 'evdev-read-only',
+ 'outputAccess': 'validated-brightness-only-hidraw', 'preserveEnableMasks': True}
+PHYSICAL_CONTROLS = {'blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'}
+
 ARTIFACT_ORIGIN = {'scheme': 'http',
  'host': '100.91.87.3',
  'port': 18742,
@@ -102,7 +95,7 @@ CONSTRAINTS = {'requireReviewedImmutableArtifacts': True,
  'configureInitialFiles': 'create-only-if-signed-old-pin-null',
  'stopScope': 'named-peripheral-service-only-with-owned-output-release',
  'runtimeAuthority': 'fresh-physical-inputs-and-explicit-non-triggering-housekeeping-only',
- 'attachmentHousekeeping': {'releaseControl': {'id': 'cueButton', 'value': 0},
+ 'attachmentHousekeeping': {'inputProtocol': 'explicit-source-attach-and-exact-owner-revoke-v2',
                            'releaseWhen': 'initial-attachment-or-cleanup-only',
                            'jiggleConfiguration': 'validated-profile-while-prepared-stopped-or-authoritative-identical-running-noop',
                            'requiredFences': 'reviewed-native-epoch-session-sequence-held'},
@@ -157,6 +150,82 @@ def integer(value, minimum, maximum):
     return type(value) is int and minimum <= value <= maximum
 
 
+def validate_input_map(value):
+    """The Linux subset of PeripheralInputMapSchema; no musical bindings."""
+    require(type(value) is dict, 'explicit version-two input map required')
+    fields(value, 'sources switches leds confirmWiring' + (' axis' if 'axis' in value else ''))
+    require(type(value['confirmWiring']) is bool, 'explicit wiring confirmation required')
+    sources, switches, leds = value['sources'], value['switches'], value['leds']
+    require(type(sources) is list and 1 <= len(sources) <= 8, 'bounded Linux sources required')
+    require(type(switches) is list and len(switches) <= 6, 'bounded physical switches required')
+    require(type(leds) is list and len(leds) <= 6, 'bounded LEDs required')
+    require(switches or 'axis' in value, 'explicit inputs required')
+    require(not leds or value['confirmWiring'] is True, 'confirmed LED wiring required')
+    declared, selectors = {}, set()
+    for source in sources:
+        fields(source, 'kind id interfaceNumber eventTypes keyCodes relativeAxes')
+        require(source['kind'] == 'linux' and matches(re.compile(r'[A-Za-z0-9_-]{1,32}\Z'), source['id'])
+                and integer(source['interfaceNumber'], 0, 255), 'explicit Linux selector required')
+        require(source['id'] not in declared, 'duplicate input source')
+        for name in ('eventTypes', 'keyCodes', 'relativeAxes'):
+            codes = source[name]
+            require(type(codes) is list and len(codes) <= 1024
+                    and all(integer(code, 0, 65535) for code in codes)
+                    and all(left < right for left, right in zip(codes, codes[1:])),
+                    'sorted unique Linux capabilities required')
+        signature = canonical({key: source[key] for key in source if key != 'id'})
+        require(signature not in selectors, 'duplicate source selector')
+        selectors.add(signature)
+        declared[source['id']] = source
+    controls, raw_inputs, used = set(), set(), set()
+    inputs = []
+    for switch in switches:
+        fields(switch, 'controlId sourceId type code')
+        control = switch['controlId']
+        require(type(control) is str and control in PHYSICAL_CONTROLS and control not in controls,
+                'unique physical switch required')
+        controls.add(control)
+        inputs.append((switch, False))
+    if 'axis' in value:
+        fields(value['axis'], 'sourceId type code')
+        inputs.append((value['axis'], True))
+    for item, axis in inputs:
+        require(type(item['sourceId']) is str and item['sourceId'] in declared,
+                'input source not declared')
+        source = declared[item['sourceId']]
+        require(integer(item['type'], 0, 65535) and integer(item['code'], 0, 65535)
+                and item['type'] == (2 if axis else 1)
+                and item['type'] in source['eventTypes']
+                and item['code'] in source['relativeAxes' if axis else 'keyCodes'],
+                'input absent from Linux capabilities')
+        signature = (item['sourceId'], item['type'], item['code'])
+        require(signature not in raw_inputs, 'aliased physical inputs')
+        raw_inputs.add(signature)
+        used.add(item['sourceId'])
+    require(used == set(declared), 'unused input source')
+    controls, channels = set(), set()
+    for led in leds:
+        fields(led, 'controlId sdkChannel')
+        require(type(led['controlId']) is str and led['controlId'] in PHYSICAL_CONTROLS
+                and led['controlId'] not in controls and integer(led['sdkChannel'], 0, 95)
+                and led['sdkChannel'] not in channels, 'unique LED identity and SDK channel required')
+        controls.add(led['controlId'])
+        channels.add(led['sdkChannel'])
+    return value
+
+
+def validate_assignment(value):
+    fields(value, ' '.join(ASSIGNMENT) + ' inputMap')
+    require(canonical({key: value[key] for key in ASSIGNMENT}) == canonical(ASSIGNMENT),
+            'unsupported peripheral assignment')
+    input_map = validate_input_map(value['inputMap'])
+    require({item['controlId'] for item in input_map['switches']} == PHYSICAL_CONTROLS
+            and 'axis' in input_map
+            and {item['controlId'] for item in input_map['leds']} == {'blue', 'yellow', 'red', 'green'},
+            'Complete six-switch, spinner and four-arcade-LED assignment required')
+    return value
+
+
 def protected_file(path, limit, owner=0):
     path = Path(path)
     require(path.is_absolute(), 'canonical path required')
@@ -196,7 +265,10 @@ def validate_grant(raw, checker_bytes, signer_bytes):
     require(principal['sshKeyFingerprint'] == 'SHA256:' + base64.b64encode(hashlib.sha256(key_blob).digest()).decode().rstrip('='), 'key fingerprint mismatch')
     expected_signers = f'{PRINCIPAL} namespaces="{NAMESPACE}" {principal["sshPublicKey"]}\n'.encode()
     require(signer_bytes == expected_signers, 'signer policy mismatch')
-    require(canonical(grant['target']) == canonical(TARGET), 'unsupported peripheral target')
+    target = grant['target']
+    fields(target, ' '.join(TARGET) + ' peripheralAssignment')
+    require(canonical({key: target[key] for key in TARGET}) == canonical(TARGET), 'unsupported peripheral target')
+    validate_assignment(target['peripheralAssignment'])
     require(type(grant['allowedActions']) is list and len(grant['allowedActions']) == len(set(grant['allowedActions']))
             and set(grant['allowedActions']) <= ACTIONS, 'unsupported action policy')
     require(canonical(grant['artifactOrigin']) == canonical(ARTIFACT_ORIGIN), 'unsupported artifact policy')
@@ -246,7 +318,7 @@ def validate_payload(payload_bytes, grant, grant_sha, request_id, now):
     for key in ('profileSha256', 'unitSha256', 'runnerSha256', 'helperSha256', 'manifestSha256',
                 'sourceReviewSha256', 'planSha256', 'peripheralAssignmentSha256'):
         require(matches(SHA, payload[key]), 'invalid content digest')
-    require(payload['peripheralAssignmentSha256'] == sha(canonical(TARGET['peripheralAssignment'])), 'peripheral assignment mismatch')
+    require(payload['peripheralAssignmentSha256'] == sha(canonical(grant['target']['peripheralAssignment'])), 'peripheral assignment mismatch')
     for key in ('oldProfileSha256', 'oldUnitSha256'):
         require(matches(SHA, payload[key]) or (payload['action'] == 'configure' and payload[key] is None),
                 'old file digest or configure-only absence required')

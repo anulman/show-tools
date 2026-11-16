@@ -107,6 +107,19 @@ def active_grant(inactive):
     require(type(value.get('active')) is bool and value['active'] is False and
             type(value.get('version')) is int and value['version'] == 1 and
             value.get('grantId') == 'show-tools-peripheral-host-user-v1', 'Initial inactive grant required')
+    assignment = value.get('target', {}).get('peripheralAssignment', {})
+    require(type(assignment.get('mapVersion')) is int and assignment['mapVersion'] == 2
+            and type(assignment.get('inputMap')) is dict,
+            'Reviewed explicit version-two installation map required')
+    input_map = assignment['inputMap']
+    require(type(input_map.get('switches')) is list and type(input_map.get('leds')) is list
+            and all(type(item) is dict for item in input_map['switches'] + input_map['leds'])
+            and {item.get('controlId') for item in input_map['switches']}
+                == {'blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'}
+            and len(input_map['switches']) == 6 and len(input_map['leds']) == 4
+            and {item.get('controlId') for item in input_map['leds']} == {'blue', 'yellow', 'red', 'green'}
+            and type(input_map.get('axis')) is dict and input_map.get('confirmWiring') is True,
+            'Complete six-switch, spinner and four-arcade-LED assignment required')
     value['active'] = True
     return (json.dumps(value, indent=2) + '\n').encode()
 

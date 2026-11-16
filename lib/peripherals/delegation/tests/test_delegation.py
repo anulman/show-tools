@@ -30,6 +30,19 @@ check = load('delegation_check', 'check.py')
 client = load('delegation_client', 'sign.py')
 
 
+def synthetic_map():
+    return {'sources': [{'kind': 'linux', 'id': 'synthetic-keys', 'interfaceNumber': 0,
+                         'eventTypes': [0, 1], 'keyCodes': [30, 31, 32, 33, 34, 35], 'relativeAxes': []},
+                        {'kind': 'linux', 'id': 'synthetic-motion', 'interfaceNumber': 2,
+                         'eventTypes': [0, 2], 'keyCodes': [], 'relativeAxes': [1]}],
+            'switches': [{'controlId': control, 'sourceId': 'synthetic-keys', 'type': 1, 'code': 30 + index}
+                         for index, control in enumerate(('blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'))],
+            'axis': {'sourceId': 'synthetic-motion', 'type': 2, 'code': 1},
+            'leds': [{'controlId': control, 'sdkChannel': index}
+                     for index, control in enumerate(('blue', 'yellow', 'red', 'green'))],
+            'confirmWiring': True}
+
+
 class Delegation(unittest.TestCase):
     def test_fixed_target_assignment_policy_and_lifecycle_pins(self):
         for key in ('profileSha256', 'unitSha256', 'runnerSha256', 'helperSha256',
@@ -54,7 +67,7 @@ class Delegation(unittest.TestCase):
             lambda value: value['constraints'].update(managerRestartPolicy='on-failure'),
             lambda value: value['constraints'].update(audioLifecycleAllowed=True),
             lambda value: value['constraints'].update(syntheticMusicalStartStopAllowed=True),
-            lambda value: value['constraints']['attachmentHousekeeping']['releaseControl'].update(value=1),
+            lambda value: value['constraints']['attachmentHousekeeping'].update(inputProtocol='arbitrary-controls'),
             lambda value: value['constraints']['attachmentHousekeeping'].update(jiggleConfiguration='any-running-change'),
             lambda value: value['constraints'].update(unitEnableAllowed=True),
             lambda value: value['constraints'].update(devicePermissionChangesAllowed=True),
@@ -67,10 +80,93 @@ class Delegation(unittest.TestCase):
         with self.assertRaises(check.Rejected):
             self.candidate(self.message(namespace='show-tools-deploy-v1'))
 
+    def test_explicit_six_control_map_is_preserved_and_not_a_musical_binding(self):
+        assignment = self.grant['target']['peripheralAssignment']
+        self.assertEqual(check.validate_assignment(assignment)['inputMap'], synthetic_map())
+        self.assertEqual(self.candidate()['pins']['peripheralAssignmentSha256'],
+                         check.sha(check.canonical(assignment)))
+        for update in (
+            lambda value: value.update(inputBindings=[]),
+            lambda value: value['switches'][0].update(target={'kind': 'panic'}),
+            lambda value: value['switches'][0].update(controlId='cueButton'),
+            lambda value: value['leds'][0].update(controlId='knob'),
+        ):
+            changed = synthetic_map()
+            update(changed)
+            with self.assertRaises(check.Rejected):
+                check.validate_input_map(changed)
+
+    def test_strict_linux_selector_and_physical_map_boundaries(self):
+        changes = (
+            lambda value: value.update(sources=[]),
+            lambda value: value.update(sources=value['sources'] * 5),
+            lambda value: value['sources'][0].update(kind='hid'),
+            lambda value: value['sources'][0].update(id=''),
+            lambda value: value['sources'][0].update(id='wild*'),
+            lambda value: value['sources'][0].update(id='a' * 33),
+            lambda value: value['sources'][0].update(interfaceNumber=True),
+            lambda value: value['sources'][0].update(interfaceNumber=256),
+            lambda value: value['sources'][0].update(keyCodes=[31, 30]),
+            lambda value: value['sources'][0].update(keyCodes=[30, 30]),
+            lambda value: value['sources'][0].update(keyCodes=[True]),
+            lambda value: value['sources'][0].update(keyCodes=[65536]),
+            lambda value: value['sources'][0].update(keyCodes=list(range(1025))),
+            lambda value: value['sources'][0].update(eventPath='/dev/input/event12'),
+            lambda value: value['sources'][1].update(id='synthetic-keys'),
+            lambda value: value['sources'].append(dict(value['sources'][0], id='alias')),
+            lambda value: value['switches'].append(value['switches'][0]),
+            lambda value: value['switches'][1].update(controlId='blue'),
+            lambda value: value['switches'][1].update(code=30),
+            lambda value: value['switches'][0].update(sourceId='absent'),
+            lambda value: value['switches'][0].update(type=2),
+            lambda value: value['switches'][0].update(code=99),
+            lambda value: value['axis'].update(type=1),
+            lambda value: value['axis'].update(code=0),
+            lambda value: value.pop('axis'),
+            lambda value: value.update(confirmWiring=False),
+            lambda value: value.update(confirmWiring=1),
+            lambda value: value['leds'][0].update(sdkChannel=True),
+            lambda value: value['leds'][0].update(sdkChannel=96),
+            lambda value: value['leds'][1].update(sdkChannel=0),
+            lambda value: value['leds'][1].update(controlId='blue'),
+        )
+        for index, change in enumerate(changes):
+            with self.subTest(index=index):
+                changed = synthetic_map()
+                change(changed)
+                with self.assertRaises(check.Rejected):
+                    check.validate_input_map(changed)
+
+    def test_null_legacy_and_partial_assignments_cannot_be_admitted(self):
+        for replacement in (None, {'buttonKey': 'escape', 'sdkChannel': 0}):
+            grant = copy.deepcopy(self.grant)
+            grant['target']['peripheralAssignment']['inputMap'] = replacement
+            with self.assertRaises(check.Rejected):
+                check.validate_grant(check.canonical(grant), self.checker, self.signer)
+        for field in ('switches', 'leds'):
+            grant = copy.deepcopy(self.grant)
+            grant['target']['peripheralAssignment']['inputMap'][field].pop()
+            with self.assertRaisesRegex(check.Rejected, 'Complete six-switch'):
+                check.validate_grant(check.canonical(grant), self.checker, self.signer)
+
+    def test_changed_observed_map_requires_new_root_grant_and_new_signed_request(self):
+        changed = copy.deepcopy(self.grant)
+        changed['target']['peripheralAssignment']['inputMap']['leds'][0]['sdkChannel'] = 4
+        changed_raw = check.canonical(changed)
+        check.validate_grant(changed_raw, self.checker, self.signer)
+        with self.assertRaisesRegex(check.Rejected, 'current grant mismatch'):
+            self.candidate(grant=changed_raw)
+        plan = dict(self.plan, grantSha256=check.sha(changed_raw))
+        with self.assertRaisesRegex(check.Rejected, 'peripheral assignment mismatch'):
+            self.candidate(self.message(plan), grant=changed_raw)
+        plan['peripheralAssignmentSha256'] = check.sha(check.canonical(changed['target']['peripheralAssignment']))
+        self.assertFalse(self.candidate(self.message(plan), grant=changed_raw)['executable'])
+
     def setUp(self):
         self.now = int(time.time())
         self.grant = json.loads((ROOT / 'grant.inactive.json').read_bytes())
         self.grant['active'] = True
+        self.grant['target']['peripheralAssignment']['inputMap'] = synthetic_map()
         self.grant['principal']['sshPublicKey'] = self.public_key
         key_blob = base64.b64decode(self.public_key.split()[1])
         self.grant['principal']['sshKeyFingerprint'] = 'SHA256:' + base64.b64encode(hashlib.sha256(key_blob).digest()).decode().rstrip('=')
