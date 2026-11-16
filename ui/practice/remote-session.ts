@@ -1,4 +1,5 @@
 import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
+import { HardwareKeyRejectedError } from './hardware-auth.js';
 import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
 import { decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome } from './remote-schema.js';
 import type { DeskView, NativePerformance, NativeTarget } from '../../lib/remote-performance/session-schema.js';
@@ -25,6 +26,7 @@ export class RemoteDesk {
   private constructor(private readonly token: string, private readonly sessionId: string, private latest: DeskView) { this.updateEndpoint(); }
   static async connect(token: string) {
     const response = await fetch('/api/session', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+    if (response.status === 401 || response.status === 403) throw new HardwareKeyRejectedError();
     if (!response.ok) throw new Error(`Remote desk failed (${response.status})`);
     const bootstrap = decodeDeskBootstrap(await readJson(response));
     return new RemoteDesk(token, bootstrap.sessionId, bootstrap.view);
