@@ -389,3 +389,82 @@ test('readback waits only for already-started exact close cleanup and never disp
   assert.equal((await readback).kind, 'retired');
   assert.equal(host.calls.filter(command => command.command === 'inputRevoke').length, 2, 'readback never starts an additional revoke');
 });
+
+test('only a closed owner with no recorded intent can be forgotten; late admissions stay rejected', async () => {
+  const host = inputHost(), registry = new InputProducerRegistry(host.controller);
+  const empty = {};
+  assert.equal(registry.isClosedAndEmpty(empty), false);
+  await registry.close(empty);
+  assert.equal(registry.isClosedAndEmpty(empty), true);
+  assert.equal((await registry.command(empty, host.target, clientAttach())).outcome, 'rejected');
+  assert.equal(host.calls.length, 0);
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const pendingRegistry = new InputProducerRegistry({ ...host.controller, async command(target, input) { await blocked; return host.controller.command(target, input); } });
+  const pendingOwner = {}, pendingCommand = clientAttach();
+  const admission = pendingRegistry.command(pendingOwner, host.target, pendingCommand);
+  const closing = pendingRegistry.close(pendingOwner);
+  assert.equal(pendingRegistry.isClosedAndEmpty(pendingOwner), false);
+  assert.equal((await pendingRegistry.command(pendingOwner, host.target, clientAttach())).outcome, 'rejected');
+  release(); await admission; await closing;
+  assert.equal(pendingRegistry.isClosedAndEmpty(pendingOwner), false);
+  const settled = {}, rejected = { ...clientAttach(), args: { ...clientAttach().args, bindingGeneration: 99 } };
+  await registry.command(settled, host.target, rejected); await registry.close(settled);
+  assert.equal(registry.status(settled, rejected.args.intentId).kind, 'retired');
+  assert.equal(registry.isClosedAndEmpty(settled), false, 'settled pre-admission identity is retained even with no native lease');
+  const unknownHost = inputHost(); unknownHost.unknownAttach();
+  const uncertain = new InputProducerRegistry(unknownHost.controller), owner = {}, command = clientAttach();
+  await uncertain.command(owner, unknownHost.target, command); await uncertain.close(owner);
+  assert.deepEqual(uncertain.status(owner, command.args.intentId), { kind: 'unknown' });
+  assert.equal(uncertain.isClosedAndEmpty(owner), false);
+});
+
+test('empty reconnect churn preserves unknown and settled original-owner readback and anti-replay', async () => {
+  const host = inputHost(), token = 'c'.repeat(32), origin = 'http://127.0.0.1:9999';
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: '.' }, host.controller);
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const base = `http://127.0.0.1:${address.port}`, headers = { authorization: `Bearer ${token}`, origin, 'content-type': 'application/json' };
+  const decodeSession = Schema.decodeUnknownSync(Schema.Struct({ sessionId: Schema.NonEmptyString, inputOwnerToken: Schema.NonEmptyString }));
+  const connect = async () => {
+    const response = await fetch(`${base}/api/session`, { headers });
+    assert.equal(response.status, 200);
+    return decodeSession(await response.json());
+  };
+  const close = async (session: ReturnType<typeof decodeSession>) => {
+    const abort = new AbortController();
+    const stream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': session.sessionId }, signal: abort.signal });
+    await stream.body!.getReader().read(); abort.abort();
+    await new Promise(resolve => setTimeout(resolve, 2));
+  };
+  const send = async (sessionId: string, sequence: number, command: object) => fetch(`${base}/api/command`, {
+    method: 'POST', headers, body: JSON.stringify({ sessionId, sequence, target: host.target, ...command }),
+  });
+  const status = async (inputOwnerToken: string, intentId: string) => decodeInputIntentStatus(await (await fetch(`${base}/api/input-intent-status`, {
+    method: 'POST', headers, body: JSON.stringify({ inputOwnerToken, intentId }),
+  })).json());
+  try {
+    const settledOwner = await connect(), settled = clientAttach();
+    assert.equal((await (await send(settledOwner.sessionId, 1, settled)).json()).outcome, 'applied');
+    await send(settledOwner.sessionId, 2, { command: 'inputRevoke', args: { kind: 'physical' } });
+    await close(settledOwner);
+    const before = await status(settledOwner.inputOwnerToken, settled.args.intentId);
+    assert.equal(before.kind, 'retired');
+    host.unknownAttach();
+    const unknownOwner = await connect(), unknown = clientAttach();
+    assert.equal((await (await send(unknownOwner.sessionId, 1, unknown)).json()).outcome, 'unknown');
+    await close(unknownOwner);
+    for (let index = 0; index < 140; index++) await close(await connect());
+    assert.deepEqual(await status(settledOwner.inputOwnerToken, settled.args.intentId), before);
+    assert.deepEqual(await status(unknownOwner.inputOwnerToken, unknown.args.intentId), { kind: 'unknown' });
+    assert.equal((await send(settledOwner.sessionId, 3, settled)).status, 409);
+    assert.equal(host.calls.filter(command => command.command === 'inputAttach').length, 2);
+    const decodeProof = Schema.decodeUnknownSync((await import('../session-schema.js')).NativeEngineRetirementProofSchema);
+    host.controller.confirmedRetirement = () => decodeProof({ kind: 'old-engine-ended', target: host.target, serverEpoch: host.view.serverEpoch, retirementDeskRevision: '10' });
+    const recovered = await status(unknownOwner.inputOwnerToken, unknown.args.intentId);
+    assert.equal(recovered.kind, 'retired', 'unknown owner token and exact original intent must survive empty namespace reclamation');
+    if (recovered.kind === 'retired') assert.equal(recovered.proof.kind, 'old-engine-ended');
+    assert.deepEqual(await status(settledOwner.inputOwnerToken, settled.args.intentId), before);
+    assert.equal(host.calls.length, 4, 'readback and empty churn cannot dispatch native work');
+  } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
+});

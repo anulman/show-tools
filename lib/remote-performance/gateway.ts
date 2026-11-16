@@ -32,7 +32,7 @@ export interface GatewayConfig {
 }
 
 export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; tuner?: TunerState; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
-type Session = { highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
+type Session = { readonly inputOwnerToken: string; highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
 type InputIntent = { target: NativeTarget; kindOfProducer: InputAttach['kind']; bindingGeneration: number; request: string; status: InputIntentStatus; result: Promise<InputAttachOutcome> };
 type InputLease = InputAttach & { intent: InputIntent; target: NativeTarget; status: 'pending' | 'active' | 'quarantined'; pending: Promise<InputAttachOutcome>; revoking?: Promise<NativeOutcome> };
 
@@ -60,6 +60,9 @@ export class InputProducerRegistry {
       if (lease.revoking) await lease.revoking;
     }
     return this.status(owner, intentId);
+  }
+  isClosedAndEmpty(owner: object) {
+    return this.closed.has(owner) && !this.intents.get(owner)?.size && !this.owners.has(owner);
   }
   private readonly owners = new Map<object, Map<InputAttach['kind'], InputLease>>();
   private readonly slots = new Map<number, InputLease>();
@@ -253,6 +256,11 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 	const sessions = new Map<string, Session>();
 	const inputs = new InputProducerRegistry(controller);
   const inputOwners = new Map<string, { owner: Session; reads: number }>();
+  const closeSession = (sessionId: string, session: Session) => {
+    sessions.delete(sessionId);
+    void inputs.close(session);
+    if (inputs.isClosedAndEmpty(session)) inputOwners.delete(session.inputOwnerToken);
+  };
   const decodeIntentStatusRequest = Schema.decodeUnknownSync(InputIntentStatusRequestSchema, { onExcessProperty: 'error' });
 	const clients = new Set<ServerResponse>();
 	const send = (client: ServerResponse, data: Buffer) => {
@@ -288,11 +296,11 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 				const snapshot = controller.snapshot();
 				if (sessions.size >= MAX_SESSIONS || inputOwners.size >= MAX_SESSIONS) return json(response, 503, { error: 'Session capacity reached' });
 				const sessionId = randomBytes(32).toString('hex');
-				const session: Session = { highWater: 0, inFlight: 0, attached: false, results: new Map() };
         const inputOwnerToken = randomBytes(32).toString('hex');
+				const session: Session = { inputOwnerToken, highWater: 0, inFlight: 0, attached: false, results: new Map() };
         inputOwners.set(inputOwnerToken, { owner: session, reads: 0 });
 				sessions.set(sessionId, session);
-				setTimeout(() => { if (!session.attached) { sessions.delete(sessionId); void inputs.close(session); } }, 30_000).unref();
+				setTimeout(() => { if (!session.attached) closeSession(sessionId, session); }, 30_000).unref();
 				return json(response, 200, { view: snapshot, sessionId, inputOwnerToken });
 			}
       if (request.method === 'POST' && path === '/api/input-intent-status') {
@@ -313,7 +321,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController)
 				session.attached = true;
 				response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
 				clients.add(response);
-				request.on('close', () => { clients.delete(response); sessions.delete(sessionId as string); void inputs.close(session); });
+				request.on('close', () => { clients.delete(response); closeSession(sessionId as string, session); });
 				response.on('error', () => { clients.delete(response); response.destroy(); });
 				const snapshot = controller.snapshot();
 				if (snapshot) send(response, Buffer.from(`data: ${JSON.stringify({ type: 'desk', view: snapshot })}\n\n`));
