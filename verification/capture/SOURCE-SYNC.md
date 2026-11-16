@@ -172,3 +172,7 @@ The full pinned rerun passed at `/private/tmp/capture-owner-fixed-final/receipt.
 ## GNU standard-library dependency at 9050285
 
 The old gate rejected the changed `input_router.h` source hash before model execution. The only covered-source delta from `7740b3b` is an explicit `<iterator>` include for the existing `std::begin` and `std::end` array operations. GNU libstdc++ requires that declaration; the Mac standard library had exposed it transitively. No router body, capture operation, model action, invariant, bound, native scenario or mutation changes. The separate fixture rename avoids GNU's `linux` macro and is outside this proof. This refresh preserves the existing finite capture claim and does not add a producer-ownership proof.
+
+## All-control held-light image
+
+Reviewed `0f178bc` against source sync `9050285`. The only covered-source change is the physical light-image loop in `pf_light_output`. It now publishes unbound and utility controls with an off baseline plus their independent held override. Cue-bound light calculations preserve recording, warning and playing precedence. Capture ownership, admission, publication, bank selection, completion and Stop are untouched. The Capture model and witnesses remain unchanged; this refresh does not claim proof of LED behavior or physical acceptance.

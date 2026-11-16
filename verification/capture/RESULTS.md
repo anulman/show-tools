@@ -1,5 +1,11 @@
 # Capture verification result
 
+## Independent held-light maintenance
+
+Outcome: **updated** at `0f178bc`. The source-fence rejection correctly identified the changed light-image loop. Source review confirms that capture state and serialized admission are unchanged. The complete pinned rerun passes 201,097 generated and 11,894 distinct main states, 782 display states and 102 overview states. All six model mutants, seven actual-source mutants and twelve pristine/restored native scenarios pass their expected checks. Receipt: `/private/tmp/capture-six-control-final-unconfined/receipt.json`.
+
+All nine current statechart interpretations have no unchecked rules and preserve the expected mutant counterexamples. Reports: `/private/tmp/capture-six-control-statecharts/outcomes.json`. The first sandboxed TLC attempt could not open its local RMI socket; the identical pinned proof passed after that harness restriction was removed. No property or bound changed. Hardware feedback is outside the Capture claim and has separate native/WASM witnesses.
+
 ## GNU header portability maintenance
 
 Outcome: **updated** at `9050285`. Adding the explicit `<iterator>` include changes no capture semantics. The original gate rejected the header hash before execution. The complete pinned rerun passes 201,097 generated and 11,894 distinct main states, 782 display states and 102 overview states. All six model mutants, seven actual-source mutants and twelve pristine/restored native scenarios pass their expected checks. Receipt: `/private/tmp/capture-portability-final/receipt.json`.
