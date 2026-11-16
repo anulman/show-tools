@@ -4,7 +4,10 @@ import type { CompiledSong } from './compiled-song.js';
 import { PF } from './wasm-abi.js';
 
 export function encodeCompiledProgram(input: unknown): Float64Array {
-  const song = decodeCompiledSong(input);
+  return encodeProgram(decodeCompiledSong(input));
+}
+
+function encodeProgram(song: CompiledSong): Float64Array {
   if (!song.executable || song.diagnostics.some(d => d.severity === 'error')) throw new Error('Resolve the song inspection errors before loading audio.');
   if (!song.cueWindow) throw new Error('The song has no approved cue window.');
   const voices = new Map(song.voices.map((voice, index) => [voice.id, index]));
@@ -72,10 +75,21 @@ export function encodeCompiledProgram(input: unknown): Float64Array {
   return Float64Array.from(fields);
 }
 
-export function compiledProgramBytes(song: unknown): Uint8Array {
-  const program = encodeCompiledProgram(song);
+function programBytes(program: Float64Array): Uint8Array {
   const bytes = new Uint8Array(program.length * 8);
   const view = new DataView(bytes.buffer);
   program.forEach((value, index) => view.setFloat64(index * 8, value, true));
   return bytes;
+}
+
+export function decodeCompiledProgram(input: unknown):
+  | { kind: 'blocked'; song: CompiledSong }
+  | { kind: 'encoded'; song: CompiledSong; bytes: Uint8Array } {
+  const song = decodeCompiledSong(input);
+  if (!song.executable) return { kind: 'blocked', song };
+  return { kind: 'encoded', song, bytes: programBytes(encodeProgram(song)) };
+}
+
+export function compiledProgramBytes(input: unknown): Uint8Array {
+  return programBytes(encodeCompiledProgram(input));
 }
