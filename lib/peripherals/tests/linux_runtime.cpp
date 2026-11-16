@@ -53,7 +53,7 @@ struct Child {
     }
     for (auto& pair : inputs) close(pair[0]);
     close(led[1]); close(commands[0]); close(output[1]);
-    if (lights) clear_reports();
+    if (lights) levels(blue == InitialState::Held ? 255 : 0, 0);
     auto ready = line();
     require(ready.find("\"version\":2") != std::string::npos
       && ready.find("\"controlId\":\"blue\",\"state\":\"" + std::string(blue == InitialState::Held ? "held" : blue == InitialState::Released ? "released" : "unknown")) != std::string::npos
@@ -72,7 +72,8 @@ struct Child {
     require(read(led[0], bytes.data(), bytes.size()) == ssize_t(bytes.size()), "complete five-byte brightness report"); return bytes;
   }
   void level(unsigned channel, unsigned value) { require(report() == std::array<unsigned char, 5>{3, (unsigned char)channel, (unsigned char)value, 0, 0}, "brightness report addresses only explicitly mapped channel"); }
-  void clear_reports() { level(9, 0); level(12, 0); }
+  void levels(unsigned blue, unsigned yellow) { level(9, blue); level(12, yellow); }
+  void clear_reports() { levels(0, 0); }
   std::string line() {
     std::string value; char byte;
     do { require(available(output[0]), "runtime output arrives"); require(read(output[0], &byte, 1) == 1, "read runtime output"); value += byte; } while (byte != '\n');
@@ -101,22 +102,23 @@ struct Child {
 void independent_inputs() {
   Child child(InitialState::Held);
   child.event(0, EV_KEY, KEY_A, 1, 10);
-  child.event(1, EV_KEY, KEY_A, 1, 20); child.edge("yellow", true, 2);
+  child.event(1, EV_KEY, KEY_A, 1, 20); child.edge("yellow", true, 2); child.levels(255, 255);
   child.event(0, EV_KEY, KEY_A, 2, 30);
   child.event(0, EV_KEY, KEY_A, 0, 40);
-  child.edge("blue", false, 4);
+  child.edge("blue", false, 4); child.levels(0, 255);
   child.event(1, EV_KEY, KEY_A, 2, 50);
-  child.event(1, EV_KEY, KEY_A, 0, 60); child.edge("yellow", false, 6);
-  child.event(0, EV_KEY, KEY_A, 1, 70); child.edge("blue", true, 7);
+  child.event(1, EV_KEY, KEY_A, 0, 60); child.edge("yellow", false, 6); child.clear_reports();
+  child.event(0, EV_KEY, KEY_A, 1, 70); child.edge("blue", true, 7); child.levels(255, 0);
   child.event(0, EV_KEY, KEY_B, 1, 80);
-  child.event(0, EV_KEY, KEY_A, 0, 90); child.edge("blue", false, 9);
-  require(!child.available(child.led[0], 25), "raw keys and repeats never synthesize musical LED state");
+  child.event(0, EV_KEY, KEY_A, 0, 90); child.edge("blue", false, 9); child.clear_reports();
+  require(!child.available(child.led[0], 25), "repeats and unmapped keys produce no extra light writes");
   child.finish(0, SIGHUP); child.clear_reports();
   Child unknown(InitialState::Unknown);
   unknown.event(0, EV_KEY, KEY_A, 2, 10); unknown.event(0, EV_KEY, KEY_A, 1, 20);
+  unknown.levels(255, 0);
   require(!unknown.available(unknown.output[0], 25), "unknown or repeat cannot bypass release barrier");
-  unknown.event(0, EV_KEY, KEY_A, 0, 30); unknown.edge("blue", false, 3);
-  unknown.event(0, EV_KEY, KEY_A, 1, 40); unknown.edge("blue", true, 4);
+  unknown.event(0, EV_KEY, KEY_A, 0, 30); unknown.edge("blue", false, 3); unknown.clear_reports();
+  unknown.event(0, EV_KEY, KEY_A, 1, 40); unknown.edge("blue", true, 4); unknown.levels(255, 0);
   unknown.finish(0, SIGTERM); unknown.clear_reports();
 }
 void ordering_and_loss() {
@@ -124,6 +126,7 @@ void ordering_and_loss() {
   ordered.pause(); ordered.event(0, EV_KEY, KEY_A, 1, 200); ordered.event(1, EV_KEY, KEY_A, 1, 300); ordered.event(2, EV_REL, REL_X, -9, 100); ordered.resume();
   require(ordered.line().find("\"deltaY\":-9") != std::string::npos, "configured signed relative axis precedes later switches across three sources");
   ordered.edge("blue", true, 2); ordered.edge("yellow", true, 3);
+  ordered.levels(255, 0); ordered.levels(255, 255);
   ordered.finish(0); ordered.clear_reports();
   Child ambiguous;
   ambiguous.pause(); ambiguous.event(0, EV_KEY, KEY_A, 1, 100); ambiguous.event(1, EV_KEY, KEY_A, 1, 100); ambiguous.resume();
@@ -136,20 +139,20 @@ void ordering_and_loss() {
   Child disconnected; close(disconnected.inputs[1][1]); disconnected.inputs[1][1] = -1;
   require(disconnected.line().find("\"detached\"") != std::string::npos, "one removed input revokes entire mapped producer"); disconnected.finish(1); disconnected.clear_reports();
 }
-std::string light(unsigned sequence, bool both = true) {
+std::string light(unsigned sequence, bool both = true, double blue = .7, unsigned fence = 1) {
   std::array<double, PF_LIGHT_FIELDS> image{};
   image[PF_LIGHT_FORMAT] = 1; image[PF_LIGHT_GENERATION] = 1; image[PF_LIGHT_EPOCH] = 1;
   image[PF_LIGHT_SEQUENCE] = sequence; image[PF_LIGHT_RATE] = 48000; image[PF_LIGHT_COUNT] = both ? 2 : 1;
-  image[PF_LIGHT_SAMPLES] = 257; image[PF_LIGHT_SAMPLES + 1] = .7;
-  if (both) { image[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_FIELDS] = 258; image[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_FIELDS + 1] = 1; }
-  std::ostringstream command; command.precision(17); command << "light 100 7 1 1";
+  image[PF_LIGHT_SAMPLES] = 513; image[PF_LIGHT_SAMPLES + 1] = blue;
+  if (both) { image[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_FIELDS] = 514; image[PF_LIGHT_SAMPLES + PF_LIGHT_SAMPLE_FIELDS + 1] = .25; }
+  std::ostringstream command; command.precision(17); command << "light 100 7 1 " << fence;
   for (double value : image) command << ' ' << value;
   return command.str() + '\n';
 }
 void complete_images() {
   Child child;
   child.command("bind 100 7 1 1\n"); child.clear_reports();
-  child.command(light(1)); child.level(9, 179); child.level(12, 255);
+  child.command(light(1)); child.level(9, 179); child.level(12, 64);
   require(child.line().find("\"publication\":1") != std::string::npos, "full frame commits after both mapped brightness writes");
   child.command(light(2, false)); child.level(9, 179); child.level(12, 0);
   require(child.line().find("\"publication\":2") != std::string::npos, "absent logical output clears its independently mapped LED");
@@ -162,10 +165,34 @@ void complete_images() {
   require(input_only.line().find("\"publication\":1") != std::string::npos && !input_only.available(input_only.led[0], 25), "empty LED map binds and commits with no output FD or writes");
   input_only.event(1, EV_KEY, KEY_A, 1, 10); input_only.edge("yellow", true, 1); input_only.finish(0);
 }
+void idle_and_baseline_feedback() {
+  Child child;
+  child.event(0, EV_KEY, KEY_A, 1, 10); child.edge("blue", true, 1); child.levels(255, 0);
+  child.event(1, EV_KEY, KEY_A, 1, 20); child.edge("yellow", true, 2); child.levels(255, 255);
+  child.command("clear\n"); child.levels(255, 255);
+  child.event(0, EV_KEY, KEY_A, 0, 30); child.edge("blue", false, 3); child.levels(0, 255);
+  child.event(1, EV_KEY, KEY_A, 0, 40); child.edge("yellow", false, 4); child.clear_reports();
+  child.command("bind 100 7 1 1\n"); child.clear_reports();
+  child.command(light(1)); child.levels(179, 64); child.line();
+  child.event(0, EV_KEY, KEY_A, 1, 50); child.edge("blue", true, 5); child.levels(255, 64);
+  child.command(light(2, true, .35)); child.levels(255, 64); child.line();
+  child.event(0, EV_KEY, KEY_A, 0, 60); child.edge("blue", false, 6); child.levels(89, 64);
+  child.command("bind 100 7 1 2\n"); child.clear_reports();
+  child.command(light(3, true, .7, 2)); child.levels(179, 64); child.line();
+  child.command("clear 100 7 1 1\nbind 100 7 1 1\n" + light(4));
+  require(!child.available(child.led[0], 25), "stale attachment cannot clear, rebind or publish over successor baseline");
+  child.event(0, EV_KEY, KEY_A, 1, 70); child.edge("blue", true, 7); child.levels(255, 64);
+  child.command("clear 100 7 1 2\n"); child.levels(255, 0);
+  child.command(light(5, true, .7, 2));
+  require(!child.available(child.led[0], 25), "late native light while offline does not terminate helper or relight baseline");
+  child.event(0, EV_KEY, KEY_A, 0, 80); child.edge("blue", false, 8); child.clear_reports();
+  child.finish(0); child.clear_reports();
+}
+
 void startup_and_signal() {
   Child buffered(InitialState::Released, true, true);
   require(!buffered.available(buffered.output[0], 25), "pre-ready buffered input and pre-cutoff drop do not activate");
-  buffered.event(0, EV_KEY, KEY_A, 1, 30); buffered.edge("blue", true, 1); buffered.finish(0, SIGINT); buffered.clear_reports();
+  buffered.event(0, EV_KEY, KEY_A, 1, 30); buffered.edge("blue", true, 1); buffered.levels(255, 0); buffered.finish(0, SIGINT); buffered.clear_reports();
   Child signaled(InitialState::Released, true, false, true);
   signaled.finish(0, 0, true); signaled.clear_reports();
   Child malformed; malformed.command("bad-command\n");
@@ -173,6 +200,6 @@ void startup_and_signal() {
 }
 }
 int main() {
-  independent_inputs(); ordering_and_loss(); complete_images(); startup_and_signal();
+  independent_inputs(); ordering_and_loss(); complete_images(); idle_and_baseline_feedback(); startup_and_signal();
   std::puts("Linux v2 runtime pipe fixtures passed. No devices or audio opened.");
 }

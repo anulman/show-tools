@@ -39,6 +39,16 @@ using InitialStates = std::array<InitialState, physical_control_count>;
 // Parses all installation data before any adapter opens a device. Failure leaves out unchanged.
 bool parse_host_config(int argc, const char* const* argv, Platform platform, HostConfig& out, std::string& error);
 std::vector<pp_light_binding> light_bindings(const InputMap& map);
+class PhysicalFeedback {
+  const InitialStates& states_;
+  std::array<uint8_t, physical_control_count> baseline_{};
+public:
+  explicit PhysicalFeedback(InitialStates& states) : states_(states) {}
+  void clear_baseline();
+  void commit_baseline(const std::vector<LedBinding>& leds, const pp_light_delivery_frame& frame);
+  uint8_t level(PhysicalControl control) const;
+  uint8_t level(PhysicalControl control, uint8_t candidate_baseline) const;
+};
 bool emit_ready(std::ostream& out, double session, const InputMap& map, const InitialStates& states);
 bool emit_button(std::ostream& out, double session, double sequence, PhysicalControl control, bool down);
 bool emit_motion(std::ostream& out, double session, double sequence, double delta_y);
@@ -48,7 +58,9 @@ enum class Operation { Bind, Light, Clear, Quit };
 struct Command {
   Operation operation = Operation::Clear;
   pp_light_connection connection{};
+  bool scoped = false;
   std::array<double, PF_LIGHT_FIELDS> image{};
 };
+bool same_connection(const pp_light_connection& first, const pp_light_connection& second);
 bool parse_command(const std::string& line, Command& out);
 }

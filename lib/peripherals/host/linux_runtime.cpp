@@ -22,11 +22,13 @@ struct Host {
   double sequence = 0;
   bool bound = false, owns_output = false;
   InitialStates states;
+  PhysicalFeedback feedback;
+  pp_light_connection connection{};
   std::vector<pp_light_binding> bindings;
   std::unique_ptr<pp_inputs, decltype(&pp_destroy)> inputs{pp_create(), pp_destroy};
   std::unique_ptr<pp_light_delivery, decltype(&pp_light_delivery_destroy)> delivery{pp_light_delivery_create(), pp_light_delivery_destroy};
   Host(const LinuxHandles& h, const HostConfig& c, const InitialStates& initial)
-    : handles(h), config(c), states(initial), bindings(light_bindings(c.map)) {}
+    : handles(h), config(c), states(initial), feedback(states), bindings(light_bindings(c.map)) {}
   ~Host() { if (owns_output) clear(); }
   bool report(const uint8_t* bytes) {
     ssize_t sent;
@@ -43,22 +45,38 @@ struct Host {
     }
     return ok;
   }
+  bool render_feedback() {
+    for (const auto& led : config.map.leds) {
+      uint8_t bytes[PP_LED_REPORT_BYTES];
+      if (pp_ipac_led_report(led.sdk_channel, feedback.level(led.control), bytes) != PP_LED_REPORT_BYTES || !report(bytes)) return false;
+    }
+    return true;
+  }
+  bool clear_baseline() { feedback.clear_baseline(); return render_feedback(); }
   bool command(const Command& value) {
-    if (value.operation == Operation::Clear) { bound = false; return clear(); }
+    if (value.operation == Operation::Clear) {
+      if (value.scoped && (!bound || !same_connection(value.connection, connection))) return true;
+      bound = false; return clear_baseline();
+    }
     if (value.operation == Operation::Quit) { running = 0; return true; }
     if (value.connection.device_session != config.session) return false;
     if (value.operation == Operation::Bind) {
-      bound = false;
-      if (!clear() || pp_light_delivery_bind(delivery.get(), &value.connection, bindings.data(), uint32_t(bindings.size())) != 0) return false;
-      bound = true; return true;
+      if (value.connection.request_fence <= connection.request_fence) return true;
+      if (pp_light_delivery_bind(delivery.get(), &value.connection, bindings.data(), uint32_t(bindings.size())) != 0) return false;
+      connection = value.connection; bound = true; return clear_baseline();
     }
-    if (!bound) return false;
+    if (!bound) return true;
     pp_light_delivery_frame frame{};
     int result = pp_light_delivery_prepare(delivery.get(), &value.connection, value.image.data(), value.image.size(), &frame);
     if (result == PP_STALE) return true;
     if (result != 1) return false;
-    for (uint32_t index = 0; index < frame.count; ++index) if (!report(frame.reports[index])) return false;
+    for (uint32_t index = 0; index < frame.count; ++index) {
+      const auto& led = config.map.leds[index];
+      uint8_t bytes[PP_LED_REPORT_BYTES];
+      if (pp_ipac_led_report(led.sdk_channel, feedback.level(led.control, frame.reports[index][2]), bytes) != PP_LED_REPORT_BYTES || !report(bytes)) return false;
+    }
     if (pp_light_delivery_commit(delivery.get(), &frame) != 1) return false;
+    feedback.commit_baseline(config.map.leds, frame);
     std::cout << "{\"type\":\"delivered\",\"publication\":" << frame.publication << "}" << std::endl;
     return std::cout.good();
   }
@@ -71,6 +89,7 @@ struct Host {
       int edge = pp_key(inputs.get(), config.session, sequence, value.control, value.value);
       if (edge < 0) return false;
       states[value.control] = value.value ? InitialState::Held : InitialState::Released;
+      if (states[value.control] != prior && !render_feedback()) return false;
       // The engine received Ready's held/unknown barrier too. Its first release
       // must reach that engine even when the local latch has no admitted press.
       if (!value.value && prior != InitialState::Released)
@@ -128,7 +147,7 @@ int run_linux_host(const LinuxHandles& handles, const HostConfig& config, const 
   running = 1;
   std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGHUP, stop); std::signal(SIGPIPE, SIG_IGN);
   host.owns_output = true;
-  if (!host.clear()) return 1;
+  if (!host.render_feedback()) return 1;
   bool failed = !emit_ready(std::cout, config.session, config.map, initial), disconnected = false;
   std::string pending;
   LinuxInputOrder last;

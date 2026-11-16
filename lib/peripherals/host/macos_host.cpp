@@ -94,6 +94,8 @@ struct Host {
   std::vector<SelectedInput> selected;
   peripheral_host::InputMap map;
   peripheral_host::InitialStates states{};
+  peripheral_host::PhysicalFeedback feedback{states};
+  pp_light_connection connection{};
   std::unique_ptr<pp_inputs, decltype(&pp_destroy)> inputs{pp_create(), pp_destroy};
   std::unique_ptr<pp_light_delivery, decltype(&pp_light_delivery_destroy)> delivery{pp_light_delivery_create(), pp_light_delivery_destroy};
   double session = 0, sequence = 0;
@@ -114,25 +116,41 @@ struct Host {
     }
     return true;
   }
+  bool render_feedback() {
+    for (const auto& led : map.leds) {
+      uint8_t report[PP_LED_REPORT_BYTES];
+      if (pp_ipac_led_report(led.sdk_channel, feedback.level(led.control), report) != PP_LED_REPORT_BYTES || !write(report)) return false;
+    }
+    return true;
+  }
+  bool clear_baseline() { feedback.clear_baseline(); return render_feedback(); }
   bool command(const peripheral_host::Command& command) {
     using peripheral_host::Operation;
-    if (command.operation == Operation::Clear) { bound = false; return clear(); }
+    if (command.operation == Operation::Clear) {
+      if (command.scoped && (!bound || !peripheral_host::same_connection(command.connection, connection))) return true;
+      bound = false; return clear_baseline();
+    }
     if (command.operation == Operation::Quit) { running = 0; return true; }
     if (command.connection.device_session != session) return false;
     if (command.operation == Operation::Bind) {
       const auto bindings = peripheral_host::light_bindings(map);
-      bound = false;
-      if (!clear() || pp_light_delivery_bind(delivery.get(), &command.connection, bindings.data(), uint32_t(bindings.size())) != 0) return false;
-      bound = true; return true;
+      if (command.connection.request_fence <= connection.request_fence) return true;
+      if (pp_light_delivery_bind(delivery.get(), &command.connection, bindings.data(), uint32_t(bindings.size())) != 0) return false;
+      connection = command.connection; bound = true; return clear_baseline();
     }
-    if (!bound) return false;
+    if (!bound) return true;
     pp_light_delivery_frame frame{};
     int prepared = pp_light_delivery_prepare(delivery.get(), &command.connection,
       command.image.data(), command.image.size(), &frame);
     if (prepared == PP_STALE) return true;
     if (prepared != 1) return false;
-    for (uint32_t index = 0; index < frame.count; ++index) if (!write(frame.reports[index])) return false;
+    for (uint32_t index = 0; index < frame.count; ++index) {
+      const auto& led = map.leds[index];
+      uint8_t report[PP_LED_REPORT_BYTES];
+      if (pp_ipac_led_report(led.sdk_channel, feedback.level(led.control, frame.reports[index][2]), report) != PP_LED_REPORT_BYTES || !write(report)) return false;
+    }
     if (pp_light_delivery_commit(delivery.get(), &frame) != 1) return false;
+    feedback.commit_baseline(map.leds, frame);
     std::cout << "{\"type\":\"delivered\",\"publication\":" << frame.publication << "}" << std::endl;
     return true;
   }
@@ -155,7 +173,9 @@ void input(void* context, IOReturn status, void*, IOHIDValueRef value) {
     if (raw == 2) result = pp_rotate(host.inputs.get(), host.session, sequence, 0);
     else if (raw == 0 || raw == 1) {
       result = pp_key(host.inputs.get(), host.session, sequence, slot, int(raw));
+      const auto prior = host.states[slot];
       host.states[slot] = raw == 0 ? peripheral_host::InitialState::Released : peripheral_host::InitialState::Held;
+      if (host.states[slot] != prior && !host.render_feedback()) return;
     }
     if (result == PP_PRESS || result == PP_RELEASE || (result == PP_IGNORED && initial_release))
       emitted = peripheral_host::emit_button(std::cout, host.session, sequence, *selected->control, raw == 1);
@@ -313,7 +333,7 @@ int main(int argc, char** argv) {
         if (flags < 0 || fcntl(STDIN_FILENO, F_SETFL, flags | O_NONBLOCK) < 0) host.failed = true;
         if (output_flags < 0 || fcntl(STDOUT_FILENO, F_SETFL, output_flags | O_NONBLOCK) < 0) host.failed = true;
         std::signal(SIGINT, stop); std::signal(SIGTERM, stop); std::signal(SIGHUP, stop); std::signal(SIGPIPE, SIG_IGN);
-        if (!host.failed && host.clear() && peripheral_host::emit_ready(std::cout, host.session, host.map, host.states)) {
+        if (!host.failed && host.render_feedback() && peripheral_host::emit_ready(std::cout, host.session, host.map, host.states)) {
           std::string pending;
           while (running && !host.failed && std::cout.good()) {
             CFRunLoopRunInMode(kCFRunLoopDefaultMode, .005, false);
@@ -330,12 +350,14 @@ int main(int argc, char** argv) {
                 host.failed = true; break;
               }
               pending.erase(0, end + 1);
+              if (!running) break;
             }
             if (pending.size() > 16384) host.failed = true;
           }
-          if (!host.disconnected && !host.clear()) host.failed = true;
           result = host.failed || !std::cout.good() ? 1 : 0;
         }
+        if (!host.disconnected && !host.clear()) host.failed = true;
+        if (host.failed) result = 1;
         if (flags >= 0) fcntl(STDIN_FILENO, F_SETFL, flags);
         if (output_flags >= 0) fcntl(STDOUT_FILENO, F_SETFL, output_flags);
         for (auto device : opened) IOHIDDeviceUnscheduleFromRunLoop(device, CFRunLoopGetCurrent(), kCFRunLoopDefaultMode);

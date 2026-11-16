@@ -1171,13 +1171,16 @@ void pf_light_output(pf_engine* engine, double* out) {
       recording_rows = recording_rows || (!engine->compiled && recording(engine, row));
       playing_rows = playing_rows || channel[PF_CHANNEL_LOOPING] != 0;
     }
-    double physical_level = 0;
-    if (engine->inputs.physical_held(input)) physical_level = 1;
-    else if (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows)))
-      physical_level = .7 * (1 + std::cos(6.2831853071795864769 * clock[BT_S_PHASE])) / 2;
-    else if (playing_rows) physical_level = .7;
+    double baseline = 0;
+    if (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows)))
+      baseline = .7 * (1 + std::cos(6.2831853071795864769 * clock[BT_S_PHASE])) / 2;
+    else if (playing_rows) baseline = .7;
     auto* sample = image + PF_LIGHT_SAMPLES + light_count++ * PF_LIGHT_SAMPLE_FIELDS;
-    sample[PF_LIGHT_SAMPLE_ID] = PF_INPUT_LIGHT_BASE + input; sample[PF_LIGHT_SAMPLE_LEVEL] = physical_level;
+    sample[PF_LIGHT_SAMPLE_ID] = PF_INPUT_LIGHT_BASE + input;
+    sample[PF_LIGHT_SAMPLE_LEVEL] = engine->inputs.physical_held(input) ? 1 : baseline;
+    auto* baseline_sample = image + PF_LIGHT_SAMPLES + light_count++ * PF_LIGHT_SAMPLE_FIELDS;
+    baseline_sample[PF_LIGHT_SAMPLE_ID] = PF_LIGHT_PHYSICAL_BASELINE_BASE + input;
+    baseline_sample[PF_LIGHT_SAMPLE_LEVEL] = baseline;
   }
   image[PF_LIGHT_COUNT] = light_count;
   if (engine->light_sequence == 0 || std::memcmp(image, engine->light_image, sizeof(image))) {
