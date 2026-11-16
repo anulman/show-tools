@@ -1,8 +1,10 @@
 """Owned files/pipes only. No USB, input, HID, audio or service is accessed."""
 import importlib.util
+import hashlib
 import json
 import os
 from pathlib import Path
+import signal
 import stat
 import struct
 import subprocess
@@ -30,10 +32,265 @@ def decoded(value, micros=1000, device='owned-pipe', code=30):
 producer_spec = importlib.util.spec_from_file_location('publish_marker', SOURCE.with_name('publish_marker.py'))
 producer = importlib.util.module_from_spec(producer_spec)
 producer_spec.loader.exec_module(producer)
+supervisor_spec = importlib.util.spec_from_file_location('supervise_trial', SOURCE.with_name('supervise_trial.py'))
+supervisor = importlib.util.module_from_spec(supervisor_spec)
+supervisor_spec.loader.exec_module(supervisor)
 
 
 def write_marker(directory, op, trial='trial1', nonce='a' * 32):
     return producer.publish_marker(directory, op, trial, nonce)
+
+
+class SupervisorTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.root = Path(self.temp.name).resolve()
+        self.directory = self.root / 'trial'
+        self.directory.mkdir(mode=0o700)
+        self.observer = self.root / 'raw_keys.py'
+        self.publisher = self.root / 'publish_marker.py'
+        self.publisher.write_bytes(SOURCE.with_name('publish_marker.py').read_bytes())
+        self.publisher.chmod(0o600)
+
+    def tearDown(self):
+        self.temp.cleanup()
+
+    def fake(self, mode='complete'):
+        source = '''import argparse,json,os,signal,sys,time
+from pathlib import Path
+p=argparse.ArgumentParser();p.add_argument('--directory');p.add_argument('--trial');p.add_argument('--control-id');a=p.parse_args()
+d=Path(a.directory);mode=MODE
+f=os.open(d/'trial.ndjson',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
+base={'schemaVersion':2,'trialId':a.trial,'controlId':a.control_id}
+nonce='a'*32
+ready={**base,'type':'ready','nonce':nonce,'captureStarted':False,'readyExpiresMonotonicNs':time.monotonic_ns()+120000000000}
+armed={**base,'type':'armed','nonce':nonce,'captureExpiresMonotonicNs':time.monotonic_ns()+30000000000}
+terminal={**base,'type':'terminal','complete':True,'inputsClosed':True,'deviceWrites':False,'processChildren':False,'requiresSuccessfulExit':True,'error':None}
+def emit(row,store=True):
+ b=(json.dumps(row,separators=(',',':'))+'\\n').encode()
+ if store:os.write(f,b);os.fsync(f)
+ print(b.decode(),end='',flush=True)
+if mode=='terminal-first':emit(terminal);sys.exit(0)
+if mode=='armed-first':emit(armed);sys.exit(0)
+if mode=='wrong-id':ready['controlId']='yellow'
+if mode=='expired':ready['readyExpiresMonotonicNs']=0
+if mode=='preexisting-ready':
+ (d/'untouched').write_text('preserve')
+ (d/'supervision'/'ready.json').symlink_to(d/'untouched')
+emit(ready)
+if mode=='duplicate-ready':emit(ready);sys.exit(0)
+if mode in ('timeout','ignore-term'):
+ if mode=='ignore-term':signal.signal(signal.SIGTERM,signal.SIG_IGN)
+ time.sleep(60)
+if mode=='closed-pipes':
+ os.close(1);os.close(2);time.sleep(60)
+if mode=='wait-gate':
+ while not (d/'continue').exists():time.sleep(.005)
+if mode=='overflow':os.write(2,b'x'*1000000);sys.exit(0)
+if mode=='wrong-nonce':armed['nonce']='b'*32
+emit(armed)
+if mode=='partial':sys.stdout.write('{"type":');sys.stdout.flush();sys.exit(0)
+if mode=='missing-terminal':sys.exit(0)
+if mode=='failed':terminal.update(complete=False,error='synthetic failure')
+emit(terminal,store=mode!='different-evidence')
+os.fsync(f);os.close(f)
+sys.exit(4 if mode=='nonzero' else 1 if mode=='failed' else 0)
+'''.replace('MODE', repr(mode))
+        self.observer.write_text(source)
+        self.observer.chmod(0o600)
+        return hashlib.sha256(source.encode()).hexdigest()
+
+    def run_fake(self, mode='complete', **options):
+        digest = self.fake(mode)
+        with patch.object(supervisor, 'OBSERVER_SHA256', digest):
+            return supervisor.supervise(self.observer, self.publisher, self.directory, 'trial1', 'blue', **options)
+
+    def test_ready_armed_terminal_and_reaped_exit(self):
+        result = self.run_fake()
+        self.assertTrue(result['complete'])
+        self.assertTrue(result['exitConfirmed'])
+        self.assertEqual(result['exitCode'], 0)
+        report = self.directory / 'supervision'
+        for phase in ('ready', 'armed'):
+            row = json.loads((report / (phase + '.json')).read_text())
+            self.assertEqual((row['schemaVersion'], row['trialId'], row['controlId']), (2, 'trial1', 'blue'))
+            self.assertEqual(row['supervisedChild']['pid'], result['child']['pid'])
+        self.assertEqual(json.loads((report / 'result.json').read_text()), result)
+        self.assertIsNotNone(result['evidenceSha256'])
+        for path in report.iterdir():
+            self.assertEqual((stat.S_IMODE(path.stat().st_mode), path.stat().st_nlink), (0o600, 1))
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(result['child']['pid'], os.WNOHANG)
+        with self.assertRaises(RuntimeError):
+            self.run_fake()
+
+    def test_nonzero_missing_or_different_terminal_never_complete(self):
+        for mode in ('nonzero', 'missing-terminal', 'different-evidence', 'failed', 'partial'):
+            with self.subTest(mode=mode):
+                result = self.run_fake(mode)
+                self.assertFalse(result['complete'])
+                self.assertTrue(result['exitConfirmed'])
+                self.assertIsNotNone(result['error'])
+                self.assertTrue((self.directory / 'trial.ndjson').exists())
+                self.directory = self.root / ('trial-' + mode)
+                self.directory.mkdir(mode=0o700)
+
+    def test_invalid_phase_or_identity_is_not_published(self):
+        for mode in ('terminal-first', 'armed-first', 'wrong-id', 'expired', 'duplicate-ready', 'wrong-nonce'):
+            with self.subTest(mode=mode):
+                result = self.run_fake(mode)
+                self.assertFalse(result['complete'])
+                self.assertTrue(result['exitConfirmed'])
+                self.assertFalse((self.directory / 'supervision' / 'armed.json').exists())
+                self.directory = self.root / ('trial-' + mode)
+                self.directory.mkdir(mode=0o700)
+
+    def test_watchdog_terminates_and_reaps_only_child(self):
+        result = self.run_fake('timeout', seconds=.1)
+        self.assertFalse(result['complete'])
+        self.assertIn('watchdog', result['error'])
+        self.assertTrue(result['termRequested'])
+        self.assertTrue(result['exitConfirmed'])
+
+    def test_ignored_term_gets_kill_and_confirmed_exit(self):
+        result = self.run_fake('ignore-term', seconds=1)
+        self.assertFalse(result['complete'])
+        self.assertTrue(result['killRequested'])
+        self.assertTrue(result['exitConfirmed'])
+        self.assertEqual(result['exitCode'], -signal.SIGKILL)
+
+    def test_unconfirmed_cleanup_is_failure_and_preserved(self):
+        with patch.object(supervisor.subprocess.Popen, 'terminate', side_effect=OSError('synthetic cleanup refusal')):
+            result = self.run_fake('timeout', seconds=.1)
+        try:
+            self.assertFalse(result['complete'])
+            self.assertFalse(result['exitConfirmed'])
+            self.assertIsNone(result['exitCode'])
+            self.assertIn('cleanup unconfirmed', result['error'])
+            self.assertEqual(json.loads((self.directory / 'supervision' / 'result.json').read_text()), result)
+        finally:
+            os.kill(result['child']['pid'], signal.SIGKILL)
+            os.waitpid(result['child']['pid'], 0)
+
+    def test_bounded_output_failure_retains_logs(self):
+        with patch.object(supervisor, 'MAX_OUTPUT', 1024):
+            result = self.run_fake('overflow')
+        self.assertFalse(result['complete'])
+        self.assertIn('output cap', result['error'])
+        self.assertLessEqual(sum(path.stat().st_size for path in (self.directory / 'supervision').glob('*.log')), 1024)
+        self.assertTrue(result['exitConfirmed'])
+
+    def test_cancellation_after_actual_ready(self):
+        cancelled = threading.Event()
+        failure = []
+        def cancel():
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if (self.directory / 'supervision' / 'ready.json').exists():
+                    cancelled.set()
+                    return
+                time.sleep(.005)
+            failure.append('No actual READY')
+        thread = threading.Thread(target=cancel)
+        thread.start()
+        try:
+            result = self.run_fake('timeout', cancelled=cancelled.is_set)
+        finally:
+            thread.join(timeout=3)
+        self.assertFalse(failure)
+        self.assertFalse(result['complete'])
+        self.assertIn('cancelled', result['error'])
+        self.assertTrue(result['exitConfirmed'])
+
+    def test_cancellation_after_pipe_eof_is_promptly_reaped(self):
+        cancelled = threading.Event()
+        read = os.read
+        eof = []
+        def cancel_at_eof(fd, count):
+            data = read(fd, count)
+            if not data and stat.S_ISFIFO(os.fstat(fd).st_mode):
+                eof.append(fd)
+                if len(eof) == 2:
+                    cancelled.set()
+            return data
+        started = time.monotonic()
+        with patch.object(supervisor.os, 'read', side_effect=cancel_at_eof):
+            result = self.run_fake('closed-pipes', seconds=10, cancelled=cancelled.is_set)
+        self.assertEqual(len(eof), 2)
+        self.assertFalse(result['complete'])
+        self.assertIn('cancelled', result['error'])
+        self.assertTrue(result['exitConfirmed'])
+        self.assertLess(time.monotonic() - started, 3)
+
+    def test_renamed_report_directory_cannot_receive_success(self):
+        digest = self.fake('wait-gate')
+        failures = []
+        def run():
+            try:
+                supervisor.supervise(self.observer, self.publisher, self.directory, 'trial1', 'blue', seconds=3)
+            except RuntimeError as failure:
+                failures.append(str(failure))
+        with patch.object(supervisor, 'OBSERVER_SHA256', digest):
+            thread = threading.Thread(target=run)
+            thread.start()
+            deadline = time.monotonic() + 3
+            report = self.directory / 'supervision'
+            while time.monotonic() < deadline and not (report / 'ready.json').exists():
+                time.sleep(.005)
+            self.assertTrue((report / 'ready.json').exists())
+            child = json.loads((report / 'child.json').read_text())
+            saved = self.directory / 'saved-supervision'
+            report.rename(saved)
+            report.mkdir(mode=0o700)
+            (self.directory / 'continue').write_text('continue')
+            thread.join(timeout=5)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(failures), 1)
+        self.assertIn('pathname changed', failures[0])
+        self.assertEqual(list(report.iterdir()), [])
+        self.assertFalse((saved / 'result.json').exists())
+        with self.assertRaises(ChildProcessError):
+            os.waitpid(child['pid'], os.WNOHANG)
+
+    def test_wrong_source_hash_never_launches(self):
+        self.fake()
+        with patch.object(supervisor.subprocess, 'Popen') as spawn, self.assertRaises(RuntimeError):
+            supervisor.supervise(self.observer, self.publisher, self.directory, 'trial1', 'blue')
+        spawn.assert_not_called()
+        self.assertEqual(list(self.directory.iterdir()), [])
+
+    def test_partial_parent_writes_still_publish_complete_records(self):
+        write = os.write
+        def partial(fd, data):
+            return write(fd, data[:max(1, len(data) // 2)])
+        with patch.object(supervisor.os, 'write', side_effect=partial):
+            result = self.run_fake()
+        self.assertTrue(result['complete'])
+        self.assertEqual(json.loads((self.directory / 'supervision' / 'result.json').read_text()), result)
+
+    def test_preexisting_status_is_preserved(self):
+        result = self.run_fake('preexisting-ready')
+        self.assertFalse(result['complete'])
+        self.assertTrue((self.directory / 'supervision' / 'ready.json').is_symlink())
+        self.assertEqual((self.directory / 'untouched').read_text(), 'preserve')
+
+    def test_concurrent_supervisors_cannot_launch_two_children(self):
+        digest = self.fake()
+        barrier = threading.Barrier(2)
+        results = []
+        def start():
+            barrier.wait(timeout=3)
+            try:
+                results.append(supervisor.supervise(self.observer, self.publisher, self.directory, 'trial1', 'blue'))
+            except RuntimeError as failure:
+                results.append(failure)
+        with patch.object(supervisor, 'OBSERVER_SHA256', digest):
+            threads = [threading.Thread(target=start) for _ in range(2)]
+            for thread in threads: thread.start()
+            for thread in threads: thread.join(timeout=5)
+        self.assertFalse(any(thread.is_alive() for thread in threads))
+        self.assertEqual(sum(isinstance(row, dict) and row['complete'] for row in results), 1)
+        self.assertEqual(sum(isinstance(row, RuntimeError) for row in results), 1)
 
 
 class ParserTests(unittest.TestCase):
