@@ -17,7 +17,7 @@ No runtime or adapter files are reserved by this document. Reserve them with Chi
 
 Physical switch IDs are `blue`, `yellow`, `red`, `green`, `pedal` and `mushroom`. Relative rotation uses `knob`. These names identify controls within one configured controller; they do not identify voices, sheet rows, keys or musical actions.
 
-Wiring's November 15 record reports Blue on `2SW7` and ordinary LED header output `1`, and Yellow on `1A` and ordinary output `2`. Its local commits are `11475cf` and `f4839f0` in `/private/tmp/show-tools-wiring-assistant`. Chief owns integrating that record. Linux codes remain unknown. SDK channel translation, visible LED behavior, supply and polarity are separate acceptance facts. The planned MOSFET move is not the current installation.
+The canonical [November 15 inventory](../hardware-inventory.md#november-15-button-wiring-map), merged in [PR #148](https://github.com/anulman/show-tools/pull/148) at `0c748b6`, reports Blue on `2SW7` and ordinary LED header output `1`, and Yellow on `1A` and ordinary output `2`. Linux codes remain unknown. SDK channel translation, visible LED behavior, supply and polarity are separate acceptance facts. The planned MOSFET move is not the current installation.
 
 The installation map associates physical IDs with **observed** platform selectors and independently confirmed LED outputs. It carries no song action. Device paths and process IDs are discovery results. The adapter must distinguish input interface identity as well as key code; the same code on another interface is not automatically the same control.
 
@@ -26,6 +26,8 @@ The installation map associates physical IDs with **observed** platform selector
 The helper protocol moves to an explicit version 2. Each switch observation carries `session`, globally increasing `sequence`, `controlId` and `down`. Rotation retains signed relative `deltaY` and the same ordering barrier. Neither adapter converts host keys into UI shortcuts or musical commands.
 
 Ready describes every configured switch as released, held or unknown. An initially held or unknown switch must be released before it can produce a fresh press. Host repeats do not produce extra presses; valid ignored observations still consume sequence. A duplicate, stale, unknown or contradictory identity cannot be relabelled as the anonymous cue button.
+
+Sequence must increase, not remain contiguous: ignored observations can create valid jumps. Input loss requires an explicit adapter loss indication, disconnect or lease failure. Never infer loss from a sequence jump alone.
 
 Disconnect, an input gap or profile replacement revokes the producer lease. No queued edge can cross that lease or binding revision. Release only the musical ownership established by that producer; do not globally stop unrelated loops. Knob disablement continues to consume validated observations without applying musical motion.
 
@@ -37,7 +39,13 @@ A singleton cue-row set performs that row. All four rows preserve the approved o
 
 The initial multi-control profile rejects overlapping cue-row ownership between physical switches. It must not silently duplicate a row or mix an all-row button with individually bound cue buttons. More elaborate aliases require an explicit later ownership model. A software pad remains an alternate ingress; its release cannot release a held action owned by another source.
 
+Cross-row held precedence remains an operator decision. Current `Program::gate_press()` and held execution replace another row's held sample. Do not infer polyphony from independent physical identities or change that policy before the answer. Source-scoped release and revocation are required under either musical policy.
+
 Bindings belong to PE's declarative performance data, with song instructions retained in canonical MusicXML. Operator authoring defaults may supply bindings, but the exported song must preserve the selected meaning. Installation files contain raw selectors and output addresses, not a second musical scheduler or parallel song source.
+
+The proposed storage field is optional `inputBindings` in canonical performance metadata, compiled data and ingestion mappings. It contains physical ID and the target union, never OS codes or SDK channels. Missing bindings mean unbound, not an inferred legacy action. Existing canonical songs need no invented assignments. Strict readers must reject unsupported binding data rather than discard it.
+
+Normal song preparation installs that table atomically with the compiled song through existing host operation 9. Successful replacement advances a native input-binding generation; failure preserves the previous song and table. Stop and Start retain the table. Replacing the song, changing the table or disposing the engine invalidates its producer leases. No runtime editor override may bypass canonical export and the stopped preparation boundary. Musical binding generation and the existing device/LED-map `bindingRevision` are distinct identities.
 
 The editor may display Blue or Yellow beside the affected cue row. It must not infer that a physical colour corresponds to the existing pastel pad CSS colour. No Sheets cell notes are required beyond the operator's existing terse voice-identification convention.
 
@@ -45,11 +53,54 @@ The editor may display Blue or Yellow beside the affected cue row. It must not i
 
 Choose a native identified-switch boundary, conceptually `pf_input_switch(engine, input, down, commandId)`, with a bounded binding table prepared while stopped. The numeric ABI and host operation number must be reserved during implementation. TypeScript validates and lowers declarative IDs; C++ owns fresh-edge admission, target selection, release ownership and all musical timing.
 
+Native execution must extend the existing resolve-all-first, commit-before-arm batch with a selected row mask. Repeated calls to `press(row)` are not equivalent. Record the admitted held owner and ownership generation per row, including software producers. A rejected press cannot acquire another producer's held ownership; late release or revocation cannot release a newer owner. Do not use `release_current()` for producer cleanup.
+
 Two designs were considered. Bridge-only lowering can reuse today's pad press/release commands, but leaves physical held ownership and LED selection outside the engine. The native boundary keeps them together and supports the complete engine-authored output image. Reuse the existing portable 32-slot input latch and compiled cue executor rather than creating another clock or scheduler.
 
 The engine emits feedback per bound control, through opaque logical LED IDs. The installation map alone translates those IDs to confirmed SDK channels. For explicitly bound cue controls, preserve the accepted policy: held input is 100%; otherwise recording pulses with the engine beat up to 70%, ahead of steady 70% playback. Activity and warnings cover only the bound rows. Utility feedback remains unselected until specified. Absent IDs are off in the consumer's owned map.
 
 Keep the existing engine-incarnation, run, device-session, binding-revision and publication fences. Rebinding requires a stopped engine, clear ownership of removed outputs and a fresh complete image. Helpers deliver the image; they do not synthesize beat timers or commit partially written frames. No LED writes are authorized by a contract or an SDK index calculation.
+
+## Per-client DOM input policy
+
+Each browser client explicitly selects `keyboard` or `native-controls`; an unselected client has pointer/touch controls but no musical DOM shortcuts. Persist the selection in that client's session storage, not a server-global setting. Operator-provided client configuration may supply an explicit selection. Neither a device lease, server URL, IP address nor `KeyboardEvent` establishes co-location or USB identity.
+
+The UI boundary is a Keyboard shortcuts / Physical controls selection. `native-controls` guards keydown and keyup before Escape/Panic, Space/transport and QWAS/pad handling. It also guards any DOM musical wheel path. It does not assume that native relative Y is a wheel. It leaves form editing and pointer/touch controls available. A networked laptop that selects `keyboard` retains its own shortcuts regardless of the server's hardware lease.
+
+Native same-host activation requires that explicit client policy when operator configuration has not established it. Pairing cannot silently enable both producers. Policy changes and blur revoke only the keyboard producer's admitted ownership, clear its local pressed UI and establish fresh release barriers before keyboard readmission. Pointer, remote-client and native-device ownership remain separate. Perfect automatic USB-specific DOM suppression is not a supported capability.
+
+## Proposed ABI and host slots
+
+These slots are proposed for Chief's reservation, not implemented. The inspected `0c748b6` tree uses PF ABI 11 and host operations 1–13 and 15; operation 14 and 16–17 are free. Existing `pf_control` IDs are unchanged, including 16–79 for external samples.
+
+| Surface | Proposed reservation |
+| --- | --- |
+| Native/WASM handshake | `PF_ABI_VERSION = 12` |
+| Binding storage | Optional compiled-packet-7 extension `PFI1` (`0x50464931`), bounded by six physical switches |
+| Native API | `pf_input_attach`, `pf_input_event`, `pf_input_revoke`, `pf_input_info` |
+| Host operation 14 | Attach producer: slot, monotonic session, binding generation, producer kind, released mask, held mask |
+| Host operation 16 | Observation: producer slot, session, binding generation, sequence, input ID, value |
+| Host operation 17 | Revoke producer: slot and matching session |
+| Light output | Keep format version 1, 78 fields and capacity 32; identified controls use opaque IDs 257–262, separate from existing aggregate ID 1 |
+
+The producer table is preallocated with 32 slots. Physical producers use switch IDs 0–5 and knob ID 6; logical keyboard/pointer producers use existing logical control IDs. The host assigns slots and monotonic sessions from authenticated producer identity; a client cannot adopt another client's slot. A full table rejects admission rather than evicting an owner. The audio thread allocates nothing for attach, input or revoke.
+
+Attach, input and revoke are one engine-thread path in browser/WASM and native hosting. Existing raw producers, keyboard and pointer callers migrate to that path; low-level legacy control callers have a distinct reserved source, not global release authority. A bound Panic input must enter the existing reserved Stop/Panic lane after checking its current binding generation; do not trust a client-supplied priority claim.
+
+## Proposed file reservations
+
+Chief has not granted these reservations yet. No active capture-deadline writer is identified: the earlier warning referred to a historical environment name, not an observed owner. EliteDesk reports no current adapter edits. Reserve each lane once, then keep its writers disjoint.
+
+| Lane | Exact proposed paths |
+| --- | --- |
+| PE domain and canonical data | New `lib/performance/input-bindings.ts`; existing `lib/performance/model.ts`, `lib/performance/compiled-song.ts`, `lib/performance/compiled-native.ts`, `lib/performance/musicxml-song.ts` |
+| PE native engine and WASM | New `lib/performance/src/input_router.h`; existing `lib/performance/include/performance_engine.h`, `lib/performance/src/performance_engine.cpp`, `lib/performance/src/compiled_program.h`, `lib/performance/src/compiled_program.cpp`, `lib/performance/wasm-performance.ts`, `lib/performance/wasm-abi.ts`, `lib/performance/native-observation.ts` |
+| PE host and gateway | `lib/native-host/instrument.h`, `lib/native-host/instrument.cpp`, `lib/native-host/service.cpp`, `lib/remote-performance/commands.ts`, `lib/remote-performance/native-schema.ts`, `lib/remote-performance/observation.ts`, `lib/remote-performance/instrument.ts`, `lib/remote-performance/session-schema.ts`, `lib/remote-performance/controller.ts`, `lib/remote-performance/gateway.ts` |
+| PE bridge and browser | `lib/peripherals/bridge.ts`, `lib/peripherals/bridge-cli.ts`, `lib/peripherals/browser-protocol.ts`, `lib/peripherals/browser-server.ts`; new `ui/practice/musical-input-policy.ts`; existing `ui/practice/peripheral-input.ts`, `ui/practice/browser-peripheral.ts`, `ui/practice/audio.ts`, `ui/practice/practice-worklet.ts`, `ui/practice/remote-schema.ts`, `ui/practice/app.ts`, `ui/practice/index.html` |
+| EliteDesk adapter implementation and PE review | `lib/peripherals/host/control_stream.h`, `lib/peripherals/host/control_stream.cpp`, `lib/peripherals/host/linux_host.cpp`, `lib/peripherals/host/linux_runtime.h`, `lib/peripherals/host/linux_runtime.cpp`, `lib/peripherals/host/linux_order.h`, `lib/peripherals/host/macos_host.cpp` |
+| PE focused fixtures and build registration | New `lib/performance/tests/input-routing.test.ts`, `lib/performance/tests/physical_input_tests.cpp`, `lib/performance/tests/physical-input-wasm.test.ts`, `ui/practice/tests/musical-input-policy.test.ts`; existing `lib/performance/CMakeLists.txt`, `lib/native-host/tests/service_test.py`, `lib/peripherals/tests/bridge.test.ts`, `lib/peripherals/tests/bridge-integration.test.ts`, `ui/practice/tests/browser-peripheral.test.ts`, `ui/practice/tests/peripheral-input.test.ts`, `lib/remote-performance/tests/commands.test.ts` |
+
+The header-only router avoids adding a new compilation unit to both WASM build scripts. Physical adapter fixtures, profile migration/deployment-package consumers and final formal-verification source records need a separate exact reservation before that integration milestone; this list does not grant a directory-wide edit allowance.
 
 ## Migration and acceptance
 
