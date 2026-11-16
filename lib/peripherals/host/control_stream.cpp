@@ -187,16 +187,6 @@ bool emit_detached(std::ostream& out, double session) {
   if (!identity(session)) return false;
   out << std::setprecision(17) << "{\"type\":\"detached\",\"session\":" << session << "}" << std::endl; return out.good();
 }
-bool parse_button_key_option(int& argc, const char* const* argv, ButtonKey& key) {
-  if (argc < 3 || std::string(argv[argc - 2]) != "--button-key") return true;
-  const std::string name(argv[argc - 1]);
-  if (name == "tab") key = ButtonKey::Tab;
-  else if (name == "escape") key = ButtonKey::Escape;
-  else return false;
-  argc -= 2;
-  return true;
-}
-
 bool parse_command(const std::string& line, Command& out) {
   if (line.size() > 16384) return false;
   std::istringstream input(line);

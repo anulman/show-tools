@@ -71,17 +71,6 @@ void map_checks() {
 int main() {
   map_checks();
   using namespace peripheral_host;
-  ButtonKey selected = ButtonKey::Tab;
-  const char* defaults[]{"host", "7", "0", "--confirm-wiring"}; int count = 4;
-  require(parse_button_key_option(count, defaults, selected) && count == 4 && selected == ButtonKey::Tab);
-  const char* escape[]{"host", "--inspect", "--button-key", "escape"}; count = 4;
-  require(parse_button_key_option(count, escape, selected) && count == 2 && selected == ButtonKey::Escape);
-  require(button_usage(selected) == 41 && linux_button_code(selected) == 1);
-  const char* tab[]{"host", "--bench-held", "0", "--confirm-wiring", "--button-key", "tab"}; count = 6;
-  require(parse_button_key_option(count, tab, selected) && count == 4 && selected == ButtonKey::Tab);
-  require(button_usage(selected) == 43 && linux_button_code(selected) == 15);
-  const char* invalid[]{"host", "--inspect", "--button-key", "enter"}; count = 4;
-  require(!parse_button_key_option(count, invalid, selected));
   Command command;
   require(parse_command("bind 1 2 3 4", command));
   require(command.operation == Operation::Bind && command.connection.device_session == 2);

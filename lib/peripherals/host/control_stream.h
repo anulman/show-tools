@@ -44,13 +44,6 @@ bool emit_button(std::ostream& out, double session, double sequence, PhysicalCon
 bool emit_motion(std::ostream& out, double session, double sequence, double delta_y);
 bool emit_detached(std::ostream& out, double session);
 
-// Removed when both platform callers finish migrating to the version-two installation map.
-enum class ButtonKey { Tab, Escape };
-constexpr unsigned button_usage(ButtonKey key) { return key == ButtonKey::Tab ? 43 : 41; }
-constexpr unsigned linux_button_code(ButtonKey key) { return key == ButtonKey::Tab ? 15 : 1; }
-constexpr const char* button_name(ButtonKey key) { return key == ButtonKey::Tab ? "tab" : "escape"; }
-bool parse_button_key_option(int& argc, const char* const* argv, ButtonKey& key);
-
 enum class Operation { Bind, Light, Clear, Quit };
 struct Command {
   Operation operation = Operation::Clear;

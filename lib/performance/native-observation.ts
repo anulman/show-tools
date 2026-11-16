@@ -10,7 +10,7 @@ export function decodeNativeInputRouting(info: ArrayLike<number>): InputRoutingS
   const whole = (value: number, maximum: number, minimum = 0) => Number.isSafeInteger(value) && value >= minimum && value <= maximum;
   const generation = info[PF.INPUT_GENERATION], count = info[PF.INPUT_COUNT];
   const sessionHighWatermark = info[PF.INPUT_SESSION_HIGH_WATERMARK], panicMask = info[PF.INPUT_PANIC_MASK];
-  if (info.length < PF.INPUT_INFO_FIELDS || !whole(generation, Number.MAX_SAFE_INTEGER, 1)
+  if (info.length !== PF.INPUT_INFO_FIELDS || !whole(generation, Number.MAX_SAFE_INTEGER, 1)
     || !whole(count, PF.INPUT_PRODUCERS) || !whole(sessionHighWatermark, Number.MAX_SAFE_INTEGER)
     || !whole(panicMask, 63)) throw new Error('Invalid native input routing header');
   const kinds: readonly InputRoutingState['producers'][number]['kind'][] = ['physical', 'keyboard', 'pointer'];

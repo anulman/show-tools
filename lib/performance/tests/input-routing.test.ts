@@ -9,6 +9,24 @@ import { encodeCompiledProgram } from '../compiled-native.js';
 import { INPUT_PACKET_MAGIC } from '../model.js';
 import { PF } from '../wasm-abi.js';
 import { build } from 'esbuild';
+import { decodeNativeInputRouting } from '../native-observation.js';
+
+test('native routing readback validates its exact layout and producer fences', () => {
+  const info = new Float64Array(PF.INPUT_INFO_FIELDS);
+  info[PF.INPUT_GENERATION] = 2; info[PF.INPUT_COUNT] = 1;
+  info[PF.INPUT_SESSION_HIGH_WATERMARK] = 9; info[PF.INPUT_PANIC_MASK] = 2;
+  info.set([7, 9, 0, 1, 2, 100], PF.INPUT_RECORDS);
+  assert.deepEqual(decodeNativeInputRouting(info), { bindingGeneration: 2, sessionHighWatermark: 9, panicMask: 2,
+    producers: [{ producer: 7, session: 9, kind: 'physical', releasedMask: 1, heldMask: 2, lastSequence: 100 }] });
+  assert.throws(() => decodeNativeInputRouting([...info, 0]));
+  assert.throws(() => decodeNativeInputRouting(info.subarray(0, info.length - 1)));
+  for (const [field, value] of [[PF.INPUT_SESSION_HIGH_WATERMARK, 8], [PF.INPUT_PANIC_MASK, 64],
+    [PF.INPUT_RECORDS + PF.INPUT_HELD_MASK, 1], [PF.INPUT_RECORDS + PF.INPUT_KIND, .5],
+    [PF.INPUT_RECORDS + PF.INPUT_PRODUCER_FIELDS, 1]]) {
+    const invalid = info.slice(); invalid[field] = value;
+    assert.throws(() => decodeNativeInputRouting(invalid));
+  }
+});
 
 const fixtureBindings = decodeInputBindings([
   { controlId: 'blue', target: { kind: 'cue-rows', rows: ['L1', 'R1'] } },
