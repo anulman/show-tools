@@ -2,7 +2,7 @@
 
 The practice desk is a browser instrument that records your microphone into loops and plays those loops against a song chart. A shared C++ performance engine owns musical time and execution. The browser worklet supplies audio blocks, and the page displays state and submits controls.
 
-This account describes the shared C++ performance engine as of October 27, 2026. The [development guide](development.md) covers starting another session and dividing the next work. The [practice guide](../ui/practice/README.md) covers performing a take.
+The [development guide](development.md) covers starting another session and dividing work. The [practice guide](../ui/practice/README.md) covers performing a take. Source and fixture results describe implementation behavior; installed host capability and physical acceptance require separate evidence.
 
 ## Musical time starts with audio frames
 
@@ -161,7 +161,7 @@ The [patches module](../lib/patches/README.md) supplies full-output C++ effects 
 
 The compiled path prepares two cache banks per take while stopped. Overlapping recording intervals reject atomically; future arming for a disjoint interval is allowed. Live-route, active-capture, and pending-reservation state are separate. Detached monitoring tails use prepared snapshots so a still-recording rack keeps consuming original input. At commit, playback takes sole ownership of the completed history; a same-voice new capture begins a fresh source epoch. Latest committed takes retain their graph revision after venue edits. Stopped preparation refreshes reusable banks without replacing that cache. Prepared processing/control application allocates no C++ heap memory. Playback uses unit-rate loops and explicit suffixes; arbitrary seek and live tempo stretching are unsupported.
 
-EliteDesk work can use the complete native performance library, including song transport, sequencing, sampling, and click rendering. Its manual-tempo CMake target excludes aubio and libsndfile. The separate tracker executable still processes WAV files rather than live devices. The stopped native loader already accepts portable compiled song instructions. The native host connects that engine to a fake PCM device or an explicitly configured ALSA device. Physical control drivers, a hardware event producer, and installed-device validation remain future work.
+The [native host](../lib/native-host/README.md) connects the complete engine to synthetic PCM or explicitly configured ALSA devices. Its manual-tempo CMake target excludes aubio and libsndfile. The separate tracker executable still processes WAV files rather than live devices. The stopped native loader accepts portable compiled song instructions. The [persistent gateway](#remote-practice-instrument) owns audio attempts and native process cleanup. The [Mac and Linux peripheral adapters](../lib/peripherals/README.md) deliver identified physical input and engine-authored lights. Installed-device validation and physical acceptance remain target checks.
 
 The native processing path uses prepared buffers and fixed queues. Configuration, preparation, and loading can allocate outside that path. JavaScript state serialization still allocates objects and arrays, so the whole browser worklet is not allocation-free. The native host keeps device processing and engine calls on one owner thread and moves IPC serialization off that thread. Browser correctness tests do not prove hardware audio latency or absence of underruns.
 
