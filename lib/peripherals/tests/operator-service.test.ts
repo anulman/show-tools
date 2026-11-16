@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile, access } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { pathToFileURL } from 'node:url';
 import { renderPeripheralUnit } from '../service-unit.js';
 import { sessionProfile } from '../../remote-performance/tests/session-fixture.js';
 
@@ -97,4 +98,42 @@ test('waiting packet pins the reviewed CLI and emits no profile or credential re
     assert.throws(() => prepare(rejected));
     await assert.rejects(access(join(rejected, 'OPERATOR-COMMAND.txt')));
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('real serve CLI waits with a missing profile and refuses invalid configuration without spawning a helper', { timeout: 10000 }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'operator-waiting-cli-'));
+  const missing = join(directory, 'peripheral.json');
+  const moduleUrl = pathToFileURL(resolve('lib/peripherals/bridge-cli.ts')).href;
+  const driver = `import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+childProcess.spawn = () => { throw new Error('Unexpected helper spawn'); };
+syncBuiltinESMExports();
+const { runPeripheralCli } = await import(${JSON.stringify(moduleUrl)});
+await runPeripheralCli(['serve', '--config', ${JSON.stringify(missing)}]);`;
+  const child = spawn(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', driver], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let output = '', errors = '';
+  child.stderr.on('data', data => { errors += data; });
+  try {
+    await new Promise<void>((resolveReady, reject) => {
+      const timer = setTimeout(() => reject(new Error(`No waiting status: ${errors}`)), 3000);
+      child.once('exit', code => { clearTimeout(timer); reject(new Error(`CLI exited before waiting: ${code}; ${errors}`)); });
+      child.stdout.on('data', data => {
+        output += data;
+        if (output.includes('USB is unopened.')) { clearTimeout(timer); resolveReady(); }
+      });
+    });
+    const exited = new Promise<number | null>(resolveExit => child.once('exit', resolveExit));
+    child.kill('SIGTERM');
+    assert.equal(await exited, 0);
+    assert.equal(errors, '');
+    await writeFile(missing, 'invalid profile');
+    assert.throws(() => execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', driver], { stdio: 'pipe' }), error => {
+      assert.ok(error instanceof Error);
+      assert.doesNotMatch(error.message, /Unexpected helper spawn/);
+      return true;
+    });
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    await rm(directory, { recursive: true, force: true });
+  }
 });

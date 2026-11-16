@@ -58,11 +58,20 @@ def strict_json(data):
 
 def private_group():
     account, group = pwd.getpwuid(UID), grp.getgrgid(GID)
-    require(account.pw_name == 'anulman' and account.pw_gid == GID and account.pw_dir == HOME,
-            'Account identity differs from reviewed anulman UID/GID/home')
-    require(group.gr_name == 'anulman' and set(group.gr_mem) <= {'anulman'}
-            and all(row.pw_name == 'anulman' for row in pwd.getpwall() if row.pw_gid == GID),
-            'Group 1000 is not the reviewed private group')
+    require((account.pw_name, account.pw_uid, account.pw_gid, account.pw_dir)
+            == ('anulman', UID, GID, HOME), 'Assigned account identity differs')
+    require((group.gr_name, group.gr_gid) == ('anulman', GID)
+            and set(group.gr_mem) <= {'anulman'}, 'Assigned group is not private')
+    accounts = pwd.getpwall()
+    assigned = [row for row in accounts if row.pw_uid == UID or row.pw_name == 'anulman']
+    require(0 < len(accounts) <= 4096 and len(assigned) == 1
+            and (assigned[0].pw_name, assigned[0].pw_uid, assigned[0].pw_gid, assigned[0].pw_dir)
+            == ('anulman', UID, GID, HOME), 'Assigned account enumeration differs')
+    for row in accounts:
+        member = GID in os.getgrouplist(row.pw_name, row.pw_gid)
+        require(not (member or row.pw_gid == GID)
+                or (row.pw_name, row.pw_uid, row.pw_gid) == ('anulman', UID, GID),
+                'Assigned group has another primary or supplementary member')
 
 
 def directory(path):
@@ -82,7 +91,12 @@ def directory(path):
             expected = UID if current == HOME or current.startswith(HOME + '/') else 0
             require(info.st_uid == expected and info.st_gid == (GID if expected else 0), 'Unexpected directory owner/group: ' + current)
             require(not info.st_mode & 0o002, 'Other-writable directory: ' + current)
-            require(not info.st_mode & 0o020 or expected == UID, 'Shared group-writable ancestor: ' + current)
+            if current == HOME:
+                require(stat.S_IMODE(info.st_mode) == 0o700, 'Assigned home must be mode0700')
+            if info.st_mode & 0o020:
+                require(current == HOME + '/.local/share' and stat.S_IMODE(info.st_mode) == 0o775,
+                        'Group-writable ancestor is outside the fixed private-share exception: ' + current)
+                private_group()
             require(not {'system.posix_acl_access', 'system.posix_acl_default'} & set(os.listxattr(fd)), 'Extended ACL requires separate review: ' + current)
         return fd
     except BaseException:
@@ -557,7 +571,7 @@ def apply(packet, manifest_sha256):
         require((waiting or file_bytes(PROFILE, private=True)[0] == files['profile.json']) and file_bytes(UNIT, private=True)[0] == files[UNIT_NAME]
                 and enabled and state.get('NeedDaemonReload') == 'no' and state.get('FragmentPath') == UNIT,
                 'Active service differs from reviewed installation; left unchanged')
-        print(json.dumps({'alreadyActive': True, 'changed': False, 'audioStartRequested': False}))
+        print(json.dumps({'mode': 'waiting-configuration' if waiting else 'configured', 'alreadyActive': True, 'changed': False, 'audioStartRequested': False}))
         return
     require(state.get('ActiveState') in ('inactive', 'failed') and state.get('MainPID') == '0'
             and state.get('TasksCurrent', '') in ('0', '[not set]', ''), 'Existing service process/unknown state; left unchanged')
