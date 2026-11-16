@@ -1,16 +1,17 @@
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFile, writeFile, mkdir, cp, chmod } from 'node:fs/promises';
+import { readFile, writeFile, mkdir, cp, chmod, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { decodePeripheralBridgeConfig } from '../bridge.js';
+import { decodePeripheralBridgeConfig, decodePeripheralInputMap } from '../bridge.js';
 import { decodeSessionProfile } from '../../remote-performance/session-profile.js';
 import { renderPeripheralUnit } from '../service-unit.js';
 
 const options = parseArgs({ options: {
   release: { type: 'string' }, 'source-revision': { type: 'string' }, out: { type: 'string' },
   'installer-source-revision': { type: 'string' }, 'web-profile': { type: 'string' }, 'web-source-revision': { type: 'string' },
+  'input-map': { type: 'string' },
   'disable-jiggle': { type: 'boolean' }, 'jiggle-travel': { type: 'string' }, 'jiggle-reversal': { type: 'string' },
 } }).values;
 function revision(value: string | undefined) {
@@ -24,7 +25,14 @@ const releaseRoot = '/home/anulman/.local/share/show-tools/releases';
 const destination = `${releaseRoot}/session-${source.slice(0, 7)}`;
 const profilePath = '/home/anulman/.config/show-tools/peripheral.json';
 const unitName = 'show-tools-peripheral.service';
-const fields = { version: 1, origin: 'https://proxmox.tail54fc55.ts.net:8443', connectAddress: '100.93.139.99', tokenFile: '/home/anulman/.config/show-tools/credentials/token', helperExecutable: `${destination}/native/peripheral/peripheral-host`, sdkChannel: 0, bindingRevision: 1, buttonKey: 'escape' };
+let inputMap: ReturnType<typeof decodePeripheralInputMap> | undefined;
+if (options['input-map']) {
+  const metadata = await stat(options['input-map']);
+  if (!metadata.isFile() || metadata.size > 16384) throw new Error('Input map must be a JSON file of at most 16 KiB');
+  inputMap = decodePeripheralInputMap(JSON.parse(await readFile(options['input-map'], 'utf8')));
+  if (inputMap.sources.some(source => source.kind !== 'linux')) throw new Error('EliteDesk requires observed Linux source selectors');
+}
+const fields = { version: 2, origin: 'https://proxmox.tail54fc55.ts.net:8443', connectAddress: '100.93.139.99', tokenFile: '/home/anulman/.config/show-tools/credentials/token', helperExecutable: `${destination}/native/peripheral/peripheral-host`, bindingRevision: 1, ...(inputMap === undefined ? {} : { inputMap }) };
 const hasThreshold = options['jiggle-travel'] !== undefined || options['jiggle-reversal'] !== undefined;
 if (options['disable-jiggle'] && hasThreshold) throw new Error('--disable-jiggle cannot be combined with thresholds');
 if (hasThreshold && (options['jiggle-travel'] === undefined || options['jiggle-reversal'] === undefined)) throw new Error('Both explicit jiggle thresholds are required');
@@ -46,9 +54,9 @@ await mkdir(out, { mode: 0o700 });
 await cp(join(base, 'install.py'), join(out, 'install.py'));
 await chmod(join(out, 'install.py'), 0o600);
 await writeFile(join(out, unitName), unit, { mode: 0o600, flag: 'wx' });
-if (!options['installer-source-revision'] || !options['web-profile'] || !options['web-source-revision'] || jiggle === undefined) {
+if (!options['installer-source-revision'] || !options['web-profile'] || !options['web-source-revision'] || jiggle === undefined || inputMap === undefined) {
   await writeFile(join(out, 'profile-fields.proposal.json'), JSON.stringify({ ...fields, ...(jiggle !== undefined ? { jiggle } : {}) }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
-  await writeFile(join(out, 'pending.json'), JSON.stringify({ ready: false, missing: ['explicit jiggle object or --disable-jiggle', 'exact reviewed installed web profile and its independent source revision', 'explicit standalone installer source revision'], releaseSource: source, releasePins }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
+  await writeFile(join(out, 'pending.json'), JSON.stringify({ ready: false, missing: ['observed installation map via --input-map FILE', 'explicit jiggle object or --disable-jiggle', 'exact reviewed installed web profile and its independent source revision', 'explicit standalone installer source revision'], releaseSource: source, releasePins }, null, 2) + '\n', { mode: 0o600, flag: 'wx' });
   process.stdout.write(JSON.stringify({ ready: false, out, activationCommand: null }) + '\n');
 } else {
   const installerSource = revision(options['installer-source-revision']);

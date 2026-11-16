@@ -36,8 +36,15 @@ test('operator packet stays pending without explicit tuning and pins a resolved 
     const web = { ...sessionProfile(directory), serviceName: 'show-tools-web.service', origin: 'https://proxmox.tail54fc55.ts.net:8443', connectAddress: '100.93.139.99', tokenFile: '/home/anulman/.config/show-tools/credentials/token', server: { nodeExecutable: webDestination + '/runtime/node', entrypoint: webDestination + '/gateway/server.mjs' } };
     const webBytes = JSON.stringify(web), webFile = join(directory, 'synthetic-web-profile.json');
     await writeFile(webFile, webBytes, { mode: 0o600 });
+    const mapFile = join(directory, 'synthetic-map.json');
+    const inputMap = { sources: [{ kind: 'linux', id: 'synthetic', interfaceNumber: 2, eventTypes: [0, 1], keyCodes: [41], relativeAxes: [] }],
+      switches: [{ controlId: 'blue', sourceId: 'synthetic', type: 1, code: 41 }], leds: [], confirmWiring: false };
+    await writeFile(mapFile, JSON.stringify(inputMap));
+    const withoutMap = join(directory, 'without-map');
+    assert.equal(prepare('--out', withoutMap, '--web-profile', webFile, '--web-source-revision', webRevision, '--disable-jiggle').ready, false);
+    await assert.rejects(access(join(withoutMap, 'OPERATOR-COMMAND.txt')));
     const output = join(directory, 'synthetic-final');
-    const result = prepare('--out', output, '--web-profile', webFile, '--web-source-revision', webRevision, '--jiggle-travel', '4', '--jiggle-reversal', '2');
+    const result = prepare('--input-map', mapFile, '--out', output, '--web-profile', webFile, '--web-source-revision', webRevision, '--jiggle-travel', '4', '--jiggle-reversal', '2');
     assert.equal(result.ready, true);
     const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'));
     assert.equal(manifest.webProfileSha256, sha(webBytes));
@@ -49,10 +56,11 @@ test('operator packet stays pending without explicit tuning and pins a resolved 
     assert.equal(await readFile(join(output, 'show-tools-peripheral.service'), 'utf8'), renderPeripheralUnit(destination + '/bin/show-tools-peripheral', '/home/anulman/.config/show-tools/peripheral.json'));
     assert.match(await readFile(join(output, 'OPERATOR-COMMAND.txt'), 'utf8'), /--manifest-sha256 [a-f0-9]{64} --activate/);
     const profile = JSON.parse(await readFile(join(output, 'profile.json'), 'utf8'));
-    assert.equal(profile.buttonKey, 'escape'); assert.equal(profile.sdkChannel, 0);
+    assert.equal(profile.version, 2); assert.deepEqual(profile.inputMap, inputMap);
+    assert.equal(profile.buttonKey, undefined); assert.equal(profile.sdkChannel, undefined);
     assert.equal(profile.caFile, undefined);
     const disabled = join(directory, 'synthetic-disabled');
-    assert.equal(prepare('--out', disabled, '--web-profile', webFile, '--web-source-revision', webRevision, '--disable-jiggle').ready, true);
+    assert.equal(prepare('--input-map', mapFile, '--out', disabled, '--web-profile', webFile, '--web-source-revision', webRevision, '--disable-jiggle').ready, true);
     assert.equal(JSON.parse(await readFile(join(disabled, 'profile.json'), 'utf8')).jiggle, null);
     assert.throws(() => prepare('--out', join(directory, 'invalid-mixed'), '--disable-jiggle', '--jiggle-travel', '4', '--jiggle-reversal', '2'));
   } finally { await rm(directory, { recursive: true, force: true }); }
