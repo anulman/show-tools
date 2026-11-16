@@ -26,6 +26,7 @@ UNIT = HOME + '/.config/systemd/user/' + UNIT_NAME
 WEB_PROFILE = HOME + '/.config/show-tools/session.json'
 TOKEN = HOME + '/.config/show-tools/credentials/token'
 WANTS = HOME + '/.config/systemd/user/default.target.wants'
+WAITING_SOURCE = 'provenance/source/lib/peripherals/bridge-cli.ts'
 RELEASE_FILES = {'release.json', 'runtime/node', 'bin/show-tools-peripheral',
                  'gateway/peripheral-cli.mjs', 'native/peripheral/peripheral-host',
                  'bin/show-tools-session', 'gateway/session-cli.mjs'}
@@ -464,6 +465,18 @@ def validate_unit(data, release):
     require(data == expected.encode(), 'Unit differs from reviewed renderer')
 
 
+def require_unconfigured():
+    parent = directory(str(Path(PROFILE).parent))
+    try:
+        try:
+            os.stat(Path(PROFILE).name, dir_fd=parent, follow_symlinks=False)
+        except FileNotFoundError:
+            return
+        raise ValueError('Waiting installation requires absent peripheral.json; existing configuration is left unchanged')
+    finally:
+        os.close(parent)
+
+
 def apply(packet, manifest_sha256):
     require(sys.platform == 'linux' and os.getuid() == os.geteuid() == UID and os.getgid() == os.getegid() == GID,
             'Run as anulman UID/GID 1000; this installer never runs as root')
@@ -473,22 +486,33 @@ def apply(packet, manifest_sha256):
     manifest_data, _ = file_bytes(str(packet / 'manifest.json'), private=True, maximum=16384)
     require(digest(manifest_data) == manifest_sha256, 'Manifest differs from operator-reviewed hash')
     manifest = strict_json(manifest_data)
-    require(type(manifest) is dict and set(manifest) == {'schemaVersion', 'sourceRevision', 'webSourceRevision', 'installerSourceRevision', 'webProfileSha256', 'files', 'releaseFiles'}, 'Unexpected manifest fields')
-    require(type(manifest['schemaVersion']) is int and manifest['schemaVersion'] == 2, 'Wrong manifest version')
-    for key in ('sourceRevision', 'webSourceRevision', 'installerSourceRevision'):
+    require(type(manifest) is dict, 'Invalid manifest')
+    waiting = manifest.get('schemaVersion') == 3 and manifest.get('mode') == 'waiting-configuration'
+    fields = {'schemaVersion', 'sourceRevision', 'installerSourceRevision', 'files', 'releaseFiles'}
+    fields |= {'mode', 'waitingCliSourceSha256'} if waiting else {'webSourceRevision', 'webProfileSha256'}
+    require(set(manifest) == fields, 'Unexpected manifest fields')
+    require(type(manifest['schemaVersion']) is int and manifest['schemaVersion'] == (3 if waiting else 2), 'Wrong manifest version')
+    revisions = ('sourceRevision', 'installerSourceRevision') if waiting else ('sourceRevision', 'webSourceRevision', 'installerSourceRevision')
+    for key in revisions:
         require(type(manifest[key]) is str and re.fullmatch('[a-f0-9]{40}', manifest[key]), 'Explicit full release revisions required')
     release = RELEASE_ROOT + '/session-' + manifest['sourceRevision'][:7]
-    web_release = RELEASE_ROOT + '/session-' + manifest['webSourceRevision'][:7]
-    require(type(manifest['files']) is dict and set(manifest['files']) == {'install.py', 'profile.json', UNIT_NAME}, 'Unexpected packet files')
-    require(type(manifest['releaseFiles']) is dict and set(manifest['releaseFiles']) == RELEASE_FILES, 'Unexpected executable pin set')
-    for value in [manifest['webProfileSha256'], *manifest['files'].values(), *manifest['releaseFiles'].values()]:
+    packet_names = {'install.py', UNIT_NAME} if waiting else {'install.py', 'profile.json', UNIT_NAME}
+    release_names = RELEASE_FILES | {WAITING_SOURCE} if waiting else RELEASE_FILES
+    require(type(manifest['files']) is dict and set(manifest['files']) == packet_names, 'Unexpected packet files')
+    require(type(manifest['releaseFiles']) is dict and set(manifest['releaseFiles']) == release_names, 'Unexpected executable pin set')
+    authority_pin = manifest['waitingCliSourceSha256'] if waiting else manifest['webProfileSha256']
+    for value in [authority_pin, *manifest['files'].values(), *manifest['releaseFiles'].values()]:
         require(type(value) is str and re.fullmatch('[a-f0-9]{64}', value), 'Invalid manifest digest')
+    if waiting:
+        require(manifest['releaseFiles'][WAITING_SOURCE] == authority_pin, 'Waiting CLI source pin differs')
+        require_unconfigured()
     files = {}
     for name, expected in manifest['files'].items():
         data, _ = file_bytes(str(packet / name), private=True, maximum=65536)
         require(digest(data) == expected, 'Packet checksum mismatch: ' + name)
         files[name] = data
-    validate_profile(strict_json(files['profile.json']), release)
+    if not waiting:
+        validate_profile(strict_json(files['profile.json']), release)
     validate_unit(files[UNIT_NAME], release)
     for name, expected in manifest['releaseFiles'].items():
         data, info = file_bytes(release + '/' + name)
@@ -498,22 +522,25 @@ def apply(packet, manifest_sha256):
             require(type(description) is dict and description.get('sourceRevision') == manifest['sourceRevision'], 'Installed release metadata revision mismatch')
         if name in {'runtime/node', 'bin/show-tools-peripheral', 'native/peripheral/peripheral-host', 'bin/show-tools-session'}:
             require(info.st_mode & 0o100, 'Expected executable: ' + name)
-    web_bytes, _ = file_bytes(WEB_PROFILE, private=True, maximum=16384)
-    require(digest(web_bytes) == manifest['webProfileSha256'], 'Web profile differs from reviewed deployment')
-    web = strict_json(web_bytes)
-    require(type(web) is dict, 'Invalid installed web profile')
-    require(web.get('serviceName') == 'show-tools-web.service' and web.get('origin') == 'https://proxmox.tail54fc55.ts.net:8443'
-            and web.get('connectAddress') == '100.93.139.99' and web.get('tokenFile') == TOKEN and 'caFile' not in web,
-            'Web profile authority/TLS differs from review')
-    require(type(web.get('server')) is dict and web['server'].get('nodeExecutable') == web_release + '/runtime/node'
-            and web['server'].get('entrypoint') == web_release + '/gateway/server.mjs', 'Web profile differs from its separately reviewed release')
-    token_fd = directory(str(Path(TOKEN).parent))
-    try:
-        token = os.stat(Path(TOKEN).name, dir_fd=token_fd, follow_symlinks=False)
-        require(stat.S_ISREG(token.st_mode) and token.st_uid == UID and token.st_gid == GID and stat.S_IMODE(token.st_mode) == 0o600 and token.st_nlink == 1, 'Existing token metadata invalid; require a single-link caller-owned regular mode0600 file')
-    finally:
-        os.close(token_fd)
-    for destination, name in ((PROFILE, 'profile.json'), (UNIT, UNIT_NAME)):
+    if not waiting:
+        web_release = RELEASE_ROOT + '/session-' + manifest['webSourceRevision'][:7]
+        web_bytes, _ = file_bytes(WEB_PROFILE, private=True, maximum=16384)
+        require(digest(web_bytes) == manifest['webProfileSha256'], 'Web profile differs from reviewed deployment')
+        web = strict_json(web_bytes)
+        require(type(web) is dict, 'Invalid installed web profile')
+        require(web.get('serviceName') == 'show-tools-web.service' and web.get('origin') == 'https://proxmox.tail54fc55.ts.net:8443'
+                and web.get('connectAddress') == '100.93.139.99' and web.get('tokenFile') == TOKEN and 'caFile' not in web,
+                'Web profile authority/TLS differs from review')
+        require(type(web.get('server')) is dict and web['server'].get('nodeExecutable') == web_release + '/runtime/node'
+                and web['server'].get('entrypoint') == web_release + '/gateway/server.mjs', 'Web profile differs from its separately reviewed release')
+        token_fd = directory(str(Path(TOKEN).parent))
+        try:
+            token = os.stat(Path(TOKEN).name, dir_fd=token_fd, follow_symlinks=False)
+            require(stat.S_ISREG(token.st_mode) and token.st_uid == UID and token.st_gid == GID and stat.S_IMODE(token.st_mode) == 0o600 and token.st_nlink == 1, 'Existing token metadata invalid; require a single-link caller-owned regular mode0600 file')
+        finally:
+            os.close(token_fd)
+    destinations = ((UNIT, UNIT_NAME),) if waiting else ((PROFILE, 'profile.json'), (UNIT, UNIT_NAME))
+    for destination, name in destinations:
         try:
             existing, _ = file_bytes(destination, private=True)
         except FileNotFoundError:
@@ -525,28 +552,38 @@ def apply(packet, manifest_sha256):
     state = service_state()
     enabled = enable_link()
     if state.get('ActiveState') == 'active':
-        require(file_bytes(PROFILE, private=True)[0] == files['profile.json'] and file_bytes(UNIT, private=True)[0] == files[UNIT_NAME]
+        if waiting:
+            require_unconfigured()
+        require((waiting or file_bytes(PROFILE, private=True)[0] == files['profile.json']) and file_bytes(UNIT, private=True)[0] == files[UNIT_NAME]
                 and enabled and state.get('NeedDaemonReload') == 'no' and state.get('FragmentPath') == UNIT,
                 'Active service differs from reviewed installation; left unchanged')
         print(json.dumps({'alreadyActive': True, 'changed': False, 'audioStartRequested': False}))
         return
     require(state.get('ActiveState') in ('inactive', 'failed') and state.get('MainPID') == '0'
             and state.get('TasksCurrent', '') in ('0', '[not set]', ''), 'Existing service process/unknown state; left unchanged')
-    status = command([release + '/bin/show-tools-session', 'audio', 'status', '--profile', WEB_PROFILE])
-    require(status == 'Audio off', 'Fresh audio-off status required; no installation/start requested')
-    for destination, name in ((PROFILE, 'profile.json'), (UNIT, UNIT_NAME)):
+    if waiting:
+        require_unconfigured()
+    else:
+        status = command([release + '/bin/show-tools-session', 'audio', 'status', '--profile', WEB_PROFILE])
+        require(status == 'Audio off', 'Fresh audio-off status required; no installation/start requested')
+    for destination, name in destinations:
         install_file(destination, files[name])
     command(['/usr/bin/systemctl', '--user', 'daemon-reload'])
     loaded = service_state()
     require(loaded.get('LoadState') == 'loaded' and loaded.get('FragmentPath') == UNIT and loaded.get('NeedDaemonReload') == 'no', 'Reviewed unit not loaded')
     command(['/usr/bin/systemctl', '--user', 'enable', UNIT_NAME])
     require(enable_link(), 'Expected enablement link missing')
-    require(command([release + '/bin/show-tools-session', 'audio', 'status', '--profile', WEB_PROFILE]) == 'Audio off',
-            'Fresh audio-off status required before start; installed data/enablement retained, no start requested')
+    if waiting:
+        require_unconfigured()
+    else:
+        require(command([release + '/bin/show-tools-session', 'audio', 'status', '--profile', WEB_PROFILE]) == 'Audio off',
+                'Fresh audio-off status required before start; installed data/enablement retained, no start requested')
     command(['/usr/bin/systemctl', '--user', 'start', UNIT_NAME])
     final = service_state()
     require(final.get('ActiveState') == 'active' and final.get('MainPID', '0').isdigit() and int(final['MainPID']) > 0, 'Controller not active; inspect its named user journal')
-    print(json.dumps({'service': UNIT_NAME, 'installed': True, 'enabled': True, 'active': True,
+    if waiting:
+        require_unconfigured()
+    print(json.dumps({'mode': 'waiting-configuration' if waiting else 'configured', 'service': UNIT_NAME, 'installed': True, 'enabled': True, 'active': True,
                       'audioStartRequested': False, 'physicalAcceptance': 'separate'}))
 
 

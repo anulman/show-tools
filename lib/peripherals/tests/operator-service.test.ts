@@ -65,3 +65,36 @@ test('operator packet stays pending without explicit tuning and pins a resolved 
     assert.throws(() => prepare('--out', join(directory, 'invalid-mixed'), '--disable-jiggle', '--jiggle-travel', '4', '--jiggle-reversal', '2'));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test('waiting packet pins the reviewed CLI and emits no profile or credential requirement', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'operator-waiting-fixture-'));
+  try {
+    const release = join(directory, 'release');
+    const revision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const names = ['release.json', 'runtime/node', 'bin/show-tools-peripheral', 'gateway/peripheral-cli.mjs', 'native/peripheral/peripheral-host', 'bin/show-tools-session', 'gateway/session-cli.mjs', 'provenance/source/lib/peripherals/bridge-cli.ts'];
+    for (const name of names) {
+      const path = join(release, name); await mkdir(resolve(path, '..'), { recursive: true });
+      await writeFile(path, name === 'release.json' ? JSON.stringify({ sourceRevision: revision }) : name.startsWith('provenance/') ? await readFile(resolve('lib/peripherals/bridge-cli.ts')) : `synthetic fixture ${name}`);
+    }
+    const prepare = (out: string, ...extra: string[]) => JSON.parse(execFileSync(process.execPath,
+      ['--import', 'tsx', resolve('lib/peripherals/operator-service/prepare.ts'), '--release', release, '--source-revision', revision, '--installer-source-revision', revision, '--waiting-configuration', '--out', out, ...extra], { encoding: 'utf8', stdio: 'pipe' }));
+    const output = join(directory, 'packet');
+    assert.equal(prepare(output).ready, true);
+    const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'));
+    assert.equal(manifest.schemaVersion, 3);
+    assert.equal(manifest.mode, 'waiting-configuration');
+    assert.deepEqual(Object.keys(manifest.files).sort(), ['install.py', 'show-tools-peripheral.service']);
+    assert.equal(manifest.webProfileSha256, undefined);
+    assert.equal(manifest.waitingCliSourceSha256, sha(await readFile(resolve('lib/peripherals/bridge-cli.ts'))));
+    await assert.rejects(access(join(output, 'profile.json')));
+    assert.match(await readFile(join(output, 'README.txt'), 'utf8'), /without sudo/);
+    assert.match(await readFile(join(output, 'OPERATOR-COMMAND.txt'), 'utf8'), /--manifest-sha256 [a-f0-9]{64} --activate/);
+    for (const extra of [['--disable-jiggle'], ['--input-map', '/unused'], ['--web-profile', '/unused'], ['--jiggle-travel', '4']]) {
+      assert.throws(() => prepare(join(directory, `mixed-${extra[0]}`), ...extra));
+    }
+    await writeFile(join(release, 'provenance/source/lib/peripherals/bridge-cli.ts'), 'old CLI source');
+    const rejected = join(directory, 'rejected');
+    assert.throws(() => prepare(rejected));
+    await assert.rejects(access(join(rejected, 'OPERATOR-COMMAND.txt')));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

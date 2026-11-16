@@ -108,6 +108,72 @@ class InstallerTests(unittest.TestCase):
         self.assertNotIn('owned-test-token', output.getvalue())
         return json.loads(output.getvalue())
 
+    def waiting_packet(self):
+        source = Path(m.__file__).parent.parent.joinpath('bridge-cli.ts').read_bytes()
+        self.write(self.release / m.WAITING_SOURCE, source)
+        self.manifest = {
+            'schemaVersion': 3, 'mode': 'waiting-configuration',
+            'sourceRevision': REVISION, 'installerSourceRevision': '3' * 40,
+            'waitingCliSourceSha256': m.digest(source),
+            'files': {name: value for name, value in self.manifest['files'].items() if name != 'profile.json'},
+            'releaseFiles': {**self.manifest['releaseFiles'], m.WAITING_SOURCE: m.digest(source)},
+        }
+        self.manifest_pin = self.pin_manifest()
+
+    def test_waiting_installs_only_unit_without_credentials_web_or_audio_calls(self):
+        self.waiting_packet()
+        self.web.unlink()
+        self.token.unlink()
+        result = self.run_apply()
+        self.assertEqual(result['mode'], 'waiting-configuration')
+        self.assertTrue(result['active'])
+        self.assertFalse(self.profile.exists())
+        self.assertEqual(self.unit.read_bytes(), self.unit_data)
+        self.assertTrue(self.wants.joinpath(m.UNIT_NAME).is_symlink())
+        self.assertTrue(all(call[:2] == ['/usr/bin/systemctl', '--user'] for call in self.calls))
+        self.calls.clear()
+        self.assertFalse(self.run_apply()['changed'])
+        self.assertEqual([args[2] for args in self.calls], ['show-environment', 'show'])
+
+    def test_waiting_refuses_existing_valid_invalid_and_dangling_profile_before_service_calls(self):
+        self.waiting_packet()
+        for data in (self.profile_data, b'{}', b'not JSON'):
+            with self.subTest(data=data):
+                self.write(self.profile, data)
+                with self.assertRaisesRegex(ValueError, 'requires absent'): self.run_apply()
+                self.assertEqual(self.profile.read_bytes(), data)
+                self.assertEqual(self.calls, [])
+                self.profile.unlink()
+        self.profile.symlink_to(self.root / 'absent-target')
+        with self.assertRaisesRegex(ValueError, 'requires absent'): self.run_apply()
+        self.assertTrue(self.profile.is_symlink())
+        self.assertEqual(self.calls, [])
+
+    def test_waiting_late_configuration_blocks_start_and_preserves_installed_evidence(self):
+        self.waiting_packet()
+        original = self.command
+        def create_before_start(args, **kwargs):
+            result = original(args, **kwargs)
+            if args[2] == 'enable': self.write(self.profile, b'concurrent configuration')
+            return result
+        with patch.object(m, 'command', side_effect=create_before_start):
+            with self.assertRaisesRegex(ValueError, 'requires absent'): self.run_apply()
+        self.assertEqual(self.profile.read_bytes(), b'concurrent configuration')
+        self.assertEqual(self.unit.read_bytes(), self.unit_data)
+        self.assertFalse(any('start' in call for call in self.calls))
+        self.assertTrue(self.wants.joinpath(m.UNIT_NAME).is_symlink())
+
+    def test_waiting_source_pin_and_manifest_mode_gate_manager_calls(self):
+        self.waiting_packet()
+        source = self.release / m.WAITING_SOURCE
+        source.write_bytes(b'old CLI with no missing-configuration wait')
+        with self.assertRaisesRegex(ValueError, 'release checksum'): self.run_apply()
+        self.assertEqual(self.calls, [])
+        self.manifest['mode'] = 'unknown'
+        self.manifest_pin = self.pin_manifest()
+        with self.assertRaisesRegex(ValueError, 'manifest fields'): self.run_apply()
+        self.assertEqual(self.calls, [])
+
     def test_success_only_installs_named_controller_and_idempotent_active_rerun_has_no_mutation(self):
         result = self.run_apply()
         self.assertEqual(self.profile.read_bytes(), self.profile_data)
