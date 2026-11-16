@@ -1,11 +1,11 @@
 import { spawn } from 'node:child_process';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile, stat } from 'node:fs/promises';
 import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import type { Readable } from 'node:stream';
 import { Schema } from 'effect';
-import { decodeDeskBootstrap, decodeDeskPublication, decodeNativeOutcome, DeskViewSchema, type NativePerformance, type NativeTarget } from '../remote-performance/session-schema.js';
+import { decodeDeskBootstrap, decodeDeskPublication, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus, DeskViewSchema, type InputLeaseReceipt, type NativePerformance, type NativeTarget } from '../remote-performance/session-schema.js';
 import { PHYSICAL_SWITCH_IDS } from '../performance/model.js';
 import { decodeBrowserInput, physicalReadyMasks, type HelperInput, type HelperReady } from './browser-protocol.js';
 import { DESK_HEARTBEAT_MS, DESK_STREAM_IDLE_MS } from '../remote-performance/event-liveness.js';
@@ -224,6 +224,8 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	const target: NativeTarget = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
 	const bindingGeneration = audio.performance.state.inputRouting?.bindingGeneration;
 	if (bindingGeneration === undefined) throw new Error('Native input routing is unavailable; update the engine before connecting');
+	const intentId = randomUUID();
+	let receipt: InputLeaseReceipt | undefined;
 	const session = randomBytes(6).readUIntBE(0, 6) + 1;
 	const incarnation = randomBytes(6).readUIntBE(0, 6) + 1;
 	const fence = 1;
@@ -257,10 +259,38 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 	let revocation: Promise<void> | undefined;
 	const revokeInput = () => revocation ??= (async () => {
 		const cleanup = await connection(config, AbortSignal.timeout(3000));
-		const result = decodeNativeOutcome(await cleanup.json('/api/command', {
-			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputRevoke', args: { kind: 'physical' },
+		let revokeError: unknown;
+		try {
+			const result = decodeNativeOutcome(await cleanup.json('/api/command', {
+				sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputRevoke', args: { kind: 'physical' },
+			}));
+			if (result.outcome !== 'applied') throw new Error('Native source revocation was not acknowledged');
+		} catch (error) { revokeError = error; }
+		const status = decodeInputIntentStatus(await cleanup.json('/api/input-intent-status', {
+			inputOwnerToken: bootstrap.inputOwnerToken, intentId,
 		}));
-		if (result.outcome !== 'applied') throw new Error('Native source revocation was not acknowledged');
+		if (status.kind !== 'retired') throw revokeError ?? new Error('Native source retirement remains unconfirmed');
+		const proof = status.proof;
+		let exact: boolean;
+		switch (proof.kind) {
+			case 'rejected-before-admission':
+				exact = !receipt && proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch
+					&& proof.kindOfProducer === 'physical' && proof.bindingGeneration === bindingGeneration;
+				break;
+			case 'old-engine-ended':
+				exact = proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch
+					&& proof.serverEpoch === bootstrap.view.serverEpoch && proof.kindOfProducer === 'physical'
+					&& proof.bindingGeneration === bindingGeneration;
+				break;
+			case 'exact-revoke-applied':
+				exact = proof.receipt.target.attempt === target.attempt && proof.receipt.target.hostEpoch === target.hostEpoch
+					&& proof.receipt.kind === 'physical' && proof.receipt.bindingGeneration === bindingGeneration
+					&& BigInt(proof.revocationRevision) > BigInt(proof.receipt.admissionRevision)
+					&& (!receipt || proof.receipt.producer === receipt.producer && proof.receipt.session === receipt.session
+						&& proof.receipt.admissionRevision === receipt.admissionRevision);
+				break;
+		}
+		if (!exact) throw new Error('Native source retirement proof does not match this attachment');
 		releaseRequired = false;
 	})();
 	const light = (performance: NativePerformance) => {
@@ -292,11 +322,18 @@ export async function runPeripheralBridge(config: PeripheralBridgeConfig, signal
 			if (configured.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed during jiggle setup');
 		}
 		releaseRequired = true;
-		const admission = decodeNativeOutcome(await link.json('/api/command', {
+		const admission = decodeInputAttachOutcome(await link.json('/api/command', {
 			sessionId: bootstrap.sessionId, sequence: ++commandSequence, target, command: 'inputAttach',
-			args: { kind: 'physical', bindingGeneration, ...physicalReadyMasks(initial) },
+			args: { kind: 'physical', bindingGeneration, ...physicalReadyMasks(initial), intentId },
 		}));
 		if (admission.outcome !== 'applied' || admission.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Physical input admission was not acknowledged');
+		const admittedReceipt = admission.receipt;
+		if (admittedReceipt.target.attempt !== target.attempt || admittedReceipt.target.hostEpoch !== target.hostEpoch || admittedReceipt.kind !== 'physical'
+			|| admittedReceipt.bindingGeneration !== bindingGeneration || admittedReceipt.admissionRevision !== admission.revision
+			|| admission.state.inputRouting?.bindingGeneration !== bindingGeneration
+			|| !admission.state.inputRouting.producers.some(value => value.producer === admittedReceipt.producer && value.session === admittedReceipt.session && value.kind === 'physical'))
+			throw new Error('Physical input admission receipt does not match this attachment');
+		receipt = admittedReceipt;
 		relay.start();
 		const fresh = decodeView(await link.json('/api/status'));
 		if (fresh.serverEpoch !== bootstrap.view.serverEpoch) throw new PeripheralRetry('Gateway restarted during I-PAC attachment');

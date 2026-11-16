@@ -78,7 +78,7 @@ test('persistent unit restarts abnormal exits with backoff, but holds normal con
 	assert.throws(() => renderPeripheralUnit('/app\nother', '/config'), /absolute/);
 });
 
-test('qualification changes and confirmed USB loss reconnect; uncertain source cleanup blocks retry', { timeout: 20000 }, async () => {
+for (const unknownCleanup of [false, true]) test(`qualification changes and USB loss reconnect; gateway cleanup ${unknownCleanup ? 'uncertainty blocks' : 'proof permits'} retry`, { timeout: 20000 }, async () => {
 	const { createGateway } = await import('../../remote-performance/gateway.js');
 	const directory = await mkdtemp(join(tmpdir(), 'ps-'));
 	const token = 'b'.repeat(32), tokenFile = join(directory, 'token'), helper = join(directory, 'helper'), log = join(directory, 'log'), stageFile = join(directory, 'stage'), disconnect = join(directory, 'disconnect');
@@ -137,17 +137,22 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		if (started.outcome !== 'applied') throw new Error('Missing native start acknowledgement');
 		await writeFile(disconnect, 'yes');
 		await waitRecords(history => new Set(history.filter(record => record.line?.startsWith('light ')).map(record => record.session)).size === 2);
-		failCleanup = true;
+		failCleanup = unknownCleanup;
 		server.closeAllConnections();
-		const result = await settled;
-		assert.equal(result.ok, false);
-		if ('error' in result) assert.match(String(result.error), /revocation is unconfirmed/);
-		await new Promise(resolve => setTimeout(resolve, 60));
-		assert.equal(new Set((await records()).filter(record => record.line?.startsWith('light ')).map(record => record.session)).size, 2, 'uncertain cleanup never creates a replacement source');
+		if (unknownCleanup) {
+			const result = await settled;
+			assert.equal(result.ok, false);
+			if ('error' in result) assert.match(String(result.error), /revocation is unconfirmed/);
+			await new Promise(resolve => setTimeout(resolve, 60));
+			assert.equal(new Set((await records()).filter(record => record.line?.startsWith('light ')).map(record => record.session)).size, 2, 'uncertain cleanup never creates a replacement source');
+		} else {
+			await waitRecords(history => new Set(history.filter(record => record.line?.startsWith('light ')).map(record => record.session)).size === 3);
+			abort.abort(); await running;
+		}
 		const history = await records(); const starts = history.filter(record => record.type === 'start');
 		assert.equal(new Set(starts.map(record => record.session)).size, starts.length, 'every attempt has a fresh helper identity');
 		for (let i = 1; i < starts.length; i++) assert.ok(history.findIndex(record => record.type === 'exit' && record.session === starts[i-1].session) < history.indexOf(starts[i]), 'old process exits before another child starts');
-		assert.equal(history.filter(record => record.line === 'clear').length, 2);
+		assert.equal(history.filter(record => record.line === 'clear').length, unknownCleanup ? 2 : 3);
 		assert.equal(history.at(-1)?.type, 'exit');
 		assert.equal(audioCommands, 0);
 		const final = controller.snapshot().audio;
