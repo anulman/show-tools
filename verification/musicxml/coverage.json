@@ -1,5 +1,5 @@
 {
-  "syncCommit": "dfd9c1fc61dd6273b08026f8f2da29516e8f58d8",
+  "syncCommit": "0ef82127a9b92535442b31899d4f7880df12a84f",
   "files": {
     "lib/performance/musicxml-song.ts": "4abbd69a3345f83d586ff3a1b9c8f90939449a7e4204e974ac30111418736d4b",
     "lib/performance/sheet-musicxml.ts": "e20668333a28bcf746e98eabac54fa8158e099dc53b965b6892cea4b4d9295d9",
@@ -16,7 +16,7 @@
     "lib/performance/external-assets.ts": "80910da673940d5cc43e2ad3b84674278334487cbd37f23b89ceb754232b7141",
     "lib/performance/input-bindings.ts": "c2e46f4b821efa766c29415921aba0072394880c1567ebef573dabed84dd69ac",
     "lib/performance/model.ts": "53bc8d0cf433ea2f51e144375f6a4ee6d07c44b3d8380d042c1e8457f7d36371",
-    "lib/performance/compiled-native.ts": "bae65ea9f609d2f922738df9672e199cbdca36d338424b57d94aa0d44ec2a5f0",
+    "lib/performance/compiled-native.ts": "b094bb0093336438eabb6b2f162cb016e7364211dc8a3a5dd2d195a295fc436d",
     "lib/performance/wasm-abi.ts": "13c22c8e005b40138ca196759f7ae5f9642a3e14534d203fdb97c7d211e486d3"
   },
   "scope": "Finite grammar actual TypeScript MusicXML semantic and explicit native binding-table verification; source changes require review and rerun before advancing this record."

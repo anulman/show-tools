@@ -11,7 +11,7 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 
 ## Covered source and sync record
 
-`verification/musicxml/coverage.json` records exact file hashes and source sync commit `dfd9c1fc61dd6273b08026f8f2da29516e8f58d8`. The original finite domain and five source mutants remain unchanged. A sixth mutant removes native binding rows; the full-setup witness must catch it with `NATIVE_BINDING_TABLE`. The separate cue verifier covers the terse grammar. Runtime tuner selection, pitch observations and periodic source analysis remain outside this verifier. It covers:
+`verification/musicxml/coverage.json` records exact file hashes and source sync commit `0ef82127a9b92535442b31899d4f7880df12a84f`. The original finite domain and five source mutants remain unchanged. A sixth mutant removes native binding rows; the full-setup witness must catch it with `NATIVE_BINDING_TABLE`. The separate cue verifier covers the terse grammar. Runtime tuner selection, pitch observations and periodic source analysis remain outside this verifier. It covers:
 
 - `lib/performance/musicxml-song.ts`: `semanticDigest`, `writeMusicXmlSong`, `readMusicXmlSong`, and `compileMusicXmlSong`.
 - `lib/performance/sheet-musicxml.ts`: `importSheetMusicXml`.
@@ -20,7 +20,7 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 - `lib/performance/song-source.ts`, `columns.ts`, `score-xml.ts`, `sheet-musical-annotations.ts`, and `sheet-stage-notation.ts`: source and normalized score construction.
 - `lib/voice-catalog/sheet-voices.ts` and `model.ts`: score-part discovery and saved voice metadata validation.
 - `input-bindings.ts` and `model.ts`: validated canonical binding metadata and its pure physical/row registries.
-- `compiled-native.ts` and `wasm-abi.ts`: actual encoded PFI1 table preservation and numeric packet constants.
+- `compiled-native.ts` and `wasm-abi.ts`: actual encoded PFI1 table preservation and numeric packet constants. The synchronous decode-and-encode adapter has separate unit and CLI witnesses; the finite native-table property reaches its shared private encoder through the existing public encoder.
 - `package-lock.json`: exact external dependencies.
 
 ## Interpret failures
