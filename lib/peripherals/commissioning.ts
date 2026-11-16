@@ -55,6 +55,7 @@ export interface CapturedMotionAxis extends CapturedAxis { readonly observations
 export interface LedAssignment { readonly controlId: PhysicalControlId; readonly sdkChannel: number }
 export type PeripheralBaseProfile = Omit<PeripheralBridgeConfig, 'inputMap'>;
 export interface CommissioningService { inspect(): Promise<{ readonly active: boolean }>; stop(): Promise<void>; start(): Promise<void> }
+export type CommissioningMaintenance = (operation: () => Promise<PeripheralBridgeConfig>) => Promise<PeripheralBridgeConfig>;
 export interface CommissioningIo { question(prompt: string): Promise<string>; write(message: string): void }
 export class CommissioningSaveUncertain extends Error {}
 
@@ -391,10 +392,10 @@ export async function saveCommissionedProfile(path: string, expected: Buffer | n
 export interface HardwareCommissioningOptions {
   profilePath: string; baseProfile: PeripheralBaseProfile; service: CommissioningService; audioOff(): Promise<void>; io: CommissioningIo;
   capture(control: PhysicalControlId): Promise<CapturedSwitch>; captureAxis?: () => Promise<CapturedAxis>;
-  includeAxis: boolean; retainedAxis?: CapturedAxis; startAfterSave?: boolean; signal?: AbortSignal;
+  includeAxis: boolean; retainedAxis?: CapturedAxis; startAfterSave?: boolean; signal?: AbortSignal; maintenance?: CommissioningMaintenance;
 }
 export async function commissionHardware(options: HardwareCommissioningOptions) {
-  return withCommissioningLock(options.profilePath, () => commissionHardwareUnderLock(options));
+  return withCommissioningLock(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionHardwareUnderLock(options)) : commissionHardwareUnderLock(options));
 }
 async function commissionHardwareUnderLock({ profilePath, baseProfile, service, audioOff, io, capture, captureAxis, includeAxis, retainedAxis, startAfterSave = false, signal }: HardwareCommissioningOptions) {
   signal?.throwIfAborted();
@@ -473,10 +474,10 @@ async function commissionHardwareUnderLock({ profilePath, baseProfile, service, 
 
 export interface DialCommissioningOptions {
   profilePath: string; service: CommissioningService; audioOff(): Promise<void>; io: CommissioningIo; captureAxis(): Promise<CapturedAxis>;
-  jiggle?: PeripheralBridgeConfig['jiggle']; signal?: AbortSignal;
+  jiggle?: PeripheralBridgeConfig['jiggle']; signal?: AbortSignal; maintenance?: CommissioningMaintenance;
 }
 export async function commissionDial(options: DialCommissioningOptions) {
-  return withCommissioningLock(options.profilePath, () => commissionDialUnderLock(options));
+  return withCommissioningLock(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionDialUnderLock(options)) : commissionDialUnderLock(options));
 }
 async function commissionDialUnderLock({ profilePath, service, audioOff, io, captureAxis, jiggle, signal }: DialCommissioningOptions) {
   signal?.throwIfAborted();

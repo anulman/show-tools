@@ -5,11 +5,20 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { once } from 'node:events';
+import { createServer } from 'node:http';
+import { mkdir } from 'node:fs/promises';
+import { createSessionService, renderSessionUnit } from '../../remote-performance/session-service.js';
 import { fileURLToPath } from 'node:url';
 import { assembleInstallationMap, captureAxis, captureSwitch, profileSnapshot, saveCommissionedProfile } from '../commissioning.js';
 import { commissioningService, runCommissioningCli } from '../commissioning-cli.js';
 import { renderPeripheralUnit } from '../service-unit.js';
 import { sessionProfile } from '../../remote-performance/tests/session-fixture.js';
+
+function inactiveWeb() {
+  return { state: async () => new Map([['ActiveState', 'inactive'], ['MainPID', '0'], ['TasksCurrent', '0']]),
+    stop: async () => {}, start: async () => { throw Error('Previously inactive web must not start'); } };
+}
 
 async function fixture(mode = 'complete') {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-cli-')));
@@ -72,7 +81,7 @@ test('the deterministic CLI captures two named controls, saves their exact map a
   await writeFile(unit, renderPeripheralUnit(runner, config), { mode: 0o600 });
   try {
     await runCommissioningCli(['--config', config, '--session-profile', session, '--helper', '/release/native/peripheral/peripheral-host', '--bench-dir', f.directory, '--runner', runner], {
-      unitPath: unit, stagingRoot: f.directory, command, audioOff: async () => {},
+      unitPath: unit, stagingRoot: f.directory, command, webService: inactiveWeb(), checkListenerAbsent: async () => {}, audioOff: async () => {},
       io: { question: async () => { const answer = answers.shift(); if (answer === undefined) throw Error('unexpected question'); return answer; }, write: value => output.push(value) },
     });
     const saved = JSON.parse(await readFile(config, 'utf8'));
@@ -116,7 +125,7 @@ for (const cancel of [false, true]) test(`the foreground TTY procedure ${cancel 
 import { runCommissioningCli } from ${JSON.stringify(module)};
 let active=true;
 await runCommissioningCli(['--config',${JSON.stringify(config)},'--session-profile',${JSON.stringify(session)},'--helper','/release/native/peripheral/peripheral-host','--bench-dir',${JSON.stringify(f.directory)},'--runner',${JSON.stringify(runner)}], {
-  unitPath:${JSON.stringify(unit)},stagingRoot:${JSON.stringify(f.directory)},audioOff:async()=>{},
+  unitPath:${JSON.stringify(unit)},stagingRoot:${JSON.stringify(f.directory)},webService:{state:async()=>new Map([['ActiveState','inactive'],['MainPID','0'],['TasksCurrent','0']]),stop:async()=>{},start:async()=>{throw Error('must not start web')}},checkListenerAbsent:async()=>{},audioOff:async()=>{},
   command:async args=>{if(args[0]!=='show')appendFileSync(${JSON.stringify(actionsFile)},args[0]+'\\n');if(args[0]==='stop')active=false;if(args[0]==='start')active=true;
     return {code:0,stdout:args[0]==='show'?'LoadState=loaded\\nActiveState='+ (active?'active':'inactive') +'\\nMainPID='+ (active?'1234':'0') +'\\nFragmentPath='+${JSON.stringify(unit)}+'\\nDropInPaths=\\nNeedDaemonReload=no\\nTasksCurrent='+(active?'1':'0')+'\\nKillMode=control-group\\n':''};}
 });
@@ -228,7 +237,7 @@ test('the installed dial CLI uses the motion reader and preserves the existing b
   try {
     await runCommissioningCli(['--dial', '--direction', 'counterclockwise', '--capture-seconds', '1', '--jiggle-travel', '4', '--jiggle-reversal', '2', '--config', config,
       '--session-profile', session, '--runner', '/release/bin/show-tools-peripheral', '--bench-dir', f.directory], {
-      stagingRoot: f.directory, audioOff: async () => {}, service: { inspect: async () => ({ active: false }), stop: async () => {}, start: async () => {} },
+      stagingRoot: f.directory, webService: inactiveWeb(), checkListenerAbsent: async () => {}, audioOff: async () => {}, service: { inspect: async () => ({ active: false }), stop: async () => {}, start: async () => {} },
       io: { question: async () => '', write: text => output.push(text) } });
     const saved = JSON.parse(await readFile(config, 'utf8'));
     assert.deepEqual(saved.inputMap.switches, inputMap.switches); assert.equal(saved.inputMap.axis.code, 1);
@@ -240,7 +249,7 @@ test('the installed dial CLI uses the motion reader and preserves the existing b
       let inspected = false;
       await assert.rejects(runCommissioningCli(['--dial', '--config', config, '--session-profile', session,
         '--runner', '/release/bin/show-tools-peripheral', '--bench-dir', f.directory, ...flags], {
-        stagingRoot: f.directory, audioOff: async () => {},
+        stagingRoot: f.directory, webService: inactiveWeb(), checkListenerAbsent: async () => {}, audioOff: async () => {},
         service: { inspect: async () => { inspected = true; return { active: false }; }, stop: async () => {}, start: async () => {} },
         io: { question: async () => '', write: () => {} } }), /jiggle/);
       assert.equal(inspected, false); assert.deepEqual(await readFile(config), exact);
@@ -273,7 +282,7 @@ test('CLI dial cancellation during the final audio-off check cannot publish or r
   const controller = new AbortController(); let checks = 0, started = false;
   try {
     await assert.rejects(runCommissioningCli(['--dial', '--config', path, '--session-profile', sessionPath, '--runner', '/release/runner', '--helper', '/release/helper', '--bench-dir', directory], {
-      stagingRoot: directory, signal: controller.signal,
+      stagingRoot: directory, signal: controller.signal, webService: inactiveWeb(), checkListenerAbsent: async () => {},
       service: { inspect: async () => ({ active: true }), stop: async () => {}, start: async () => { started = true; } },
       audioOff: async () => { if (++checks === 3) controller.abort(new Error('operator Ctrl-C before publication')); },
       io: { question: async () => '', write: () => {} },
@@ -282,4 +291,162 @@ test('CLI dial cancellation during the final audio-off check cannot publish or r
     assert.deepEqual(await readFile(path), before); assert.equal(started, false); assert.equal(checks, 3);
     await assert.rejects(readFile(path + '.commissioning.lock'), /ENOENT/);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+async function dialMaintenanceFixture() {
+  const f = await fixture();
+  const config = join(f.directory, 'peripheral.json'), sessionPath = join(f.directory, 'session.json');
+  const session = sessionProfile(f.directory);
+  await writeFile(sessionPath, JSON.stringify(session));
+  const source = { interfaceNumber: 0, eventTypes: [0, 1], keyCodes: [30, 31], relativeAxes: [] };
+  const inputMap = assembleInstallationMap({ switches: [
+    { controlId: 'blue', source, type: 1, code: 30, evidencePath: '/tmp/synthetic' },
+    { controlId: 'yellow', source, type: 1, code: 31, evidencePath: '/tmp/synthetic' }], leds: [], confirmWiring: false });
+  await saveCommissionedProfile(config, null, { version: 2, origin: session.origin, tokenFile: session.tokenFile,
+    helperExecutable: '/release/helper', bindingRevision: 1, jiggle: null, inputMap });
+  const args = ['--dial', '--config', config, '--session-profile', sessionPath, '--runner', '/release/runner', '--bench-dir', f.directory];
+  const axis = { source: { interfaceNumber: 2, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] }, type: 2 as const, code: 1, evidencePath: '/tmp/synthetic' };
+  return { ...f, config, sessionPath, session, args, axis };
+}
+
+function trackedWeb(initialActive: boolean) {
+  let active = initialActive;
+  const actions: string[] = [];
+  const service = { state: async () => new Map([['ActiveState', active ? 'active' : 'inactive'], ['MainPID', active ? '4321' : '0'], ['TasksCurrent', active ? '1' : '0']]),
+    stop: async () => { actions.push('web stop'); active = false; },
+    start: async () => { actions.push('web start'); active = true; } };
+  return { service, actions, activate: () => { active = true; }, active: () => active };
+}
+
+for (const initialActive of [false, true]) test(`explicit offline setup restores only a previously ${initialActive ? 'active' : 'inactive'} web service`, async () => {
+  const f = await dialMaintenanceFixture(), web = trackedWeb(initialActive);
+  const actions = web.actions;
+  try {
+    await runCommissioningCli([...f.args, '--stop-performance'], {
+      stagingRoot: f.directory, webService: web.service, checkListenerAbsent: async () => { assert.equal(web.active(), false); },
+      service: { inspect: async () => { actions.push('peripheral inspect'); assert.equal(web.active(), false); return { active: true }; },
+        stop: async () => { actions.push('peripheral stop'); }, start: async () => { actions.push('peripheral start'); } },
+      captureAxis: async () => { actions.push('capture and close reader'); assert.equal(web.active(), false); return f.axis; },
+      io: { question: async () => '', write: () => {} },
+    });
+    assert(actions.indexOf('web stop') < actions.indexOf('peripheral stop'));
+    assert(actions.indexOf('capture and close reader') < actions.indexOf('peripheral start'));
+    assert.equal(web.active(), initialActive);
+    if (initialActive) assert(actions.indexOf('peripheral start') < actions.indexOf('web start'));
+    else assert(!actions.includes('web start'));
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('active web setup needs explicit stop intent before touching the peripheral or profile', async () => {
+  const f = await dialMaintenanceFixture(), web = trackedWeb(true);
+  const before = await readFile(f.config);
+  let touched = false;
+  try {
+    await assert.rejects(runCommissioningCli(f.args, {
+      stagingRoot: f.directory, webService: web.service, checkListenerAbsent: async () => {},
+      service: { inspect: async () => { touched = true; return { active: true }; }, stop: async () => { touched = true; }, start: async () => { touched = true; } },
+      captureAxis: async () => { touched = true; return f.axis; }, io: { question: async () => '', write: () => {} },
+    }), /--stop-performance/);
+    assert.equal(touched, false); assert.deepEqual(web.actions, []); assert.deepEqual(await readFile(f.config), before);
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+for (const cancel of [false, true]) test(`offline setup ${cancel ? 'cancellation' : 'unexpected web restart'} leaves services stopped and preserves the precommit profile`, async () => {
+  const f = await dialMaintenanceFixture(), web = trackedWeb(true), controller = new AbortController();
+  const before = await readFile(f.config); let peripheralStarted = false;
+  try {
+    await assert.rejects(runCommissioningCli([...f.args, '--stop-performance'], {
+      stagingRoot: f.directory, signal: controller.signal, webService: web.service, checkListenerAbsent: async () => {},
+      service: { inspect: async () => ({ active: true }), stop: async () => {}, start: async () => { peripheralStarted = true; } },
+      captureAxis: async () => { if (cancel) controller.abort(new Error('operator cancelled offline setup')); else web.activate(); return f.axis; },
+      io: { question: async () => '', write: () => {} },
+    }), cancel ? /operator cancelled offline setup/ : /restarted during hardware setup/);
+    assert.equal(web.active(), false); assert.equal(peripheralStarted, false); assert(!web.actions.includes('web start'));
+    assert.deepEqual(await readFile(f.config), before); await assert.rejects(readFile(f.config + '.commissioning.lock'), /ENOENT/);
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('the verified web stop closes an actual listener before capture and restores it only afterwards', async () => {
+  const f = await dialMaintenanceFixture();
+  const server = createServer((_request, response) => { response.writeHead(503); response.end(); });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const session = { ...f.session, port: address.port, origin: `http://127.0.0.1:${address.port}` };
+  const config = JSON.parse(await readFile(f.config, 'utf8')); config.origin = session.origin;
+  await writeFile(f.config, JSON.stringify(config)); await writeFile(f.sessionPath, JSON.stringify(session));
+  await writeFile(session.tokenFile, '0123456789abcdef0123456789abcdef', { mode: 0o600 });
+  const unitDirectory = join(f.directory, 'systemd/user'); await mkdir(unitDirectory, { recursive: true });
+  const unit = join(unitDirectory, session.serviceName); await writeFile(unit, renderSessionUnit(session, f.sessionPath), { mode: 0o600 });
+  let active = true, captured = false;
+  const webService = createSessionService(session, f.sessionPath, { configDirectory: f.directory,
+    run: async (executable, args) => {
+      assert.equal(executable, 'systemctl'); assert.equal(args[0], '--user');
+      if (args[1] === 'stop') { await new Promise<void>(done => server.close(() => done())); active = false; }
+      if (args[1] === 'start') { assert.equal(captured, true); server.listen(address.port, '127.0.0.1'); await once(server, 'listening'); active = true; }
+      return { code: 0, stdout: args[1] === 'show' ? `LoadState=loaded\nActiveState=${active ? 'active' : 'inactive'}\nMainPID=${active ? '4321' : '0'}\nTasksCurrent=${active ? '1' : '0'}\nFragmentPath=${unit}\nDropInPaths=\n` : '' };
+    } });
+  try {
+    await runCommissioningCli([...f.args, '--stop-performance'], {
+      stagingRoot: f.directory, webService,
+      service: { inspect: async () => ({ active: false }), stop: async () => {}, start: async () => {} },
+      captureAxis: async () => {
+        await assert.rejects(fetch(session.origin + '/api/audio', { method: 'POST', body: '{"goal":"on"}' }));
+        captured = true; return f.axis;
+      }, io: { question: async () => '', write: () => {} },
+    });
+    assert.equal(active, true); assert.equal((await fetch(session.origin)).status, 503);
+  } finally { if (server.listening) await new Promise<void>(done => server.close(() => done())); await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('a listener outside the stopped named web service blocks setup before touching USB or saving', async () => {
+  const f = await dialMaintenanceFixture();
+  const server = createServer((_request, response) => { response.writeHead(503); response.end(); });
+  server.listen(0, '127.0.0.1'); await once(server, 'listening');
+  const address = server.address(); assert(address && typeof address !== 'string');
+  const session = { ...f.session, port: address.port, origin: `http://127.0.0.1:${address.port}` };
+  const config = JSON.parse(await readFile(f.config, 'utf8')); config.origin = session.origin;
+  await writeFile(f.config, JSON.stringify(config)); await writeFile(f.sessionPath, JSON.stringify(session));
+  await writeFile(session.tokenFile, '0123456789abcdef0123456789abcdef', { mode: 0o600 });
+  const before = await readFile(f.config); let touched = false;
+  try {
+    await assert.rejects(runCommissioningCli(f.args, { stagingRoot: f.directory, webService: inactiveWeb(),
+      service: { inspect: async () => { touched = true; return { active: false }; }, stop: async () => { touched = true; }, start: async () => { touched = true; } },
+      captureAxis: async () => { touched = true; return f.axis; }, io: { question: async () => '', write: () => {} } }), /failed \(503\)/);
+    assert.equal(touched, false); assert.deepEqual(await readFile(f.config), before);
+  } finally { await new Promise<void>(done => server.close(() => done())); await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('a competing setup cannot stop or restore web while the first reader owns the configuration lock', async () => {
+  const f = await dialMaintenanceFixture(), web = trackedWeb(true);
+  let releaseCapture: () => void = () => { throw Error('capture not started'); };
+  let captureStarted: () => void = () => {};
+  const started = new Promise<void>(resolve => { captureStarted = resolve; });
+  const gate = new Promise<void>(resolve => { releaseCapture = resolve; });
+  const options = { stagingRoot: f.directory, webService: web.service, checkListenerAbsent: async () => {},
+    service: { inspect: async () => ({ active: false }), stop: async () => {}, start: async () => {} },
+    captureAxis: async () => { captureStarted(); await gate; return f.axis; }, io: { question: async () => '', write: () => {} } };
+  const first = runCommissioningCli([...f.args, '--stop-performance'], options);
+  try {
+    await started;
+    await assert.rejects(runCommissioningCli([...f.args, '--stop-performance'], options), /already active or left a lock/);
+    assert.deepEqual(web.actions, ['web stop']); assert.equal(web.active(), false);
+    releaseCapture(); await first; assert.deepEqual(web.actions, ['web stop', 'web start']);
+  } finally { releaseCapture(); await first.catch(() => {}); await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('offline setup refuses a foreign web unit before issuing stop or opening a reader', async () => {
+  const f = await dialMaintenanceFixture();
+  const directory = join(f.directory, 'systemd/user'); await mkdir(directory, { recursive: true });
+  const unit = join(directory, f.session.serviceName); await writeFile(unit, 'foreign web unit', { mode: 0o600 });
+  const commands: string[][] = [];
+  const webService = createSessionService(f.session, f.sessionPath, { configDirectory: f.directory,
+    run: async (_executable, args) => { commands.push([...args]); return { code: 0, stdout: `LoadState=loaded\nActiveState=inactive\nMainPID=0\nTasksCurrent=0\nFragmentPath=${unit}\nDropInPaths=\n` }; } });
+  let touched = false;
+  try {
+    await assert.rejects(runCommissioningCli([...f.args, '--stop-performance'], { stagingRoot: f.directory, webService,
+      checkListenerAbsent: async () => { touched = true; },
+      service: { inspect: async () => { touched = true; return { active: false }; }, stop: async () => { touched = true; }, start: async () => { touched = true; } },
+      io: { question: async () => '', write: () => {} } }), /Installed user unit differs/);
+    assert.equal(touched, false); assert.equal(commands.length, 1); assert.equal(commands[0]?.[1], 'show');
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
 });

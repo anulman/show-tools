@@ -6,10 +6,11 @@ import { createInterface } from 'node:readline/promises';
 import { parseArgs, promisify } from 'node:util';
 import { decodePeripheralBridgeConfig } from './bridge.js';
 import { captureAxis, captureSwitch, commissionDial, decodeMotionDirection, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo,
-  type CommissioningService, type PeripheralBaseProfile } from './commissioning.js';
+  type CommissioningService, type CommissioningMaintenance, type PeripheralBaseProfile } from './commissioning.js';
 import { renderPeripheralUnit } from './service-unit.js';
 import { decodeSessionProfile } from '../remote-performance/session-profile.js';
-import { createSessionClient } from '../remote-performance/session-client.js';
+import { createSessionClient, DeskUnavailableError } from '../remote-performance/session-client.js';
+import { createSessionService } from '../remote-performance/session-service.js';
 
 const UNIT = 'show-tools-peripheral.service';
 const exec = promisify(execFile);
@@ -18,9 +19,12 @@ export const COMMISSIONING_HELP = `Usage: show-tools peripheral setup --config F
        show-tools peripheral setup --test --config FILE --runner FILE
        show-tools peripheral setup --status --config FILE --runner FILE
 
-Run setup in a foreground terminal on the EliteDesk. Audio must be off.
+Run setup in a foreground terminal on the EliteDesk. The web service must be stopped.
+Add --stop-performance to stop the verified web service and discard recorded takes.
+After successful setup, a previously active web service restarts with audio off.
+Cancellation or failure leaves it stopped; start it explicitly after resolving the error.
 Setup captures two to six named buttons and asks for each LED output explicitly.
-Only the verified show-tools-peripheral.service is stopped and restored.
+Only the verified profile web service and show-tools-peripheral.service are controlled.
 Add --start to button setup to start a previously inactive service after saving.
 --dial adds the observed relative-Y source without recapturing the button map.
 Add --jiggle-travel N --jiggle-reversal N to save explicit motion thresholds,
@@ -34,6 +38,8 @@ export interface CommissioningCliOptions {
   readonly unitPath?: string; readonly stagingRoot?: string; readonly configPath?: string; readonly sessionProfilePath?: string;
   readonly io?: CommissioningIo; readonly service?: CommissioningService; readonly command?: ServiceCommand;
   readonly signal?: AbortSignal;
+  readonly webService?: Pick<ReturnType<typeof createSessionService>, 'state' | 'start' | 'stop'>;
+  readonly checkListenerAbsent?: () => Promise<void>;
   readonly audioOff?: () => Promise<void>; readonly captureAxis?: (options: { readonly benchDirectory: string; readonly stagingRoot: string; readonly io: CommissioningIo }) => Promise<CapturedAxis>;
 }
 async function systemctl(args: readonly string[]) {
@@ -90,10 +96,11 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
   const { values } = parseArgs({ args: [...args], options: { config: { type: 'string' }, 'session-profile': { type: 'string' },
     helper: { type: 'string' }, 'bench-dir': { type: 'string' }, runner: { type: 'string' }, 'staging-root': { type: 'string' },
     'jiggle-travel': { type: 'string' }, 'jiggle-reversal': { type: 'string' }, 'disable-jiggle': { type: 'boolean' },
-    direction: { type: 'string' }, 'capture-seconds': { type: 'string' }, dial: { type: 'boolean' }, test: { type: 'boolean' }, status: { type: 'boolean' }, start: { type: 'boolean' } } });
+    direction: { type: 'string' }, 'capture-seconds': { type: 'string' }, dial: { type: 'boolean' }, test: { type: 'boolean' }, status: { type: 'boolean' }, start: { type: 'boolean' }, 'stop-performance': { type: 'boolean' } } });
   if (Number(Boolean(values.dial)) + Number(Boolean(values.test)) + Number(Boolean(values.status)) > 1) throw new Error('Choose setup, --dial, --test or --status.');
   if (!values.dial && (values.direction || values['capture-seconds'] || values['jiggle-travel'] || values['jiggle-reversal'] || values['disable-jiggle']))
     throw new Error('Use direction, capture duration and jiggle settings with --dial.');
+  if (values['stop-performance'] && (values.test || values.status)) throw new Error('--stop-performance applies only to button or dial setup.');
   if (values.start && (values.dial || values.test || values.status)) throw new Error('--start applies to button setup. Start the named peripheral service separately after other commands.');
   const profilePath = resolve(values.config ?? options.configPath ?? join(homedir(), '.config/show-tools/peripheral.json'));
   const existing = await profileSnapshot(profilePath);
@@ -136,10 +143,52 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
     const helper = values.helper ?? options.helperExecutable ?? previous?.helperExecutable;
     const benchDirectory = values['bench-dir'] ?? options.benchDirectory;
     if (!helper || !helper.startsWith('/') || !benchDirectory || !benchDirectory.startsWith('/')) throw new Error('Supply the installed --helper and --bench-dir paths.');
-    const audioOff = options.audioOff ?? (async () => {
-      const view = await (await createSessionClient(session)).status();
-      if (view.audio.kind !== 'off') throw new Error('Hardware audio must be off before commissioning. Use show-tools session audio off after preserving any takes you need.');
+    const webService = options.webService ?? createSessionService(session, sessionPath);
+    const checkListenerAbsent = options.checkListenerAbsent ?? (async () => {
+      try { await (await createSessionClient(session)).status(); }
+      catch (error) { if (error instanceof DeskUnavailableError) return; throw error; }
+      throw new Error('The desk endpoint still has a listener although its managed service is stopped. Refusing hardware setup.');
     });
+    let webChanged = false;
+    const inactiveWeb = async () => {
+      if (webChanged) throw new Error('The web service restarted during hardware setup. Refusing automatic service restoration.');
+      const state = await webService.state();
+      if (state.get('ActiveState') !== 'inactive' || state.get('MainPID') !== '0'
+        || !['0', '[not set]', ''].includes(state.get('TasksCurrent') ?? '')) {
+        webChanged = true;
+        if (values['stop-performance']) await webService.stop();
+        throw new Error('The web service restarted during hardware setup. Setup refused; inspect the named service before retrying.');
+      }
+      await checkListenerAbsent();
+    };
+    const audioOff = async () => { await inactiveWeb(); await options.audioOff?.(); };
+    const maintenance: CommissioningMaintenance = async operation => {
+      signal.throwIfAborted();
+      const initial = await webService.state();
+      signal.throwIfAborted();
+      const active = initial.get('ActiveState');
+      if (active !== 'active' && active !== 'inactive') throw new Error('The web service state is not settled. Inspect its named unit before setup.');
+      if (active === 'active' && !values['stop-performance']) throw new Error('The web service is active. Rerun setup with --stop-performance to stop it and discard recorded takes.');
+      if (values['stop-performance']) io.write(`Stopping ${session.serviceName} for hardware setup. Recorded takes are discarded.\n`);
+      await webService.stop();
+      let completed = false;
+      try {
+        signal.throwIfAborted();
+        await inactiveWeb();
+        signal.throwIfAborted();
+        const result = await operation();
+        signal.throwIfAborted();
+        await inactiveWeb();
+        signal.throwIfAborted();
+        completed = true;
+        return result;
+      } finally {
+        if (completed && active === 'active') {
+          await webService.start();
+          io.write(`${session.serviceName} restarted. Audio is off.\n`);
+        } else io.write(`${session.serviceName} is left stopped. Start it explicitly after setup or recovery.\n`);
+      }
+    };
     const stagingRoot = values['staging-root'] ?? options.stagingRoot ?? '/home/anulman/.local/share/show-tools/staging';
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
     const capture = options.captureAxis;
@@ -171,7 +220,7 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
         for (const axis of captured.observations) io.write(`Observed relative axis ${axis.code} on interface ${axis.interfaceNumber}: ${axis.samples} nonzero samples, signed delta ${axis.delta}, positive counts ${axis.positiveCounts}, negative counts ${axis.negativeCounts}.\n`);
         return captured;
       };
-      return await commissionDial({ profilePath, service, audioOff, io, signal, captureAxis: axisCapture, ...(jiggle !== undefined ? { jiggle } : {}) });
+      return await commissionDial({ profilePath, service, audioOff, io, signal, maintenance, captureAxis: axisCapture, ...(jiggle !== undefined ? { jiggle } : {}) });
     }
     const baseProfile: PeripheralBaseProfile = { version: 2, origin: session.origin, tokenFile: session.tokenFile,
       ...(session.connectAddress ? { connectAddress: session.connectAddress } : {}), ...(session.caFile ? { caFile: session.caFile } : {}),
@@ -181,7 +230,7 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
     const retainedAxis = previousAxis && previousSource?.kind === 'linux' ? { source: { interfaceNumber: previousSource.interfaceNumber,
       eventTypes: previousSource.eventTypes, keyCodes: previousSource.keyCodes, relativeAxes: previousSource.relativeAxes },
       type: 2, code: previousAxis.code, evidencePath: profilePath } satisfies CapturedAxis : undefined;
-    return await commissionHardware({ profilePath, baseProfile, service, audioOff, io, signal, includeAxis: false, retainedAxis,
+    return await commissionHardware({ profilePath, baseProfile, service, audioOff, io, signal, maintenance, includeAxis: false, retainedAxis,
       startAfterSave: values.start === true,
       capture: controlId => captureSwitch({ controlId, observerPath: join(benchDirectory, 'raw_keys.py'), publisherPath: join(benchDirectory, 'publish_marker.py'),
         stagingRoot, signal, onArmed: identity => io.write(`ARMED: press and fully release ${identity} three times. Leave it released.\n`) }) });
