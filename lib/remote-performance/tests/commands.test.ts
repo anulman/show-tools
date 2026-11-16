@@ -106,7 +106,7 @@ test('identified inputs preserve safe integer identities and native host operati
   assert.throws(() => decodeClientInputCommand({ command: 'inputAttach', args: { kind: 'physical', bindingGeneration: 1, releasedMask: 1, heldMask: 0, producer: 0, session: 1 } }));
 });
 
-function inputHost(initialSessions = 0) {
+function inputHost(initialSessions = 0, revokeAcknowledgement: Promise<void> = Promise.resolve()) {
   const target = Schema.decodeUnknownSync(NativeTargetSchema)({ attempt: 'input-attempt', hostEpoch: 'input-native' });
   const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'input-test', String);
   let view = Schema.decodeUnknownSync(DeskViewSchema)({ serverEpoch: 'input-server', revision: '1', song, audio: {
@@ -139,6 +139,7 @@ function inputHost(initialSessions = 0) {
           producers: [...routing.producers, { producer: a.producer, session: a.session, kind: a.kind, releasedMask: a.releasedMask, heldMask: a.heldMask, lastSequence: 0 }] });
         if (unknownAttach) return { outcome: 'unknown' };
       } else if (command.command === 'inputRevoke') {
+        await revokeAcknowledgement;
         if (unknownRevoke) return { outcome: 'unknown' };
         const a = command.args;
         replaceRouting({ ...routing, producers: routing.producers.filter(value => value.producer !== a.producer || value.session !== a.session) });
@@ -151,6 +152,25 @@ function inputHost(initialSessions = 0) {
 
 const clientAttach = (kind = 'physical') => ({ command: 'inputAttach', args: { kind, bindingGeneration: 7, releasedMask: 3, heldMask: 0 } });
 const clientEvent = (kind = 'physical', input = 0) => ({ command: 'inputEvent', args: { kind, bindingGeneration: 7, sequence: 1, input, value: 1 } });
+
+test('manual revoke and disconnect share one in-flight request for the same lease', async () => {
+  let acknowledge: () => void = () => {};
+  const blocked = new Promise<void>(resolve => { acknowledge = resolve; });
+  const host = inputHost(0, blocked), registry = new InputProducerRegistry(host.controller);
+  const first = {}, second = {};
+  await registry.command(first, host.target, clientAttach());
+  await registry.command(second, host.target, clientAttach('keyboard'));
+  const manual = registry.command(first, host.target, { command: 'inputRevoke', args: { kind: 'physical' } });
+  await new Promise(resolve => setImmediate(resolve));
+  const disconnected = registry.close(first);
+  const unrelated = registry.command(second, host.target, { command: 'inputRevoke', args: { kind: 'keyboard' } });
+  await new Promise(resolve => setImmediate(resolve));
+  const revokes = host.calls.filter(value => value.command === 'inputRevoke').map(value => value.args);
+  acknowledge();
+  await Promise.all([manual, disconnected, unrelated]);
+  assert.deepEqual(revokes, [{ producer: 0, session: 1 }, { producer: 1, session: 2 }]);
+  assert.equal((await registry.command(second, host.target, clientAttach('keyboard'))).outcome, 'applied');
+});
 
 test('gateway assigns distinct producer leases and cannot release another client or role', async () => {
   const host = inputHost(40), registry = new InputProducerRegistry(host.controller);

@@ -33,7 +33,7 @@ export interface GatewayConfig {
 
 export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; tuner?: TunerState; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
 type Session = { highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
-type InputLease = InputAttach & { target: NativeTarget; status: 'pending' | 'active' | 'quarantined'; pending: Promise<NativeOutcome> };
+type InputLease = InputAttach & { target: NativeTarget; status: 'pending' | 'active' | 'quarantined'; pending: Promise<NativeOutcome>; revoking?: Promise<NativeOutcome> };
 
 export class InputProducerRegistry {
   private readonly owners = new Map<object, Map<InputAttach['kind'], InputLease>>();
@@ -127,14 +127,17 @@ export class InputProducerRegistry {
       sequence: command.args.sequence, input: command.args.input, value: command.args.value,
     } });
   }
-  private async revoke(owner: object, lease: InputLease): Promise<NativeOutcome> {
+  private revoke(owner: object, lease: InputLease): Promise<NativeOutcome> {
+    if (lease.revoking) return lease.revoking;
     lease.status = 'quarantined';
-    const result = await this.controller.command(lease.target, { command: 'inputRevoke', args: { producer: lease.producer, session: lease.session } })
-      .catch(() => ({ outcome: 'unknown' as const }));
-    const routing = result.outcome === 'applied' ? result.state.inputRouting : undefined;
-    if (routing && !routing.producers.some(value => value.producer === lease.producer && value.session === lease.session))
-      this.remove(owner, lease);
-    return result;
+    lease.revoking = this.controller.command(lease.target, { command: 'inputRevoke', args: { producer: lease.producer, session: lease.session } })
+      .catch(() => ({ outcome: 'unknown' as const })).then(result => {
+        const routing = result.outcome === 'applied' ? result.state.inputRouting : undefined;
+        if (routing && !routing.producers.some(value => value.producer === lease.producer && value.session === lease.session))
+          this.remove(owner, lease);
+        return result;
+      }).finally(() => { lease.revoking = undefined; });
+    return lease.revoking;
   }
   close(owner: object) {
     const pending = this.closing.get(owner);
