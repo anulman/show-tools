@@ -1,4 +1,5 @@
 """Owned files/pipes only. No USB, input, HID, audio or service is accessed."""
+import ctypes
 import importlib.util
 import json
 import os
@@ -29,11 +30,38 @@ def decoded(value, micros=1000, device='owned-pipe', code=30):
 
 def write_marker(directory, op, trial='trial1', nonce='a' * 32, **extra):
     path = directory / (op + '.json')
-    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    fd, temporary = tempfile.mkstemp(prefix='.marker-', dir=directory)
     try:
-        os.write(fd, json.dumps({'op': op, 'trialId': trial, 'nonce': nonce, **extra}).encode())
+        data = memoryview(json.dumps({'op': op, 'trialId': trial, 'nonce': nonce, **extra}).encode())
+        while data:
+            count = os.write(fd, data)
+            if count <= 0:
+                raise RuntimeError('Marker write made no progress')
+            data = data[count:]
+        os.fsync(fd)
+    except BaseException:
+        os.unlink(temporary)
+        raise
     finally:
         os.close(fd)
+    try:
+        libc = ctypes.CDLL(None, use_errno=True)
+        if sys.platform == 'darwin':
+            publish = libc.renamex_np
+            publish.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
+            result = publish(os.fsencode(temporary), os.fsencode(path), 4)
+        elif sys.platform == 'linux':
+            publish = libc.renameat2
+            publish.argtypes = [ctypes.c_int, ctypes.c_char_p, ctypes.c_int, ctypes.c_char_p, ctypes.c_uint]
+            result = publish(-100, os.fsencode(temporary), -100, os.fsencode(path), 1)
+        else:
+            raise RuntimeError('Atomic marker publication requires Linux or macOS')
+        if result:
+            error = ctypes.get_errno()
+            raise OSError(error, os.strerror(error), path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
     return path
 
 
@@ -130,6 +158,15 @@ class FileTests(unittest.TestCase):
         os.link(path, self.directory / 'second')
         with self.assertRaises(RuntimeError):
             self.marker()
+
+    def test_marker_is_absent_until_complete_publication(self):
+        original_write = os.write
+        def partial_write(fd, data):
+            self.assertFalse(self.marker())
+            return original_write(fd, data[:max(1, len(data) // 2)])
+        with patch.object(os, 'write', side_effect=partial_write):
+            write_marker(self.directory, 'arm')
+        self.assertTrue(self.marker())
 
     def test_invalid_marker_bytes(self):
         path = self.directory / 'arm.json'
