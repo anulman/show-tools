@@ -105,7 +105,7 @@ The operator reported two connected arcade buttons after remapping the first
 button. These physical reports do not establish their current Linux keycodes.
 The earlier anonymous Escape observation does not identify either colour.
 
-| Physical control identity | Reported controller switch label | Reported LED output number | Current Linux input observation | Verification state |
+| Physical control identity | Reported controller switch label | Reported ordinary-header LED output | Current Linux input observation | Verification state |
 | --- | --- | --- | --- | --- |
 | Blue | `2SW7` | `1` | Not captured after remapping | Operator-reported wiring |
 | Yellow | `1A` | `2` | Not captured after remapping | Operator-reported wiring |
@@ -118,9 +118,11 @@ Blue and Yellow name physical controls. They do not assign a voice, capture,
 playback, tempo, or Panic action. Songs and the Performance Engine own those
 bindings. The same distinction applies to the remaining controls.
 
-The operator described LED connections as pins 1 and 2. The screw-terminal
-versus ordinary-header connection, current supply, and LED module rating still
-need confirmation. No new LED polarity or visible-output test is recorded.
+The operator confirmed that LED pins 1 and 2 are on the ordinary 96-channel
+header. Moving them to the MOSFET screw-terminal outputs is planned for later
+and is not the current wiring. The current supply and LED module rating still
+need confirmation before LED writes. No new LED polarity or visible-output test
+is recorded.
 
 The wiring record distinguishes each controller header, row, and pin from its
 peripheral terminal. Switch COM and NO, LED anode and cathode, switch ground,
