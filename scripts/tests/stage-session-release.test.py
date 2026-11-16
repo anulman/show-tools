@@ -370,6 +370,11 @@ class StagingTests(unittest.TestCase):
                                 capture_output=True, text=True, timeout=60)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_fixed_admission_runner_suite(self):
+        path = Path(__file__).with_name('stage-session-release-admission.test.py')
+        result = subprocess.run([sys.executable, '-I', '-B', str(path)], capture_output=True, text=True, timeout=90)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
