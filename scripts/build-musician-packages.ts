@@ -116,8 +116,8 @@ export async function runMusicianPackages(args: readonly string[]) {
     const files = await filesBelow(directory);
     await writeFile(join(output, `${instrument}.zip`), zipSync(files, { level: 6, mtime: new Date(1980, 0, 1) }), { flag: 'wx' });
   }
-  await writeFile(join(output, 'manifest.json'), JSON.stringify({ schemaVersion: 1, status: 'complete', generator, sources: spec.songs, sheets: rows }, null, 2) + '\n', { flag: 'wx' });
   await writeFile(join(output, 'index.html'), `<!doctype html><html><meta charset="utf-8"><title>First three songs: musician sheets</title><style>body{font:18px/1.6 system-ui;margin:40px;color:#27372f}a{color:#245d40}</style><h1>Musician sheet packages</h1>${instruments.filter(value => !selected || value === selected).map(instrument => `<p><a href="${instrument}/index.html">${instrumentNames[instrument]} sheets</a> · <a href="${instrument}.zip">Download package</a></p>`).join('')}</html>\n`, { flag: 'wx' });
+  await writeFile(join(output, 'manifest.json'), JSON.stringify({ schemaVersion: 1, status: 'complete', generator, sources: spec.songs, sheets: rows }, null, 2) + '\n', { flag: 'wx' });
   process.stdout.write(`Created ${rows.length} musician PDFs. Open ${join(output, 'index.html')}\n`);
 }
 if (await isCliEntrypoint(import.meta.url)) await runMusicianPackages(process.argv.slice(2));

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, writeFile, access, rm } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, access, rm, chmod } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { XMLValidator } from 'fast-xml-parser';
@@ -61,5 +62,29 @@ test('changed canonical inputs reject before publishing files or invoking the PD
       instruments: { drums: { kind: 'form' }, bass: { kind: 'form' }, keys: { kind: 'form' } } }] }));
     await assert.rejects(runMusicianPackages(['--spec', join(directory, 'spec.json'), '--out-dir', join(directory, 'output'), '--python', '/nonexistent/no-pdf-spawn']), /Canonical input changed/);
     await assert.rejects(access(join(directory, 'output')));
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('failed final index publication cannot leave a completed package marker', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'musician-package-index-failure-'));
+  try {
+    const source = await input('dance-yrself-clean'), output = join(directory, 'output');
+    await writeFile(join(directory, 'song.musicxml'), source);
+    await writeFile(join(directory, 'spec.json'), JSON.stringify({ schemaVersion: 1, songs: [{ id: 'dance-yrself-clean', musicxml: 'song.musicxml',
+      sha256: createHash('sha256').update(source).digest('hex'), instruments: { drums: { kind: 'form' }, bass: { kind: 'form' }, keys: { kind: 'form' } } }] }));
+    const interpreter = join(directory, 'renderer-fixture');
+    await writeFile(interpreter, `#!${process.execPath}
+const fs = require('node:fs');
+const args = process.argv.slice(2);
+if (args[0] !== '-c') {
+  fs.writeFileSync(args[args.indexOf('--output') + 1], 'fixture PDF');
+  fs.writeFileSync(${JSON.stringify(join(output, 'index.html'))}, 'blocked final index');
+}
+`);
+    await chmod(interpreter, 0o700);
+    await assert.rejects(runMusicianPackages(['--spec', join(directory, 'spec.json'), '--out-dir', output, '--instrument', 'drums', '--python', interpreter]), { code: 'EEXIST' });
+    assert.equal(await readFile(join(output, 'index.html'), 'utf8'), 'blocked final index');
+    await access(join(output, 'drums.zip'));
+    await assert.rejects(access(join(output, 'manifest.json')), { code: 'ENOENT' });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
