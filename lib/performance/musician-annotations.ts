@@ -40,9 +40,8 @@ export function parseMusicianFill(text: string): MusicianFill | null {
     const fromCount = Number(freeform[1]);
     return { kind: 'freeform', fromCount, bracket, leadingDash, display: wrap(`Fill from ${fromCount}`) };
   }
-  if (!/^(?:[1-4](?:e?&?a?)\s*)+$/.test(content)) return null;
-  const counts = [...content.matchAll(/[1-4](?:e?&?a?)/g)].map(match => match[0]);
-  if (counts.length === 1 && counts[0].length === 1) return null;
+  if (!/^(?:[1-4]e&a\s*)+$/.test(content)) return null;
+  const counts = [...content.matchAll(/[1-4]e&a/g)].map(match => match[0]);
   if (counts.some((count, index) => index > 0 && Number(count[0]) <= Number(counts[index - 1][0]))) return null;
   const display = counts.flatMap(count => [...count]).join(' ');
   return { kind: 'exact', counts: content, bracket, leadingDash, display: wrap(`Fill: ${display}`) };

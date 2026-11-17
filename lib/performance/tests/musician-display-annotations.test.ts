@@ -7,8 +7,7 @@ import { readMusicXmlSong } from '../musicxml-song.js';
 test('exact fills space attacks and retain phrase boundaries without inventing duration', () => {
   assert.deepEqual(parseMusicianFill('4e&a]'), { kind: 'exact', counts: '4e&a', bracket: 'end', leadingDash: false, display: 'Fill: 4 e & a]' });
   assert.deepEqual(parseMusicianFill('[-4e&a]'), { kind: 'exact', counts: '4e&a', bracket: 'both', leadingDash: true, display: '[Fill: 4 e & a]' });
-  assert.equal(parseMusicianFill('3&4e&a')?.display, 'Fill: 3 & 4 e & a');
-  assert.equal(parseMusicianFill('1 2 3 4')?.display, 'Fill: 1 2 3 4');
+  assert.equal(parseMusicianFill('3e&a4e&a')?.display, 'Fill: 3 e & a 4 e & a');
 });
 
 test('single accented counts indicate freeform fills from that count', () => {
@@ -21,7 +20,7 @@ test('single accented counts indicate freeform fills from that count', () => {
 });
 
 test('unknown compounds, malformed fills and whole-cell feels retain literal notation', () => {
-  for (const text of ['!', '!!', '!!!', '!4!!', '!2!!', '[3! 1!]', '4!!', '4! 1!', '4a&e', '4e&a3&', '--4!', '[[3!', '4e&a]]', '4', 'fill', "4e&a'"]) {
+  for (const text of ['!', '!!', '!!!', '!4!!', '!2!!', '[3! 1!]', '4!!', '4! 1!', '4a&e', '4e&a3&', '4e&a3e&a', '3e&a3e&a', '1&2&3&4&', '1 2 3 4', '1p&p2p', '3&4e&a', '--4!', '[[3!', '4e&a]]', '4', 'fill', "4e&a'"]) {
     assert.equal(parseMusicianFill(text), null, text);
   }
 });
