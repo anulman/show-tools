@@ -13,20 +13,29 @@ const baseline = {
   commit: '4eb0569',
   song: '9b8b75d0e5248941e586edb4602b6aad72c9164cd3c06e1be253bc7a9cd04b39',
   native: '237b834c47ede65e4488e25c268a7202c4da1845388ff5cfa63fa9e94e51c7a8',
+  sheetTemplate: 'show-tools-musician-sheet-projection-v5',
   sheets: [
-    { name: 'Bass', labelCell: 'A14', pages: [
-      'a20cc99cc62637ec9ea849362eb572bf833d14c349c7abc8b2e3cf09a9a9fe5d',
-      '36a0d717b08dbc8d76bb1d50ff161d81cf0129372e85d3998fad1ca9c15efb35',
-      '3afa016e21136c2b737c13d764656de2681ec5a8bf34ee26f014fb8f8146d877',
-      'b69e2d985dac13e248edb2e1c989dede873a3f61cf0723ba7a98030d5ada8979',
-    ] },
-    { name: 'Drums', labelCell: 'A15', pages: [
-      'f50e6920d90b30b723d94bb3e9f8a45830464344a453f1ce6e96386d528116cb',
-      '9e97912a1379478f49300af8b45b8e940d1c27598bbbb6f38d0afddbb09aaaa4',
-      '8a6fa73387935e62b085cf0b9536fac74dd8d739e45de7b6faa757365980e686',
-      '9a37ec370ad44846bab9491c6a484cb653983a0c5c642e1607861b70a93f2466',
-      'c33fab54c62d58a702bb2da62697945806c327db9b49b8c9a9c87caecc3fda32',
-    ] },
+    {
+      "name": "Bass",
+      "labelCell": "A14",
+      "pages": [
+        "52ff530fb70407b2358c09e998a35e8d5c58153cfe21399660fe88b45071cc64",
+        "36a0d717b08dbc8d76bb1d50ff161d81cf0129372e85d3998fad1ca9c15efb35",
+        "aa1cefd719efbdbc6b025e7b4a9ed1351eeb1ff205579e482a3461ee32080adf",
+        "7616d86e8c2c9e6c1a707133d7741d79c52ca5898c728d7a38ff2faa428560fd"
+      ]
+    },
+    {
+      "name": "Drums",
+      "labelCell": "A15",
+      "pages": [
+        "a6b9667f5629ac12340d7e38163b7fb74953844c7afeaad0dd53e4c6846d8aba",
+        "55638503424cf8db7fcb236bdaf2fda424172802424ca9bc901a449132edb909",
+        "8ad3cc86f63aac4c949a0c10e436676615d185c52567a48c7803c9909cdaa395",
+        "94f8fa246b560dab7437362dfb471eed53db1a075f80baa64107225d1d0eeb04",
+        "6520610a9a5b129dd605c0ffad2154ca73b38546ae4da43eb36ccca296d0c2d0"
+      ]
+    }
   ],
 };
 
@@ -98,7 +107,7 @@ export async function verifyMusicXmlCutover(musicxml: string) {
   assert.equal(digest(bytes), baseline.native, 'Native instructions beyond the explicit v6 jiggle migration changed.');
   const sheets = await createMusicianSheets({ musicxml });
   const actualSheets = sheets.map(sheet => ({ name: sheet.name, labelCell: sheet.labelCell, pages: sheet.pages.map(digest) }));
-  assert.deepEqual(actualSheets, baseline.sheets, 'Musician-sheet pages changed during MusicXML migration.');
+  assert.deepEqual(actualSheets, baseline.sheets, `Musician-sheet pages differ from the reviewed ${baseline.sheetTemplate} template.`);
   return { baselineCommit: baseline.commit, bars: song.chart.bars.length, cues: song.cues.length,
     takes: song.takes.length, nativeSha256: baseline.native,
     sheets: actualSheets.map(sheet => ({ name: sheet.name, pages: sheet.pages.length })) };

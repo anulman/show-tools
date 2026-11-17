@@ -30,9 +30,9 @@ Pass a MusicXML path as the optional argument to inspect another copy of the mig
 node --import tsx scripts/verify-musicxml-cutover.ts songs/dance-yrself-clean.musicxml
 ```
 
-The verifier compares the generated result with values captured before the cutover at commit `4eb0569`. The original baseline was captured before the Sheets converter and musician renderer changed. The committed script retains its hashes.
+The verifier compares compiled-song meaning and native instructions with values captured before the cutover at commit `4eb0569`. Those historical hashes remain frozen. Musician SVG pages use a separate, explicitly named presentation-template baseline.
 
-The check covers the complete compiled song except the source and mapping digests, which identify the new storage representation. It also compares native instruction bytes and every SVG page byte for Bass and Drums. DYC retains all 218 bars, 62 cues, 12 takes, four Bass pages, and five Drums pages.
+The check covers the complete compiled song except the source and mapping digests, which identify the new storage representation. It also compares native instruction bytes and every SVG page byte for Bass and Drums against their respective baselines. DYC retains all 218 bars, 62 cues, 12 takes, four Bass pages, and five Drums pages.
 
 Run the input-authority and corruption tests separately.
 
@@ -112,4 +112,8 @@ node --import tsx scripts/migrate-jiggle-musicxml.ts INPUT.musicxml --out NEW.mu
 
 The command validates the legacy application metadata, renames the rotation interval in performance data and optional mapping archive, and rewrites through the strict current reader/writer. It retains standard music, source archives, annotations and portable voice metadata while recalculating canonical semantic digests. Repeating the migration on a current canonical file produces identical bytes; the CLI refuses to overwrite an existing output.
 
-The original cutover hashes at `4eb0569` remain frozen. The verifier explicitly projects compiled schema 6's interval field back to its historical name/schema and native packet 6's version marker back to 5 before comparing those original hashes. Every other compiled field, native instruction value and musician-page hash remains pinned. Separate tests establish v3 rejection/migration and the native timing tests establish the intentionally changed release behavior. This historical projection is verification only and is never an executable compatibility loader.
+The original compiled-song and native-instruction hashes at `4eb0569` remain frozen. The verifier explicitly projects compiled schema 6's interval field back to its historical name/schema and native packet 6's version marker back to 5 before comparing those original hashes. Every other compiled field and native instruction value remains pinned. Musician-page hashes are checked against the reviewed presentation template, independently of these historical runtime baselines. Separate tests establish v3 rejection/migration and the native timing tests establish the intentionally changed release behavior. This historical projection is verification only and is never an executable compatibility loader.
+
+## Musician presentation refinements
+
+The v5 worksheet template intentionally changes musician page bytes for readable fill labels, notation-only vocal filtering, single-bar range wording, source voice attribution and uncounted Tail writing bars. Its exact SVG hashes are pinned separately in `verify-musicxml-cutover.ts`. The original compiled-song and native-byte hashes are unchanged. Updating a presentation baseline requires page inspection and focused renderer tests; it does not authorize a runtime baseline update. The combined musician package workflow supports HTML/SVG previews without generating PDFs.

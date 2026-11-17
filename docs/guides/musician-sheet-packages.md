@@ -1,67 +1,97 @@
-# Generate and review musician sheet packages
+# Generate and review musician chart packages
 
-Use one canonical MusicXML export per song to produce writing sheets for Drums, Bass and Keys. Each instrument package contains three song folders, PDF handouts, printable HTML, SVG pages, projected MusicXML, source documents and a regeneration spec. Multiple charted parts keep separate sheets.
+Use canonical MusicXML to produce one writing chart per musician per song. Explicitly select every voice belonging to that musician. Their voice changes and overlaps share one chronological chart, with full-size writing staves, sections and lyric cues. No chart is produced when the musician has no charted part.
 
-## Generate a package
+## Review without generating PDFs
 
-Use the normal project dependencies and a working Python 3.10 or newer with `scripts/musician-pdf-requirements.txt` installed. Confirm `import reportlab, svglib, xml.parsers.expat` succeeds before rendering. An interpreter that starts but cannot import its XML parser cannot render these sheets.
-
-From the repository root, run:
+Run from the repository root:
 
 ```sh
 node --import tsx scripts/build-musician-packages.ts \
-  --spec /absolute/path/to/package-spec.json \
-  --out-dir /absolute/path/to/new-output-directory \
-  --python /absolute/path/to/pdf-python
+  --spec /absolute/path/to/package-spec-v2.json \
+  --out-dir /absolute/path/to/new-preview-directory \
+  --format preview
 ```
 
-To regenerate an extracted instrument package, use its `drums-spec.json`, `bass-spec.json` or `keys-spec.json` and add `--instrument drums`, `--instrument bass` or `--instrument keys`. The spec resolves source paths relative to its own directory. Choose an output directory that does not exist. A successful run ends with `Created N musician PDFs` and an `index.html` path. A complete output has a root manifest with `status: complete`.
+Open the resulting `index.html`. Preview mode writes HTML, SVG, projected MusicXML, source documents, provenance, regeneration specs and ZIPs. It never invokes Python or writes a PDF. The completed manifest records `format: preview`; the links expose only formats actually generated.
 
-The spec names every source file and its SHA-256. For charted parts it also names the exact row label cell and expected part name. Changed inputs or shifted rows fail before output publication. Review the new chart before updating those bindings. The generator never guesses an instrument from hardware names or substitutes an AF row.
+When PDF generation is wanted, use `--format pdf --python /absolute/path/to/pdf-python`. Use Python 3.10 or newer with `scripts/musician-pdf-requirements.txt` installed. Confirm `import reportlab, svglib, xml.parsers.expat` succeeds first. The same SVG pages supply both formats.
 
-## Use the shared legend
+Choose an output directory that does not exist. A successful run ends with an index path. The root manifest has `status: complete` only after every output and the index have been written. Existing output directories are never overwritten.
 
-Normal `-` activity is implicit. Whole-bar `!` and `!-` print **Funky**. `!!` prints **Extra funky**. The operator confirmed that `!!!` is a separate, higher-intensity feel; it prints **Higher intensity**. These are musician feel annotations, not inferred dynamics or sampler commands. Managed `AF -` punctuation keeps its own semantics.
+## Configure musicians explicitly
 
-A whole-section feel belongs beside the section heading. A change within a section retains its source-bar range. Count-qualified and compound marks remain literal until their meaning is confirmed. Do not invent pitches, chords, grooves, durations or section equivalence.
+The standalone handout CLI and Sheets exporter recognize the declared musician namespaces `Drums`, `Bass`, `Keys` and `Guitar`. The exact row name or the `Musician - Voice` convention selects that musician: `Keys - Piano` and `Keys - Pad Synth` share a Keys chart. Other rows, including controls, are not automatically exported. Selection includes only the selected source rows. Package specs below provide explicit bindings instead of depending on this naming convention. Custom musician names require explicit row bindings through `createMusicianChart`.
 
-A blank cell in an existing musician part is an authored not-playing passage and may become a counted rest. A missing musician row is unknown activity. Request an explicit `form` in the spec to obtain full blank staves, sections and lyric cues with an uncharted-part caption. Its hidden MusicXML spacers do not assert silence. It has no invented source row or rest ranges.
+Version two of the package spec names the song, canonical file and SHA-256, followed by explicit Drums, Bass, Keys and Guitar selections. A musician is either `parts` with exact source row/name bindings, or `none`.
 
-Pickups retain their source labels. Chronological ordinal 10 can be source bar 1 after nine pickups. Use source labels in musician-facing ranges and keep ordinals only for coverage checks. Explicit uncounted Lead-in and Tail cells remain labeled boundary cues, not extra numbered measures. The accented `&` remains on the vocal cue line.
+```json
+{
+  "schemaVersion": 2,
+  "songs": [{
+    "id": "drunk-girls",
+    "musicxml": "drunk-girls.musicxml",
+    "sha256": "REPLACE_WITH_THE_REVIEWED_FILE_SHA256",
+    "instruments": {
+      "drums": { "kind": "parts", "parts": [{ "labelCell": "A18", "name": "Drums" }] },
+      "bass": { "kind": "parts", "parts": [{ "labelCell": "A15", "name": "Bass" }] },
+      "keys": { "kind": "parts", "parts": [
+        { "labelCell": "A16", "name": "Keys - Pad Synth" },
+        { "labelCell": "A17", "name": "Keys - Piano" }
+      ] },
+      "guitar": { "kind": "none" }
+    }
+  }]
+}
+```
 
-## Coordinate the instrument sessions
+Resolve source paths relative to the spec file. Review new chart contents before updating hashes or row/name bindings. Missing, renamed, repeated or managed AF rows fail before output publication. A `none` entry appears in the skipped receipt and produces no song directory, worksheet or PDF. An instrument with no included songs produces no ZIP.
 
-The coordinator reads fresh Sheets data once, imports it into canonical MusicXML, and freezes the source hashes for all sessions. Instrument sessions read the same inputs, review musical intent, and inspect their actual rendered pages. They do not edit the shared renderer or source Sheet concurrently. Send common legend questions to the coordinator so the operator gets one consistent question.
+Migrate version-one specs by setting `schemaVersion` to `2`, replacing every `form` selection with `none`, and adding an explicit `guitar` selection. Preserve existing `parts` bindings. Multiple voices in one selection now generate one chart. Old `form` specs are rejected, not silently interpreted.
+
+To regenerate an extracted instrument package, use its `<instrument>-spec.json` and add `--instrument drums`, `bass`, `keys` or `guitar`. Extracted specs include only that musician's charted songs.
+
+## Read the shared legend
+
+Normal `-` activity is implicit. Whole-bar `!` and `!-` print **Funky**; `!!` prints **Extra funky**; `!!!` prints **Higher intensity**. These labels describe musician feel. Managed AF punctuation retains its separate performance semantics.
+
+A full sixteenth-note run such as `4e&a` prints **Fill: 4 e & a**. These are specified hits, not an invitation to improvise. A single count followed by `!`, such as `2!`, prints **Fill from 2**. Brackets remain visible as source phrase boundaries. The sheet does not infer a fill duration beyond the confirmed starting count. Other rhythm patterns and unconfirmed compound marks remain literal.
+
+Vocal continuation annotations `-` and `-'`, including equivalent single-prime spellings, are omitted from musician-facing lyrics. Actual lyrics containing apostrophes remain intact. The accented `&` remains on the vocal line. Canonical data and source archives retain the original annotations.
+
+A whole-section feel belongs beside the heading. Internal changes retain their source-bar range. A singleton prints **bar 120**, never **bars 120-120**. Each voice keeps its own feel attribution. Do not invent pitches, chords, grooves or musical equivalence.
+
+Source pickups keep their labels. Ordinal 10 can be source bar 1 after nine pickup measures. An uncounted Tail gets its own final writing bar with its authored hit cue and a final barline. It does not create another numbered source bar or specify how long to sustain the tail.
+
+## Review combined voices
+
+Voice names mark entries, changes and page starts. Simultaneous voices retain separate labeled cues within the same shared writing staff. Count and phrase marks identify within-bar transitions; activity alone does not establish their precise timing.
+
+A condensed musician rest is allowed only when all selected voices rest. One voice resting cannot hide another playing. No repeated section is automatically substituted for a combined chart.
+
+The coordinator freezes source hashes and owns the generator. Instrument sessions review the same inputs, inspect actual pages and return concise facts, open meanings, source references and a `PASS`, `ISSUES` or `BLOCKED` result. Route shared legend questions through the coordinator. Do not add explanatory cell notes or repeated draft labels.
 
 | Session | Review focus |
 |---|---|
-| Drums | Entries, fills, compound count marks, pickups, kit identity and rest boundaries. Do not turn a sampled AF drum voice into a human kit part. |
-| Bass | Bass clefs, entry counts, feel changes and separate synth/bass layers. Identical activity marks do not establish identical notes. |
-| Keys | Separate Pad Synth, Piano and other named parts. Preserve empty writing space; add harmony only from musician-confirmed chord data. |
-| Guitar | Distinguish a human arrangement row from an AF sample voice and the PARTS roster. A roster entry alone does not chart a guitar part. |
+| Drums | Exact versus freeform fills, entries, pickups, kit identity and all-voice rest boundaries. AF sample voices do not create a human kit part. |
+| Bass | Bass clef, entry counts, feel changes and named synth voice changes. Identical activity marks do not establish identical notes. |
+| Keys | Pad Synth, Piano and Cowbell transitions and overlaps. Add harmony only from musician-confirmed chord data. |
+| Guitar | Human arrangement rows versus AF samples or the PARTS roster. A roster entry does not create a chart. |
 
-For every revision, each session returns the source hashes, part rows, page counts, facts, unresolved meanings and actual page checks. State `PASS`, `ISSUES` or `BLOCKED`, with file/page/cell references. Ask concise musical questions and preserve unknown notation in the rough sheets while those questions are open. Do not add explanatory cell notes or repeat draft labels throughout the source.
+## Verify before generating PDFs
 
-## Verify before delivery
+1. Check all numbered source measures appear once in the chart's staff/rest plan. Check displayed source labels independently from chronological ordinals.
+2. Check all selected voices, fill labels, sections, lyrics, page-start context and feel ranges. Check simultaneous activity before approving condensed rests.
+3. Render SVG previews to images and inspect dense voice changes, long headings and the full Tail staff. Check geometry separately from text extraction.
+4. Verify skipped musicians produce no files. Check the input MusicXML is unchanged.
+5. Generate a second preview into another new directory and compare hashes. Keep source files, specs and concise reviews with the package.
 
-1. Check every counted source measure appears exactly once in the staff/rest/reference plan. Check source labels separately from ordinal coverage.
-2. Check named sections, full-size staves, lyric anchors, entry cues, feel ranges and uncounted boundaries. Repeat headings only at a section change or new page.
-3. Render every PDF page to an image. Inspect all pages and zoom into dense sections, long bar labels and boundary cues. Text extraction alone cannot prove there are no collisions.
-4. For uncharted forms, check there are no visible authored rests, inferred playing spans or fake source rows.
-5. Re-run into another new directory and compare the PDF and ZIP hashes. Keep the source documents, spec and concise review with the delivered package.
-
-Run the focused checks with:
+Run the focused checks:
 
 ```sh
-node --import tsx --test \
-  lib/performance/tests/musician-packages.test.ts \
-  lib/performance/tests/musician-sheets.test.ts \
-  lib/performance/tests/musician-sheet-plan.test.ts \
-  lib/performance/tests/musicxml-boundaries.test.ts
+node --import tsx --test lib/performance/tests/musician-*.test.ts
 ```
 
-## First three-song package
+For the initial three-song set, DYC Keys and ICC Drums are omitted. Guitar has no charted row in these inputs. ICC Bass combines Alien Synth and Bass Synth; DG Keys combines Pad Synth and Piano; ICC Keys combines Pad Synth and Cowbell. This yields seven musician/song charts. Missing parts in other songs follow the same `none` rule.
 
-The initial live-source review covers Dance Yrself Clean, Drunk Girls and I Can Change. DYC has no Keys arrangement row; ICC has no non-AF Drums row. Those entries use uncharted form worksheets. ICC Bass has Alien Synth and Bass Synth sheets; DG Keys has Pad Synth and Piano; ICC Keys has Pad Synth and Cowbell. This produces twelve part PDFs across nine instrument/song entries. These are source observations for this package, not permanent instrument assignments.
-
-ICC's imported human arrangement is complete for these worksheets. Its unresolved hardware cues still block runtime execution. Generating musician sheets does not approve or deploy a performance program.
+Generating musician charts does not approve performance programs or deploy anything. ICC's unresolved runtime cues remain a separate issue.

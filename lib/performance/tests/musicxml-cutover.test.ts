@@ -18,7 +18,7 @@ function removeAudit(xml: string): string {
   return removeField(removeField(xml, 'show-tools:source'), 'show-tools:mapping');
 }
 
-test('frozen DYC migration preserves pre-cutover compiled meaning, native bytes and every musician-sheet page', async () => {
+test('frozen DYC preserves pre-cutover compiled meaning, native bytes and the reviewed musician template', async () => {
   const result = await verifyMusicXmlCutover(await frozenCutoverMusicXml());
   assert.equal(result.bars, 218);
   assert.equal(result.cues, 62);
