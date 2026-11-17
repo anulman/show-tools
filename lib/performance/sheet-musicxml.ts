@@ -92,6 +92,14 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
         return { cell, bar: bar.bar, text, reading };
       }) })),
   });
+  const boundaryCues: NonNullable<MusicXmlReport['annotations']['boundaryCues']> = report.parts.flatMap(part =>
+    (source.values[mapping.barRow - 1] ?? []).flatMap((label, index) => {
+      const position = label.trim() === 'Lead-in' ? 'lead-in' : label.trim() === 'Tail' ? 'tail' : null;
+      const row = Number(part.labelCell.replace(/^[A-Z]+/, ''));
+      const text = source.values[row - 1]?.[index] ?? '';
+      return position && text.trim() ? [{ partId: part.id, cell: `${columnName(index + 1)}${row}`, position, text }] : [];
+    }));
+  if (boundaryCues.length) report.annotations.boundaryCues = boundaryCues;
   const output = await writeMusicXmlSong({ song, report, source, mapping });
   const document = await readMusicXmlSong(output);
   return { xml: output, report: document.report };
