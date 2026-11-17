@@ -53,6 +53,8 @@ To regenerate an extracted instrument package, use its `<instrument>-spec.json` 
 
 ## Read the shared legend
 
+Musician notes below the staves are italic. Lyrics remain upright. This distinction is preserved in SVG, HTML, PDF rendering and projected MusicXML.
+
 Normal `-` activity is implicit. Whole-bar `!` and `!-` print **Funky**; `!!` prints **Extra funky**; `!!!` prints **Higher intensity**. These labels describe musician feel. Managed AF punctuation retains its separate performance semantics.
 
 A full sixteenth-note run such as `4e&a` prints **Fill: 4 e & a**. These are specified hits, not an invitation to improvise. A single count followed by `!`, such as `2!`, prints **Fill from 2**. Brackets remain visible as source phrase boundaries. The sheet does not infer a fill duration beyond the confirmed starting count. Other rhythm patterns and unconfirmed compound marks remain literal.

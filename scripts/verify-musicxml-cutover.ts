@@ -29,11 +29,11 @@ const baseline = {
       "name": "Drums",
       "labelCell": "A15",
       "pages": [
-        "a6b9667f5629ac12340d7e38163b7fb74953844c7afeaad0dd53e4c6846d8aba",
-        "55638503424cf8db7fcb236bdaf2fda424172802424ca9bc901a449132edb909",
-        "8ad3cc86f63aac4c949a0c10e436676615d185c52567a48c7803c9909cdaa395",
-        "94f8fa246b560dab7437362dfb471eed53db1a075f80baa64107225d1d0eeb04",
-        "6520610a9a5b129dd605c0ffad2154ca73b38546ae4da43eb36ccca296d0c2d0"
+        "d752f3bc5e18d96e9d1a47bcec821c465419b3c14c397e66afc8e87a67c619b7",
+        "f5f091804c4dcc22f7024268ac0fef6badedccd73c24504cc364b675f7c1b08e",
+        "3af18fbffbc2c174acb4a4c7573834bf6dc823549b48ed9bb4f773dc1ec59e44",
+        "fee65af06ebebd4d604bba7a5cefc714454cd265bd371bd730cd446032604039",
+        "80f47320ecde2d67fd804ad91693f08c4cf15daf82b2187fbce6e61bf06962e8"
       ]
     }
   ],

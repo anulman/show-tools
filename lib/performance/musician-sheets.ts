@@ -220,7 +220,7 @@ function svgPage(page: System[], pageIndex: number, pageCount: number, part: Par
     for (const [i, cell] of row.cells.entries()) {
       const x = staffStart + i * measureWidth;
       body.push(`<g data-bar="${cell.bar}"><text x="${x + 4}" y="${vocalY}" font-size="7" fill="#555">${xml(barLabel(cell.bar, presentation))}</text><line x1="${x}" y1="${staffY}" x2="${x}" y2="${staffY + 24}" stroke="#777" stroke-width=".55"/>`);
-      for (const [line, cue] of system.instruments[i].entries()) body.push(`<text data-source-cell="${cue.cell}" data-voice="${cue.partId}" x="${x + 4}" y="${staffY + 41 + line * 10}" font-size="8" fill="#444">${xml(cue.text)}</text>`);
+      for (const [line, cue] of system.instruments[i].entries()) body.push(`<text data-source-cell="${cue.cell}" data-voice="${cue.partId}" x="${x + 4}" y="${staffY + 41 + line * 10}" font-size="8" font-style="italic" fill="#444">${xml(cue.text)}</text>`);
       body.push('</g>');
     }
     body.push(`<line x1="${staffEnd}" y1="${staffY}" x2="${staffEnd}" y2="${staffY + 24}" stroke="#444" stroke-width=".7"/></g>`);
@@ -233,7 +233,7 @@ function svgPage(page: System[], pageIndex: number, pageCount: number, part: Par
     body.push(clefSvg(clef(part), staffY));
     body.push(`<line x1="${staffStart}" y1="${staffY}" x2="${staffStart}" y2="${staffY + 24}" stroke="#777" stroke-width=".55"/><line x1="${staffEnd}" y1="${staffY}" x2="${staffEnd}" y2="${staffY + 24}" stroke="#444" stroke-width="1.4"/>`);
     const lines = selectedBoundaries(report, presentation, 'tail').flatMap(cue => wrap(cue.text, 80).map(text => ({ ...cue, text })));
-    for (const [index, cue] of lines.entries()) body.push(`<text data-boundary-cell="${cue.cell}" data-voice="${cue.partId}" x="${staffStart + 4}" y="${staffY + 41 + index * 10}" font-size="8">${xml(cue.text)}</text>`);
+    for (const [index, cue] of lines.entries()) body.push(`<text data-boundary-cell="${cue.cell}" data-voice="${cue.partId}" x="${staffStart + 4}" y="${staffY + 41 + index * 10}" font-size="8" font-style="italic">${xml(cue.text)}</text>`);
     body.push('</g>');
   }
   return `<svg xmlns="http://www.w3.org/2000/svg" width="210mm" height="297mm" viewBox="0 0 ${width} ${height}" role="img" aria-label="${xml(part.name)} notes, bars ${first} to ${last}"><rect width="100%" height="100%" fill="white"/><g font-family="Arial, sans-serif" fill="#222"><text x="${margin}" y="40" font-size="23" font-weight="bold"><tspan>${xml(report.title)}</tspan><tspan dx="8" dy="-3.5" font-size="13" font-weight="normal">— ${xml(part.name)}</tspan></text><text x="${staffEnd}" y="29" text-anchor="end" font-size="9">${report.meter.numerator}/${report.meter.denominator} · ${report.bpmPerChartCount} BPM</text><text x="${staffEnd}" y="40" text-anchor="end" font-size="9">${xml(barRange(first, last, presentation).replace(/^b/, 'B'))}</text>${body.join('')}<text x="${staffEnd}" y="818" text-anchor="end" font-size="8" fill="#666">Page ${pageIndex + 1} of ${pageCount}</text></g></svg>`;
@@ -245,7 +245,7 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
   const pageStarts = new Set(pages.slice(1).map(page => page[0].row.cells[0].bar));
   const systemStarts = new Map(systems.map(system => [system.row.cells[0].bar, system]));
   const restStarts = new Map(systems.filter(system => system.row.kind === 'rest').map(system => [system.row.cells[0].bar, system.row.cells.length]));
-  const direction = (text: string, id: string, placement: 'above' | 'below', countOffset = 0) => `<direction placement="${placement}"><direction-type><words id="${id}" font-size="9">${xml(text)}</words></direction-type>${countOffset ? `<offset>${countOffset * 960 * 4 / report.meter.denominator}</offset>` : ''}</direction>`;
+  const direction = (text: string, id: string, placement: 'above' | 'below', countOffset = 0) => `<direction placement="${placement}"><direction-type><words id="${id}" font-size="9"${placement === 'below' ? ' font-style="italic"' : ''}>${xml(text)}</words></direction-type>${countOffset ? `<offset>${countOffset * 960 * 4 / report.meter.denominator}</offset>` : ''}</direction>`;
   const measures = part.cells.map((cell, index) => {
     let body = '';
     const system = systemStarts.get(cell.bar);
