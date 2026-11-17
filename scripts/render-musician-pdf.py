@@ -17,7 +17,10 @@ args = parser.parse_args()
 
 fonts = Path(reportlab.__file__).parent / 'fonts'
 font_map = FontMap()
-font_map.register_font_family('Arial', str(fonts / 'Vera.ttf'), str(fonts / 'VeraBd.ttf'))
+font_map.register_font_family(
+    'Arial', str(fonts / 'Vera.ttf'), str(fonts / 'VeraBd.ttf'),
+    str(fonts / 'VeraIt.ttf'), str(fonts / 'VeraBI.ttf'),
+)
 glyphs = pdfmetrics.getFont('Arial').face.charToGlyph
 canvas = Canvas(args.output, invariant=1, pageCompression=1)
 canvas.setTitle(args.title)
