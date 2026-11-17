@@ -1,6 +1,6 @@
 ---
 name: pixel-storyboard
-description: Create and refine pixel-art scenes, storyboards, character actions, and tween studies in Figma. Break complete-motion requests into starting, ending, and intermediate poses, then verify a held-pose animatic before adding targeted drawings. Use alongside character-dance for dances and special moves.
+description: Create and refine pixel-art scenes, operator-editable stages, storyboards, character actions, and tween studies in Figma. Break complete-motion requests into starting, ending, and intermediate poses, then verify a held-pose animatic before adding targeted drawings. Use alongside character-dance for dances and special moves.
 ---
 
 # Pixel storyboard
@@ -12,6 +12,8 @@ An autonomous grant does not require an operator reply at every stage. Make and 
 Use Figma as the primary workspace. Keep the storyboard, reusable source art and animation cels there. PNGs and MP4s are review exports. Load the applicable Figma skills before tool calls. Use character-dance for character identity, native pixel finishing, anatomy, temporal review and release requirements. This skill adds scene direction and staged tweening. It does not implement musical timing or promote art into runtime use.
 
 For a static scene study, compose the required shots and review their PNGs. Apply the pose progression and motion-export steps below when the task includes a character action or animation.
+
+When the operator wants to place actors, compare endpoints, or block poses directly, read [manual staging](references/manual-staging.md). Deliver separate editable layers and useful pose controls. Once handed over, the working stage belongs to the operator. Read its current layout before using it and put subsequent production work in a separate frame. Do not replay a builder or reset their placements without an explicit request.
 
 Read [the operator instructions](references/operator-guide.md) when explaining or guiding the workflow. Read [the Maestro case](references/maestro-case.md) when diagnosing a failed pose or adapting this process. Read [the handoff record](references/handoff-record.md) when coordinating agents or preserving acceptance through a session restart.
 
