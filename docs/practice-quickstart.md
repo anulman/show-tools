@@ -81,6 +81,9 @@ manifest = capture(packet / 'manifest.json', 32768)
 body = capture(packet / 'OPERATOR-COMMAND.txt', 32768)
 if hashlib.sha256(manifest).hexdigest() != reference['manifestSha256'] or len(body) != command['bytes'] or hashlib.sha256(body).hexdigest() != command['sha256']:
     raise SystemExit('Bootstrap hashes differ from the reviewed reference. Stop here.')
+selection = json.loads(manifest)
+if not isinstance(selection, dict) or type(selection.get('schemaVersion')) is not int or selection['schemaVersion'] != 3 or selection.get('mode') != 'waiting-configuration' or selection.get('sourceRevision') != r or selection.get('installerSourceRevision') != installer:
+    raise SystemExit('This is not the waiting-configuration packet for this application. Stop here.')
 subprocess.run(['/bin/sh'], input=body, check=True)
 PY
 ```
