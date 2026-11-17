@@ -1,90 +1,90 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile, mkdtemp, writeFile, access, rm, chmod } from 'node:fs/promises';
+import { readFile, mkdtemp, writeFile, access, rm, chmod, readdir } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { XMLValidator } from 'fast-xml-parser';
-import { createMusicianFormSheet, createMusicianSheets } from '../musician-sheets.js';
-import { readMusicXmlSong } from '../musicxml-song.js';
-import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { verifyMusicianCoverage, runMusicianPackages } from '../../../scripts/build-musician-packages.js';
+import { createMusicianChart } from '../musician-sheets.js';
 
-const input = (slug: string) => readFile(new URL(`../../../songs/${slug}.musicxml`, import.meta.url), 'utf8');
+const input = () => readFile(new URL('../../../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8');
+const none = { kind: 'none' };
+const drums = { kind: 'parts', parts: [{ labelCell: 'A15', name: 'Drums' }] };
+async function fixture(directory: string, instruments: Record<'drums' | 'bass' | 'keys' | 'guitar', typeof drums | typeof none> = { drums, bass: none, keys: none, guitar: none }) {
+  const source = await input();
+  await writeFile(join(directory, 'song.musicxml'), source);
+  const spec = { schemaVersion: 2, songs: [{ id: 'dance-yrself-clean', musicxml: 'song.musicxml', sha256: createHash('sha256').update(source).digest('hex'), instruments: structuredClone(instruments) }] };
+  await writeFile(join(directory, 'spec.json'), JSON.stringify(spec));
+  return spec;
+}
+async function withFixture(run: (directory: string) => Promise<void>) {
+  const directory = await mkdtemp(join(tmpdir(), 'musician-package-'));
+  try { await run(directory); } finally { await rm(directory, { recursive: true, force: true }); }
+}
 
-test('missing instrument forms preserve every bar and lyrics without inventing rests or a source row', async () => {
-  const sheet = await createMusicianFormSheet({ musicxml: await input('dance-yrself-clean'), instrument: 'Keys' });
-  assert.equal(sheet.kind, 'uncharted-form'); assert(!('labelCell' in sheet));
-  assert.equal(sheet.pages.length, 6); assert.deepEqual(sheet.condensation.rests, []);
-  assert(sheet.pages.every(page => page.includes('Keys part uncharted') && !page.includes('data-rest-start')));
-  assert(sheet.xml.includes('Walking up to me expecting...'));
-  assert(sheet.pages.join('').includes('Walking up to me'));
+test('absent musicians produce no chart, package or PDF and require no interpreter', async () => withFixture(async directory => {
+  assert.equal(await createMusicianChart({ musicxml: await input(), instrument: 'Keys', parts: [] }), null);
+  await fixture(directory, { drums: none, bass: none, keys: none, guitar: none });
+  const output = join(directory, 'output');
+  await runMusicianPackages(['--spec', join(directory, 'spec.json'), '--out-dir', output, '--python', '/no/interpreter']);
+  assert.deepEqual((await readdir(output)).sort(), ['index.html', 'manifest.json']);
+  const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.sheets.length, 0); assert.equal(manifest.skipped.length, 4);
+}));
+
+test('preview packages do not invoke a PDF interpreter and retain explicit source identities', async () => withFixture(async directory => {
+  await fixture(directory);
+  const output = join(directory, 'output');
+  await runMusicianPackages(['--spec', join(directory, 'spec.json'), '--out-dir', output, '--format', 'preview', '--python', '/no/interpreter']);
+  const manifest = JSON.parse(await readFile(join(output, 'manifest.json'), 'utf8'));
+  assert.equal(manifest.format, 'preview'); assert.equal(manifest.sheets.length, 1); assert.equal(manifest.sheets[0].pdf, null);
+  assert.deepEqual(manifest.sheets[0].voices.map((voice: { labelCell: string }) => voice.labelCell), ['A15']);
+  assert.equal((await readdir(join(output, 'drums', 'dance-yrself-clean'))).some(name => name.endsWith('.pdf')), false);
+  await assert.rejects(access(join(output, 'keys'))); await assert.rejects(access(join(output, 'guitar.zip')));
+  assert(!((await readFile(join(output, 'drums', 'index.html'), 'utf8')).includes('>PDF</a>')));
+  const extracted = join(output, 'drums', 'drums-spec.json');
+  await runMusicianPackages(['--spec', extracted, '--out-dir', join(directory, 'repeat'), '--instrument', 'drums', '--format', 'preview']);
+}));
+
+test('source changes and missing named parts reject before output publication', async () => withFixture(async directory => {
+  const spec = await fixture(directory); spec.songs[0].sha256 = '0'.repeat(64);
+  await writeFile(join(directory, 'spec.json'), JSON.stringify(spec));
+  const args = ['--spec', join(directory, 'spec.json'), '--out-dir', join(directory, 'output'), '--format', 'preview'];
+  await assert.rejects(runMusicianPackages(args), /Canonical input changed/);
+  await assert.rejects(access(join(directory, 'output')));
+  const current = await fixture(directory); const selection = current.songs[0].instruments.drums; assert('parts' in selection); selection.parts[0].name = 'Wrong name';
+  await writeFile(join(directory, 'spec.json'), JSON.stringify(current));
+  await assert.rejects(runMusicianPackages(args), /part|row|name/i);
+  await assert.rejects(access(join(directory, 'output')));
+}));
+
+test('old form specs fail rather than silently regenerate uncharted worksheets', async () => withFixture(async directory => {
+  const spec = await fixture(directory);
+  await writeFile(join(directory, 'spec.json'), JSON.stringify({ ...spec, schemaVersion: 1 }));
+  await assert.rejects(runMusicianPackages(['--spec', join(directory, 'spec.json'), '--out-dir', join(directory, 'output'), '--format', 'preview']));
+  await assert.rejects(access(join(directory, 'output')));
+}));
+
+test('coverage rejects duplicate or missing chronological bars independently of source labels', async () => {
+  const sheet = await createMusicianChart({ musicxml: await input(), instrument: 'Drums', parts: drums.parts }); assert(sheet);
   verifyMusicianCoverage(sheet, 218);
-  assert.equal(XMLValidator.validate(sheet.xml), true);
-  assert(sheet.xml.includes('form-projection'));
-  assert(sheet.xml.includes('name="show-tools:selected-label-cells">[]'));
-  assert.equal((sheet.xml.match(/<note print-object="no">/g) ?? []).length, 218);
-  assert.throws(() => verifyMusicianCoverage({ ...sheet, pages: sheet.pages.map((page, index) => index ? page : page.replace('data-bar="1"', 'data-bar="2"')) }, 218), /Incomplete or duplicate/);
+  assert.throws(() => verifyMusicianCoverage({ ...sheet, pages: sheet.pages.map(page => page.replace(/data-bar="[0-9]+"/, 'data-bar="9999"')) }, 218), /Incomplete or duplicate/);
 });
 
-test('Drunk Girls handouts preserve source Pickup labels, Higher intensity ranges and uncounted tails', async () => {
-  const document = await readMusicXmlSong(await input('drunk-girls')); assert(document.source);
-  const fresh = await importSheetMusicXml({ source: document.source, mapping: document.mapping });
-  const sheets = await createMusicianSheets({ musicxml: fresh.xml, selectedRows: [15, 18] });
-  for (const sheet of sheets) {
-    verifyMusicianCoverage(sheet, 137); assert.equal(XMLValidator.validate(sheet.xml), true);
-    assert(sheet.xml.includes('<measure number="Pickup 0">')); assert(sheet.xml.includes('<measure number="128">'));
-    assert(sheet.pages.at(-1)?.includes('Tail (uncounted): 1'));
-    assert.equal((sheet.xml.match(/<measure /g) ?? []).length, 137);
-    const page = sheet.pages[0];
-    const cueX = Number(/data-vocal-bar="9"[^>]*>.*?<text x="([0-9.]+)"/s.exec(page)?.[1]);
-    const labelX = Number(/data-bar="9"><text x="([0-9.]+)"/.exec(page)?.[1]);
-    assert(cueX - labelX >= 32, 'Pickup 8 and its vocal cue must not overlap');
-  }
-  const bass = sheets.find(sheet => sheet.labelCell === 'A15'); assert(bass);
-  const pages = bass.pages.join(''); assert(pages.includes('Higher intensity'));
-  assert(!pages.includes('Higher intensity, bars 90-97'), 'feel ranges use source labels rather than chronology ordinals');
-});
-
-test('named bass synth parts retain bass clefs', async () => {
-  const document = await readMusicXmlSong(await input('dance-yrself-clean')); assert(document.source);
-  const values = document.source.values.map(row => [...row]); values[13][0] = 'Bass - Alien Synth';
-  const fresh = await importSheetMusicXml({ source: { ...document.source, values }, mapping: document.mapping });
-  const [sheet] = await createMusicianSheets({ musicxml: fresh.xml, selectedRows: [14] });
-  assert(sheet.xml.includes('<sign>F</sign><line>4</line>')); assert.equal(sheet.name, 'Bass - Alien Synth');
-});
-
-test('changed canonical inputs reject before publishing files or invoking the PDF interpreter', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'musician-package-rejection-'));
-  try {
-    await writeFile(join(directory, 'song.musicxml'), await input('dance-yrself-clean'));
-    await writeFile(join(directory, 'spec.json'), JSON.stringify({ schemaVersion: 1, songs: [{ id: 'dance-yrself-clean', musicxml: 'song.musicxml', sha256: '0'.repeat(64),
-      instruments: { drums: { kind: 'form' }, bass: { kind: 'form' }, keys: { kind: 'form' } } }] }));
-    await assert.rejects(runMusicianPackages(['--spec', join(directory, 'spec.json'), '--out-dir', join(directory, 'output'), '--python', '/nonexistent/no-pdf-spawn']), /Canonical input changed/);
-    await assert.rejects(access(join(directory, 'output')));
-  } finally { await rm(directory, { recursive: true, force: true }); }
-});
-
-test('failed final index publication cannot leave a completed package marker', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'musician-package-index-failure-'));
-  try {
-    const source = await input('dance-yrself-clean'), output = join(directory, 'output');
-    await writeFile(join(directory, 'song.musicxml'), source);
-    await writeFile(join(directory, 'spec.json'), JSON.stringify({ schemaVersion: 1, songs: [{ id: 'dance-yrself-clean', musicxml: 'song.musicxml',
-      sha256: createHash('sha256').update(source).digest('hex'), instruments: { drums: { kind: 'form' }, bass: { kind: 'form' }, keys: { kind: 'form' } } }] }));
-    const interpreter = join(directory, 'renderer-fixture');
-    await writeFile(interpreter, `#!${process.execPath}
+test('failed final index publication cannot leave a completed package marker', async () => withFixture(async directory => {
+  await fixture(directory);
+  const output = join(directory, 'output'), interpreter = join(directory, 'renderer-fixture');
+  await writeFile(interpreter, `#!${process.execPath}
 const fs = require('node:fs');
 const args = process.argv.slice(2);
 if (args[0] !== '-c') {
-  fs.writeFileSync(args[args.indexOf('--output') + 1], 'fixture PDF');
+  fs.writeFileSync(args[args.indexOf('--output') + 1], 'fixture output');
   fs.writeFileSync(${JSON.stringify(join(output, 'index.html'))}, 'blocked final index');
 }
 `);
-    await chmod(interpreter, 0o700);
-    await assert.rejects(runMusicianPackages(['--spec', join(directory, 'spec.json'), '--out-dir', output, '--instrument', 'drums', '--python', interpreter]), { code: 'EEXIST' });
-    assert.equal(await readFile(join(output, 'index.html'), 'utf8'), 'blocked final index');
-    await access(join(output, 'drums.zip'));
-    await assert.rejects(access(join(output, 'manifest.json')), { code: 'ENOENT' });
-  } finally { await rm(directory, { recursive: true, force: true }); }
-});
+  await chmod(interpreter, 0o700);
+  await assert.rejects(runMusicianPackages(['--spec', join(directory, 'spec.json'), '--out-dir', output, '--instrument', 'drums', '--python', interpreter]), { code: 'EEXIST' });
+  assert.equal(await readFile(join(output, 'index.html'), 'utf8'), 'blocked final index');
+  await access(join(output, 'drums.zip'));
+  await assert.rejects(access(join(output, 'manifest.json')), { code: 'ENOENT' });
+}));

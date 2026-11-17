@@ -1,6 +1,6 @@
 # Focused musician sheets
 
-Musician sheets give every discovered non-`AF -` part a separate handout with writing staves, section labels and vocal cues. The generator now condenses inactive passages and redundant headings while retaining the complete chronological chart.
+Musician packages combine explicitly configured non-`AF -` voices into one chronological chart per musician, with writing staves, section labels and vocal cues. The standalone CLI and Sheets exporter group rows using the explicit `Musician - Voice` naming convention. The generator now condenses inactive passages and redundant headings while retaining the complete chronological chart.
 
 For Dance Yrself Clean, the current compact handouts are **Bass: four A4 pages** and **Drums: five A4 pages**, down from eight each. Both represent all 218 bars. The five-line writing staff remains the same physical size; savings come from counted rests and less repeated text.
 
@@ -34,7 +34,7 @@ Literal blank arrangement cells mean the musician is not playing. An entirely bl
 
 Active material keeps up to four bars per full-size writing staff. Pickups remain visible even in a mostly inactive section: DYC Drums retains bars 76 and 160, and the marked entry at 203-205. The final two bars remain an explicit two-bar rest, not invented measures 219-220. The final page is rebalanced when an ending section would otherwise be split unnecessarily.
 
-Normal playing (`-`) is implicit. Whole-bar `!` and `!-` become “Funky”; `!!` becomes “Extra funky.” Feel summaries sit beside the section title, with extra space above section headings. A feel covering the complete section needs no bar range. When consecutive feels cover a section, the first becomes the default and later changes retain their ranges: “Chorus B2 — Funky; Extra funky, bars 133-136.” Partial passages retain explicit ranges. Continuation pages repeat the complete section summary. The same summary appears above the staff in MusicXML. Compound beat-qualified instrument tokens retain their literal source spelling pending a confirmed interpretation.
+Normal playing (`-`) is implicit. Whole-bar `!` and `!-` become “Funky”; `!!` becomes “Extra funky.” Feel summaries sit beside the section title, with extra space above section headings. A feel covering the complete section needs no bar range. When consecutive feels cover a section, the first becomes the default and later changes retain their ranges: “Chorus B2 — Funky; Extra funky, bars 133-136.” Partial passages retain explicit ranges. Continuation pages repeat the complete section summary. The same summary appears above the staff in MusicXML. Full sixteenth runs such as `4e&a` print exact fill hits; a single count followed by `!` prints a freeform fill start. Unconfirmed compound tokens retain their literal source spelling.
 
 Each condensed row retains the original cells. Expanding staff rows, counted-rest ranges and approved reference ranges must reconstruct every bar exactly once and in order. Source text, notes, mappings and original coordinates remain in the MusicXML metadata.
 
@@ -59,7 +59,7 @@ A reference prints “As [section], bars X-Y”, its duration, and the next bar 
 
 `lib/performance/musician-sheet-plan.ts` owns rest/reference planning and validation. `musician-annotations.ts` derives readable feel ranges and confirmed vocal annotations; `musician-sheets.ts` paginates and renders the shared plan. It reads the canonical MusicXML report; it does not infer pitched notes, grooves or musical dynamics.
 
-MusicXML retains every chronological measure and represents counted rests with standard `multiple-rest` notation. The v4 musician-sheet projection profile adds `show-tools:condensation` metadata containing rest ranges, approved references and the candidate audit. Active writing bars use hidden engraving spacers, while literal blank source bars use visible measure rests. This notation describes the authored musician part; it is not an observation of PE playback and does not trigger Play or Stop.
+MusicXML retains every chronological measure and represents counted rests with standard `multiple-rest` notation. The v5 musician-sheet projection profile adds `show-tools:condensation` metadata containing rest ranges, approved references and the candidate audit. Active writing bars use hidden engraving spacers, while literal blank source bars use visible measure rests. This notation describes the authored musician part; it is not an observation of PE playback and does not trigger Play or Stop.
 
 Print-native SVG/HTML and PDFs are worksheet presentations of that plan, not independent engravings of MusicXML. MusicXML validation and opening in another reader remain separate checks. Handout MusicXML is explicitly marked as a part projection. It cannot replace a complete canonical song for runtime loading. The canonical document retains all voices; selection chooses the rendered handouts.
 
@@ -73,4 +73,8 @@ The combined checks passed 64 tests and TypeScript. Both compact MusicXML files 
 
 ## Instrument packages and later legend refinements
 
-Use [Generate and review musician sheet packages](../guides/musician-sheet-packages.md) for the repeatable multi-song command and instrument-session review contract. It supports explicit charted rows and separate uncharted form projections. Source pickup labels remain visible; uncounted Lead-in and Tail cues travel as standard MusicXML directions. The operator-confirmed `!!!` feel prints Higher intensity. A missing instrument row never becomes an authored rest.
+Use [Generate and review musician sheet packages](../guides/musician-sheet-packages.md) for the repeatable multi-song command and instrument-session review contract. It combines explicit charted voice rows and omits absent musicians. Source pickup labels remain visible; uncounted Lead-in cues remain directions and Tail cues receive a separate implicit writing measure. The operator-confirmed `!!!` feel prints Higher intensity. A missing instrument row never becomes an authored rest.
+
+## Combined musician charts
+
+Use the [package workflow](../guides/musician-sheet-packages.md) for one chronological chart per musician across configured voices. Version-two specs omit absent parts instead of generating form worksheets. Preview mode produces no PDFs. Counted fills, notation-only vocal filtering, single-bar labels and uncounted Tail writing bars apply at the presentation boundary; canonical source data and playback remain unchanged.
