@@ -224,6 +224,8 @@ Use `scripts/prepare-street-song.ts` for the complete chart-planned score. It sh
 
 Presence/effect staging uses an independent native HOLD lane alongside each actor's original dance track. Check direct and reverse seeks, effect-only composition-cache changes, colored effects over gray bodies, and partial effect-resource cleanup. `scripts/video-expansion/poof-release.mts` owns admission of the pinned approved Figma poof catalog and exact18 PNGs; run its focused tests separately. Opaque-peak coverage must use actual transition drawings and their recorded pivots, including padded special/ultra canvases.
 
+The [offline scene effects](../scripts/video-expansion/scene-effects/README.md) utility supplies explicit-time chorus envelopes, surface tinting and radial beam masks for authoring studies. Run `node --import tsx --test scripts/tests/scene-authoring-effects.test.ts`; these utilities do not change runtime sampling or musical ownership.
+
 Run `node --import tsx scripts/verify-street-presence.ts SCENE ASSET_ROOT WASM NEW_REPORT_JSON` on a prepared presence scene before movie export. It samples the real native tables at each visibility edge, checks outgoing and incoming combined sprite pixels against the opaque peak, and rejects occupied cloud clipping across all six drawings of every used variant. Neighbor overlap remains an explicit visual-review diagnostic. The report binds scene, WASM and loaded PNG hashes; its output path must be new.
 
 Video pipeline commands share `scripts/cli-entry.ts` to resolve executable identity through filesystem aliases. Verify CLI invocation through a checkout symlink as well as its physical path; importing the programmatic API must not run the command.
