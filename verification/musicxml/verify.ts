@@ -39,6 +39,9 @@ const baselineReport: unknown = JSON.parse(baseline.stdout);
 const original = await readFile(join(root, sourceFile), 'utf8');
 const nativeFile = 'lib/performance/compiled-native.ts';
 const nativeOriginal = await readFile(join(root, nativeFile), 'utf8');
+const notationFile = 'lib/performance/sheet-musical-annotations.ts';
+const notationOriginal = await readFile(join(root, notationFile), 'utf8');
+const originals = new Map([[sourceFile, original], [nativeFile, nativeOriginal], [notationFile, notationOriginal]]);
 const displayLine = original.split('\n').find(line => line.includes('if (shown !== cue.source.text.trim()) throw new MusicXmlValidationError('));
 assert(displayLine, 'DISPLAY_GUARD_MISSING');
 const labelLine = original.split('\n').find(line => line.includes('if (measure.number !== (performance.chartBinding.labels?.[index]'));
@@ -59,6 +62,22 @@ const mutants = [
   { file: nativeFile, name: 'native-input-binding-rows-omitted', witness: 'full-bindings', marker: 'NATIVE_BINDING_TABLE',
     source: replaceExactlyOnce(nativeOriginal, 'inputRows.length, ...inputRows.flat()', 'inputRows.length') },
 ];
+mutants.push(
+  { file: sourceFile, name: 'numeric-character-decoding-disabled', witness: 'boundaries', marker: 'BOUNDARY_CUE_MEANING',
+    source: replaceExactlyOnce(original, 'parseTagValue: false, htmlEntities: true,', 'parseTagValue: false, htmlEntities: false,') },
+  { file: sourceFile, name: 'xml-character-reference-guard-removed', witness: 'boundary-entities', marker: 'BOUNDARY_XML_ENTITIES',
+    source: replaceExactlyOnce(original, "throw new MusicXmlValidationError('Canonical MusicXML permits only XML entities and valid XML 1.0 character references.');", 'void name;') },
+  { file: sourceFile, name: 'boundary-cues-omitted-from-writer', witness: 'boundaries', marker: 'BOUNDARY_CUE_MEANING',
+    source: replaceExactlyOnce(original,
+      "        body += direction(cue.text, `boundary-${cue.position}-${cue.cell}`, cue.position === 'tail' ? report.meter.numerator * countTicks : 0);",
+      '        void cue;') },
+  { file: sourceFile, name: 'boundary-endpoint-offset-guard-removed', witness: 'boundary-placement', marker: 'BOUNDARY_PLACEMENT',
+    source: replaceExactlyOnce(original, "throw new MusicXmlValidationError('Misplaced canonical boundary direction.');", 'void index;') },
+  { file: sourceFile, name: 'feels-omitted-from-semantic-digest', witness: 'feel-identity', marker: 'FEEL_SEMANTIC_IDENTITY',
+    source: replaceExactlyOnce(original, 'music: report,', 'music: { ...report, annotations: { ...report.annotations, feels: [] } },') },
+  { file: notationFile, name: 'higher-intensity-collapsed', witness: 'higher-intensity', marker: 'HIGHER_INTENSITY_MEANING',
+    source: replaceExactlyOnce(notationOriginal, "token === '!!!' ? 'Higher intensity'", "token === '!!!' ? 'Extra funky'") },
+);
 const temporary = await mkdtemp(join(tmpdir(), 'musicxml-verification-'));
 const outcomes: { name: string; witness: string; status: string; expectedFailure: string }[] = [];
 try {
@@ -79,7 +98,7 @@ try {
       assert.deepEqual(failure, { status: 'FAIL-witness-property', property: mutant.witness,
         marker: mutant.marker, assertionCode: 'ERR_ASSERTION' }, `WRONG_MUTANT_FAILURE: ${mutant.name}`);
       outcomes.push({ name: mutant.name, witness: mutant.witness, status: 'CAUGHT-real-source-mutation', expectedFailure: mutant.marker });
-    } finally { await writeFile(join(temporary, mutant.file), mutant.file === sourceFile ? original : nativeOriginal); }
+    } finally { await writeFile(join(temporary, mutant.file), originals.get(mutant.file) ?? assert.fail('MUTANT_ORIGINAL_MISSING')); }
     const restored = run(temporary, mutant.witness);
     assert.equal(restored.status, 0, restored.stderr);
   }

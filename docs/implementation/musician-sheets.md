@@ -70,3 +70,7 @@ The [Sheets dialog](sheets-musicxml.md) uses the compact default for selected no
 Run musician-sheet and planner tests alongside the existing exporter, Sheets, compiler and source tests. Verify exact expanded coverage, unchanged staff dimensions, same-page heading suppression, counted-rest boundaries, pickup protection, vocal cues inside rests, explicit reference continuation points, and invalid-reference rejection. Render and inspect the PDFs as well as validating the XML.
 
 The combined checks passed 64 tests and TypeScript. Both compact MusicXML files validated against MusicXML 4.0 and independently rendered in Verovio 5.6.0 as four- and five-page parts. The PDFs were reopened to verify A4 geometry, page counts and lyric cues; beginning and ending pages were rasterized and visually inspected. Default reference lists remain empty.
+
+## Instrument packages and later legend refinements
+
+Use [Generate and review musician sheet packages](../guides/musician-sheet-packages.md) for the repeatable multi-song command and instrument-session review contract. It supports explicit charted rows and separate uncharted form projections. Source pickup labels remain visible; uncounted Lead-in and Tail cues travel as standard MusicXML directions. The operator-confirmed `!!!` feel prints Higher intensity. A missing instrument row never becomes an authored rest.

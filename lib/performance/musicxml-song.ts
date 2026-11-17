@@ -31,9 +31,11 @@ const StageCell = Schema.Union([
   Schema.Struct({ cell: Schema.String, eligibility: VocalEligibility, kind: Schema.Literal('unresolved'), message: Schema.String }),
 ]);
 const MusicalAnnotationsSchema = Schema.Struct({
+  boundaryCues: Schema.optionalKey(list(Schema.Struct({ partId: Schema.String, cell: Schema.String,
+    position: Schema.Literals(['lead-in', 'tail']), text: Schema.String }))),
   activities: list(Schema.Struct({ cell: Schema.String, kind: Schema.Literals(['rest', 'playing']) })),
   stageCells: list(StageCell),
-  feels: list(Schema.Struct({ partId: Schema.String, startBar: Schema.Int, endBar: Schema.Int, text: Schema.Literals(['Funky', 'Extra funky']) })),
+  feels: list(Schema.Struct({ partId: Schema.String, startBar: Schema.Int, endBar: Schema.Int, text: Schema.Literals(['Funky', 'Extra funky', 'Higher intensity']) })),
   vocals: list(Schema.Union([
     Schema.Struct({ cell: Schema.String, kind: Schema.Literal('text') }),
     Schema.Struct({ cell: Schema.String, kind: Schema.Literal('count-and'), countOffset: Schema.Number.check(Schema.isFinite()), andOffset: Schema.Number.check(Schema.isFinite()) }),
@@ -112,6 +114,10 @@ function addressRow(cell: string): number {
   if (!match) throw new MusicXmlValidationError(`Invalid MusicXML source coordinate ${cell}.`);
   return Number(match[1]);
 }
+function addressColumn(cell: string): number {
+  addressRow(cell);
+  return [...cell.replace(/\d+$/, '')].reduce((column, letter) => column * 26 + letter.charCodeAt(0) - 64, 0);
+}
 function direction(text: string, id: string, offset = 0, other = false): string {
   const content = other ? `<other-direction id="${xml(id)}" print-object="no">${xml(text)}</other-direction>`
     : `<words id="${xml(id)}">${xml(text)}</words>`;
@@ -162,6 +168,17 @@ export interface WriteMusicXmlSong {
 
 function validateAnnotations(report: Pick<MusicXmlReport, 'annotations' | 'parts' | 'vocalCues' | 'sections' | 'measureCount' | 'meter'>): void {
   const annotations = Schema.decodeUnknownSync(MusicalAnnotationsSchema, { onExcessProperty: 'error' })(report.annotations);
+  if (annotations.boundaryCues?.length === 0) throw new MusicXmlValidationError('Empty canonical boundary cues must be omitted.');
+  const boundaryCues = annotations.boundaryCues ?? [];
+  unique(boundaryCues.map(cue => cue.cell), 'boundary source cell');
+  for (const cue of boundaryCues) {
+    const part = report.parts.find(part => part.id === cue.partId);
+    const edge = cue.position === 'lead-in' ? part?.cells[0] : part?.cells.at(-1);
+    if (!part || !edge || addressRow(cue.cell) !== addressRow(part.labelCell) || !cue.text.trim()
+      || (cue.position === 'lead-in' ? addressColumn(cue.cell) >= addressColumn(edge.cell) : addressColumn(cue.cell) <= addressColumn(edge.cell))) {
+      throw new MusicXmlValidationError('Invalid canonical boundary cue source or position.');
+    }
+  }
   const cells = new Set(report.parts.flatMap(part => part.cells.map(cell => cell.cell)));
   unique(annotations.stageCells.map(stage => stage.cell), 'stage annotation');
   if (annotations.stageCells.length !== cells.size || annotations.stageCells.some(stage => !cells.has(stage.cell))) throw new MusicXmlValidationError('Canonical stage annotations must cover the complete score.');
@@ -178,7 +195,7 @@ function validateAnnotations(report: Pick<MusicXmlReport, 'annotations' | 'parts
   for (const vocal of annotations.vocals) if (vocal.kind === 'count-and' && (!validOffset(vocal.countOffset) || !validOffset(vocal.andOffset) || vocal.andOffset <= vocal.countOffset)) throw new MusicXmlValidationError('Unsupported canonical vocal count timing.');
   if (annotations.instrumentDisplays.some(display => !cells.has(display.cell) || !display.text.trim())) throw new MusicXmlValidationError('Canonical instrument displays must reference nonempty score cells.');
   for (const [index, feel] of annotations.feels.entries()) {
-    if (!report.parts.some(part => part.id === feel.partId) || !Number.isSafeInteger(feel.startBar) || !Number.isSafeInteger(feel.endBar) || feel.startBar < 1 || feel.endBar < feel.startBar || feel.endBar > report.measureCount || feel.text !== 'Funky' && feel.text !== 'Extra funky'
+    if (!report.parts.some(part => part.id === feel.partId && !part.managed) || !Number.isSafeInteger(feel.startBar) || !Number.isSafeInteger(feel.endBar) || feel.startBar < 1 || feel.endBar < feel.startBar || feel.endBar > report.measureCount || feel.text !== 'Funky' && feel.text !== 'Extra funky' && feel.text !== 'Higher intensity'
       || !report.sections.some(section => feel.startBar >= section.startBar && feel.endBar <= section.endBar)
       || annotations.feels.slice(0, index).some(other => other.partId === feel.partId && other.startBar <= feel.endBar && other.endBar >= feel.startBar)) throw new MusicXmlValidationError('Invalid or overlapping canonical feel range.');
   }
@@ -240,6 +257,11 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
       if (!chartBar) throw new MusicXmlValidationError(`Canonical MusicXML is missing bar ${cell.bar}.`);
       for (const button of buttons) if (chartBar.cues[button]) body += direction(chartBar.cues[button], `command-${button}-${cell.bar}`);
     }
+    for (const cue of report.annotations.boundaryCues ?? []) {
+      if (cue.partId === part.id && cell.bar === (cue.position === 'lead-in' ? 1 : report.measureCount)) {
+        body += direction(cue.text, `boundary-${cue.position}-${cue.cell}`, cue.position === 'tail' ? report.meter.numerator * countTicks : 0);
+      }
+    }
     const vocal = report.annotations.vocals.find(vocal => vocal.cell === cell.cell);
     const hiddenSource = !part.managed || vocal?.kind === 'count-and';
     if (cell.text) body += hiddenSource ? direction(cell.text, `source-${cell.cell}`, 0, true)
@@ -286,6 +308,17 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   }
   const OrderedNodes = Schema.Array(Schema.Record(Schema.String, Schema.Unknown));
   const decodeOrdered = Schema.decodeUnknownSync(OrderedNodes);
+  const entityText = input.replace(/<!--[^]*?-->|<!\[CDATA\[[^]*?\]\]>/g, '');
+  for (const reference of entityText.matchAll(/&([^;\s<>&]*);/g)) {
+    const name = reference[1];
+    if (['amp', 'lt', 'gt', 'apos', 'quot'].includes(name)) continue;
+    const numeric = /^#(?:[0-9]+|x[0-9a-fA-F]+)$/.test(name);
+    const code = numeric ? name.startsWith('#x') ? Number.parseInt(name.slice(2), 16) : Number(name.slice(1)) : -1;
+    if (!(code === 9 || code === 10 || code === 13 || code >= 32 && code <= 0xd7ff
+      || code >= 0xe000 && code <= 0xfffd || code >= 0x10000 && code <= 0x10ffff)) {
+      throw new MusicXmlValidationError('Canonical MusicXML permits only XML entities and valid XML 1.0 character references.');
+    }
+  }
   const ordered: unknown = new XMLParser({ preserveOrder: true, ignoreAttributes: false }).parse(input);
   for (const root of decodeOrdered(ordered)) {
     if (!('score-partwise' in root)) continue;
@@ -299,7 +332,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
       }
     }
   }
-  const value: unknown = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false,
+  const value: unknown = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false, htmlEntities: true,
     parseAttributeValue: false, trimValues: false,
     isArray: (name, _path, _leaf, isAttribute) => !isAttribute && ['miscellaneous-field', 'score-part', 'part', 'measure', 'direction', 'words', 'rehearsal', 'other-direction', 'note'].includes(name),
   }).parse(input);
@@ -366,10 +399,26 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
       if (measure.note.length !== 1 || numeric(measure.note[0].duration, 'spacer duration') !== meter.numerator * countTicks) throw new MusicXmlValidationError('Canonical MusicXML writing spacers must fill each complete measure.');
       const cell = `${columnName(performance.chartBinding.columns[index])}${addressRow(binding.labelCell)}`;
       for (const direction of measure.direction ?? []) {
+        const boundaryWords = (direction['direction-type'].words ?? []).filter(word => word.id?.startsWith('boundary-'));
+        if (boundaryWords.length) {
+          const word = boundaryWords[0], match = /^boundary-(lead-in|tail)-([A-Z]+[1-9]\d*)$/.exec(word.id ?? '');
+          if (!match || boundaryWords.length !== 1 || direction['direction-type'].words?.length !== 1
+            || direction['direction-type'].rehearsal || direction['direction-type'].metronome || direction['direction-type']['other-direction']) {
+            throw new MusicXmlValidationError('Invalid canonical boundary direction.');
+          }
+          const position = match[1] === 'lead-in' ? 'lead-in' : 'tail';
+          if (index !== (position === 'lead-in' ? 0 : first.measure.length - 1)
+            || numeric(direction.offset ?? '0', 'boundary offset') !== (position === 'tail' ? meter.numerator * countTicks : 0)) {
+            throw new MusicXmlValidationError('Misplaced canonical boundary direction.');
+          }
+          const cue: NonNullable<MusicalAnnotations['boundaryCues']>[number] = { partId: part.id, cell: match[2], position, text: word['#text'] ?? '' };
+          (annotations.boundaryCues ??= []).push(cue);
+          continue;
+        }
         if (numeric(direction.offset ?? '0', 'direction offset') !== 0 && (direction['direction-type'].words?.some(word => ![`vocal-count-${cell}`, `vocal-and-${cell}`, `vocal-accent-${cell}`].includes(word.id ?? '')) || direction['direction-type'].rehearsal?.length || direction['direction-type'].metronome || !direction['direction-type'].words?.length && !(direction['direction-type']['other-direction'] ?? []).some(marker => marker.id?.startsWith(`onset-${cell}-`)))) throw new MusicXmlValidationError('Nonzero offsets on text, section and tempo directions need an explicit MusicXML capability.');
       }
       const words = (measure.direction ?? []).flatMap(direction => direction['direction-type'].words ?? []);
-      for (const word of words) if (word.id !== `cell-${cell}` && word.id !== `vocal-${cell}` && ![`vocal-count-${cell}`, `vocal-and-${cell}`, `vocal-accent-${cell}`, `instrument-${cell}`].includes(word.id ?? '') && !word.id?.startsWith(`feel-${part.id}-`)
+      for (const word of words) if (word.id !== `cell-${cell}` && word.id !== `vocal-${cell}` && ![`vocal-count-${cell}`, `vocal-and-${cell}`, `vocal-accent-${cell}`, `instrument-${cell}`].includes(word.id ?? '') && !word.id?.startsWith(`feel-${part.id}-`) && !word.id?.startsWith('boundary-')
         && !(part === first && buttons.some(button => word.id === `command-${button}-${index + 1}`))) throw new MusicXmlValidationError(`Unsupported canonical text direction ${word.id ?? '(without ID)'}.`);
       const others = (measure.direction ?? []).flatMap(direction => direction['direction-type']['other-direction'] ?? []);
       if (others.some(marker => marker.id !== `reading-${cell}` && marker.id !== `source-${cell}` && marker.id !== `activity-${cell}` && !marker.id?.startsWith(`onset-${cell}-`))) throw new MusicXmlValidationError(`Unsupported canonical annotation in ${cell}.`);
@@ -406,7 +455,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
         const suffix = word.id?.slice(`feel-${part.id}-`.length) ?? '';
         const span = /^([1-9]\d*)-([1-9]\d*)$/.exec(suffix);
         const feelText = word['#text'];
-        if (!span || Number(span[1]) !== index + 1 || feelText !== 'Funky' && feelText !== 'Extra funky') throw new MusicXmlValidationError(`Invalid canonical feel annotation in ${cell}.`);
+        if (!span || Number(span[1]) !== index + 1 || feelText !== 'Funky' && feelText !== 'Extra funky' && feelText !== 'Higher intensity') throw new MusicXmlValidationError(`Invalid canonical feel annotation in ${cell}.`);
         annotations.feels.push({ partId: part.id, startBar: Number(span[1]), endBar: Number(span[2]), text: feelText });
       }
       const display = words.find(word => word.id === `instrument-${cell}`);

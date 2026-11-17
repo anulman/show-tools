@@ -20,9 +20,10 @@ export type StageCellAnnotation =
   | { cell: string; eligibility: VocalEligibility; kind: 'unresolved'; message: string };
 
 export interface MusicalAnnotations {
+  boundaryCues?: { partId: string; cell: string; position: 'lead-in' | 'tail'; text: string }[];
   stageCells: StageCellAnnotation[];
   activities: { cell: string; kind: 'rest' | 'playing' }[];
-  feels: { partId: string; startBar: number; endBar: number; text: 'Funky' | 'Extra funky' }[];
+  feels: { partId: string; startBar: number; endBar: number; text: 'Funky' | 'Extra funky' | 'Higher intensity' }[];
   vocals: ({ cell: string; kind: 'text' } | { cell: string; kind: 'count-and'; countOffset: number; andOffset: number })[];
   instrumentDisplays: { cell: string; text: string }[];
 }

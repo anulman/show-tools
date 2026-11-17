@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { verifyBoundaries, verifyHigherIntensity } from './notation.js';
 import { compiledProgramBytes } from '../../lib/performance/compiled-native.js';
 import { CONTROL_IDS, PHYSICAL_SWITCH_IDS } from '../../lib/performance/model.js';
 import { PF } from '../../lib/performance/wasm-abi.js';
@@ -164,6 +165,8 @@ async function witness(property: string): Promise<void> {
   else if (property === 'labels') await pickupTimelineWitness();
   else if (property === 'bindings' || property === 'binding-identity') await inputBindingWitness();
   else if (property === 'full-bindings') await fullSetupBindingWitness();
+  else if (property === 'boundaries' || property === 'boundary-placement' || property === 'boundary-entities') await verifyBoundaries();
+  else if (property === 'higher-intensity' || property === 'feel-identity') await verifyHigherIntensity(property === 'feel-identity');
   else throw new Error('Unknown witness property');
 }
 
@@ -227,14 +230,16 @@ async function verifyDomain() {
   await pickupTimelineWitness();
   const inputBindings = await inputBindingWitness();
   const fullSetupInputBindings = await fullSetupBindingWitness();
+  const boundaryAnnotations = await verifyBoundaries();
+  const higherIntensity = await verifyHigherIntensity();
   return { status: 'PASS-bounded-exhaustive-musicxml', grammar, scoreCases: scoreCount, canonicalCases: canonicalCount, supplementalTimelineWitnesses: 1,
-    roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks, inputBindings, fullSetupInputBindings,
+    roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks, inputBindings, fullSetupInputBindings, boundaryAnnotations, higherIntensity,
     caseFingerprint: fingerprint.digest('hex'), scope: 'Finite grammar through actual TypeScript implementation, not arbitrary XML or an unbounded proof.' };
 }
 
 if (process.argv[2] === '--witness') {
   const property = process.argv[3];
-  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : property === 'bindings' ? 'INPUT_BINDING_MEANING' : property === 'binding-identity' ? 'INPUT_BINDING_SEMANTIC_IDENTITY' : property === 'full-bindings' ? 'NATIVE_BINDING_TABLE' : null;
+  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : property === 'bindings' ? 'INPUT_BINDING_MEANING' : property === 'binding-identity' ? 'INPUT_BINDING_SEMANTIC_IDENTITY' : property === 'full-bindings' ? 'NATIVE_BINDING_TABLE' : property === 'boundaries' ? 'BOUNDARY_CUE_MEANING' : property === 'boundary-entities' ? 'BOUNDARY_XML_ENTITIES' : property === 'boundary-placement' ? 'BOUNDARY_PLACEMENT' : property === 'higher-intensity' ? 'HIGHER_INTENSITY_MEANING' : property === 'feel-identity' ? 'FEEL_SEMANTIC_IDENTITY' : null;
   try {
     await witness(property);
     process.stdout.write(JSON.stringify({ status: 'PASS-witness', property }) + '\n');
@@ -244,6 +249,6 @@ if (process.argv[2] === '--witness') {
     process.exitCode = 1;
   }
 } else {
-  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels|bindings|binding-identity|full-bindings');
+  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels|bindings|binding-identity|full-bindings|boundaries|boundary-placement|boundary-entities|higher-intensity|feel-identity');
   process.stdout.write(JSON.stringify(await verifyDomain()) + '\n');
 }
