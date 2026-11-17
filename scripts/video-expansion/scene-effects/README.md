@@ -18,9 +18,9 @@ The scene composer owns the rule that there is one moon. It applies this surface
 
 ## Radial beam
 
-`createBeamGeometry` records the scene grid, the point on the moon and a pivot below and left of the screen. At zero progress, the mask narrows to the moon point and widens toward the offscreen exit.
+`createBeamGeometry` fixes the pivot at the supplied point on the moon. `offscreenExitPoint` supplies the initial direction toward the lower-left exit; it is not a pivot. At zero progress, a narrow angular slice widens from the moon toward that exit.
 
-`beamMaskAt` sweeps equally clockwise and counterclockwise about that offscreen pivot. Radial reach also grows enough to cover the farthest corner. That reach increase is the disclosed review interpretation. The final mask covers every native cell in both tested aspect ratios. Pixel cells remain binary, and the caller chooses integer display scaling.
+`beamMaskAt` increases both angular boundaries equally about the fixed moon point. The radius is fixed and reaches every canvas corner. Each boundary reaches 180 degrees from the initial axis at full progress, including the view behind the moon point; a corner-only angle bound would leave an uncovered sector because the pivot is inside the view. The final mask covers every native cell in both tested aspect ratios. Pixel cells remain binary, and the caller chooses integer display scaling.
 
 `beamRgbaAt` applies the diagonal gradient during expansion and the downward gradient at full takeover. The scene composer owns progress scheduling, including any initial thin-slice hold and character fade. These functions do not assign a song cue or duration.
 
