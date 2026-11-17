@@ -308,6 +308,17 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
   }
   const OrderedNodes = Schema.Array(Schema.Record(Schema.String, Schema.Unknown));
   const decodeOrdered = Schema.decodeUnknownSync(OrderedNodes);
+  const entityText = input.replace(/<!--[^]*?-->|<!\[CDATA\[[^]*?\]\]>/g, '');
+  for (const reference of entityText.matchAll(/&([^;\s<>&]*);/g)) {
+    const name = reference[1];
+    if (['amp', 'lt', 'gt', 'apos', 'quot'].includes(name)) continue;
+    const numeric = /^#(?:[0-9]+|x[0-9a-fA-F]+)$/.test(name);
+    const code = numeric ? name.startsWith('#x') ? Number.parseInt(name.slice(2), 16) : Number(name.slice(1)) : -1;
+    if (!(code === 9 || code === 10 || code === 13 || code >= 32 && code <= 0xd7ff
+      || code >= 0xe000 && code <= 0xfffd || code >= 0x10000 && code <= 0x10ffff)) {
+      throw new MusicXmlValidationError('Canonical MusicXML permits only XML entities and valid XML 1.0 character references.');
+    }
+  }
   const ordered: unknown = new XMLParser({ preserveOrder: true, ignoreAttributes: false }).parse(input);
   for (const root of decodeOrdered(ordered)) {
     if (!('score-partwise' in root)) continue;
@@ -321,7 +332,7 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
       }
     }
   }
-  const value: unknown = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false,
+  const value: unknown = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '', parseTagValue: false, htmlEntities: true,
     parseAttributeValue: false, trimValues: false,
     isArray: (name, _path, _leaf, isAttribute) => !isAttribute && ['miscellaneous-field', 'score-part', 'part', 'measure', 'direction', 'words', 'rehearsal', 'other-direction', 'note'].includes(name),
   }).parse(input);

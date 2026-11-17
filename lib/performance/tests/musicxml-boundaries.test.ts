@@ -91,3 +91,40 @@ test('legacy canonical documents keep the same digest and omit empty boundary an
   document.report.annotations.boundaryCues = [];
   await assert.rejects(writeMusicXmlSong({ song: document.song, report: document.report }), /must be omitted/);
 });
+
+test('boundary carriage returns and literal numeric entity spellings remain distinct through archive-free rewrite', async () => {
+  const { source, mapping } = await guitarChart();
+  const values = source.values.map(row => [...row]);
+  const text = '  pickup\r\nLiteral &#13; and &#xD; stay literal.  ';
+  values[14][2] = text;
+  const imported = await importSheetMusicXml({ source: { ...source, values }, mapping });
+  assert.match(imported.xml, /pickup&#13;/);
+  assert.match(imported.xml, /Literal &amp;#13; and &amp;#xD;/);
+  const document = await readMusicXmlSong(withoutArchive(imported.xml));
+  assert.equal(document.report.annotations.boundaryCues?.find(cue => cue.cell === 'C15')?.text, text);
+  const rewritten = await writeMusicXmlSong({ song: document.song, report: document.report });
+  assert.equal((await readMusicXmlSong(rewritten)).report.annotations.boundaryCues?.find(cue => cue.cell === 'C15')?.text, text);
+});
+
+test('canonical entity decoding accepts XML character references and rejects HTML entities and invalid codepoints', async () => {
+  const { source, mapping } = await guitarChart();
+  const values = source.values.map(row => [...row]);
+  const text = '\r literal &#13; and &nbsp;';
+  values[14][2] = text;
+  const imported = await importSheetMusicXml({ source: { ...source, values }, mapping });
+  const decimal = imported.xml;
+  assert.match(decimal, />&#13; literal/);
+  const hex = decimal.replace('>&#13; literal', '>&#xD; literal');
+  assert.notEqual(hex, decimal);
+  for (const xml of [decimal, hex]) {
+    const document = await readMusicXmlSong(withoutArchive(xml));
+    assert.equal(document.report.annotations.boundaryCues?.find(cue => cue.cell === 'C15')?.text, text);
+  }
+  for (const entity of ['&nbsp;', '&copy;', '&#0;', '&#xD800;', '&#xFFFE;', '&#1114112;']) {
+    await assert.rejects(readMusicXmlSong(decimal.replace('>&#13; literal', `>${entity} literal`)), /XML|entit|character reference/);
+  }
+  const commented = decimal.replace('<work>', '<!-- literal &nbsp; and &#0; --><work>');
+  assert.deepEqual((await readMusicXmlSong(commented)).report, (await readMusicXmlSong(decimal)).report);
+  const cdata = decimal.replace(/(<words id="boundary-lead-in-C15">)[^]*?(<\/words>)/, '$1<![CDATA[literal &nbsp; and &#13;]]>$2');
+  assert.equal((await readMusicXmlSong(cdata)).report.annotations.boundaryCues?.find(cue => cue.cell === 'C15')?.text, 'literal &nbsp; and &#13;');
+});
