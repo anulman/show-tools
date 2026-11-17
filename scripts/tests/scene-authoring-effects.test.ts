@@ -114,7 +114,7 @@ for (const scene of scenes) {
   test(`${scene.name} beam starts as a narrow slice and grows monotonically to complete coverage`, () => {
     const geometry = createBeamGeometry(scene);
     assert.deepEqual(geometry.moonPoint, scene.moonPoint);
-    assert.ok(geometry.pivot.x < 0 && geometry.pivot.y > scene.height);
+    assert.deepEqual(geometry.pivot, scene.moonPoint);
     let previous = beamMaskAt(geometry, 0).alpha;
     const occupied = previous.filter(value => value === 255).length;
     assert.ok(occupied > 0 && occupied < previous.length / 20);
@@ -131,17 +131,33 @@ for (const scene of scenes) {
     assert.deepEqual(beamMaskAt(geometry, 2), beamMaskAt(geometry, 1));
   });
 
-  test(`${scene.name} beam admits equal angular offsets on both sides of the offscreen axis`, () => {
+  test(`${scene.name} beam admits equal angular offsets on both sides of the moon-to-exit axis`, () => {
     const geometry = createBeamGeometry(scene);
-    const radius = geometry.initialReach * .7;
+    const radius = 80;
     for (const progress of [.2, .25, .3]) {
       const alpha = beamMaskAt(geometry, progress).alpha;
-      const sweep = geometry.maxSweepRadians * progress;
+      const sweep = geometry.initialHalfAngleRadians + geometry.maxSweepRadians * progress;
       for (const side of [-1, 1]) {
         assert.equal(sampleAtAngle(geometry, alpha, geometry.axisRadians + side * sweep * .5, radius), 255);
         assert.equal(sampleAtAngle(geometry, alpha, geometry.axisRadians + side * (sweep + .08), radius), 0);
       }
     }
+  });
+
+  test(`${scene.name} beam apex stays at the moon while the far endpoint widens`, () => {
+    const geometry = createBeamGeometry(scene);
+    assert.deepEqual(geometry.pivot, scene.moonPoint);
+    const initial = beamMaskAt(geometry, 0);
+    assert.equal(sampleAtAngle(geometry, initial.alpha, geometry.axisRadians, 80), 255);
+    assert.equal(sampleAtAngle(geometry, initial.alpha, geometry.axisRadians + .15, 80), 0);
+    assert.equal(sampleAtAngle(geometry, initial.alpha, geometry.axisRadians - .15, 80), 0);
+    const halfway = beamMaskAt(geometry, .5);
+    for (const sign of [-1, 1]) {
+      assert.equal(sampleAtAngle(geometry, halfway.alpha, geometry.axisRadians + sign * 1.4, 80), 255);
+      assert.equal(sampleAtAngle(geometry, halfway.alpha, geometry.axisRadians + sign * 1.8, 80), 0);
+    }
+    const last = beamMaskAt(geometry, 1);
+    assert.equal(sampleAtAngle(geometry, last.alpha, geometry.axisRadians + Math.PI, 80), 255);
   });
 
   test(`${scene.name} full takeover has a downward gradient with complete opaque coverage`, () => {
@@ -164,6 +180,6 @@ test('invalid grid, source point, pivot and nonfinite progress fail', () => {
   assert.throws(() => createBeamGeometry({ ...scene, width: 1279 }), /Invalid beam canvas/);
   assert.throws(() => createBeamGeometry({ ...scene, cellSize: 0 }), /Invalid beam canvas/);
   assert.throws(() => createBeamGeometry({ ...scene, moonPoint: { x: 1280, y: 0 } }), /Moon point/);
-  assert.throws(() => createBeamGeometry({ ...scene, offscreenPivot: { x: 0, y: 0 } }), /offscreen below-left/);
+  assert.throws(() => createBeamGeometry({ ...scene, offscreenExitPoint: { x: 0, y: 0 } }), /exit must be offscreen below-left/);
   assert.throws(() => beamMaskAt(createBeamGeometry(scene), NaN), /Invalid beam progress/);
 });

@@ -65,47 +65,46 @@ export type BeamGeometry = Readonly<{
   moonPoint: Point;
   pivot: Point;
   axisRadians: number;
-  initialReach: number;
-  finalReach: number;
+  offscreenExitPoint: Point;
+  reach: number;
+  initialHalfAngleRadians: number;
   exitHalfWidth: number;
   maxSweepRadians: number;
 }>;
 
 const angleDifference = (a: number, b: number): number => Math.atan2(Math.sin(a - b), Math.cos(a - b));
 
-export function createBeamGeometry({ width, height, moonPoint, offscreenPivot, exitHalfWidth = 32, cellSize = 4 }: {
+export function createBeamGeometry({ width, height, moonPoint, offscreenExitPoint = { x: -width / 8, y: height + 100 }, exitHalfWidth = 32, cellSize = 4 }: {
   width: number;
   height: number;
   moonPoint: Point;
-  offscreenPivot?: Point;
+  offscreenExitPoint?: Point;
   exitHalfWidth?: number;
   cellSize?: number;
 }): BeamGeometry {
   if (![width, height, cellSize].every(value => Number.isInteger(value) && value > 0) || width % cellSize || height % cellSize || ![moonPoint.x, moonPoint.y, exitHalfWidth].every(Number.isFinite) || exitHalfWidth <= 0) throw Error('Invalid beam canvas/grid');
-  const pivot = offscreenPivot ?? { x: -width / 8, y: height + 100 };
-  if (!(pivot.x < 0 && pivot.y > height) || ![pivot.x, pivot.y].every(Number.isFinite)) throw Error('Beam pivot must be offscreen below-left');
+  if (!(offscreenExitPoint.x < 0 && offscreenExitPoint.y > height) || ![offscreenExitPoint.x, offscreenExitPoint.y].every(Number.isFinite)) throw Error('Beam exit must be offscreen below-left');
   if (!(moonPoint.x >= 0 && moonPoint.x < width && moonPoint.y >= 0 && moonPoint.y < height)) throw Error('Moon point must lie inside scene');
-  const dx = moonPoint.x - pivot.x, dy = moonPoint.y - pivot.y;
-  const axisRadians = Math.atan2(dy, dx), initialReach = Math.hypot(dx, dy);
+  const pivot = { ...moonPoint };
+  const dx = offscreenExitPoint.x - pivot.x, dy = offscreenExitPoint.y - pivot.y;
+  const axisRadians = Math.atan2(dy, dx);
+  const initialHalfAngleRadians = Math.atan2(exitHalfWidth, Math.hypot(dx, dy));
   const corners = [{ x: 0, y: 0 }, { x: width, y: 0 }, { x: 0, y: height }, { x: width, y: height }];
-  const finalReach = Math.max(initialReach, ...corners.map(point => Math.hypot(point.x - pivot.x, point.y - pivot.y))) + cellSize;
-  const maxSweepRadians = Math.max(...corners.map(point => Math.abs(angleDifference(Math.atan2(point.y - pivot.y, point.x - pivot.x), axisRadians)))) + .005;
-  return { width, height, gridWidth: width / cellSize, gridHeight: height / cellSize, cellSize, moonPoint, pivot, axisRadians, initialReach, finalReach, exitHalfWidth, maxSweepRadians };
+  const reach = Math.max(...corners.map(point => Math.hypot(point.x - pivot.x, point.y - pivot.y))) + cellSize;
+  const maxSweepRadians = Math.PI - initialHalfAngleRadians;
+  return { width, height, gridWidth: width / cellSize, gridHeight: height / cellSize, cellSize, moonPoint, pivot, offscreenExitPoint, axisRadians, reach, initialHalfAngleRadians, exitHalfWidth, maxSweepRadians };
 }
 
 export function beamMaskAt(geometry: BeamGeometry, progress: number): { width: number; height: number; alpha: Uint8Array } {
   if (!Number.isFinite(progress)) throw Error('Invalid beam progress');
   const p = clamp(progress), { gridWidth, gridHeight, cellSize, pivot } = geometry;
-  const sweep = p * geometry.maxSweepRadians;
-  const reach = geometry.initialReach + p * (geometry.finalReach - geometry.initialReach);
+  const halfAngle = geometry.initialHalfAngleRadians + p * geometry.maxSweepRadians;
   const alpha = new Uint8Array(gridWidth * gridHeight);
   for (let y = 0; y < gridHeight; y++) for (let x = 0; x < gridWidth; x++) {
     const dx = (x + .5) * cellSize - pivot.x, dy = (y + .5) * cellSize - pivot.y;
     const radius = Math.hypot(dx, dy);
     const angle = Math.abs(angleDifference(Math.atan2(dy, dx), geometry.axisRadians));
-    const delta = Math.max(0, angle - sweep);
-    const along = radius * Math.cos(delta), cross = radius * Math.sin(delta);
-    if (along >= 0 && along <= reach + 1e-8 && cross <= geometry.exitHalfWidth * (1 - along / reach) + 1e-8) alpha[y * gridWidth + x] = 255;
+    if (radius <= geometry.reach && angle <= halfAngle + 1e-8) alpha[y * gridWidth + x] = 255;
   }
   return { width: gridWidth, height: gridHeight, alpha };
 }
