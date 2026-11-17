@@ -71,15 +71,35 @@ test('waiting packet pins the reviewed CLI and emits no profile or credential re
   const directory = await mkdtemp(join(tmpdir(), 'operator-waiting-fixture-'));
   try {
     const release = join(directory, 'release');
-    const revision = '743160a8cde6fd11c31588cf5b3c6a4fac379abe';
-    const installerRevision = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+    const repository = join(directory, 'reviewed-source');
+    await mkdir(repository);
+    const env = { ...process.env, GIT_DIR: join(repository, '.git'), GIT_WORK_TREE: repository };
+    const git = (...args: string[]) => execFileSync('git', args, { cwd: repository, env, encoding: 'utf8', stdio: 'pipe' }).trim();
+    git('init', '--quiet');
+    git('config', '--local', 'user.name', 'Operator fixture');
+    git('config', '--local', 'user.email', 'operator-fixture@example.invalid');
+    git('config', '--local', 'commit.gpgsign', 'false');
+    git('config', '--local', 'core.hooksPath', '/dev/null');
+    const cliSource = await readFile(resolve('lib/peripherals/bridge-cli.ts'));
+    const cliPath = join(repository, 'lib/peripherals/bridge-cli.ts');
+    await mkdir(resolve(cliPath, '..'), { recursive: true });
+    await writeFile(cliPath, cliSource);
+    git('add', 'lib/peripherals/bridge-cli.ts');
+    git('commit', '--quiet', '-m', 'Reviewed waiting CLI');
+    const revision = git('rev-parse', 'HEAD');
+    const installerPath = join(repository, 'lib/peripherals/operator-service/install.py');
+    await mkdir(resolve(installerPath, '..'), { recursive: true });
+    await writeFile(installerPath, await readFile(resolve('lib/peripherals/operator-service/install.py')));
+    git('add', 'lib/peripherals/operator-service/install.py');
+    git('commit', '--quiet', '-m', 'Reviewed standalone installer');
+    const installerRevision = git('rev-parse', 'HEAD');
     const names = ['release.json', 'runtime/node', 'bin/show-tools-peripheral', 'gateway/peripheral-cli.mjs', 'native/peripheral/peripheral-host', 'bin/show-tools-session', 'gateway/session-cli.mjs', 'provenance/source/lib/peripherals/bridge-cli.ts'];
     for (const name of names) {
       const path = join(release, name); await mkdir(resolve(path, '..'), { recursive: true });
-      await writeFile(path, name === 'release.json' ? JSON.stringify({ sourceRevision: revision }) : name.startsWith('provenance/') ? await readFile(resolve('lib/peripherals/bridge-cli.ts')) : `synthetic fixture ${name}`);
+      await writeFile(path, name === 'release.json' ? JSON.stringify({ sourceRevision: revision }) : name.startsWith('provenance/') ? cliSource : `synthetic fixture ${name}`);
     }
     const prepare = (out: string, ...extra: string[]) => JSON.parse(execFileSync(process.execPath,
-      ['--import', 'tsx', resolve('lib/peripherals/operator-service/prepare.ts'), '--release', release, '--source-revision', revision, '--installer-source-revision', installerRevision, '--waiting-configuration', '--out', out, ...extra], { encoding: 'utf8', stdio: 'pipe' }));
+      ['--import', 'tsx', resolve('lib/peripherals/operator-service/prepare.ts'), '--release', release, '--source-revision', revision, '--installer-source-revision', installerRevision, '--waiting-configuration', '--out', out, ...extra], { env, encoding: 'utf8', stdio: 'pipe' }));
     const output = join(directory, 'packet');
     const result = prepare(output);
     assert.equal(result.ready, true);
@@ -106,7 +126,7 @@ test('waiting packet pins the reviewed CLI and emits no profile or credential re
     }
     await writeFile(join(release, 'provenance/source/lib/peripherals/bridge-cli.ts'), 'old CLI source');
     const rejected = join(directory, 'rejected');
-    assert.throws(() => prepare(rejected));
+    assert.throws(() => prepare(rejected), /Waiting CLI source differs from the reviewed missing-configuration implementation/);
     await assert.rejects(access(join(rejected, 'OPERATOR-COMMAND.txt')));
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
