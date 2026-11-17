@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
-import { instrumentCue, isMusicianVocalCue, parseMusicianFill, sectionFeelSummary } from '../lib/performance/musician-annotations.js';
-import { readMusicXmlSong } from '../lib/performance/musicxml-song.js';
+import { instrumentCue, isMusicianVocalCue, parseMusicianFill, sectionFeelSummary } from '../musician-annotations.js';
+import { readMusicXmlSong } from '../musicxml-song.js';
 
 test('exact fills space attacks and retain phrase boundaries without inventing duration', () => {
   assert.deepEqual(parseMusicianFill('4e&a]'), { kind: 'exact', counts: '4e&a', bracket: 'end', leadingDash: false, display: 'Fill: 4 e & a]' });
@@ -34,7 +34,7 @@ test('only whole vocal annotation marks disappear; lyrics and accented ampersand
 });
 
 test('canonical DYC displays are formatted without changing report data', async () => {
-  const document = await readMusicXmlSong(await readFile(new URL('../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8'));
+  const document = await readMusicXmlSong(await readFile(new URL('../../../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8'));
   const before = JSON.stringify(document);
   const expected = new Map([['4e&a]', 'Fill: 4 e & a]'], ['[3!', '[Fill from 3'], ['1!]', 'Fill from 1]'], ['!4!!', '!4!!'], ['!2!!', '!2!!']]);
   for (const [text, display] of expected) {
@@ -46,7 +46,7 @@ test('canonical DYC displays are formatted without changing report data', async 
 });
 
 test('feel summaries use singular bar for a one-bar range and retain whole-section feels', () => {
-  const section = { name: 'Section', startBar: 1, endBar: 8 };
+  const section = { id: 'section', label: 'Section', startBar: 1, endBar: 8 };
   assert.equal(sectionFeelSummary(section, [{ startBar: 3, endBar: 3, text: 'Funky' }]), 'Funky, bar 3');
   assert.equal(sectionFeelSummary(section, [{ startBar: 3, endBar: 4, text: 'Extra funky' }]), 'Extra funky, bars 3-4');
   assert.equal(sectionFeelSummary(section, [{ startBar: 1, endBar: 8, text: 'Funky' }]), 'Funky');
