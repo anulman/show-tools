@@ -88,3 +88,9 @@ The paired `storeAutoplays` model and native mutants replace store-only publicat
 This extends capture publication verification. Finite playback duration, source phase, grouped action resolution, held release, bend mapping, per-note selection, and external sample preparation need their own execution witnesses. These behaviors are not established by the capture state machine.
 
 The finite capture state describes song takes and their two protected banks. It does not count the stopped Tuning ring buffer or external note slots as song takes. Tuning readiness, pitch stability, profile-specific DSP, WAV parsing and rate conversion, and external control delivery have separate regression tests. The existing native `tuner-isolation` scenario and its running-gate source mutant remain part of this package.
+
+## Sample-export source correspondence
+
+Reviewed the additive read path at `a831cc6`. `pf_copy_take_audio()` reads the latest committed cache only while transport is stopped and copies at most 4096 stereo frames into caller storage. The native owner admits its read against the existing admission revision without incrementing it. The controller checks the native target before and after its await. None of these paths allocates or replaces a capture bank, changes input ownership, starts transport, or writes a light baseline. Existing model transitions, properties and bounds remain unchanged. The source fences now include this reviewed code.
+
+The existing formal models do not prove WAV/ZIP encoding or multi-chunk sample export. Actual C++ no-allocation/state-preservation checks, real WASM layered exports at 8/48 kHz and an authenticated native-host HTTP test cover those additions separately. These checks do not establish physical audio or LED acceptance.
