@@ -76,7 +76,7 @@ Treat the Sheets helper and its Chrome profile as shared state too. Use one owne
 
 ## Build a browser checkout
 
-Install Node.js, npm, and Emscripten with `em++` on `PATH`. From the assigned worktree, run these commands in order.
+Install Node.js, npm, Emscripten with `em++` and `emcmake` on `PATH`, CMake, and Ninja. From the assigned worktree, run these commands in order.
 
 ```sh
 npm ci
@@ -84,6 +84,10 @@ npm run build
 ```
 
 The full build compiles the C++ performance engine, clock, sequencer, and sampler into one manual-tempo WASM module. It runs clock checks, bundles the browser code, and writes static assets into `dist/`. Run `npm test` for engine and practice integration checks. Publish a verified immutable snapshot through the UI manager.
+
+`npm run build:wasm` keeps CMake/Ninja objects and compiler depfiles under `lib/beat-tracker/build-manual-wasm/cmake`. It recompiles C++ units whose source or included headers change. The entrypoint still regenerates the ABI and exports, checks the toolchain, and runs the manual WASM tests on every invocation. It preserves the existing `EM_CACHE` override. Remove the `cmake` subdirectory for a fresh object build without discarding the Emscripten system-library cache.
+
+Do not infer bundle equivalence from a Git tree, lockfile, and old esbuild input hashes alone. Installed package `main` or `exports` metadata and new higher-priority resolution paths can change fresh output while those values stay unchanged. The rejected gateway cache needed a complete installed dependency fingerprint whose measured cost exceeded fresh bundling. Compiler-owned depfiles avoid that custom cache for WASM.
 
 ```sh
 ./show-tools ui preview

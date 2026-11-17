@@ -10,7 +10,7 @@ performance_dir="$module_dir/../performance"
 patches_dir="$module_dir/../patches"
 repo_dir="$module_dir/../.."
 
-for tool in em++ node; do
+for tool in em++ emcmake cmake ninja node; do
     command -v "$tool" >/dev/null || { echo "Required tool missing: $tool" >&2; exit 1; }
 done
 mkdir -p "$build_dir" "$dist_dir"
@@ -21,14 +21,10 @@ node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$performance_dir/
 node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$performance_dir/include/performance_light_output.h" "$performance_dir/light-abi.ts" PF
 exports="$(node --import tsx "$repo_dir/scripts/wasm-exports.ts" "$module_dir/include/beat_tracker.h" "$sampler_dir/include/sample_engine.h" "$sequencer_dir/include/audio_sequence_engine.h" "$performance_dir/include/performance_engine.h")"
 
-em++ -O3 -std=c++17 -fno-exceptions -DBT_MANUAL_ONLY \
-    -I"$module_dir/include" -I"$sampler_dir/include" -I"$sequencer_dir/include" -I"$performance_dir/include" -I"$performance_dir/../peripherals/include" -I"$patches_dir/include" -I"$performance_dir/../tuner/include" \
-    "$module_dir/src/beat_tracker.cpp" "$module_dir/src/beat_clock.cpp" "$module_dir/src/tempo_follower.cpp" \
-    "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$performance_dir/src/compiled_program.cpp" "$performance_dir/../peripherals/src/peripheral_controls.cpp" "$patches_dir/src/patch_engine.cpp" "$performance_dir/../tuner/src/tuner.cpp" \
-    --no-entry -sSTANDALONE_WASM=1 -sFILESYSTEM=0 -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 \
-    -sINITIAL_MEMORY=268435456 -sSTACK_SIZE=1048576 \
-    "-sEXPORTED_FUNCTIONS=$exports" \
-    -o "$dist_dir/manual-clock.wasm"
+emcmake cmake -S "$module_dir/cmake/manual-wasm" -B "$build_dir/cmake" -G Ninja \
+    -DCMAKE_BUILD_TYPE= -DCMAKE_CXX_FLAGS= "-DMANUAL_WASM_EXPORTS=$exports"
+cmake --build "$build_dir/cmake"
+cp "$build_dir/cmake/manual-clock.wasm" "$dist_dir/manual-clock.wasm"
 
 em++ --version > "$dist_dir/manual-clock-compiler.txt"
 cat > "$dist_dir/manual-clock-build.json" <<'EOF'
