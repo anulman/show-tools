@@ -203,7 +203,9 @@ export class NativePerformance {
   takeAudio({ take, offset, frames, token }: TakeAudioRequest) {
     if (!Number.isInteger(this.sampleRate)) throw new Error('Sample downloads require a whole-number sample rate');
     if (token !== this.takeAudioToken() || !Number.isInteger(take) || take < 0 || take >= this.compiledTakeCount
-      || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(frames) || frames < 1 || frames > 4096) throw new Error('Sample export changed or request is invalid');
+      || !Number.isInteger(offset) || offset < 0 || offset > 0xffffffff || !Number.isInteger(frames) || frames < 1 || frames > 4096) throw new Error('Sample export changed or request is invalid');
+    const length = this.compiledTake(take).frames;
+    if (offset > length || frames > length - offset) throw new Error('Sample export range exceeds the captured take');
     const count = this.invoke('pf_copy_take_audio', this.handle, take, offset, frames, this.liveLeftPointer);
     if (count !== frames) throw new Error('Stop practice before downloading a committed sample');
     const bytes = new Uint8Array(12 + frames * 8), data = new DataView(bytes.buffer);

@@ -229,7 +229,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #endif
           break;
         case 18: {
-          if(a[3]!=double(revision) || !instrument.engine() || std::floor(config.sample_rate)!=config.sample_rate)break;
+          if(a[3]!=double(run) || !instrument.engine() || std::floor(config.sample_rate)!=config.sample_rate)break;
           std::array<float,8192> pcm{};
           rc=pf_copy_take_audio(instrument.engine(),uint32_t(a[0]),uint32_t(a[1]),uint32_t(a[2]),pcm.data());
           if(rc<0)break;

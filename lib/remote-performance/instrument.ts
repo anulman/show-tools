@@ -66,11 +66,11 @@ export class NativeInstrument implements Instrument {
 	}
   async takeAudio(request: import('../performance/take-audio.js').TakeAudioRequest): Promise<Uint8Array> {
     const current = this.current, connection = this.connection;
-    if (!current || !connection || request.token !== current.revision.toString()) throw new Error('Sample export changed; try again while stopped');
+    if (!current || !connection || request.token !== current.state.runId || current.run > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Sample export changed; try again while stopped');
     const operation = Buffer.alloc(34); operation.writeUInt16LE(18);
-    [request.take, request.offset, request.frames, Number(request.token)].forEach((value, index) => operation.writeDoubleLE(value, 2 + index * 8));
+    [request.take, request.offset, request.frames, Number(current.run)].forEach((value, index) => operation.writeDoubleLE(value, 2 + index * 8));
     const result = await connection.command(operation);
-    if (this.connection !== connection || result.length < 28 || result.readUInt32LE(0) !== 0 || result.readBigUInt64LE(8) !== current.revision)
+    if (this.connection !== connection || result.length < 28 || result.readUInt32LE(0) !== 0 || this.current?.state.runId !== request.token)
       throw new Error('Sample unavailable or practice changed during download');
     return new Uint8Array(result.subarray(16));
   }

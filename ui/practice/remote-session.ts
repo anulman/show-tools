@@ -180,7 +180,7 @@ export class RemoteSession {
       command: async command => { await this.command('tuner', command); if (!this.valid) throw new Error('Hardware audio session is stale.'); return this.latest.tuner; },
     };
   }
-  takeAudioToken() { if (!this.valid) throw new Error('Hardware audio session is stale'); return this.latest.revision; }
+  takeAudioToken() { if (!this.valid) throw new Error('Hardware audio session is stale'); return this.latest.state.runId; }
   takeAudio(request: import('../../lib/performance/take-audio.js').TakeAudioRequest) { return this.desk.takeAudio(this, this.target, request); }
   matches(target: NativeTarget) { return this.valid && target.attempt === this.target.attempt && target.hostEpoch === this.target.hostEpoch; }
   invalidate() { this.valid = false; this.listeners.clear(); this.eventListeners.clear(); this.tunerListeners.clear(); }

@@ -220,7 +220,7 @@ const decodeTakeAudioRequest = Schema.decodeUnknownSync(Schema.Struct({
   take: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 31 })),
   offset: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 4294967295 })),
   frames: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 4096 })),
-  token: Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,15})$/)),
+  token: Schema.NonEmptyString.check(Schema.isMaxLength(128)),
 }), { onExcessProperty: 'error' });
 const requestFields = { sessionId: Schema.NonEmptyString, sequence: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })) };
 const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,

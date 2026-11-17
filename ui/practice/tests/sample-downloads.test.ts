@@ -46,6 +46,8 @@ for (const rate of [8000, 48000]) test(`actual captured samples download as sepa
     assert.deepEqual(metadata.samples[0].capture, compiled.takes[0]);
     assert.deepEqual(metadata.selections, compiled.selections.filter(value => value.voiceId === 'drums'));
     await assert.rejects(voiceSampleArchive(compiled, 'cowbell', native.state(), { takeAudioToken: () => '', takeAudio: async () => new Uint8Array() }), /no captured/);
+    assert.throws(() => native.takeAudio({ take: 0, offset: 2 ** 32, frames: 1, token: native.takeAudioToken() }), /invalid/);
+    assert.throws(() => native.takeAudio({ take: 0, offset: native.compiledTake(0).frames, frames: 1, token: native.takeAudioToken() }), /range exceeds/);
     const before = native.takeAudioToken();
     native.start({ runId: 'new-run', bpm: 120, countInBars: 1, startBar: 1, endBar: 4, loop: false }); native.stop();
     assert.throws(() => native.takeAudio({ take: 0, offset: 0, frames: 1, token: before }), /changed/);
