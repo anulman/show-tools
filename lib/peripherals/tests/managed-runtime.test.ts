@@ -213,6 +213,11 @@ test('one helper survives audio-off and engine replacement without replaying off
   const { createGateway } = await import('../../remote-performance/gateway.js');
   const directory = await mkdtemp(join(tmpdir(), 'physical-idle-'));
   const helper = join(directory, 'helper'), mode = join(directory, 'mode'), log = join(directory, 'log');
+  const setMode = async (state: 'held' | 'released') => {
+    const next = mode + '.next';
+    await writeFile(next, state);
+    await rename(next, mode);
+  };
   const controller = new PersistentDesk(sessionProfile(directory), installedPackage().installed);
   const abort = new AbortController();
   const commands: { command: string; args: { sequence?: number; heldMask?: number; releasedMask?: number } }[] = [];
@@ -230,7 +235,7 @@ test('one helper survives audio-off and engine replacement without replaying off
     setAudio: () => { audioCommands++; throw new Error('The peripheral service cannot enable audio'); } });
   try {
     await writeFile(join(directory, 'token'), 'c'.repeat(32), { mode: 0o600 });
-    await writeFile(mode, 'released');
+    await setMode('released');
     await writeFile(helper, `#!${process.execPath}
 const fs=require('node:fs'),rl=require('node:readline');
 const session=Number(process.argv[2]);let sequence=0,prior='released';
@@ -247,19 +252,19 @@ process.on('exit',()=>fs.appendFileSync(${JSON.stringify(log)},'exit\\n'));
       { present: async () => true, fingerprint: async () => 'one-board', retryMs: 10, report: state => reports.push(JSON.stringify(state)) });
     await until(() => reports.some(value => value.includes('physical-only')) || undefined);
     assert.equal(controller.snapshot().audio.kind, 'off');
-    await writeFile(mode, 'held');
+    await setMode('held');
     await waitLog('held\n');
     assert.equal(commands.length, 0, 'offline physical input never reaches a native engine');
     controller.setAudio('on');
     await until(() => commands.some(value => value.command === 'inputAttach') || undefined);
     assert.equal(commands.find(value => value.command === 'inputAttach')?.args.heldMask, 1, 'native admission observes the current held barrier');
-    await writeFile(mode, 'released'); await waitLog('released\n');
-    await writeFile(mode, 'held');
+    await setMode('released'); await waitLog('released\n');
+    await setMode('held');
     await until(() => commands.filter(value => value.command === 'inputEvent').length >= 2 || undefined);
     assert.deepEqual(commands.filter(value => value.command === 'inputEvent').map(value => value.args.sequence), [2, 3], 'the old offline press is never replayed');
     controller.setAudio('off');
     await until(() => controller.snapshot().audio.kind === 'off' || undefined);
-    await writeFile(mode, 'released');
+    await setMode('released');
     for (let index = 0; index < 100; index++) { const text = await readFile(log, 'utf8'); if (text.split('released\n').length === 3) break; await new Promise(resolve => setTimeout(resolve, 5)); }
     controller.setAudio('on');
     await until(() => commands.filter(value => value.command === 'inputAttach').length === 2 || undefined);
