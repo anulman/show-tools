@@ -109,6 +109,9 @@ int pf_set_bend_parameters(pf_engine* engine, double velocity_per_semitone, doub
 int pf_prepare_external_wav(pf_engine* engine, uint32_t slot, const uint8_t* bytes, uint32_t length);
 int pf_prepare_external_sample(pf_engine* engine, uint32_t slot, const float* left, const float* right, uint32_t frames);
 int pf_trigger_external(pf_engine* engine, uint32_t slot);
+/* Copies committed processed stereo PCM, while stopped, into caller-owned storage.
+   Bounded to 4096 frames; does not allocate, advance playback or expose borrowed PCM. */
+int pf_copy_take_audio(const pf_engine* engine, uint32_t take, uint32_t offset, uint32_t frames, float* stereo);
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out);
 /* Shared pedal/star tempo evidence. Control 6 submits an unhinted pedal hit. */
 void pf_tempo_info(const pf_engine* engine, double* out);

@@ -51,3 +51,9 @@
 .hardware-audio[data-audio="fault"] { border-color: #a64232; }
 
 #bar-number.pickup { font-size: clamp(1.4rem, 4vw, 3rem); }
+
+.sample-downloads { margin: 1rem 0; padding: .8rem; border: 1px solid var(--border, #444); border-radius: .6rem; }
+.sample-downloads h2 { font-size: 1rem; margin: 0 0 .4rem; }
+.sample-downloads p { font-size: .8rem; margin: .4rem 0; }
+.sample-download-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.sample-download-actions button { min-height: 44px; max-width: 100%; overflow-wrap: anywhere; }

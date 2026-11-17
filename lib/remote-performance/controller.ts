@@ -223,6 +223,14 @@ export class PersistentDesk implements DeskController {
       }),
     );
   });
+  async takeAudio(target: NativeTarget, request: import('../performance/take-audio.js').TakeAudioRequest) {
+    const attempt = this.attempt, audio = this.view.audio;
+    if (!attempt?.instrument || attempt.abort.signal.aborted || audio.kind !== 'ready' || target.attempt !== attempt.id || target.hostEpoch !== audio.performance.hostEpoch)
+      throw new Error('Native target is unavailable or stale');
+    const bytes = await attempt.instrument.takeAudio(request);
+    if (this.attempt !== attempt || this.view.audio.kind !== 'ready' || attempt.abort.signal.aborted) throw new Error('Native target changed during download');
+    return bytes;
+  }
   async command(target: NativeTarget, input: unknown): Promise<NativeOutcome> {
     const attempt = this.attempt;
     const audio = this.view.audio;

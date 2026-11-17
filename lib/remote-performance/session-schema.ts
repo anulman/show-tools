@@ -100,6 +100,7 @@ export interface DeskController {
   subscribe(listener: (publication: DeskPublication) => void): () => void;
   setAudio(goal: AudioGoal): AudioDecision;
   command(target: NativeTarget, input: unknown): Promise<NativeOutcome>;
+  takeAudio?(target: NativeTarget, request: import('../performance/take-audio.js').TakeAudioRequest): Promise<Uint8Array>;
   confirmedRetirement?(target: NativeTarget): NativeEngineRetirementProof | null;
   close(): Promise<void>;
 }

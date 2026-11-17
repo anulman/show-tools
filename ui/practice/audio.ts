@@ -63,6 +63,7 @@ export class PracticeAudio {
   readonly detachTracker: () => void;
   readonly onDeviceChange: () => void;
   latest: PracticeState;
+  private sampleToken: string | undefined;
   error: string | null = null;
   microphone = false;
   monitoring: MonitoringConfirmation = { kind: 'unconfirmed' };
@@ -71,6 +72,15 @@ export class PracticeAudio {
   startGeneration = 0;
   microphoneGeneration = 0;
 
+  takeAudioToken() {
+    if (this.disposed || this.sampleToken === undefined) throw new Error('Practice samples are unavailable');
+    return this.sampleToken;
+  }
+  async takeAudio(request: import('../../lib/performance/take-audio.js').TakeAudioRequest) {
+    const value = await this.endpoint.request('practice.take-audio', request);
+    if (!(value instanceof Uint8Array)) throw new Error('Invalid sample audio response');
+    return value;
+  }
   static async create({ chart, program, compiled, initialVoiceEffects, signal }: AudioOptions) {
     if (!chart?.bars?.length) throw new Error('A parsed chart is required');
     signal?.throwIfAborted();
@@ -150,6 +160,7 @@ export class PracticeAudio {
     };
     endpoint.port.addEventListener('message', this.onMessage);
     this.detachState = endpoint.subscribe(state => {
+      if (state.takeAudioToken !== undefined) this.sampleToken = state.takeAudioToken;
       if (state.tuningBank) this.latestTuningBank = state.tuningBank;
       if (state.tuner) {
         this.latestTuner = state.tuner;

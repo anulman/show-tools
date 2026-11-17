@@ -130,6 +130,16 @@ export class RemoteDesk {
     if (!response.ok) throw new Error('Input cleanup readback unavailable. Reconnect remains blocked.');
     return decodeInputIntentStatus(await readJson(response));
   }
+  async takeAudio(endpoint: RemoteSession, target: NativeTarget, request: import('../../lib/performance/take-audio.js').TakeAudioRequest) {
+    if (this.endpoint !== endpoint || this.connectionState.kind !== 'connected') throw new Error('Hardware audio session is stale');
+    const response = await fetch('/api/take-audio', { method: 'POST', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, ...request }), cache: 'no-store', signal: this.abort.signal });
+    if (!response.ok) throw new Error('Sample unavailable or practice changed. Stop practice and retry.');
+    if (Number(response.headers.get('content-length')) > 32780) throw new Error('Sample response is too large');
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (this.endpoint !== endpoint) throw new Error('Hardware audio session changed');
+    return bytes;
+  }
   async command(endpoint: RemoteSession, target: NativeTarget, command: string, args: object) {
     if (this.endpoint !== endpoint) throw new Error('Hardware audio session is stale.');
     let result: NativeOutcome | InputAttachOutcome;
@@ -170,6 +180,8 @@ export class RemoteSession {
       command: async command => { await this.command('tuner', command); if (!this.valid) throw new Error('Hardware audio session is stale.'); return this.latest.tuner; },
     };
   }
+  takeAudioToken() { if (!this.valid) throw new Error('Hardware audio session is stale'); return this.latest.state.runId; }
+  takeAudio(request: import('../../lib/performance/take-audio.js').TakeAudioRequest) { return this.desk.takeAudio(this, this.target, request); }
   matches(target: NativeTarget) { return this.valid && target.attempt === this.target.attempt && target.hostEpoch === this.target.hostEpoch; }
   invalidate() { this.valid = false; this.listeners.clear(); this.eventListeners.clear(); this.tunerListeners.clear(); }
   observe(performance: NativePerformance) {

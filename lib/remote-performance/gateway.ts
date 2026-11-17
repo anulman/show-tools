@@ -215,6 +215,13 @@ const MAX_INPUT_STATUS_REQUESTS = 4096;
 const MAX_BODY = 64 * 1024;
 const MAX_CLIENTS = 128;
 const MAX_EVENT_BUFFER = 4 * 1024 * 1024;
+const decodeTakeAudioRequest = Schema.decodeUnknownSync(Schema.Struct({
+  target: NativeTargetSchema,
+  take: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 31 })),
+  offset: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 4294967295 })),
+  frames: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 4096 })),
+  token: Schema.NonEmptyString.check(Schema.isMaxLength(128)),
+}), { onExcessProperty: 'error' });
 const requestFields = { sessionId: Schema.NonEmptyString, sequence: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })) };
 const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,
   command: Schema.Literals(['start', 'stop', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
@@ -323,6 +330,18 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         return json(response, 200, original ? await inputs.readStatus(original.owner, input.intentId) : { kind: 'unknown' });
       }
 			if (request.method === 'GET' && path === '/api/songs') return songs ? json(response, 200, { songs: songs.choices() }) : json(response, 404, { error: 'Song catalog is not configured' });
+      if (request.method === 'POST' && path === '/api/take-audio') {
+        if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
+        let input: ReturnType<typeof decodeTakeAudioRequest>;
+        try { input = decodeTakeAudioRequest(await readBody(request)); }
+        catch { return json(response, 400, { error: 'Invalid sample request' }); }
+        if (!controller.takeAudio) return json(response, 404, { error: 'Sample downloads are unavailable on this host' });
+        try {
+          const bytes = await controller.takeAudio(input.target, input);
+          response.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': bytes.length, 'Cache-Control': 'no-store' });
+          return response.end(bytes);
+        } catch { return json(response, 409, { error: 'Sample unavailable or practice changed. Stop practice and retry.' }); }
+      }
 			if (request.method === 'GET' && path === '/api/status') return json(response, 200, controller.snapshot());
 			if (request.method === 'GET' && path === '/api/events') {
 				if (clients.size >= MAX_CLIENTS) return json(response, 503, { error: 'Observer capacity reached' });

@@ -104,7 +104,7 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	state.compiledTakes = Array.from({ length: manifest.takeCount }, (_, i) => decodeNativeTake(takes.subarray(i * PF.TAKE_FIELDS, (i + 1) * PF.TAKE_FIELDS), i));
 	state.tempoHits = decodeNativeTempo(tempo);
 	state.inputRouting = decodeNativeInputRouting(inputData);
-	return { revision, song: manifest.song, state, lights, tuner };
+	return { revision, run, song: manifest.song, state, lights, tuner };
 }
 
 export function decodeEvent(payload: Buffer, runId: string) {

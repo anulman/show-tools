@@ -150,3 +150,9 @@ property merely to obtain a pass. A finite replay failure is a product finding
 only after confirming the witness uses valid source operations. Toolchain and
 harness failures require repair rather than operator approval of broken
 behavior.
+
+## Sample-export source correspondence
+
+Reviewed the additive read path at `a831cc6`. `pf_copy_take_audio()` reads the latest committed cache only while transport is stopped and copies at most 4096 stereo frames into caller storage. The native owner admits its read against the native run identity without changing it. The controller checks the native target before and after its await. None of these paths allocates or replaces a capture bank, changes input ownership, starts transport, or writes a light baseline. Existing model transitions, properties and bounds remain unchanged. The source fences now include this reviewed code.
+
+The existing formal models do not prove WAV/ZIP encoding or multi-chunk sample export. Actual C++ no-allocation/state-preservation checks, real WASM layered exports at 8/48 kHz and an authenticated native-host HTTP test cover those additions separately. These checks do not establish physical audio or LED acceptance.

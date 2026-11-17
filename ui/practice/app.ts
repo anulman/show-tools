@@ -20,6 +20,7 @@ import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, VoiceE
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
 import { createChartFollower, openCurrentChart } from './open-chart.js';
+import { createSampleDownloads } from './sample-downloads.js';
 import { recordingToMp3 } from './recording-export.js';
 import { installChartPanel } from './chart-panel.js';
 import { decodeCompiledSong } from '../../lib/performance/compiled-song.js';
@@ -147,6 +148,7 @@ let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorke
 let transportGeneration = 0;
 type DisplayState = Pick<PracticeState, 'phase' | 'bar' | 'beat' | 'selectedChannel' | 'channels'> & Partial<PracticeState>;
 let state: DisplayState = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
+const sampleDownloads = createSampleDownloads(elements['live-voices'], () => ({ song: song?.compiled, state, source: audio }), () => render(state));
 let recorder: MediaRecorder | undefined;
 let recordingURL: string | undefined;
 let chartFollower: ReturnType<typeof createChartFollower> | undefined;
@@ -595,7 +597,7 @@ function mountPhoneMotion() {
 }
 
 function browserModeBusy(): boolean {
-  return voiceCatalog.busy || isRunning() || starting || switching || effectsApplying || Boolean(preparing) || outputCapture !== 'idle' || state.channels.some(channel => ['armed', 'recording', 'stopping'].includes(channel.status));
+  return sampleDownloads.busy || voiceCatalog.busy || isRunning() || starting || switching || effectsApplying || Boolean(preparing) || outputCapture !== 'idle' || state.channels.some(channel => ['armed', 'recording', 'stopping'].includes(channel.status));
 }
 
 let changingAudioMode = false;
@@ -616,6 +618,7 @@ function render(next: Partial<PracticeState>) {
   syncTunerSession();
   const ended = next.phase === 'ended' && state.phase !== 'ended';
   state = { ...state, ...next };
+  sampleDownloads.render();
   beginOutputRecording(state.phase);
   if (ended) {
     finishOutputRecording();
@@ -1118,7 +1121,7 @@ if (new URLSearchParams(location.search).has('test')) {
 function applyPendingPracticeUpdate() {
   if (offlineUpdate.kind === 'current' || offlineUpdate.kind === 'reloading') return;
   elements['offline-status'].textContent = 'Update ready. It will apply when practice, recording, and voice editing finish.';
-  if (voiceCatalog.busy || document.querySelector('dialog[open]') || isRunning() || starting || switching || preparing || effectsApplying || outputCapture !== 'idle') return;
+  if (sampleDownloads.busy || voiceCatalog.busy || document.querySelector('dialog[open]') || isRunning() || starting || switching || preparing || effectsApplying || outputCapture !== 'idle') return;
   if (offlineUpdate.kind === 'waiting') {
     offlineUpdate.worker.postMessage({ type: 'activate-when-idle' });
     return;

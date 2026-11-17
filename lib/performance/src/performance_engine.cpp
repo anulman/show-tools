@@ -627,6 +627,10 @@ int pf_trigger_external(pf_engine* engine, uint32_t slot) {
   int result = engine->compiled->trigger_external(slot);
   return result == PF_OK ? accepted(engine) : fail(engine, result);
 }
+int pf_copy_take_audio(const pf_engine* engine, uint32_t take, uint32_t offset, uint32_t frames, float* stereo) {
+  if (!engine || !engine->compiled || running(engine)) return -1;
+  return engine->compiled->copy_take_audio(take, offset, frames, stereo);
+}
 void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out) {
   if (!out) return;
   if (engine && engine->compiled) engine->compiled->take_info(take, out);
