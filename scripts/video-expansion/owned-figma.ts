@@ -29,6 +29,8 @@ deepStrictEqual(JSON.parse(readFileSync(${JSON.stringify(lease + '/owner')}, 'ut
     if (pending) throw Error('Figma harness needs Chief: prior call is active or unresolved');
     if (!args || args.fileKey !== ${JSON.stringify(fileKey)} || typeof args.code !== 'string')
       throw Error('Figma harness needs Chief: wrong file or missing code');
+    if (typeof args.description !== 'string')
+      throw Error('Figma harness needs Chief: description must be a string; no file call made');
     const guardedCode = ${JSON.stringify(`if(figma.fileKey!==${JSON.stringify(fileKey)})throw Error('Figma harness needs Chief: wrong live file');\n`)} + args.code;
     if (guardedCode.length > ${FIGMA_CODE_LIMIT})
       throw Error('Figma harness needs Chief: guarded code exceeds connector limit ${FIGMA_CODE_LIMIT}; no file call made');

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { createServer } from 'node:http';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { PassThrough } from 'node:stream';
@@ -99,7 +99,12 @@ for (const unknownCleanup of [false, true]) test(`qualification changes and USB 
 	const directory = await mkdtemp(join(tmpdir(), 'ps-'));
 	const token = 'b'.repeat(32), tokenFile = join(directory, 'token'), helper = join(directory, 'helper'), log = join(directory, 'log'), stageFile = join(directory, 'stage'), disconnect = join(directory, 'disconnect');
 	await writeFile(tokenFile, token, { mode: 0o600 });
-	await writeFile(stageFile, '0');
+	const setStage = async (stage: number) => {
+		const next = stageFile + '.next';
+		await writeFile(next, String(stage));
+		await rename(next, stageFile);
+	};
+	await setStage(0);
 	await writeFile(helper, `#!${process.execPath}
 const fs = require('node:fs'), rl = require('node:readline');
 const session = Number(process.argv[2]);
@@ -138,12 +143,12 @@ rl.createInterface({input:process.stdin}).on('line', line => { record({type:'com
 		await new Promise(resolve => setTimeout(resolve, 50)); assert.equal((await records()).length, 0, 'absent hardware never starts a child');
 		present = true;
 		for (let stage = 0; stage < 3; stage++) {
-			if (stage) await writeFile(stageFile, String(stage));
+			if (stage) await setStage(stage);
 			await waitRecords(history => history.filter(record => record.type === 'exit').length === stage + 1);
 			await new Promise(resolve => setTimeout(resolve, 60));
 			assert.equal((await records()).filter(record => record.type === 'start').length, stage + 1, 'unchanged qualification failure does not repeatedly spawn/write');
 		}
-		await writeFile(stageFile, '3');
+		await setStage(3);
 		await waitRecords(history => history.some(record => record.line?.startsWith('light ')));
 		const prepared = controller.snapshot().audio;
 		assert.equal(prepared.kind, 'ready');

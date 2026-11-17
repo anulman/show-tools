@@ -25,6 +25,8 @@ The generator refuses unsuccessful or incomplete acquisition results. Each gener
 
 Load the applicable Figma skills first. Evaluate the complete generated `owned-call.js` text in `functions.exec`, then call `await callOwnedFigma(args)` in that same execution context. Pass the normal `use_figma` arguments, including the current session ID. Keep that one wrapper instance for the batch; do not create parallel copies to evade its sequential-call check.
 
+The wrapper requires `description` to be a string, matching the connector's input schema. Missing or non-string descriptions make no lease-check or Figma call and do not hold the wrapper. Empty strings satisfy this type check.
+
 The wrapper rejects scripts whose complete transmitted code, including its injected file guard, exceeds the connector’s 50,000-character limit. It counts JavaScript string units conservatively. Compact or split the authorized work before calling; do not truncate verification code. A local size rejection makes no tool call and does not create an uncertain-operation hold.
 
 The wrapper verifies the requested file key, then requires a completed successful live-owner check immediately before calling `use_figma`. It prepends a live `figma.fileKey` assertion before the caller's code. A lost owner, failed check, or wrong target makes no Figma call. Restrict the caller's code to its authorized page and nodes. The wrapper does not inspect script semantics or grant new mutation authority.
