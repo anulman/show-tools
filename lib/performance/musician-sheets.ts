@@ -57,6 +57,13 @@ function activeParts(bar: number, report: MusicXmlReport, presentation: Presenta
     && report.annotations.activities.some(activity => activity.cell === cell.cell && activity.kind === 'playing')));
 }
 
+function allResting(bar: number, report: MusicXmlReport, presentation: Presentation): boolean {
+  return presentation.parts.length > 0 && presentation.parts.every(part => {
+    const cell = part.cells.find(cell => cell.bar === bar);
+    return cell !== undefined && report.annotations.activities.some(activity => activity.cell === cell.cell && activity.kind === 'rest');
+  });
+}
+
 function instrumentLines(bar: number, report: MusicXmlReport, presentation: Presentation, firstOnPage: boolean, limit: number): InstrumentLine[] {
   const active = activeParts(bar, report, presentation), previous = activeParts(bar - 1, report, presentation);
   const changed = active.map(part => part.id).join('/') !== previous.map(part => part.id).join('/');
@@ -258,7 +265,7 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
       if (summary) body += direction(summary, `feel-${cell.bar}`, 'above');
     }
     for (const cue of instrumentLines(cell.bar, report, presentation, pageStarts.has(cell.bar) || index === 0, 10000)) body += direction(cue.text, `chart-${cue.cell}`, 'below');
-    body += `<note${activeParts(cell.bar, report, presentation).length > 0 ? ' print-object="no"' : ''}><rest measure="yes"/><duration>${report.meter.numerator * 960 * 4 / report.meter.denominator}</duration></note>`;
+    body += `<note${!allResting(cell.bar, report, presentation) ? ' print-object="no"' : ''}><rest measure="yes"/><duration>${report.meter.numerator * 960 * 4 / report.meter.denominator}</duration></note>`;
     if (index === part.cells.length - 1 && !tailHeight(report, presentation)) body += '<barline location="right"><bar-style>light-heavy</bar-style></barline>';
     return `<measure number="${xml(barLabel(cell.bar, presentation))}">${body}</measure>`;
   }).join('\n');
@@ -276,9 +283,10 @@ function renderSheet(part: Part, report: MusicXmlReport, rows: MusicianRow[], so
   const layout = paginate(rows, report, presentation, top + Math.max(0, leadLines - 1) * 10, tailHeight(report, presentation));
   const condensation: MusicianSheet['condensation'] = { sourceDigest: report.sourceDigest, mappingDigest: report.mappingDigest,
     rests: rows.filter(row => row.kind === 'rest').map(row => ({ startBar: row.cells[0].bar, endBar: row.cells.at(-1)?.bar ?? row.cells[0].bar })),
-    references, repeatCandidates: presentation.grouped ? [] : musicianRepeatCandidates(part, report) };
+    references, repeatCandidates: presentation.parts.length === 1 ? presentation.parts.flatMap(part => musicianRepeatCandidates(part, report)) : [] };
   const pages = layout.map((page, index) => svgPage(page, index, layout.length, part, report, presentation));
-  const stem = part.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + (presentation.grouped ? '' : '-' + part.labelCell.toLowerCase());
+  const nameStem = part.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const stem = (nameStem || `musician-${part.id.toLowerCase()}`) + (presentation.grouped ? '' : '-' + part.labelCell.toLowerCase());
   const score = musicianXml(part, report, layout, source, mapping, condensation, presentation);
   const html = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${xml(report.title)} — ${xml(part.name)}</title><style>@page{size:A4;margin:0}body{margin:0;background:#e9ebe6;font:15px system-ui}.controls{max-width:740px;margin:20px auto;padding:16px}article{width:210mm;height:297mm;background:white;margin:16px auto;break-after:page}article:last-child{break-after:auto}article svg{display:block;width:100%;height:100%}@media print{body{background:white}.controls{display:none}article{margin:0;box-shadow:none}}</style><div class="controls"><strong>${xml(report.title)}</strong> — ${xml(part.name)}<p>${pages.length} A4 pages · all ${report.measureCount} bars · blank five-line staff</p><button onclick="window.print()">Print / Save PDF</button> <a href="data:application/vnd.recordare.musicxml+xml;charset=utf-8,${encodeURIComponent(score)}" download="${stem}.musicxml">MusicXML</a></div>${pages.map(page => `<article>${page}</article>`).join('')}</html>\n`;
   return { name: part.name, stem, pages, html, xml: score, condensation };
@@ -296,7 +304,7 @@ export async function createMusicianSheets(options: { musicxml: string; selected
 
 function chartRows(part: Part, report: MusicXmlReport, presentation: Presentation): MusicianRow[] {
   const rows: MusicianRow[] = [];
-  const resting = (bar: number) => activeParts(bar, report, presentation).length === 0;
+  const resting = (bar: number) => allResting(bar, report, presentation);
   for (const section of report.sections) {
     const cells = part.cells.filter(cell => cell.bar >= section.startBar && cell.bar <= section.endBar);
     let cursor = 0;
@@ -321,8 +329,10 @@ function chartRows(part: Part, report: MusicXmlReport, presentation: Presentatio
   return rows;
 }
 
-export async function createMusicianChart(options: { musicxml: string; instrument: 'Drums' | 'Bass' | 'Keys' | 'Guitar';
+export async function createMusicianChart(options: { musicxml: string; instrument: string; reuse?: unknown;
   parts: readonly { labelCell: string; name: string }[] }): Promise<MusicianChart | null> {
+  const instrument = options.instrument.trim();
+  if (!instrument) throw new Error('Specify a nonempty musician name.');
   if (!options.parts.length) return null;
   if (new Set(options.parts.map(part => part.labelCell)).size !== options.parts.length) throw new Error('Select distinct charted musician voices.');
   const document = await readMusicXmlSong(options.musicxml);
@@ -334,8 +344,31 @@ export async function createMusicianChart(options: { musicxml: string; instrumen
   });
   const first = parts[0];
   if (!first) throw new Error('A charted musician voice is required.');
-  const part: Part = { ...first, id: `P-musician-${options.instrument.toLowerCase()}`, name: options.instrument, labelCell: '' };
-  const presentation: Presentation = { labels: new Map(document.song.chart.bars.map(bar => [bar.bar, bar.label ?? String(bar.bar)])), parts, grouped: true, name: options.instrument };
-  return { ...renderSheet(part, report, chartRows(part, report, presentation), stableMusicXmlJson(document.source), stableMusicXmlJson(document.mapping), presentation),
+  const references = parseMusicianReuse(options.reuse, report).filter(reference => parts.some(part => part.labelCell === reference.partLabelCell));
+  if (parts.length > 1 && references.length) throw new Error('Multi-voice section reuse requires combined musician confirmation.');
+  const part: Part = { ...first, id: `P-musician-${first.id}`, name: instrument, labelCell: '' };
+  const presentation: Presentation = { labels: new Map(document.song.chart.bars.map(bar => [bar.bar, bar.label ?? String(bar.bar)])), parts, grouped: true, name: instrument };
+  const rows = parts.length === 1 ? planMusicianRows(first, report, references) : chartRows(part, report, presentation);
+  return { ...renderSheet(part, report, rows, stableMusicXmlJson(document.source), stableMusicXmlJson(document.mapping), presentation, references),
     sourceParts: parts.map(({ id, name, labelCell }) => ({ id, name, labelCell })) };
+}
+
+export async function createMusicianCharts(options: { musicxml: string; selectedRows?: readonly number[]; reuse?: unknown }): Promise<MusicianChart[]> {
+  const document = await readMusicXmlSong(options.musicxml);
+  const groups = new Map<string, { labelCell: string; name: string }[]>();
+  for (const part of document.report.parts) {
+    if (part.managed || (options.selectedRows !== undefined && !options.selectedRows.includes(Number(part.labelCell.slice(1))))) continue;
+    const separator = part.name.indexOf(' - ');
+    const musician = (separator < 0 ? part.name : part.name.slice(0, separator)).trim();
+    if (!musician) throw new Error(`Missing musician name in ${part.labelCell}. Use Musician - Voice.`);
+    const voices = groups.get(musician) ?? [];
+    voices.push({ labelCell: part.labelCell, name: part.name }); groups.set(musician, voices);
+  }
+  const charts: MusicianChart[] = [];
+  for (const [instrument, parts] of groups) {
+    const chart = await createMusicianChart({ ...options, instrument, parts });
+    if (chart) charts.push(chart);
+  }
+  if (new Set(charts.map(chart => chart.stem)).size !== charts.length) throw new Error('Musician names must produce distinct file names. Rename the colliding musician groups.');
+  return charts;
 }

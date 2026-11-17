@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { XMLValidator } from 'fast-xml-parser';
-import { createMusicianChart } from '../musician-sheets.js';
+import { createMusicianChart, createMusicianCharts } from '../musician-sheets.js';
 import { readMusicXmlSong } from '../musicxml-song.js';
 import { importSheetMusicXml } from '../sheet-musicxml.js';
 
@@ -114,4 +114,41 @@ test('grouped voice captions omit only the exact musician prefix and retain full
   assert(!chart.pages.join('').includes('Bass - Alien Synth'));
   assert.equal(chart.sourceParts[0].name, 'Bass - Alien Synth');
   assert.match(chart.xml, /&quot;name&quot;:&quot;Bass - Alien Synth&quot;/);
+});
+
+test('public chart selection groups explicit Musician - Voice rows and excludes AF rows', async () => {
+  const document = await readMusicXmlSong(await input()); assert(document.source && document.mapping);
+  const values = document.source.values.map(row => [...row]);
+  values[13][0] = 'Keys - Pad Synth'; values[14][0] = 'Keys - Piano';
+  const imported = await importSheetMusicXml({ source: { ...document.source, values }, mapping: document.mapping });
+  const charts = await createMusicianCharts({ musicxml: imported.xml });
+  assert.equal(charts.length, 1); assert.equal(charts[0].name, 'Keys');
+  assert.deepEqual(charts[0].sourceParts.map(part => part.labelCell), ['A14', 'A15']);
+  const selected = await createMusicianCharts({ musicxml: imported.xml, selectedRows: [10, 15] });
+  assert.equal(selected.length, 1); assert.deepEqual(selected[0].sourceParts.map(part => part.labelCell), ['A15']);
+  assert.deepEqual(await createMusicianCharts({ musicxml: imported.xml, selectedRows: [10] }), []);
+  assert.deepEqual(await createMusicianCharts({ musicxml: imported.xml, selectedRows: [] }), []);
+  const ordinary = await createMusicianCharts({ musicxml: await input() });
+  assert.deepEqual(ordinary.map(chart => chart.name), ['Bass', 'Drums']);
+});
+
+test('single-voice public charts honor confirmed reuse and multi-voice references reject visibly', async () => {
+  const musicxml = await input(), document = await readMusicXmlSong(musicxml);
+  const reuse = { sourceDigest: document.report.sourceDigest, mappingDigest: document.report.mappingDigest,
+    references: [{ partLabelCell: 'A14', sectionStartBar: 93, sourceSectionStartBar: 85, equivalence: 'musician-confirmed' }] };
+  const single = await createMusicianChart({ musicxml, instrument: 'Bass', parts: [{ labelCell: 'A14', name: 'Bass' }], reuse }); assert(single);
+  assert.deepEqual(single.condensation.references, reuse.references);
+  assert.match(single.pages.join(''), /data-reference-start="93"/);
+  await assert.rejects(createMusicianChart({ musicxml, instrument: 'Musician', parts: [{ labelCell: 'A14', name: 'Bass' }, { labelCell: 'A15', name: 'Drums' }], reuse }), /combined musician confirmation/);
+  const publicCharts = await createMusicianCharts({ musicxml, reuse });
+  assert.deepEqual(publicCharts[0].condensation.references, reuse.references);
+});
+
+test('musician names are trimmed and cannot supply XML identities or empty file stems', async () => {
+  const musicxml = await input();
+  await assert.rejects(createMusicianChart({ musicxml, instrument: '  ', parts: [{ labelCell: 'A14', name: 'Bass' }] }), /nonempty/);
+  const chart = await createMusicianChart({ musicxml, instrument: '  鍵盤  ', parts: [{ labelCell: 'A14', name: 'Bass' }] }); assert(chart);
+  assert.equal(chart.name, '鍵盤'); assert(chart.stem.length > 0);
+  assert.match(chart.xml, /<part id="P-musician-PA14">/);
+  assert.equal(XMLValidator.validate(chart.xml), true);
 });
