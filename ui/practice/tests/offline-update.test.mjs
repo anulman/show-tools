@@ -146,7 +146,7 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
     URLSearchParams, remote: false, mode: 'browser', changingAudioMode: false,
     tunerPanel: undefined, tunerSession: undefined, audio: undefined,
     browserModeBusy: () => false, canChangeAudioMode: () => true, navigator: { serviceWorker },
-    voiceCatalog: { busy: false },
+    voiceCatalog: { busy: false }, sampleDownloads: { busy: false, render() {} },
     document: { querySelector() { return editorOpen ? {} : null; }, addEventListener(type, callback) { documentEvents.set(type, callback); } },
     window: { isSecureContext: true, addEventListener(type, callback) { windowEvents.set(type, callback); } },
     location: { search: '', reload() { reloads++; } },
@@ -272,4 +272,11 @@ test('activating a pinned release preserves another registration scope', async (
   await next.dispatch('install');
   await next.dispatch('activate');
   assert.equal(h.storage.size, 2);
+});
+
+test('a controller change waits for a voice sample download to finish', async () => {
+  const h = await updateHarness({ waiting: false });
+  h.context.state.phase = 'idle'; h.context.sampleDownloads.busy = true;
+  h.controllerChange(); h.render(); assert.equal(h.reloads, 0);
+  h.context.sampleDownloads.busy = false; h.render(); assert.equal(h.reloads, 1);
 });

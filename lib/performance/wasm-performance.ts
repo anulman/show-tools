@@ -10,6 +10,7 @@ import { ST } from '../sampler/wasm-abi.js';
 import { decodeTunerState, tunerCommandValues } from '../tuner/observation.js';
 import type { TunerCommand, TuningBankOptions, TuningBankState } from '../tuner/model.js';
 
+import type { TakeAudioRequest } from './take-audio.js';
 const BLOCK = 8192;
 type Options = { api: WebAssembly.Exports; sampleRate: number; mode?: number; maxVoices?: number; maxSeconds?: number; clickGain?: number;
   bpm?: number; beatsPerBar?: number; barCount?: number; endBar?: number; runId?: string; program?: Program; compiledProgram?: readonly number[]; initialVoiceEffects?: readonly VoiceEffectConfiguration[] };
@@ -40,6 +41,8 @@ export class NativePerformance {
   runId: string;
   disposed = false;
   private compiledTakeCount = 0;
+  private captureGeneration = 0;
+  takeAudioToken() { return String(this.captureGeneration); }
 
   constructor({ api, sampleRate, mode = PF.PRACTICE, maxVoices = 32, maxSeconds = 30, clickGain = 1, initialVoiceEffects, ...song }: Options) {
     if (!(api.memory instanceof WebAssembly.Memory)) throw new Error('Performance WASM memory is unavailable');
@@ -182,6 +185,7 @@ export class NativePerformance {
     const barCount = this.query('pf_snapshot')[PF.BAR_COUNT];
     if (bpm < 40 || bpm > 240 || countInBars < 0 || countInBars > 4 || startBar < 1 || endBar < startBar || endBar > barCount) throw new Error('Invalid start options');
     this.call('pf_start', this.handle, bpm, countInBars, startBar, endBar, this.boolean(loop, 'Loop'), this.boolean(automatic, 'Automatic'));
+    ++this.captureGeneration;
     this.runId = runId; this.commandIds.clear();
   }
   stop() { this.invoke('pf_stop', this.handle); }
@@ -193,7 +197,19 @@ export class NativePerformance {
       new Float64Array(this.memory.buffer, pointer, program.length).set(program);
       this.call('pf_configure_compiled', this.handle, pointer, program.length);
       this.compiledTakeCount = program[8];
+      ++this.captureGeneration;
     } finally { this.invoke('free', pointer); }
+  }
+  takeAudio({ take, offset, frames, token }: TakeAudioRequest) {
+    if (!Number.isInteger(this.sampleRate)) throw new Error('Sample downloads require a whole-number sample rate');
+    if (token !== this.takeAudioToken() || !Number.isInteger(take) || take < 0 || take >= this.compiledTakeCount
+      || !Number.isInteger(offset) || offset < 0 || !Number.isInteger(frames) || frames < 1 || frames > 4096) throw new Error('Sample export changed or request is invalid');
+    const count = this.invoke('pf_copy_take_audio', this.handle, take, offset, frames, this.liveLeftPointer);
+    if (count !== frames) throw new Error('Stop practice before downloading a committed sample');
+    const bytes = new Uint8Array(12 + frames * 8), data = new DataView(bytes.buffer);
+    data.setUint32(0, this.sampleRate, true); data.setUint32(4, this.compiledTake(take).frames, true); data.setUint32(8, frames, true);
+    bytes.set(new Uint8Array(this.memory.buffer, this.liveLeftPointer, frames * 8), 12);
+    return bytes;
   }
   compiledTake(index: number) {
     if (!Number.isSafeInteger(index) || index < 0 || index >= PF.COMPILED_MAX_TAKES) throw new Error('Invalid compiled take index');

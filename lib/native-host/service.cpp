@@ -104,6 +104,13 @@ bool parse(Request& request,const Bytes& data) {
     if(request.op==5 && !integer(request.args[2]))return false;
     return true;
   }
+  if(request.op==18) {
+    if(left!=32)return false;
+    for(int i=0;i<4;++i) { request.args[i]=f64(p+i*8); if(!std::isfinite(request.args[i]) || std::floor(request.args[i])!=request.args[i] || request.args[i]<0)return false; }
+    const auto& a=request.args;
+    if(a[0]>=PF_COMPILED_MAX_TAKES || a[1]>UINT32_MAX || a[2]<1 || a[2]>4096 || a[3]>9007199254740991.)return false;
+    request.packet.resize(12+size_t(a[2])*8); return true;
+  }
   if(request.op==15) {
     if(left<8 || u32(p)>=64 || u32(p+4)!=left-8 || left-8>32*1024*1024)return false;
     request.args[0]=u32(p); request.packet.assign(p+8,p+left); return true;
@@ -221,6 +228,17 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           if(rc>=0 && int(a[0])!=PF_TUNER_CLOSE && int(a[0])!=PF_TUNER_SILENCE && alsa_run.utility(instrument,*device)<0) { shared.device_failed=true; rc=-1; }
 #endif
           break;
+        case 18: {
+          if(a[3]!=double(revision) || !instrument.engine() || std::floor(config.sample_rate)!=config.sample_rate)break;
+          std::array<float,8192> pcm{};
+          rc=pf_copy_take_audio(instrument.engine(),uint32_t(a[0]),uint32_t(a[1]),uint32_t(a[2]),pcm.data());
+          if(rc<0)break;
+          std::array<double,PF_TAKE_FIELDS> info{}; pf_compiled_take_info(instrument.engine(),uint32_t(a[0]),info.data());
+          auto store=[&](size_t offset,uint32_t value) { for(int i=0;i<4;++i)r->packet[offset+i]=uint8_t(value>>(8*i)); };
+          store(0,uint32_t(config.sample_rate)); store(4,uint32_t(info[PF_TAKE_LENGTH])); store(8,uint32_t(rc));
+          for(int i=0;i<rc*2;++i) { uint32_t bits; std::memcpy(&bits,&pcm[i],4); store(12+size_t(i)*4,bits); }
+          break;
+        }
         case 15: rc=instrument.prepare_external_wave(uint32_t(a[0]),r->packet.data(),uint32_t(r->packet.size())); break;
         case 14: rc=instrument.input_attach(uint32_t(a[0]),a[1],a[2],uint32_t(a[3]),uint32_t(a[4]),uint32_t(a[5])); break;
         case 16: {
@@ -282,7 +300,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
         }
       }
       if(instrument.engine()) { pf_flush(instrument.engine()); std::array<double,PF_FIELDS> state{}; pf_snapshot(instrument.engine(),state.data()); r->code=int(state[PF_ERROR]); }
-      r->status=rc<0?1:0; if(rc>=0 && r->op) { ++revision; if(r->op==1)++run; }
+      r->status=rc<0?1:0; if(rc>=0 && r->op && r->op!=18) { ++revision; if(r->op==1)++run; }
     }
     drain(); publish(r->observation);
   };
@@ -338,6 +356,7 @@ void signal_stop(int) { quit.store(true,std::memory_order_relaxed); }
 void random_bytes(uint8_t* out,size_t n) { std::random_device random; for(size_t i=0;i<n;++i)out[i]=uint8_t(random()); }
 bool send_result(int fd,Request* request,const Presentation& presentation,uint64_t& published_revision) {
   Bytes payload; put32(payload,uint32_t(request->status)); put32(payload,uint32_t(request->code)); put64(payload,request->observation.revision);
+  if(request->op==18 && request->status==0)payload.insert(payload.end(),request->packet.begin(),request->packet.end());
   if(request->op && !send_frame(fd,4,request->sequence,payload))return false;
   if(request->observation.revision<published_revision)return true;
   published_revision=request->observation.revision;

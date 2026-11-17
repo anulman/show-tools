@@ -1349,6 +1349,18 @@ VoiceInfo Program::channel_info(int button, double bpm) const noexcept {
   }
   return info;
 }
+int Program::copy_take_audio(uint32_t id, uint32_t offset, uint32_t frames, float* stereo) const noexcept {
+  if (!stereo || !frames || frames > 4096 || id >= uint32_t(take_count_) || active_capture_.take == int(id)) return -1;
+  const Take& take = takes_[id];
+  if (take.latest < 0) return -1;
+  const auto& cache = *take.cache[take.latest];
+  if (offset > cache.length() || frames > cache.length() - offset) return -1;
+  for (uint32_t i = 0; i < frames; ++i) {
+    const auto sample = cache.sample(offset + i);
+    stereo[i * 2] = sample.left; stereo[i * 2 + 1] = sample.right;
+  }
+  return int(frames);
+}
 void Program::take_info(uint32_t id, double* out) const noexcept {
   if (!out) return;
   std::fill(out, out + PF_TAKE_FIELDS, 0);

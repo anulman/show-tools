@@ -12,6 +12,9 @@ import { audioMode, canChangeAudioMode, changeAudioMode } from '../audio-mode.ts
 
 function prepareUIContext(context) {
   for (const [key, value] of Object.entries({ postPerformanceEvent() {}, createMusicalInputProducer, createMusicalInputPolicy, CONTROL_IDS: ['L1', 'L2', 'R1', 'R2'], chartBarLabel, chartBarOrdinal, URL, URLSearchParams, AbortController, preparationAbort: undefined, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
+  context.createInputBindingPanel ??= () => ({ element: {}, update() {} });
+  context.createSampleDownloads ??= () => ({ render() {}, busy: false });
+  if (context.HTMLElement) context.HTMLElement.prototype.after ??= () => {};
   vm.createContext(context);
 }
 import { loadSong } from '../../../songs/index.ts';

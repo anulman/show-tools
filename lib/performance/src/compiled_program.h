@@ -50,6 +50,7 @@ class Program {
   bool set_bend_parameters(double velocity_per_semitone, double stale_ms) noexcept;
   bool prepare_external_sample(uint32_t slot, const float* left, const float* right, uint32_t frames) noexcept;
   int trigger_external(uint32_t slot) noexcept;
+  int copy_take_audio(uint32_t take, uint32_t offset, uint32_t frames, float* stereo) const noexcept;
   void take_info(uint32_t take, double* out) const noexcept;
   int beats_per_bar() const noexcept { return beats_; }
   int bars() const noexcept { return bars_; }

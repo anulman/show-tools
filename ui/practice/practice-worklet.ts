@@ -6,6 +6,7 @@ import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical
 type PracticeMessage = { id: number } & (
   | { command: 'practice.start'; payload: StartOptions & { runId: string } }
   | { command: 'practice.stop'; payload?: object }
+  | { command: 'practice.take-audio'; payload: import('../../lib/performance/take-audio.js').TakeAudioRequest }
   | { command: 'practice.peripheral-lights'; payload: { enabled: boolean } }
   | { command: 'practice.jiggle'; payload: { minimumTravel: number; minimumReversal: number } }
   | { command: 'practice.external-wav'; payload: { slot: number; bytes: Uint8Array } }
@@ -55,7 +56,7 @@ export class PracticeProcessor extends PerformanceProcessor {
   }
   nativeMode() { return 2; }
   practiceState() { return this.native.state(); }
-  performanceState() { return { ...super.performanceState(), practice: this.native.state(), tuner: this.native.tunerState(), tuningBank: this.native.tuningBankState() }; }
+  performanceState() { return { ...super.performanceState(), practice: this.native.state(), takeAudioToken: this.native.takeAudioToken(), tuner: this.native.tunerState(), tuningBank: this.native.tuningBankState() }; }
   publishNativeEvents() {
     if (this.peripheralLights) this.performancePort?.postMessage({ lights: Array.from(this.native.lightOutput()) });
     for (const event of this.native.events()) this.performancePort?.postMessage({ event, state: this.performanceState() });
@@ -65,6 +66,11 @@ export class PracticeProcessor extends PerformanceProcessor {
     if (!command?.startsWith('practice.')) return super.command(message);
     try {
       if (this.disposed) throw new Error('Practice audio is disposed');
+      if (command === 'practice.take-audio') {
+        const value = this.native.takeAudio(message.payload);
+        this.performancePort?.postMessage({ id, ok: true, value }, [value.buffer]);
+        return;
+      }
       switch (command) {
         case 'practice.start': this.native.start(message.payload); break;
         case 'practice.stop': this.native.stop(); break;

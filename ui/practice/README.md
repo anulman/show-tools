@@ -78,6 +78,12 @@ To load a file instead of capturing a take, stop practice and press **LOAD** on 
 
 The download contains your main live voice, song click, and sample output, starting with the song. The practice lead-in is excluded. The native live-effects stem enters the recording once. Mono microphone input reaches both channels before the stack; sample stereo stays unchanged. Live speaker monitoring is separately gated by explicit physical-device confirmation and does not control the download. After stopping, the browser prepares a stereo 192 kb/s MP3 locally. Wait for **MP3 ready**, then download the `.mp3` file. Conversion runs in a worker without uploading audio. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
 
+## Download a voice’s captured samples
+
+After **Stop**, use **Voice samples → Download [voice]**. Each voice downloads a ZIP containing a separate stereo float32 WAV for every available committed chart take, plus `samples.json` with capture and selection references. Layered recordings remain separate files. Browser and Hardware modes use the same C++ capture data.
+
+These are the latest retained processed samples, before playback gain and sequencing. They are not full-length channel stems, uncaptured live vocals, every earlier recapture, or the mixed demo MP3. Download them before terminating audio, reloading Browser mode, or changing songs. A changed practice session aborts the download; stop and retry. One voice archive is limited to 128 MiB.
+
 ## Choose a song and range
 
 Choose **Song script** to load another song. Switching stops and disposes the previous audio session, then loads the new chart, tempo, and control rows.
