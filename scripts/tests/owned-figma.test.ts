@@ -44,6 +44,35 @@ test('wrong target fails before checking the lease and live-file guard precedes 
   assert.equal(calls, 1);
 });
 
+test('missing or non-string descriptions make zero callbacks and leave the next valid call usable', async () => {
+  const { description, ...withoutDescription } = args;
+  for (const invalid of [withoutDescription, ...[undefined, null, 7, false, {}, []].map(description => ({ ...args, description }))]) {
+    let checks = 0, calls = 0;
+    const call = wrapper(async () => { checks++; return { exit_code: 0 }; }, async input => {
+      calls++;
+      assert.equal(input.description, description);
+      return { content: [] };
+    });
+    await assert.rejects(call(invalid), /description must be a string/);
+    assert.equal(checks, 0);
+    assert.equal(calls, 0);
+    await call(args);
+    assert.equal(checks, 1);
+    assert.equal(calls, 1);
+  }
+});
+
+test('empty string descriptions satisfy the connector type requirement', async () => {
+  let calls = 0;
+  const call = wrapper(async () => ({ exit_code: 0 }), async input => {
+    calls++;
+    assert.equal(input.description, '');
+    return { content: [] };
+  });
+  await call({ ...args, description: '' });
+  assert.equal(calls, 1);
+});
+
 test('one wrapper serializes calls and holds after an uncertain tool failure', async () => {
   let finish: (value: unknown) => void = () => {};
   let calls = 0;
