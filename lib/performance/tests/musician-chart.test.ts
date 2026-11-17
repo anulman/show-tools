@@ -152,3 +152,34 @@ test('musician names are trimmed and cannot supply XML identities or empty file 
   assert.match(chart.xml, /<part id="P-musician-PA14">/);
   assert.equal(XMLValidator.validate(chart.xml), true);
 });
+
+test('automatic musician exports omit nonmanaged Knob rows even when explicitly selected', async () => {
+  const document = await readMusicXmlSong(await input()); assert(document.source && document.mapping);
+  const values = document.source.values.map(row => [...row]);
+  values[13][0] = 'Bass - Alien Synth'; values[14][0] = 'Keys - Piano';
+  values[15] = Array.from({ length: values[13].length }, () => ''); values[15][0] = 'Knob';
+  for (const bar of document.song.chart.bars) values[15][bar.column - 1] = '-';
+  const imported = await importSheetMusicXml({ source: { ...document.source, values }, mapping: document.mapping });
+  assert(imported.report.parts.some(part => part.labelCell === 'A16' && part.name === 'Knob' && !part.managed));
+  const charts = await createMusicianCharts({ musicxml: imported.xml });
+  assert.deepEqual(charts.map(chart => chart.name), ['Bass', 'Keys']);
+  assert.deepEqual(await createMusicianCharts({ musicxml: imported.xml, selectedRows: [16] }), []);
+  const explicit = await createMusicianChart({ musicxml: imported.xml, instrument: 'Custom musician', parts: [{ labelCell: 'A16', name: 'Knob' }] });
+  assert.equal(explicit?.name, 'Custom musician');
+});
+
+test('a song tail provides a blank writing bar for musicians without an authored tail hit', async () => {
+  const document = await readMusicXmlSong(await input('drunk-girls')); assert(document.source && document.mapping);
+  const imported = await importSheetMusicXml({ source: document.source, mapping: document.mapping });
+  const parts = imported.report.parts.filter(part => ['A16', 'A17'].includes(part.labelCell)); assert.equal(parts.length, 2);
+  assert(!imported.report.annotations.boundaryCues?.some(cue => parts.some(part => part.id === cue.partId)));
+  const chart = await createMusicianChart({ musicxml: imported.xml, instrument: 'Keys', parts }); assert(chart);
+  assert.deepEqual(numberedCoverage(chart.pages), Array.from({ length: 137 }, (_, index) => index + 1));
+  const tail = /<g data-tail-bar="true">([\s\S]*?)<\/g>/.exec(chart.pages.at(-1) ?? '')?.[1]; assert(tail);
+  assert.equal((tail.match(/data-tail-staff-line=/g) ?? []).length, 5);
+  assert.doesNotMatch(tail, /data-boundary-cell|>1<\/text>|rest|sustain/i);
+  const measure = /<measure number="Tail" implicit="yes" non-controlling="yes">([\s\S]*?)<\/measure>/.exec(chart.xml)?.[1]; assert(measure);
+  assert.match(measure, /<note print-object="no">/); assert.doesNotMatch(measure, /boundary-tail/);
+  assert.equal((chart.xml.match(/<measure /g) ?? []).length, 138);
+  assert.equal((await readMusicXmlSong(imported.xml)).report.measureCount, 137);
+});

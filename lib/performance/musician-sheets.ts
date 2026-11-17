@@ -7,6 +7,7 @@ import { planMusicianRows, parseMusicianReuse, musicianRepeatCandidates, type Mu
 const profile = 'show-tools-musician-sheet-projection-v5';
 const width = 595.28, height = 841.89, margin = 38, top = 80, bottom = 795;
 const sectionHeadingHeight = 17;
+const automaticMusicians = new Set(['Drums', 'Bass', 'Keys', 'Guitar']);
 const staffStart = margin + 25, staffEnd = width - margin;
 const convention = 'Blank five-line staff for handwritten notes. Normal playing is implicit; whole-bar ! and !! indicate Funky, Extra funky and Higher intensity (!!!). Other arrangement marks and vocal cues retain source indications; pitches, patterns and played durations are unspecified.';
 type Part = MusicXmlReport['parts'][number];
@@ -94,9 +95,13 @@ function selectedBoundaries(report: MusicXmlReport, presentation: Presentation, 
   });
 }
 
+function hasTail(report: MusicXmlReport): boolean {
+  return report.annotations.boundaryCues?.some(cue => cue.position === 'tail') ?? false;
+}
+
 function tailHeight(report: MusicXmlReport, presentation: Presentation): number {
   const lines = selectedBoundaries(report, presentation, 'tail').flatMap(cue => wrap(cue.text, 80));
-  return lines.length ? 75 + Math.max(0, lines.length - 1) * 10 : 0;
+  return hasTail(report) ? 75 + Math.max(0, lines.length - 1) * 10 : 0;
 }
 
 function referenceText(row: Extract<MusicianRow, { kind: 'reference' }>, report: MusicXmlReport, presentation: Presentation): string {
@@ -270,7 +275,7 @@ function musicianXml(part: Part, report: MusicXmlReport, pages: System[][], sour
     return `<measure number="${xml(barLabel(cell.bar, presentation))}">${body}</measure>`;
   }).join('\n');
   const tails = selectedBoundaries(report, presentation, 'tail');
-  const tail = tails.length ? `<measure number="Tail" implicit="yes" non-controlling="yes">${direction('Tail', 'tail-heading', 'above')}${tails.map(cue => direction(cue.text, `boundary-tail-${cue.cell}`, 'below')).join('')}<note print-object="no"><rest measure="yes"/><duration>${report.meter.numerator * 960 * 4 / report.meter.denominator}</duration></note><barline location="right"><bar-style>light-heavy</bar-style></barline></measure>` : '';
+  const tail = hasTail(report) ? `<measure number="Tail" implicit="yes" non-controlling="yes">${direction('Tail', 'tail-heading', 'above')}${tails.map(cue => direction(cue.text, `boundary-tail-${cue.cell}`, 'below')).join('')}<note print-object="no"><rest measure="yes"/><duration>${report.meter.numerator * 960 * 4 / report.meter.denominator}</duration></note><barline location="right"><bar-style>light-heavy</bar-style></barline></measure>` : '';
   const fields: [string, string][] = [['show-tools:profile', profile], ['show-tools:document-kind', presentation.grouped ? 'musician-projection' : 'part-projection'], ['show-tools:source-sha256', report.sourceDigest],
     ['show-tools:mapping-sha256', report.mappingDigest], ['show-tools:selected-label-cells', stableMusicXmlJson(presentation.parts.map(part => part.labelCell))],
     ['show-tools:boundary-cues', stableMusicXmlJson((report.annotations.boundaryCues ?? []).filter(cue => presentation.parts.some(part => part.id === cue.partId)))], ['show-tools:bar-labels', stableMusicXmlJson([...presentation.labels])], ['show-tools:source-parts', stableMusicXmlJson(presentation.parts.map(({ id, name, labelCell }) => ({ id, name, labelCell })))], ['show-tools:voice-feels', stableMusicXmlJson(report.annotations.feels.filter(feel => presentation.parts.some(part => part.id === feel.partId)))], ['show-tools:worksheet-scope', 'charted'], ['show-tools:source', source], ['show-tools:mapping', mapping], ['show-tools:condensation', stableMusicXmlJson(condensation)]];
@@ -360,7 +365,7 @@ export async function createMusicianCharts(options: { musicxml: string; selected
     if (part.managed || (options.selectedRows !== undefined && !options.selectedRows.includes(Number(part.labelCell.slice(1))))) continue;
     const separator = part.name.indexOf(' - ');
     const musician = (separator < 0 ? part.name : part.name.slice(0, separator)).trim();
-    if (!musician) throw new Error(`Missing musician name in ${part.labelCell}. Use Musician - Voice.`);
+    if (!automaticMusicians.has(musician)) continue;
     const voices = groups.get(musician) ?? [];
     voices.push({ labelCell: part.labelCell, name: part.name }); groups.set(musician, voices);
   }
