@@ -7,7 +7,6 @@ import test from 'node:test';
 import { compiledCaptureFixture } from '../../performance/tests/fixtures/compiled-capture.js';
 import { voiceSampleArchive } from '../../../ui/practice/sample-downloads.js';
 import { unzipSync } from 'fflate';
-import { setTimeout as delay } from 'node:timers/promises';
 import { decodeTakeAudio } from '../../performance/take-audio.js';
 import { PersistentDesk } from '../controller.js';
 import { createGateway } from '../gateway.js';
@@ -54,7 +53,11 @@ for (const rate of [8000, 48000]) test(`authenticated full sample exports surviv
     const archive = unzipSync(await voiceSampleArchive(compiled, 'drums', stopped.performance.state, {
       takeAudioToken: () => { const current = ready(); assert(current); return current.performance.state.runId; },
       takeAudio: async chunkRequest => {
-        await delay(200); ++chunks;
+        ++chunks;
+        if (chunks === 2) await until(() => {
+          const current = ready();
+          return current && current.performance.revision !== afterEffectRevision ? true : undefined;
+        });
         const response = await post({ target, ...chunkRequest }); assert.equal(response.status, 200);
         if (chunks === 1) {
           const current = ready(); assert(current);
