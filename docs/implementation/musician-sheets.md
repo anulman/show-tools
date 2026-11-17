@@ -1,6 +1,6 @@
 # Focused musician sheets
 
-Musician packages combine explicitly configured non-`AF -` voices into one chronological chart per musician, with writing staves, section labels and vocal cues. The standalone CLI and Sheets exporter group rows using the explicit `Musician - Voice` naming convention. The generator now condenses inactive passages and redundant headings while retaining the complete chronological chart.
+Musician packages combine explicitly configured non-`AF -` voices into one chronological chart per musician, with writing staves, section labels and vocal cues. The standalone CLI and Sheets exporter group declared Drums, Bass, Keys and Guitar rows using the explicit `Musician - Voice` naming convention; other rows are not automatically exported. The generator now condenses inactive passages and redundant headings while retaining the complete chronological chart.
 
 For Dance Yrself Clean, the current compact handouts are **Bass: four A4 pages** and **Drums: five A4 pages**, down from eight each. Both represent all 218 bars. The five-line writing staff remains the same physical size; savings come from counted rests and less repeated text.
 

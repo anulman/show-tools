@@ -21,7 +21,7 @@ Choose an output directory that does not exist. A successful run ends with an in
 
 ## Configure musicians explicitly
 
-The standalone handout CLI and Sheets exporter use the explicit row-naming convention `Musician - Voice`: `Keys - Piano` and `Keys - Pad Synth` share a Keys chart. An unqualified row such as `Bass` names its musician directly. Selection includes only the selected source rows. Package specs below provide explicit bindings instead of depending on this naming convention.
+The standalone handout CLI and Sheets exporter recognize the declared musician namespaces `Drums`, `Bass`, `Keys` and `Guitar`. The exact row name or the `Musician - Voice` convention selects that musician: `Keys - Piano` and `Keys - Pad Synth` share a Keys chart. Other rows, including controls, are not automatically exported. Selection includes only the selected source rows. Package specs below provide explicit bindings instead of depending on this naming convention. Custom musician names require explicit row bindings through `createMusicianChart`.
 
 Version two of the package spec names the song, canonical file and SHA-256, followed by explicit Drums, Bass, Keys and Guitar selections. A musician is either `parts` with exact source row/name bindings, or `none`.
 
