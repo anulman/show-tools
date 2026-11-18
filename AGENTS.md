@@ -8,6 +8,8 @@ The complete musical engine runs in shared C++ under `lib/performance/`, `lib/se
 
 Commit each verified milestone during implementation.
 
+Use GPT-6.2-Sol (`gpt-6.2-sol`) for Show Tools agents, including workers and reviewers delegated through poteto mode. Use medium reasoning for routine implementation, coordination, and verification. Use high reasoning for architecture, concurrency, formal verification, or difficult debugging. When a full-history fork inherits a different model, use a fresh worker with the target model and provide the task context in its brief. Follow any model or reasoning override the operator gives for a specific task.
+
 Follow `docs/data-retention.md` for canonical stores and cleanup. Figma owns promoted animation, Git owns canonical effect code and concise lessons, and operator authoring data belongs in a database sidecar with independent backup. Extract useful lessons before expiring prototypes and process evidence. Preserve active inputs until the canonical handoff is verified; recordings and current work do not require archival backup.
 
 Follow `docs/implementation/deterministic-pipelines.md` for deterministic commands. Product validation fails closed. When an agent drives an unexpected blocked product operation, present its cause and suggested next steps to the operator, and hold only dependent work. Harness failures return control to Chief for recovery instead of repeatedly interrupting the operator. Chief cannot waive product invariants. Expected negative tests do not trigger operator questions. Use temporary forks and isolated worktrees for delegated improvements without interrupting ongoing sessions.
