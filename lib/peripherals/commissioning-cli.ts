@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs, promisify } from 'node:util';
 import { decodePeripheralBridgeConfig } from './bridge.js';
-import { ARCADE_SWITCH_IDS, INPUT_ONLY_SWITCH_IDS, captureAxis, captureSwitch, commissionDial, decodeMotionDirection, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo,
+import { ARCADE_SWITCH_IDS, INPUT_ONLY_SWITCH_IDS, captureAxis, captureSwitch, checkDialMotion, commissionDial, decodeMotionDirection, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo,
   type CommissioningService, type CommissioningMaintenance, type PeripheralBaseProfile } from './commissioning.js';
 import { renderPeripheralUnit } from './service-unit.js';
 import { decodeSessionProfile } from '../remote-performance/session-profile.js';
@@ -20,14 +20,17 @@ export const COMMISSIONING_HELP = `Usage: show-tools peripheral setup --config F
        show-tools peripheral setup --test --config FILE --runner FILE
        show-tools peripheral setup --status --config FILE --runner FILE
        show-tools peripheral setup --dry-run
+       show-tools peripheral setup --check-knob [--config FILE] [--bench-dir DIRECTORY]
 
-Run setup in a foreground terminal on the EliteDesk. The web service must be stopped.
+Run button setup, dial setup, and --check-knob in a foreground terminal on the EliteDesk.
+Button setup and dial setup require the web service to be stopped.
 Add --stop-performance to stop the verified web service and discard recorded takes.
 After successful setup, a previously active web service restarts with audio off.
 Cancellation or failure leaves it stopped; start it explicitly after resolving the error.
 Press Enter to capture all six switches, or enter two to six connected names.
 Setup asks for LED outputs on the four arcade buttons. Pedal and mushroom are inputs only.
 --dry-run prints the button setup plan without inspecting or changing the installation.
+--check-knob records read-only dial motion in both directions.
 Only the verified profile web service and show-tools-peripheral.service are controlled.
 Add --start to button setup to start a previously inactive service after saving.
 --dial adds the observed relative-Y source without recapturing the button map.
@@ -101,15 +104,17 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
     helper: { type: 'string' }, 'bench-dir': { type: 'string' }, runner: { type: 'string' }, 'staging-root': { type: 'string' },
     'jiggle-travel': { type: 'string' }, 'jiggle-reversal': { type: 'string' }, 'disable-jiggle': { type: 'boolean' },
     direction: { type: 'string' }, 'capture-seconds': { type: 'string' }, dial: { type: 'boolean' }, test: { type: 'boolean' }, status: { type: 'boolean' },
-    'dry-run': { type: 'boolean' }, start: { type: 'boolean' }, 'stop-performance': { type: 'boolean' } } });
-  if (Number(Boolean(values.dial)) + Number(Boolean(values.test)) + Number(Boolean(values.status)) > 1) throw new Error('Choose setup, --dial, --test or --status.');
+    'dry-run': { type: 'boolean' }, 'check-knob': { type: 'boolean' }, start: { type: 'boolean' }, 'stop-performance': { type: 'boolean' } } });
+  const diagnostic = values.test || values.status || values['check-knob'];
+  if ([values.dial, values.test, values.status, values['check-knob']].filter(Boolean).length > 1)
+    throw new Error('Choose setup, --dial, --test, --status or --check-knob.');
   if (!values.dial && (values.direction || values['capture-seconds'] || values['jiggle-travel'] || values['jiggle-reversal'] || values['disable-jiggle']))
     throw new Error('Use direction, capture duration and jiggle settings with --dial.');
-  if (values['stop-performance'] && (values.test || values.status)) throw new Error('--stop-performance applies only to button or dial setup.');
-  if (values.start && (values.dial || values.test || values.status)) throw new Error('--start applies to button setup. Start the named peripheral service separately after other commands.');
+  if (values['stop-performance'] && diagnostic) throw new Error('--stop-performance applies only to button or dial setup.');
+  if (values.start && (values.dial || diagnostic)) throw new Error('--start applies to button setup. Start the named peripheral service separately after other commands.');
   const profilePath = resolve(values.config ?? options.configPath ?? join(homedir(), '.config/show-tools/peripheral.json'));
   if (values['dry-run']) {
-    if (values.dial || values.test || values.status) throw new Error('Use --dry-run with button setup.');
+    if (values.dial || diagnostic) throw new Error('Use --dry-run with button setup.');
     const plan = {
       dryRun: true, planOnly: true, profilePath,
       switches: PHYSICAL_SWITCH_IDS, ledPrompts: ARCADE_SWITCH_IDS, inputOnly: INPUT_ONLY_SWITCH_IDS,
@@ -121,11 +126,6 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
     write(JSON.stringify(plan, null, 2) + '\n');
     return;
   }
-  const existing = await profileSnapshot(profilePath);
-  const previous = existing ? decodePeripheralBridgeConfig(JSON.parse(existing.toString('utf8'))) : undefined;
-  const runner = values.runner ?? options.serviceRunner;
-  if (!runner || !runner.startsWith('/')) throw new Error('Supply the exact installed peripheral runner with --runner.');
-  const service = options.service ?? commissioningService({ profilePath, runner, unitPath: options.unitPath ?? join(homedir(), '.config/systemd/user', UNIT), command: options.command });
   const cancelled = new AbortController();
   const signal = AbortSignal.any([cancelled.signal, ...(options.signal ? [options.signal] : [])]);
   const stop = () => cancelled.abort(new Error('Commissioning cancelled.'));
@@ -137,6 +137,19 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
     return terminal.question(prompt, { signal });
   }, write: (message: string) => { process.stdout.write(message); } };
   try {
+    const benchDirectory = values['bench-dir'] ?? options.benchDirectory;
+    const stagingRoot = values['staging-root'] ?? options.stagingRoot ?? join(homedir(), '.local/share/show-tools/staging');
+    if (values['check-knob']) {
+      if (!benchDirectory?.startsWith('/')) throw new Error('Supply the installed --bench-dir path.');
+      await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
+      return await checkDialMotion({ profilePath, io, stagingRoot, signal,
+        readerPath: join(benchDirectory, 'raw_motion.py'), publisherPath: join(benchDirectory, 'publish_marker.py') });
+    }
+    const existing = await profileSnapshot(profilePath);
+    const previous = existing ? decodePeripheralBridgeConfig(JSON.parse(existing.toString('utf8'))) : undefined;
+    const runner = values.runner ?? options.serviceRunner;
+    if (!runner || !runner.startsWith('/')) throw new Error('Supply the exact installed peripheral runner with --runner.');
+    const service = options.service ?? commissioningService({ profilePath, runner, unitPath: options.unitPath ?? join(homedir(), '.config/systemd/user', UNIT), command: options.command });
     if (values.status || values.test) {
       if (!previous && values.test) throw new Error('No commissioned peripheral configuration exists. Run setup first.');
       const state = await service.inspect();
@@ -159,7 +172,6 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
       || previous.connectAddress !== session.connectAddress || previous.caFile !== session.caFile))
       throw new Error('The existing peripheral configuration targets a different desk. Supply its matching session profile.');
     const helper = values.helper ?? options.helperExecutable ?? previous?.helperExecutable;
-    const benchDirectory = values['bench-dir'] ?? options.benchDirectory;
     if (!helper || !helper.startsWith('/') || !benchDirectory || !benchDirectory.startsWith('/')) throw new Error('Supply the installed --helper and --bench-dir paths.');
     const webService = options.webService ?? createSessionService(session, sessionPath);
     const checkListenerAbsent = options.checkListenerAbsent ?? (async () => {
@@ -217,7 +229,6 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
         } else io.write(`${session.serviceName} is left stopped. Start it explicitly after setup or recovery.\n`);
       }
     };
-    const stagingRoot = values['staging-root'] ?? options.stagingRoot ?? '/home/anulman/.local/share/show-tools/staging';
     await mkdir(stagingRoot, { recursive: true, mode: 0o700 });
     const capture = options.captureAxis;
     if (values.dial) {

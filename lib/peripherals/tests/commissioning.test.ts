@@ -192,7 +192,7 @@ function motionEvidence() {
   return [{ type: 'source', device: '/dev/input/event24', canonical: '/sys/synthetic/event24', eventClock: 'CLOCK_MONOTONIC',
     interfaceNumber: 2, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] }, ...events,
     { type: 'terminal', schemaVersion: 1, trialId: 'motion-synthetic', controlId: 'knob', operatorDirection: 'clockwise',
-      complete: true, inputsClosed: true, requiresSuccessfulExit: true, error: null,
+      complete: true, inputsClosed: true, requiresSuccessfulExit: true, error: null, deviceWrites: false,
       observedAxes: [{ device: '/dev/input/event24', interfaceNumber: 2, eventType: 2, code: 1, samples: 4, delta: 0, positiveCounts: 10, negativeCounts: 10 }] }];
 }
 

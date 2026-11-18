@@ -30,6 +30,8 @@ const TerminalSchema = Schema.Struct({ type: Schema.Literal('terminal'), schemaV
 const direction = Schema.Literals(['clockwise', 'counterclockwise']);
 const MotionPhaseSchema = Schema.Struct({ type: Schema.Literals(['ready', 'armed']), schemaVersion: Schema.Literal(1), trialId: Schema.String,
   controlId: Schema.Literal('knob'), operatorDirection: direction, nonce: Schema.String.check(Schema.isPattern(/^[a-f0-9]{32}$/)) });
+const MotionReadySchema = Schema.Struct({ ...MotionPhaseSchema.fields, type: Schema.Literal('ready'), usbParent: absolute,
+  instance: Schema.Tuple([integer(0, Number.MAX_SAFE_INTEGER), integer(0, Number.MAX_SAFE_INTEGER), Schema.String, Schema.String]) });
 const MotionSchema = Schema.Struct({ type: Schema.Literal('motion'), device: absolute, eventType: Schema.Literal(2),
   code: integer(0, 65535), value: integer(-2147483648, 2147483647) });
 const ObservedAxisSchema = Schema.Struct({ device: absolute, interfaceNumber: integer(0, 255), eventType: Schema.Literal(2),
@@ -37,8 +39,9 @@ const ObservedAxisSchema = Schema.Struct({ device: absolute, interfaceNumber: in
   positiveCounts: integer(0, Number.MAX_SAFE_INTEGER), negativeCounts: integer(0, Number.MAX_SAFE_INTEGER) });
 const MotionTerminalSchema = Schema.Struct({ type: Schema.Literal('terminal'), schemaVersion: Schema.Literal(1), trialId: Schema.String,
   controlId: Schema.Literal('knob'), operatorDirection: direction, complete: Schema.Boolean, inputsClosed: Schema.Boolean,
-  requiresSuccessfulExit: Schema.Literal(true), error: Schema.NullOr(Schema.String), observedAxes: Schema.Array(ObservedAxisSchema).check(Schema.isMaxLength(16)) });
+  requiresSuccessfulExit: Schema.Literal(true), deviceWrites: Schema.Literal(false), error: Schema.NullOr(Schema.String), observedAxes: Schema.Array(ObservedAxisSchema).check(Schema.isMaxLength(16)) });
 const decodeMotionPhase = Schema.decodeUnknownSync(MotionPhaseSchema);
+const decodeMotionReady = Schema.decodeUnknownSync(MotionReadySchema);
 const decodeMotion = Schema.decodeUnknownSync(MotionSchema);
 const decodeMotionTerminal = Schema.decodeUnknownSync(MotionTerminalSchema);
 const decodeSource = Schema.decodeUnknownSync(SourceSchema);
@@ -218,7 +221,7 @@ async function foregroundTrial({ readerPath, publisherPath, stagingRoot, trialPr
   abort.throwIfAborted();
   const child = spawn(python, ['-I', '-B', readerPath, '--directory', directory, '--trial', trialId, ...readerArgs],
     { stdio: ['ignore', 'pipe', 'pipe'] });
-  let ended = false, armed = false, stopped = false, readyNonce: string | undefined, terminal: unknown;
+  let ended = false, armed = false, stopped = false, readyNonce: string | undefined, readiness: unknown, terminal: unknown;
   let diagnostics = '';
   const exited = new Promise<number | null>((resolve, reject) => {
     child.once('error', reject);
@@ -237,6 +240,7 @@ async function foregroundTrial({ readerPath, publisherPath, stagingRoot, trialPr
           const ready = phase(value, 'ready');
           if (ready.trialId !== trialId) throw new Error('Reader readiness does not match this trial.');
           readyNonce = ready.nonce;
+          readiness = value;
           await runMarker({ publisherPath, directory, operation: 'arm', trialId, nonce: readyNonce, python, signal: abort });
         } else if (tag === 'armed') {
           const ready = phase(value, 'armed');
@@ -263,8 +267,9 @@ async function foregroundTrial({ readerPath, publisherPath, stagingRoot, trialPr
     const [code] = await Promise.all([exited, output, monitor]);
     abort.throwIfAborted();
     if (!terminal) throw new Error(`Reader ended without a terminal record. ${diagnostics.slice(0, 1000)}`);
+    if (!armed) throw new Error('Reader ended before acknowledging ARM.');
     const values = records(await privateBytes(evidencePath, 524288), true);
-    return { values, terminal, exitCode: code, trialId, evidencePath };
+    return { values, terminal, readiness, exitCode: code, trialId, evidencePath };
   } finally {
     abort.removeEventListener('abort', stop);
     if (!ended) {
@@ -328,29 +333,70 @@ export function motionFromEvidence({ values, direction, trialId, exitCode }: {
   });
 }
 
-export async function captureAxis({ readerPath, publisherPath, stagingRoot, direction, captureSeconds, onArmed, chooseAxis,
-  signal, python = '/usr/bin/python3', timeoutMs = 160000 }: {
+interface MotionCaptureOptions {
   readerPath: string; publisherPath: string; stagingRoot: string; direction: MotionDirection; captureSeconds: number;
   onArmed(direction: MotionDirection, seconds: number): void;
-  chooseAxis?: (axes: readonly ObservedMotionAxis[]) => Promise<number>;
   signal?: AbortSignal; python?: string; timeoutMs?: number;
-}): Promise<CapturedMotionAxis> {
+}
+async function observeMotion({ readerPath, publisherPath, stagingRoot, direction, captureSeconds, onArmed,
+  signal, python, timeoutMs }: MotionCaptureOptions) {
   Schema.decodeUnknownSync(integer(1, 30))(captureSeconds);
   const result = await foregroundTrial({ readerPath, publisherPath, stagingRoot, trialPrefix: 'setup-knob',
     readerArgs: ['--direction', direction, '--capture-seconds', String(captureSeconds)], signal, python, timeoutMs,
     onArmed: () => onArmed(direction, captureSeconds), phase: (value, type) => {
-      const phase = decodeMotionPhase(value);
+      const phase = type === 'ready' ? decodeMotionReady(value) : decodeMotionPhase(value);
       if (phase.type !== type || phase.operatorDirection !== direction) throw new Error('Motion capture direction or phase differs.');
       return phase;
     } });
   const axes = motionFromEvidence({ ...result, direction });
   const durable = result.values.findLast(value => decodeTag(value).type === 'terminal');
   if (JSON.stringify(decodeMotionTerminal(result.terminal)) !== JSON.stringify(decodeMotionTerminal(durable))) throw new Error('Public and durable motion outcomes differ.');
+  const ready = decodeMotionReady(result.readiness);
+  const durableReady = result.values.filter(value => decodeTag(value).type === 'ready');
+  if (durableReady.length !== 1 || JSON.stringify(ready) !== JSON.stringify(decodeMotionReady(durableReady[0])))
+    throw new Error('Public and durable motion attachment records differ.');
+  return { axes, attachment: JSON.stringify([ready.usbParent, ...ready.instance]), evidencePath: result.evidencePath };
+}
+
+export async function captureAxis({ chooseAxis, ...options }: MotionCaptureOptions & {
+  chooseAxis?: (axes: readonly ObservedMotionAxis[]) => Promise<number>;
+}): Promise<CapturedMotionAxis> {
+  const { axes, evidencePath } = await observeMotion(options);
   const selected = axes.length === 1 ? 0 : chooseAxis ? await chooseAxis(axes) : -1;
   if (!Number.isInteger(selected) || selected < 0 || selected >= axes.length)
     throw new Error('Multiple relative axes were observed. Select an explicitly listed axis; no dominant axis or polarity is inferred.');
   const axis = axes[selected];
-  return { source: axis.source, type: 2, code: axis.code, evidencePath: result.evidencePath, observations: axes, direction };
+  return { source: axis.source, type: 2, code: axis.code, evidencePath, observations: axes, direction: options.direction };
+}
+
+export async function checkDialMotion({ profilePath, io, ...capture }: Omit<MotionCaptureOptions, 'direction' | 'captureSeconds' | 'onArmed'> & {
+  profilePath: string; io: CommissioningIo;
+}) {
+  const original = await profileSnapshot(profilePath);
+  if (!original) throw new Error('Capture and save the button map before checking the dial.');
+  const profile = decodePeripheralBridgeConfig(JSON.parse(original.toString('utf8')));
+  if (profile.inputMap.axis || profile.jiggle !== null) throw new Error('This check requires a profile without a dial mapping and with jiggle disabled.');
+  const verifyProfile = async () => {
+    if (!(await profileSnapshot(profilePath))?.equals(original)) throw new Error('Peripheral profile changed during the dial check.');
+  };
+  const turn = async (direction: MotionDirection) => {
+    await io.question(`Leave all buttons released and the dial still. Press Enter to prepare the ${direction} turn. `);
+    await verifyProfile();
+    const observation = await observeMotion({ ...capture, direction, captureSeconds: 5,
+      onArmed: (direction, seconds) => io.write(`ARMED: turn only the dial ${direction} for ${seconds} seconds.\n`) });
+    io.write(`Capture evidence: ${observation.evidencePath}\n`);
+    await verifyProfile();
+    return observation;
+  };
+  const clockwise = await turn('clockwise');
+  const counterclockwise = await turn('counterclockwise');
+  if (clockwise.attachment !== counterclockwise.attachment) throw new Error('USB attachment changed between the two dial captures.');
+  const matches = clockwise.axes.flatMap(cw => counterclockwise.axes.filter(ccw => cw.code === ccw.code && cw.device === ccw.device
+    && sourceSignature(cw.source) === sourceSignature(ccw.source) && Math.sign(cw.delta) === -Math.sign(ccw.delta) && cw.delta !== 0)
+    .map(ccw => ({ interfaceNumber: cw.interfaceNumber, code: cw.code, clockwiseDelta: cw.delta, counterclockwiseDelta: ccw.delta })));
+  if (!matches.length) throw new Error('No common axis reported opposite signed motion.');
+  for (const axis of matches)
+    io.write(`Interface ${axis.interfaceNumber}, relative axis ${axis.code}: clockwise ${axis.clockwiseDelta}, counterclockwise ${axis.counterclockwiseDelta}.\n`);
 }
 
 export async function profileSnapshot(path: string): Promise<Buffer | null> {

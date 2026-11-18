@@ -130,6 +130,8 @@ Setup stops the named peripheral service, saves the complete validated map, and 
 
 To preview the default capture plan, run `hardware --dry-run`. To add buttons later, rerun `hardware --start --stop-performance` and include every connected identity you want to retain. Setup replaces the saved button and LED map.
 
+Releases with `bin/show-tools-config` also support `"$PRACTICE_RELEASE/bin/show-tools-config"` for the standard installed profile. With no arguments it runs button setup with `--stop-performance --start`, including stopping the web service and discarding remaining takes.
+
 ## Check the LEDs with audio off
 
 ```sh
@@ -141,6 +143,8 @@ Hold each named button, then release it. Confirm `yes` only if the corresponding
 The test asks you to observe real LEDs. A successful capture or active service does not prove that an LED is electrically connected.
 
 ## Capture and test the dial
+
+After saving the button map and before mapping the dial, run `hardware --check-knob`. Turn in each prompted direction after `ARMED`. The read-only check reports axes that moved in opposite directions on the same USB attachment and prints the evidence paths.
 
 Keep audio off. Run:
 
