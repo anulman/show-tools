@@ -30,10 +30,10 @@ export class NativeInstrument implements Instrument {
 				if (frame.payload.length !== 8) throw new Error('Invalid host gap');
 				this.publish({ type: 'gap', dropped: frame.payload.readBigUInt64LE().toString(), hostEpoch: connection.processEpoch });
 			} else throw new Error('Unknown host publication');
-		}, () => {
+		}, reason => {
 			if (this.connection !== connection) return;
 			this.current = null;
-			this.publish({ type: 'gap', hostEpoch: connection.processEpoch });
+			this.publish({ type: 'gap', hostEpoch: connection.processEpoch, reason: reason.message });
 			this.notify();
 			if (!this.closed) {
 				this.options.disconnected?.();
@@ -64,6 +64,19 @@ export class NativeInstrument implements Instrument {
 		const readback = await this.waitForRevision(connection, revision);
 		return { outcome: 'applied', state: readback.state, lights: readback.lights, tuner: readback.tuner, revision: readback.revision.toString(), hostEpoch: connection.processEpoch };
 	}
+	async replaceSong(operation: Buffer) {
+		const connection = this.connection;
+		if (!this.current || !connection) throw new Error('Host unavailable');
+		const timeout = setTimeout(() => connection.close(), 5000);
+		try {
+			const result = await connection.command(operation);
+			if (result.length !== 16 || result.readUInt32LE(0) > 3) throw new Error('Invalid native song result');
+			if (result.readUInt32LE(0) !== 0) return false;
+			await this.waitForRevision(connection, result.readBigUInt64LE(8));
+			return true;
+		} finally { clearTimeout(timeout); }
+	}
+
   async takeAudio(request: import('../performance/take-audio.js').TakeAudioRequest): Promise<Uint8Array> {
     const current = this.current, connection = this.connection;
     if (!current || !connection || request.token !== current.state.runId || current.run > BigInt(Number.MAX_SAFE_INTEGER)) throw new Error('Sample export changed; try again while stopped');

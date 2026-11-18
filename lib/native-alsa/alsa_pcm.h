@@ -48,7 +48,8 @@ class AlsaPcm {
   AlsaPcm(const AlsaPcm&) = delete;
   AlsaPcm& operator=(const AlsaPcm&) = delete;
 
-  // Returns frames transferred or a negative device error. Buffers are caller-owned.
+  // Returns frames transferred, zero after a recovered xrun, or a negative device error.
+  // A second xrun without progress is terminal. Buffers are caller-owned.
   long read(float* mono, std::size_t frames);
   long write(const float* stereo, std::size_t frames);
   int recover(Direction direction, int error);

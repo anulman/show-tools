@@ -25,17 +25,19 @@ const inputMap = decodePeripheralInputMap({
   axis: { sourceId: 'motion', type: 2, code: 1 }, leds: [], confirmWiring: false,
 });
 
-const attachments: readonly { playing: boolean; disabled?: boolean; gap?: boolean; cleanupUnknown?: boolean }[] = [
+const attachments: readonly { playing: boolean; disabled?: boolean; gap?: boolean; cleanupUnknown?: boolean; rejectRelease?: boolean }[] = [
   { playing: false }, { playing: true },
   { playing: true, disabled: true }, { playing: true, disabled: true, gap: true },
   { playing: true, disabled: true, cleanupUnknown: true },
+  { playing: false, disabled: true, rejectRelease: true },
 ];
-for (const { playing, disabled = false, gap = false, cleanupUnknown = false } of attachments) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with an explicit Blue map${disabled ? ' and musical knob disabled' : ''} and ${cleanupUnknown ? 'unknown cleanup blocks automatic retry' : `${gap ? 'publication gap' : 'abort'} clears native held state and helper output`}`, { timeout: 20000 }, async () => {
+for (const { playing, disabled = false, gap = false, cleanupUnknown = false, rejectRelease = false } of attachments) test(`a real gateway attaches ${playing ? 'during playback' : 'while stopped'} with an explicit Blue map${disabled ? ' and musical knob disabled' : ''} and ${rejectRelease ? 'a rejected release allows retry after exact revocation' : cleanupUnknown ? 'unknown cleanup blocks automatic retry' : `${gap ? 'publication gap' : 'abort'} clears native held state and helper output`}`, { timeout: 20000 }, async () => {
   await stat(resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host'));
   const directory = await mkdtemp(join(tmpdir(), 'pb-'));
   const tokenFile = join(directory, 'token');
   const helper = join(directory, 'helper');
   const log = join(directory, 'helper-log');
+  const release = join(directory, 'release');
   const token = '012345678901234567890123456789ab';
   await writeFile(tokenFile, token, { mode: 0o600 });
   await writeFile(helper, `#!${process.execPath}
@@ -49,6 +51,13 @@ process.stdout.write(JSON.stringify({ type: 'ready', version: 2, session, switch
 process.stdout.write(JSON.stringify({ type: 'motion', session, sequence: 1, deltaY: 8 }) + String.fromCharCode(10));
 process.stdout.write(JSON.stringify({ type: 'motion', session, sequence: 2, deltaY: -5 }) + String.fromCharCode(10));
 process.stdout.write(JSON.stringify({ type: 'button', controlId: 'blue', session, sequence: 3, down: true }) + String.fromCharCode(10));
+if (${rejectRelease}) {
+  const timer = setInterval(() => {
+    if (!fs.existsSync(${JSON.stringify(release)})) return;
+    clearInterval(timer);
+    process.stdout.write(JSON.stringify({ type: 'button', controlId: 'blue', session, sequence: 4, down: false }) + String.fromCharCode(10));
+  }, 10);
+}
 readline.createInterface({ input: process.stdin }).on('line', line => {
   record({ type: 'command', line });
   if (line === 'quit') process.exit(0);
@@ -63,12 +72,17 @@ process.on('exit', code => record({ type: 'exit', code }));
   const abort = new AbortController();
   const commands: unknown[] = [];
   let lifecycleChanges = 0;
+  let rejectNextInput = false;
   let publish: ((publication: DeskPublication) => void) | undefined;
   const forwarded: DeskController = {
     snapshot: () => controller.snapshot(),
     subscribe: listener => { publish = listener; return controller.subscribe(listener); },
     command: (target, input) => {
       commands.push(input);
+      if (rejectNextInput && input && typeof input === 'object' && 'command' in input && input.command === 'inputEvent') {
+        rejectNextInput = false;
+        return Promise.resolve({ outcome: 'rejected', error: 'Old native input generation' });
+      }
       if (cleanupUnknown && input && typeof input === 'object' && 'command' in input && input.command === 'inputRevoke')
         return Promise.resolve({ outcome: 'unknown' });
       return controller.command(target, input);
@@ -134,7 +148,10 @@ process.on('exit', code => record({ type: 'exit', code }));
     const firstRecord = (await records())[0];
     assert.equal(firstRecord.type, 'ready');
     assert.deepEqual(firstRecord.args, peripheralHelperArgs(1, inputMap).slice(1), 'the helper receives only explicit installation facts');
-    if (gap || cleanupUnknown) {
+    if (rejectRelease) {
+      rejectNextInput = true;
+      await writeFile(release, '');
+    } else if (gap || cleanupUnknown) {
       for (let count = 0; count < 100 && (await records()).filter(entry => entry.line?.startsWith('light ')).length < 2; count++) await new Promise(resolve => setTimeout(resolve, 10));
       assert.ok((await records()).filter(entry => entry.line?.startsWith('light ')).length >= 2, 'event stream attached before gap');
       if (cleanupUnknown) publish?.({ type: 'desk', view: { ...controller.snapshot(), audio: { kind: 'off' } } });
@@ -145,7 +162,11 @@ process.on('exit', code => record({ type: 'exit', code }));
       assert.equal(result.ok, false);
       assert.ok(bridgeFailure instanceof Error && !(bridgeFailure instanceof PeripheralRetry), 'unconfirmed native revocation must prevent automatic same-engine retry');
       assert.match(bridgeFailure.message, /revocation.*unconfirmed/i);
-    } else if (gap) { assert.equal(result.ok, false); if ('error' in result) assert.match(String(result.error), /publication gap/); }
+    } else if (gap || rejectRelease) {
+      assert.equal(result.ok, false);
+      assert.ok(bridgeFailure instanceof PeripheralRetry);
+      assert.match(bridgeFailure.message, rejectRelease ? /button release rejected/ : /publication gap/);
+    }
     else assert.deepEqual(result, { ok: true });
     const final = controller.snapshot().audio;
     assert.equal(final.kind, 'ready');
@@ -161,7 +182,10 @@ process.on('exit', code => record({ type: 'exit', code }));
       assert.equal(final.performance.state.inputRouting?.producers.length, 0);
     }
     assert.equal(lifecycleChanges, 0, 'attaching and aborting never change the audio lifecycle');
-    assert.equal(commands.length, expected.length + 1);
+    if (rejectRelease) assert.deepEqual(commands.at(-2), {
+      command: 'inputEvent', args: { ...source, sequence: 4, input: 0, value: 0 },
+    });
+    assert.equal(commands.length, expected.length + (rejectRelease ? 2 : 1));
     assert.deepEqual(commands.at(-1), { command: 'inputRevoke', args: { producer: 0, session: 1 } });
     const history = await records();
     assert.ok(history.some(entry => entry.line === 'clear'));

@@ -11,8 +11,10 @@ with tempfile.TemporaryDirectory(prefix="alsa-identity-args-") as directory:
     owner = ["--owner-pid", str(os.getpid())]
     identity = ["--usb-identity", "/dev/snd/by-id/usb-show-tools-test-missing", "test-serial", "1235", "8211",
                 "USB", "0", "Direct Monitor Playback Switch"]
+    monitor = ["--idle-monitor"]
     cases = [(owner, 2), (identity[:-1], 2), (identity + identity, 2), (owner + owner, 2),
-             (["--unknown", "value"], 2), (identity + owner, 1), (owner + identity, 1)]
+             (["--unknown", "value"], 2), (identity + owner, 1), (owner + identity, 1),
+             (owner + identity + monitor, 1), (owner + identity + monitor + monitor, 2)]
     for tail, expected in cases:
         result = subprocess.run(base + tail, capture_output=True, timeout=5)
         if result.returncode != expected:

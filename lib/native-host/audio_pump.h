@@ -14,7 +14,7 @@ public:
   AudioPump(pf_engine* engine, uint32_t capacity);
   // The input and all output storage must cover frames. A partial device write
   // retains the unwritten interleaved stereo suffix for the next call.
-  int render(const float* input, uint32_t frames);
+  int render(const float* input, uint32_t frames, bool monitor = false);
   int64_t write(Write sink, void* context);
   void discard();
   uint32_t pending() const;

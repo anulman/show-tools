@@ -13,7 +13,12 @@
 
 using native_host::AudioPump;
 namespace {
-void require(bool condition) { if (!condition) std::abort(); }
+void require_at(bool condition, const char* expected, int line) {
+  if (condition) return;
+  std::fprintf(stderr, "audio_pump_tests.cpp:%d: %s\n", line, expected);
+  std::abort();
+}
+#define require(condition) require_at((condition), #condition, __LINE__)
 struct Sink { std::vector<float> samples; uint32_t limit; };
 int64_t write_short(void* context, const float* data, uint32_t frames) {
   auto& sink = *static_cast<Sink*>(context);
@@ -69,6 +74,80 @@ struct StatefulDevice {
   }
   int drop() { capture = playback = State::Setup; draining = false; ++drops; return 0; }
 };
+void verify_idle_monitor() {
+  native_host::Instrument instrument({8000, 32, 30, 509, true, true});
+  native_host::AlsaRun run;
+  StatefulDevice device;
+  const auto packet = compiled_packet();
+  const pf_effect_definition slapback{PF_EFFECT_SLAPBACK, 1, {{40, 0, .5}}};
+  native_host::Profiles processed{{}, {}, &slapback, 1};
+  processed.revisions.fill(1);
+  processed.counts[PF_DEFAULT_PROFILE] = 1;
+  require(!instrument.audio_needed());
+  require(instrument.prepare(packet.data(), uint32_t(packet.size()), processed));
+  require(instrument.idle_monitor_only() && instrument.audio_needed());
+  require(run.utility(instrument, device) == 0 && run.active() && device.prepares == 1);
+
+  std::array<float, 509> input{};
+  input[0] = .5f;
+  std::array<double, PF_FIELDS> before{}, after{};
+  pf_snapshot(instrument.engine(), before.data());
+  device.read();
+  require(instrument.render(input.data(), uint32_t(input.size())) == 0);
+  Sink preflight{{}, 17};
+  while (instrument.pending()) require(instrument.write(write_short, &preflight) > 0);
+  require(preflight.samples.size() == 2 * input.size());
+  require(preflight.samples[0] == .5f && preflight.samples[1] == .5f);
+  require(preflight.samples[640] == .25f && preflight.samples[641] == .25f);
+  pf_snapshot(instrument.engine(), after.data());
+  require(before == after && after[PF_PHASE] == PF_IDLE);
+  require(run.complete(instrument, device) == 0 && device.drains == 0);
+
+  require(instrument.render(input.data(), uint32_t(input.size())) == 0);
+  require(instrument.write(write_short, &preflight) == 17);
+  const auto old_engine = instrument.engine();
+  const auto old_pending = instrument.pending();
+  const native_host::Start invalid{39, 0, 1, 1, 0, 0};
+  require(run.start(instrument, device, invalid) == -1 && device.drops == 0 && device.prepares == 1);
+  require(instrument.pending() == old_pending && instrument.engine() == old_engine);
+  std::array<uint8_t, 8> invalid_packet{};
+  auto dry = processed;
+  dry.counts[PF_DEFAULT_PROFILE] = 0; dry.effects = nullptr; dry.effect_count = 0;
+  require(!instrument.prepare(invalid_packet.data(), invalid_packet.size(), dry));
+  require(instrument.pending() == old_pending && instrument.engine() == old_engine);
+  require(instrument.prepare(packet.data(), uint32_t(packet.size()), dry));
+  require(instrument.pending() == 0 && instrument.engine() != old_engine);
+  require(run.utility(instrument, device) == 0 && device.prepares == 1 && device.drops == 0);
+
+  require(instrument.render(input.data(), uint32_t(input.size())) == 0);
+  Sink switched{{}, 17};
+  while (instrument.pending()) require(instrument.write(write_short, &switched) > 0);
+  require(switched.samples[0] == .5f && switched.samples[1] == .5f);
+  require(switched.samples[640] == 0 && switched.samples[641] == 0);
+
+  const native_host::Start start{120, 1, 1, 1, 0, 0};
+  require(instrument.render(input.data(), uint32_t(input.size())) == 0);
+  require(run.start(instrument, device, start) == 0 && device.prepares == 1 && device.drops == 0);
+  require(instrument.lifecycle() == native_host::Lifecycle::Running && !instrument.idle_monitor_only());
+  while (instrument.pending()) require(instrument.write(StatefulDevice::write, &device) > 0);
+  require(instrument.render(input.data(), uint32_t(input.size())) == 0);
+  pf_snapshot(instrument.engine(), after.data());
+  require(after[PF_PHASE] == PF_COUNT_IN && after[PF_FRAME] > before[PF_FRAME]);
+
+  instrument.stop();
+  require(run.drop(device) == 0 && run.utility(instrument, device) == 0);
+  require(run.active() && device.prepares == 2 && device.drops == 1 && instrument.idle_monitor_only());
+  require(instrument.render(input.data(), uint32_t(input.size())) == 0);
+  require(instrument.control(4, 0) == 0 && !instrument.audio_needed() && instrument.pending() == 0);
+  require(run.drop(device) == 0 && !run.active());
+  instrument.stop();
+  require(!instrument.audio_needed());
+  require(instrument.prepare(packet.data(), uint32_t(packet.size()), dry) && !instrument.audio_needed());
+  require(run.start(instrument, device, start) == 0);
+  instrument.stop();
+  require(instrument.audio_needed() && instrument.idle_monitor_only());
+}
+
 struct Engine {
   pf_engine* value = pf_create(8000, PF_PRACTICE, 32, 30, 4);
   Engine() {
@@ -85,6 +164,7 @@ struct Engine {
 };
 }
 int main() {
+  verify_idle_monitor();
   native_host::Instrument instrument({8000, 32, 30, 509, true});
   native_host::Profiles profiles{}; profiles.revisions.fill(1);
   auto packet = compiled_packet();
@@ -141,6 +221,8 @@ int main() {
   device.hold_drain = true;
   require(run.complete(instrument, device) == 0 && device.drains == 1 && device.drops == 0);
   require(run.active() && run.start(instrument, device, start) == -1 && device.prepares == 1);
+  require(instrument.prepare(packet.data(), uint32_t(packet.size()), profiles));
+  require(run.utility(instrument, device) == 0 && device.prepares == 1 && device.drops == 0);
   device.hold_drain = false;
   require(run.complete(instrument, device) == 0 && !run.active() && device.drains == 1);
   require(run.start(instrument, device, start) == 0);

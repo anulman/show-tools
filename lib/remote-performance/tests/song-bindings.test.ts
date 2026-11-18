@@ -57,9 +57,9 @@ test('canonical preparation preserves notation, archive, voice metadata, effects
   assert.notEqual(canonical.song.source.digest, result.sourceDigest);
   assert.deepEqual(result.effects, fixture.effects);
   assert.deepEqual(result.installed.song.compiled?.inputBindings, bindings);
-  assert.equal(result.installed.assets.length, 1);
-  assert.equal(result.installed.assets[0].readUInt16LE(), 15);
-  assert.deepEqual(result.installed.assets[0].subarray(10), fixture.asset.bytes);
+  const wave = result.installed.operation.subarray(-fixture.asset.bytes.length - 10);
+  assert.equal(wave.readUInt16LE(), 15);
+  assert.deepEqual(wave.subarray(10), fixture.asset.bytes);
   assert.deepEqual(result.packet, Buffer.from(compiledProgramBytes(canonical.song)));
   const repeated = await prepareSongBindings(fixture.entry, bindings);
   assert.equal(repeated.musicXml, result.musicXml);

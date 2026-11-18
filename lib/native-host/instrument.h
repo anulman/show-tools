@@ -7,17 +7,19 @@
 
 namespace native_host {
 enum class Lifecycle { Stopped, Prepared, Running, Faulted };
-struct InstrumentConfig { double sample_rate; int max_voices; double max_seconds; uint32_t block_capacity; bool microphone_ready; };
+struct InstrumentConfig { double sample_rate; int max_voices; double max_seconds; uint32_t block_capacity; bool microphone_ready; bool idle_microphone_monitor = false; };
 struct Profiles {
   std::array<uint32_t, PF_VOICE_PROFILES> counts, revisions;
   const pf_effect_definition* effects;
   uint32_t effect_count;
 };
+struct ExternalWave { uint32_t slot; std::vector<uint8_t> bytes; };
 struct Start { double bpm; int count_in_bars, start_bar, end_bar, loop, automatic; };
 class Instrument {
 public:
   explicit Instrument(InstrumentConfig config);
-  bool prepare(const uint8_t* packet, uint32_t bytes, const Profiles& profiles);
+  bool prepare(const uint8_t* packet, uint32_t bytes, const Profiles& profiles,
+               const std::vector<ExternalWave>& waves = {});
   bool prepare_profiles(const Profiles& profiles);
   bool start(const Start& start);
   bool can_start() const;
@@ -35,6 +37,7 @@ public:
   int prepare_external_wave(uint32_t slot, const uint8_t* bytes, uint32_t length);
   int tuner(int operation, uint32_t expected_revision, int value, int scale);
   bool audio_needed() const;
+  bool idle_monitor_only() const;
   int render(const float* input, uint32_t frames);
   int64_t write(AudioPump::Write sink, void* context);
   Lifecycle lifecycle() const;
@@ -46,7 +49,12 @@ private:
   Lifecycle lifecycle_ = Lifecycle::Stopped;
   Engine engine_{nullptr, pf_destroy};
   std::unique_ptr<AudioPump> pump_;
-  bool utility_output_ = false;
+  enum class IdleMonitor { Disabled, Enabled, PanicMuted };
+  enum class Output { Performance, Tuner, IdleMonitor };
+  IdleMonitor idle_monitor_;
+  Output output_ = Output::Performance;
+  bool monitoring() const;
+  void silence_panic();
 };
 }
 #endif

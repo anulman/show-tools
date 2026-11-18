@@ -112,7 +112,7 @@ const bindSong = Command.make('bind', { profile: profileFlag, song: songFlag, bi
   const view = await (await createSessionClient(ctx.profile)).configureSongBindings(song, JSON.parse(await readFile(bindings, 'utf8')));
   return `Saved button bindings for ${view.song.id}. ${summary(view)}.`;
 }));
-const songs = Command.make('songs').pipe(Command.withDescription('List installed songs; select or assign explicit bindings while audio is off'), Command.withSubcommands([listSongs, selectSong, bindSong]));
+const songs = Command.make('songs').pipe(Command.withDescription('List installed songs, select while stopped, or assign bindings with audio off'), Command.withSubcommands([listSongs, selectSong, bindSong]));
 const bindingScope = 'Only per-song button bindings and chart source hashes; excludes charts, effects and recordings.';
 const backupBindings = Command.make('backup', { profile: profileFlag, output: outputFlag }, ({ profile, output }) => perform(async () => {
   const ctx = await context(profile);
