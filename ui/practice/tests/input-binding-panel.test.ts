@@ -41,7 +41,7 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 		const form = panel.element.querySelector('form'); expect(form instanceof HTMLFormElement, 'Panel has a form'); form.requestSubmit();
 	}
 	function button(panel: Panel) {
-		const button = panel.element.querySelector('button'); expect(button instanceof HTMLButtonElement, 'Panel has an Apply button'); return button;
+		const button = panel.element.querySelector('button[type=submit]'); expect(button instanceof HTMLButtonElement, 'Panel has an Apply button'); return button;
 	}
 	const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 	let fail = true;
@@ -129,6 +129,21 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	expect(acknowledgeRejectedUpdate, 'Original-song save remains in flight');
 	acknowledgeRejectedUpdate([{ controlId: 'blue', target: { kind: 'tempo' } }]); await flush();
 	expect(!rejected.pending && !rejected.dirty && rejected.element.textContent?.includes('Dance Yrself Clean'), 'Original pending save still applies to its own song after rejection');
+	const configured = create({ onSave: async bindings => bindings });
+	document.body.append(configured.element);
+	configured.update({ ...initial, bindings: [{ controlId: 'pedal', target: { kind: 'tempo' } }] });
+	const preset = configured.element.querySelector('button[type=button]');
+	expect(preset instanceof HTMLButtonElement, 'Four-colour preset is available');
+	preset.click();
+	for (const label of ['Yellow L1', 'Green R1', 'Blue L2', 'Red R2'])
+		expect(checkbox(configured, label).checked, `${label} is selected in the preset`);
+	expect(selectControl(configured, 'Pedal').value === 'tempo', 'Preset preserves the pedal action');
+	expect(configured.dirty, 'Preset creates a draft for explicit Apply');
+	apply(configured); await flush();
+	expect(!configured.dirty, 'Applied preset stays saved after acknowledgement');
+	configured.update({ ...initial, editable: false });
+	expect(preset.disabled, 'Preset is locked while audio is on');
+
 	return { requestCount: requests.length, width: panel.element.clientWidth };
 }
 
