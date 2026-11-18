@@ -12,7 +12,22 @@ export type InputBindingPanelView = {
 const names: Record<PhysicalSwitchId, string> = {
 	blue: 'Blue', yellow: 'Yellow', red: 'Red', green: 'Green', pedal: 'Pedal', mushroom: 'Mushroom',
 };
-const rowOrder: readonly ChannelId[] = ['R1', 'R2', 'L1', 'L2'];
+const rowOrder: readonly ChannelId[] = ['L1', 'R1', 'L2', 'R2'];
+
+const arcadeButtons = {
+	blue: { row: 'L2', color: '#8bb7ff' },
+	yellow: { row: 'L1', color: '#dfbe78' },
+	green: { row: 'R1', color: '#a8c6ab' },
+	red: { row: 'R2', color: '#ee9696' },
+} satisfies Partial<Record<PhysicalSwitchId, { row: ChannelId; color: string }>>;
+
+export function arcadeColorForRow(row: ChannelId) {
+	return Object.values(arcadeButtons).find(button => button.row === row)?.color;
+}
+
+export function arcadeButton(id: PhysicalSwitchId) {
+	return id === 'pedal' || id === 'mushroom' ? undefined : { ...arcadeButtons[id], name: names[id] };
+}
 type Editor = { controlId: PhysicalSwitchId; action: HTMLSelectElement; rows: Map<ChannelId, HTMLInputElement>; fieldset: HTMLFieldSetElement };
 
 function bindingKey(bindings: InputBindings) {
@@ -31,11 +46,12 @@ export function createInputBindingPanel({ onSave }: { onSave: (bindings: InputBi
 	const error = document.createElement('p'); error.setAttribute('role', 'alert'); error.hidden = true;
 	const form = document.createElement('form');
 	const grid = document.createElement('div'); grid.className = 'input-binding-grid';
+	const preset = document.createElement('button'); preset.type = 'button'; preset.textContent = 'Use four-colour layout';
 	const apply = document.createElement('button'); apply.type = 'submit'; apply.textContent = 'Apply button assignments';
 	const style = document.createElement('style');
-	style.textContent = `.input-binding-panel{margin-block:1rem}.input-binding-panel summary{cursor:pointer}.input-binding-song{font-weight:600}.input-binding-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr));gap:.65rem}.input-binding-grid>fieldset{min-width:0;margin:0;padding:.5rem .65rem}.input-binding-grid legend{font-weight:600}.input-binding-grid select{font:inherit;max-width:100%;margin-left:.5rem}.input-binding-cues{border:0;padding:.45rem 0 0;margin:0;display:flex;gap:.8rem;flex-wrap:wrap}.input-binding-cues[hidden]{display:none}.input-binding-cues legend{font-size:.8em;font-weight:400}.input-binding-cues label{white-space:nowrap}.input-binding-panel [role=alert]{color:var(--danger,#b42318)}.input-binding-panel button{margin-top:.75rem}`;
+	style.textContent = `.input-binding-panel{margin-block:1rem}.input-binding-panel summary{cursor:pointer}.input-binding-song{font-weight:600}.input-binding-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr));gap:.65rem}.input-binding-grid>fieldset{min-width:0;margin:0;padding:.5rem .65rem}.input-binding-grid legend{font-weight:600}.input-binding-grid select{font:inherit;max-width:100%;margin-left:.5rem}.input-binding-cues{border:0;padding:.45rem 0 0;margin:0;display:flex;gap:.8rem;flex-wrap:wrap}.input-binding-cues[hidden]{display:none}.input-binding-cues legend{font-size:.8em;font-weight:400}.input-binding-cues label{white-space:nowrap}.input-binding-panel [role=alert]{color:var(--danger,#b42318)}.input-binding-panel button{margin-top:.75rem;margin-inline-end:.5rem}`;
 	element.append(style, summary, song, status, error, form);
-	form.append(grid, apply);
+	form.append(grid, preset, apply);
 	let view: InputBindingPanelView | undefined;
 	let applied: InputBindings = [];
 	let generation = 0;
@@ -112,6 +128,7 @@ export function createInputBindingPanel({ onSave }: { onSave: (bindings: InputBi
 			const cueRows = editor.fieldset.querySelector('fieldset');
 			if (cueRows) cueRows.hidden = editor.action.value !== 'cue-rows';
 		}
+		preset.disabled = locked;
 		apply.disabled = locked || !dirty() || Boolean(invalid);
 		apply.textContent = saving ? 'Saving assignments…' : 'Apply button assignments';
 		status.textContent = saving ? 'Saving assignments…' : !view ? 'Select a song to assign buttons.'
@@ -120,6 +137,16 @@ export function createInputBindingPanel({ onSave }: { onSave: (bindings: InputBi
 		error.textContent = failure || invalid; error.hidden = !error.textContent;
 	}
 	function changed() { notice = ''; failure = ''; refresh(); }
+	preset.addEventListener('click', () => {
+		if (!view?.editable || saving) return;
+		for (const editor of editors) {
+			const button = arcadeButton(editor.controlId);
+			if (!button) continue;
+			editor.action.value = 'cue-rows';
+			for (const [row, input] of editor.rows) input.checked = row === button.row;
+		}
+		changed();
+	});
 	form.addEventListener('submit', event => {
 		event.preventDefault();
 		if (!view?.editable || saving) return;

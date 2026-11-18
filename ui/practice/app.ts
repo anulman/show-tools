@@ -9,7 +9,7 @@ import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 import type { PracticeAudio } from './audio.js';
 import { RemoteDesk, RemoteSession } from './remote-session.js';
-import { createInputBindingPanel } from './input-binding-panel.js';
+import { arcadeButton, arcadeColorForRow, createInputBindingPanel } from './input-binding-panel.js';
 import { createHardwareAuth } from './hardware-auth.js';
 import type { RemoteConnection } from './remote-session.js';
 import type { DeskView } from '../../lib/remote-performance/session-schema.js';
@@ -454,7 +454,7 @@ function makePads() {
     const shell = document.createElement('article');
     shell.className = 'pad-shell';
     shell.dataset.channel = control.id;
-    shell.style.setProperty('--pad-color', control.color);
+    shell.style.setProperty('--pad-color', remote ? '#b4bcb0' : arcadeColorForRow(control.id) ?? control.color);
     const button = document.createElement('button');
     button.type = 'button';
     button.className = 'pad';
@@ -669,6 +669,7 @@ function render(next: Partial<PracticeState>) {
   elements.stop.disabled = !starting && !running && !recording;
   for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting;
   elements['sheet-link'].setAttribute('aria-label', `Open ${inCountIn ? 'lead-in' : `bar ${chartBarLabel(chart, displayBar)}`} in Google Sheets`);
+  const bindings = remoteDesk?.snapshot().song.compiled?.inputBindings;
   for (const control of CONTROLS) {
     const pad = pads.get(control.id);
     if (!pad) continue;
@@ -692,7 +693,14 @@ function render(next: Partial<PracticeState>) {
     const name = controlName(control.id);
     const padName = pad.button.querySelector('.pad-name');
     if (padName) padName.textContent = name;
-    pad.button.setAttribute('aria-label', `${control.id} ${name}, ${action}`);
+    const binding = bindings?.find(({ target }) => target.kind === 'cue-rows' && target.rows.includes(control.id));
+    const physical = binding && arcadeButton(binding.controlId);
+    if (remote) {
+      pad.shell.style.setProperty('--pad-color', physical?.color ?? '#b4bcb0');
+      const padId = pad.button.querySelector('.pad-id');
+      if (padId) padId.textContent = physical ? `${control.id} · ${physical.name}` : control.id;
+    }
+    pad.button.setAttribute('aria-label', `${control.id}${physical ? ` ${physical.name}` : ''} ${name}, ${action}`);
     pad.volume.setAttribute('aria-label', `${control.id} ${name} volume`);
     if (document.activeElement !== pad.volume) pad.volume.value = String(channel?.gain ?? 1);
     const gain = Number(pad.volume.value);
