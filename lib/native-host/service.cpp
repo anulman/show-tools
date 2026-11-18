@@ -229,7 +229,9 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
       auto& a=r->args;
       switch(r->op) {
         case 0: rc=0; break;
-        case 1: case 21:
+        case 1: case 21: {
+          const auto demo_before_start = demo.state();
+          if (r->op==21 && (!demo.available() || demo_before_start==DemoRecording::State::Finishing)) break;
 #ifdef NATIVE_ALSA_HOST
           rc=alsa_run.start(instrument,*device,{a[0],int(a[1]),int(a[2]),int(a[3]),int(a[4]),int(a[5])});
           if(rc==-2) {
@@ -239,8 +241,9 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #else
           rc=instrument.start({a[0],int(a[1]),int(a[2]),int(a[3]),int(a[4]),int(a[5])})?0:-1;
 #endif
-          if(rc==0 && r->op==21)demo.arm();
+          if(rc==0 && r->op==21 && demo_before_start!=DemoRecording::State::Armed)demo.arm();
           break;
+        }
         case 2: demo.finish(); instrument.stop();
 #ifdef NATIVE_ALSA_HOST
           if(device_fault("drop on Stop",alsa_run.drop(*device)) ||
@@ -391,8 +394,10 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
       drain();
       if(previous_lifecycle!=instrument.lifecycle()) { ++revision; Observation state; publish(state); shared.observations.push(state); }
     }
-    if(demo_state!=demo.state()) {
-      demo_state=demo.state(); ++revision; Observation state; publish(state); shared.observations.push(state);
+    const auto current_demo = demo.state();
+    if(demo_state!=current_demo) {
+      ++revision; Observation state; publish(state); state.demo=uint32_t(current_demo)+1;
+      if(shared.observations.push(state))demo_state=current_demo;
     }
     if(++tick==10) { tick=0; if(!stepped && instrument.engine()) { ++revision; Observation state; publish(state); shared.observations.push(state); } }
 #ifdef NATIVE_ALSA_HOST
@@ -569,6 +574,7 @@ int main(int argc,char** argv) {
   }
   char* end=nullptr;
   double rate=std::strtod(argv[2],&end); if(*end || !std::isfinite(rate) || rate<8000 || rate>192000)return 2;
+  if(!demo_output.empty() && std::floor(rate)!=rate) return 2;
   unsigned long block=std::strtoul(argv[3],&end,10); if(*end || block<1 || block>16384)return 2;
   long voices=std::strtol(argv[4],&end,10); if(*end || voices<1 || voices>256)return 2;
   double seconds=std::strtod(argv[5],&end); if(*end || !std::isfinite(seconds) || seconds<=0 || seconds>3600)return 2;
