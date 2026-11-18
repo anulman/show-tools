@@ -201,6 +201,12 @@ To use Tribulations' phone tambourine, open the same hardware desk on the phone,
 
 During a song, any configured button with an LED still reaches full brightness while held, including an unassigned musical button. Release restores the sequenced level. Recording pulses take priority over the playing level, which is at most 70%.
 
+## Download a practice demo
+
+**Start practice** records a stereo demo after count-in. Press **Stop** to finish both practice and the demo. Press **Finish take** to save the demo and keep playing. When **WAV ready** appears, choose **Download take**. Turning audio off leaves the last completed demo available while the web service runs. Download it before stopping the service or finishing another demo.
+
+Use **Voice samples** after stopping transport to download individual committed chart takes.
+
 ## Stop and start without an agent
 
 These commands act on the existing installed services. Use the same terminal definitions from the first step.

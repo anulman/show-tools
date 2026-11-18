@@ -12,9 +12,10 @@ int AudioPump::render(const float* input, uint32_t frames, bool monitor) {
   std::fill_n(sample_right_.data(), frames, 0);
   std::fill_n(live_left_.data(), frames, 0);
   std::fill_n(live_right_.data(), frames, 0);
+  song_offset_ = song_frames_ = 0;
   if ((!monitor || pf_audio_needed(engine_)) &&
-      pf_process_stems(engine_, input, sample_left_.data(), sample_right_.data(),
-                       live_left_.data(), live_right_.data(), frames) < 0) return -1;
+      pf_process_stems_with_song_span(engine_, input, sample_left_.data(), sample_right_.data(),
+                       live_left_.data(), live_right_.data(), frames, &song_offset_, &song_frames_) < 0) return -1;
   if (monitor && pf_render_idle_monitor(engine_, input, live_left_.data(), live_right_.data(), frames) < 0) return -1;
   for (uint32_t i = 0; i < frames; ++i) {
     stereo_[i * 2] = sample_left_[i] + live_left_[i];

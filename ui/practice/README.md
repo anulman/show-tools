@@ -78,6 +78,8 @@ To load a file instead of capturing a take, stop practice and press **LOAD** on 
 
 The download contains your main live voice, song click, and sample output, starting with the song. The practice lead-in is excluded. The native live-effects stem enters the recording once. Mono microphone input reaches both channels before the stack; sample stereo stays unchanged. Live speaker monitoring is separately gated by explicit physical-device confirmation and does not control the download. After stopping, the browser prepares a stereo 192 kb/s MP3 locally. Wait for **MP3 ready**, then download the `.mp3` file. Conversion runs in a worker without uploading audio. Start reports an error if microphone access or output recording is unavailable. A completed take remains available to download after a song change.
 
+In **Hardware mode**, the EliteDesk records the same song mix as a stereo WAV. It starts at the song boundary and keeps recording if you close the browser. **Stop**, **Finish take**, or the end of the selected range makes the file available. The latest completed WAV remains available after **Terminate audio**. Download it before stopping the web service or finishing another demo. The host caps each take at 192 MiB of audio, about 17 minutes at 48 kHz.
+
 ## Download a voice’s captured samples
 
 After **Stop**, use **Voice samples → Download [voice]**. Each voice downloads a ZIP containing a separate stereo float32 WAV for every available committed chart take, plus `samples.json` with capture and selection references. Layered recordings remain separate files. Browser and Hardware modes use the same C++ capture data.

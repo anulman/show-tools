@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { chmod, mkdir, mkdtemp, open, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { Effect, Fiber, Schema, Stream } from 'effect';
@@ -15,7 +16,7 @@ import type { InstalledSongCatalog } from './song-catalog.js';
 import { prepareSongBindings, type SongBindingAuthority } from './song-bindings.js';
 import { decodeInputBindings } from '../performance/input-bindings.js';
 import { requireLegacyMonitorInactive } from './legacy-monitor.js';
-import { AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
+import { MAX_DEMO_BYTES, AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
   type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome, type NativeEngineRetirementProof } from './session-schema.js';
 
 const performance = Schema.decodeUnknownSync(NativePerformanceSchema);
@@ -35,6 +36,7 @@ type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Pr
 
 export class PersistentDesk implements DeskController {
   private view: DeskView;
+  private readonly demoPath: string;
   private readonly listeners = new Set<(value: DeskPublication) => void>();
   private attempt: Attempt | undefined;
   private closing = false;
@@ -49,6 +51,7 @@ export class PersistentDesk implements DeskController {
     private readonly songs?: { catalog: InstalledSongCatalog; bindings: SongBindingAuthority }) {
     this.view = { serverEpoch: Schema.decodeUnknownSync(ServerEpochSchema)(randomUUID()), revision: revision('0'),
       song: Schema.decodeUnknownSync(SongSchema)(installed.song), audio: { kind: 'off' } };
+    this.demoPath = join(profile.runtimeRoot, 'demo-latest.wav');
   }
   songChoices() {
     if (!this.songs) throw new Error('No installed song catalog is configured');
@@ -220,7 +223,7 @@ export class PersistentDesk implements DeskController {
     const args = [socket, String(native.sampleRate), String(native.blockFrames), String(native.maxVoices), String(native.maxSeconds),
       ...(driver.kind === 'fake' ? [String(driver.inputLevel)] : [`hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, `hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, String(driver.captureChannels), String(driver.inputChannel), String(driver.periodFrames), String(driver.bufferFrames), driver.format,
         '--usb-identity', driver.identity.byId, driver.identity.usbSerial, driver.identity.usbVendor, driver.identity.usbProduct, driver.identity.alsaCardId, String(driver.identity.pcmDevice), driver.identity.monitorOff, '--idle-monitor']),
-      '--owner-pid', String(process.pid)];
+      '--owner-pid', String(process.pid), '--demo-output', this.demoPath];
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     attempt.child = { kind: 'pending' };
     const child = yield* spawner.spawn(ChildProcess.make(native.executable, args, { shell: false, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', killSignal: 'SIGTERM', forceKillAfter: 1000 }));
@@ -265,6 +268,22 @@ export class PersistentDesk implements DeskController {
       }),
     );
   });
+  async openDemo() {
+    const file = await open(this.demoPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(error => {
+      if (error?.code === 'ENOENT') return null;
+      throw error;
+    });
+    if (!file) return null;
+    try {
+      const info = await file.stat();
+      if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 0o077)
+        || info.size <= 44 || info.size > MAX_DEMO_BYTES) throw new Error('Invalid demo file');
+      return { file, bytes: info.size };
+    } catch (error) {
+      await file.close();
+      throw error;
+    }
+  }
   async takeAudio(target: NativeTarget, request: import('../performance/take-audio.js').TakeAudioRequest) {
     const attempt = this.attempt, audio = this.view.audio;
     if (!attempt?.instrument || attempt.abort.signal.aborted || audio.kind !== 'ready' || target.attempt !== attempt.id || target.hostEpoch !== audio.performance.hostEpoch)
@@ -292,6 +311,7 @@ export class PersistentDesk implements DeskController {
     if (this.configuration.kind === 'preparing') await this.configuration.done;
     const attempt = this.attempt;
     if (attempt) { this.stop(attempt); await attempt.done; if (this.attempt) throw new Error('Native cleanup did not confirm exit'); }
+    await rm(this.demoPath, { force: true });
     this.listeners.clear();
   }
 }

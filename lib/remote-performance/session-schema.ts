@@ -11,12 +11,17 @@ export const ServerEpochSchema = id.pipe(Schema.brand('DeskEpoch'));
 export const NativeEpochSchema = id.pipe(Schema.brand('NativeEpoch'));
 export const DeskRevisionSchema = revision.pipe(Schema.brand('DeskRevision'));
 export const NativeRevisionSchema = revision.pipe(Schema.brand('NativeRevision'));
+export const demoStates = ['idle', 'armed', 'recording', 'finishing', 'saved', 'failed'] as const;
+const DemoStateSchema = Schema.Literals(demoStates);
+export const MAX_DEMO_BYTES = 192 * 1024 * 1024 + 44;
+
 export const NativePerformanceSchema = Schema.Struct({
   hostEpoch: NativeEpochSchema,
   revision: NativeRevisionSchema,
   state: NativeStateSchema,
   lights: LightPublicationSchema,
   tuner: TunerStateSchema,
+  demo: Schema.optionalKey(DemoStateSchema),
 });
 export const AudioStateSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('off') }),
@@ -104,6 +109,7 @@ export interface DeskController {
   setAudio(goal: AudioGoal): AudioDecision;
   command(target: NativeTarget, input: unknown): Promise<NativeOutcome>;
   takeAudio?(target: NativeTarget, request: import('../performance/take-audio.js').TakeAudioRequest): Promise<Uint8Array>;
+  openDemo?(): Promise<{ file: import('node:fs/promises').FileHandle; bytes: number } | null>;
   confirmedRetirement?(target: NativeTarget): NativeEngineRetirementProof | null;
   close(): Promise<void>;
 }

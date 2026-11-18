@@ -4,6 +4,7 @@ import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
 import { HardwareKeyRejectedError } from './hardware-auth.js';
 import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
 import { decodeSongChoices, decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus } from './remote-schema.js';
+import { MAX_DEMO_BYTES } from '../../lib/remote-performance/session-schema.js';
 import type { DeskView, NativePerformance, NativeTarget, InputIntentStatus, InputAttachOutcome, NativeOutcome, InputLeaseReceipt } from '../../lib/remote-performance/session-schema.js';
 import type { ChannelId, ChannelSettings, ChartMetadata, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
@@ -132,6 +133,24 @@ export class RemoteDesk {
     if (!response.ok) throw new Error('Input cleanup readback unavailable. Reconnect remains blocked.');
     return decodeInputIntentStatus(await readJson(response));
   }
+  demoState() { return this.endpoint?.demoState(); }
+  private async demoRequest(method: 'GET' | 'HEAD') {
+    if (this.connectionState.kind !== 'connected') throw new Error('Connect to the hardware desk first.');
+    return fetch('/api/demo-recording', { method, headers: { Authorization: `Bearer ${this.token}` },
+      cache: 'no-store', signal: this.abort.signal });
+  }
+  async hasDemo() {
+    const response = await this.demoRequest('HEAD');
+    return response.ok;
+  }
+  async downloadDemo() {
+    const response = await this.demoRequest('GET');
+    if (!response.ok) throw new Error('No completed hardware demo is available.');
+    const bytes = Number(response.headers.get('content-length'));
+    if (!Number.isSafeInteger(bytes) || bytes <= 44 || bytes > MAX_DEMO_BYTES)
+      throw new Error('Invalid hardware demo download size.');
+    return response.blob();
+  }
   async takeAudio(endpoint: RemoteSession, target: NativeTarget, request: import('../../lib/performance/take-audio.js').TakeAudioRequest) {
     if (this.endpoint !== endpoint || this.connectionState.kind !== 'connected') throw new Error('Hardware audio session is stale');
     const response = await fetch('/api/take-audio', { method: 'POST', headers: { Authorization: `Bearer ${this.token}`, 'Content-Type': 'application/json' },
@@ -205,8 +224,10 @@ export class RemoteSession {
     if (!this.valid) return Promise.reject(new Error('Hardware audio session is stale.'));
     return this.desk.command(this, this.target, command, args);
   }
-  start(options: StartOptions = {}) { return this.command('start', options); }
+  start(options: StartOptions = {}) { return this.command('start', { ...options, ...(this.demoState() === undefined ? {} : { recordDemo: true }) }); }
   stop() { return this.command('stop'); }
+  demoState() { return this.latest.demo; }
+  recordDemo(recording: boolean) { return this.command('recordDemo', { recording }); }
   control(control: Control, options: { commandId?: string } | string = {}) { return this.command('control', { control, commandId: typeof options === 'string' ? options : options.commandId }); }
   private receiptMatches(receipt: InputLeaseReceipt, args: InputAttachArgs) {
     return receipt.target.attempt === this.target.attempt && receipt.target.hostEpoch === this.target.hostEpoch

@@ -106,6 +106,11 @@ let tunerSession: PerformanceSession | undefined;
 let tunerPort: TunerPort | undefined;
 const tunerDialog = requiredElement('#tuner-dialog', HTMLDialogElement);
 let remoteDesk: RemoteDesk | undefined;
+let remoteDemoChanging = false;
+let remoteDemoDownloading = false;
+let remoteDemoCheck = '';
+let remoteDemoAvailable = false;
+
 let bindingBaseRevision = '0';
 let bindingSongId = '';
 let mountedHardwareSong = '';
@@ -374,8 +379,13 @@ async function startPractice() {
   if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Choose a tempo between 40 and 240 BPM.');
   if (!Number.isInteger(endBar) || endBar < startBar || endBar > playableBars(chart)) throw new Error(`Choose an end bar from ${startBar} to ${playableBars(chart)}. Partial bars are not sequenced yet.`);
   if (remote) {
-    const instance = await ensureAudio();
-    await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar, loop: elements.loop.checked, automatic: false });
+    const instance = remoteDesk?.performance();
+    if (!instance) throw new Error('Enable hardware audio first.');
+    starting = true;
+    render(state);
+    try {
+      await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar, loop: elements.loop.checked, automatic: false });
+    } finally { starting = false; render(state); }
     return;
   }
   const effects = song?.compiled ? voiceEffects.configurations() : initialVoiceEffects('dry');
@@ -626,7 +636,10 @@ function render(next: Partial<PracticeState>) {
   }
   applyPendingPracticeUpdate();
   elements['audio-mode-select'].disabled = changingAudioMode || !canChangeAudioMode(mode, browserModeBusy());
-  if (remote) renderButtonBindings();
+  if (remote) {
+    renderButtonBindings();
+    renderRemoteDemo();
+  }
   if (remote && !audio) { renderHardwareUnavailable(); return; }
   if (!chart) return;
   if (remote && state.click !== undefined && document.activeElement !== elements.click) elements.click.checked = state.click;
@@ -644,9 +657,9 @@ function render(next: Partial<PracticeState>) {
   elements['bar-number'].classList.toggle('pickup', Boolean(currentBar?.label && !/^\d/.test(currentBar.label)));
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
-  elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
+  elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping' || remoteDemoChanging || (remote && remoteDesk?.demoState() === 'finishing');
   elements['song-select'].disabled = remote && (remoteDesk?.connection.kind !== 'connected' || running) || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
-  elements['record-demo'].disabled = remote || voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
+  if (!remote) elements['record-demo'].disabled = voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
   const effectsLocked = running || starting || switching || Boolean(preparing) || effectsApplying || outputCapture !== 'idle';
   voiceEffects.render(state.voiceEffects, effectsLocked);
   voiceCatalog.update({ bar: state.bar, voiceEffects: state.voiceEffects });
@@ -660,7 +673,7 @@ function render(next: Partial<PracticeState>) {
   for (const button of rotationControls) button.disabled = !running || !audio || !state.voiceEffects?.some(voice => voice.rotationEligible);
   elements['monitor-relationship'].disabled = remote || !audio?.microphone || starting;
   elements['monitor-relationship'].value = audio?.monitoringRelationship || 'unknown';
-  elements['monitor-hint'].textContent = remote ? 'Audio and monitoring run on the host. Remote recording is unavailable.' : audio?.monitoringRelationship === 'different-devices' || audio?.monitoringRelationship === 'same-usb-interface'
+  elements['monitor-hint'].textContent = remote ? 'Audio, monitoring, and demo recording run on the EliteDesk.' : audio?.monitoringRelationship === 'different-devices' || audio?.monitoringRelationship === 'same-usb-interface'
     ? 'Confirmed setup. Live monitoring follows the active voice. Downloads include processed voice.'
     : audio?.monitoringRelationship === 'same-non-usb'
       ? 'Same non-USB device confirmed. Live monitoring stays off. Downloads include processed voice.'
@@ -747,8 +760,46 @@ function finishOutputRecording() {
   recorder.stop();
 }
 
+function renderRemoteDemo() {
+  const desk = remoteDesk;
+  const connected = desk?.connection.kind === 'connected';
+  const demo = desk?.demoState();
+  const active = demo === 'armed' || demo === 'recording' || demo === 'finishing';
+  const label = demo === 'armed' ? 'Cancel take' : demo === 'recording' ? 'Finish take' : 'Record demo';
+  recordLabel.textContent = label;
+  elements['record-demo'].setAttribute('aria-pressed', String(active));
+  elements['record-demo'].disabled = !connected || demo === undefined || demo === 'finishing' || remoteDemoChanging || starting || switching;
+  elements['recording-hint'].textContent = demo === 'armed' ? 'Armed · recording starts after count-in.'
+    : demo === 'recording' ? 'Recording on the EliteDesk.'
+    : demo === 'finishing' ? 'Preparing WAV…'
+    : demo === 'failed' ? 'Demo recording failed. Any earlier completed demo is still available.'
+    : remoteDemoAvailable ? 'WAV ready.'
+    : demo === undefined ? 'Enable hardware audio to record a demo.' : 'Demo recording starts with practice.';
+  elements['download-demo'].hidden = !connected || !remoteDemoAvailable;
+  elements['download-demo'].href = '#download-demo';
+  if (!desk || !connected) return;
+  const current = desk.snapshot();
+  const key = [current.serverEpoch, current.audio.kind, 'attempt' in current.audio ? current.audio.attempt : '', demo].join('/');
+  if (remoteDemoCheck === key) return;
+  remoteDemoCheck = key;
+  void desk.hasDemo().then(available => {
+    if (remoteDesk !== desk || remoteDemoCheck !== key) return;
+    remoteDemoAvailable = available;
+    renderRemoteDemo();
+  }).catch(() => {});
+}
+
 async function toggleOutputRecording() {
-  if (remote) throw new Error('Remote recording is unavailable.');
+  if (remote) {
+    if (remoteDemoChanging || starting || switching) return;
+    const instance = remoteDesk?.performance();
+    if (!instance) throw new Error('Enable hardware audio first.');
+    remoteDemoChanging = true;
+    render(state);
+    try { await instance.recordDemo(instance.demoState() !== 'armed' && instance.demoState() !== 'recording'); }
+    finally { remoteDemoChanging = false; render(state); }
+    return;
+  }
   if (voiceCatalog.busy) return;
   if (outputCapture === 'starting' || outputCapture === 'stopping') return;
   if (outputCapture === 'waiting' || recorder?.state === 'recording') { finishOutputRecording(); render(state); return; }
@@ -823,6 +874,25 @@ elements['song-select'].addEventListener('change', () => act(() => switchSong(el
 elements.stop.addEventListener('click', () => act(stopPractice));
 elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic); });
 elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording));
+elements['download-demo'].addEventListener('click', event => {
+  if (!remote) return;
+  event.preventDefault();
+  void act(async () => {
+    const desk = remoteDesk;
+    if (!desk) throw new Error('Connect to the hardware desk first.');
+    if (remoteDemoDownloading) return;
+    remoteDemoDownloading = true;
+    try {
+      const blob = await desk.downloadDemo();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `practice-${new Date().toISOString().replace(/[:.]/g, '-')}.wav`;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } finally { remoteDemoDownloading = false; }
+  });
+});
 elements['monitor-relationship'].addEventListener('change', () => act(() => {
   if (!audio) throw new Error('Start the microphone before confirming the monitoring setup.');
   if (audio instanceof RemoteSession) throw new Error('Monitoring belongs to the remote host');
@@ -1028,6 +1098,8 @@ async function replaceHardwareDesk(desk: RemoteDesk) {
     for (const release of releases) if (release.status === 'rejected') throw release.reason;
     await remoteDesk?.dispose();
     remoteDesk = desk;
+    remoteDemoCheck = '';
+    remoteDemoAvailable = false;
     audio = undefined;
   } catch (error) {
     await desk.dispose();
@@ -1040,6 +1112,7 @@ async function replaceHardwareDesk(desk: RemoteDesk) {
 
 function renderHardwareUnavailable() {
   renderButtonBindings();
+  renderRemoteDemo();
   if (chart) elements['range-label'].textContent = `BARS ${chartBarLabel(chart, Number(elements['start-section'].value))}–${elements['end-bar'].value}`;
   for (const control of [elements.start, elements.stop, elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop, elements.click, elements.mushroom, elements['record-demo'], elements['song-select'], elements['monitor-relationship']]) control.disabled = true;
   elements['song-select'].disabled = !remoteDesk || remoteDesk.connection.kind !== 'connected' || remoteDesk.snapshot().audio.kind !== 'off' || switching;
@@ -1116,7 +1189,7 @@ if (remote) {
         render(session.snapshot());
       });
       void desk.listen();
-      elements['recording-hint'].textContent = 'Remote recording is unavailable.';
+      renderRemoteDemo();
     } finally {
       hardwareKey.disabled = false;
       hardwareKey.textContent = hardwareAuth.hasKey() ? 'Forget key' : 'Enter key';
