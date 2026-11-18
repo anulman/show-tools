@@ -5,12 +5,13 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs, promisify } from 'node:util';
 import { decodePeripheralBridgeConfig } from './bridge.js';
-import { captureAxis, captureSwitch, commissionDial, decodeMotionDirection, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo,
+import { ARCADE_SWITCH_IDS, INPUT_ONLY_SWITCH_IDS, captureAxis, captureSwitch, commissionDial, decodeMotionDirection, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo,
   type CommissioningService, type CommissioningMaintenance, type PeripheralBaseProfile } from './commissioning.js';
 import { renderPeripheralUnit } from './service-unit.js';
 import { decodeSessionProfile } from '../remote-performance/session-profile.js';
 import { createSessionClient, DeskUnavailableError } from '../remote-performance/session-client.js';
 import { createSessionService } from '../remote-performance/session-service.js';
+import { PHYSICAL_SWITCH_IDS } from '../performance/model.js';
 
 const UNIT = 'show-tools-peripheral.service';
 const exec = promisify(execFile);
@@ -18,12 +19,15 @@ export const COMMISSIONING_HELP = `Usage: show-tools peripheral setup --config F
        show-tools peripheral setup --dial --direction clockwise --capture-seconds 5 --config FILE --session-profile FILE --helper FILE --bench-dir DIRECTORY --runner FILE
        show-tools peripheral setup --test --config FILE --runner FILE
        show-tools peripheral setup --status --config FILE --runner FILE
+       show-tools peripheral setup --dry-run
 
 Run setup in a foreground terminal on the EliteDesk. The web service must be stopped.
 Add --stop-performance to stop the verified web service and discard recorded takes.
 After successful setup, a previously active web service restarts with audio off.
 Cancellation or failure leaves it stopped; start it explicitly after resolving the error.
-Setup captures two to six named buttons and asks for each LED output explicitly.
+Press Enter to capture all six switches, or enter two to six connected names.
+Setup asks for LED outputs on the four arcade buttons. Pedal and mushroom are inputs only.
+--dry-run prints the button setup plan without inspecting or changing the installation.
 Only the verified profile web service and show-tools-peripheral.service are controlled.
 Add --start to button setup to start a previously inactive service after saving.
 --dial adds the observed relative-Y source without recapturing the button map.
@@ -96,13 +100,27 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
   const { values } = parseArgs({ args: [...args], options: { config: { type: 'string' }, 'session-profile': { type: 'string' },
     helper: { type: 'string' }, 'bench-dir': { type: 'string' }, runner: { type: 'string' }, 'staging-root': { type: 'string' },
     'jiggle-travel': { type: 'string' }, 'jiggle-reversal': { type: 'string' }, 'disable-jiggle': { type: 'boolean' },
-    direction: { type: 'string' }, 'capture-seconds': { type: 'string' }, dial: { type: 'boolean' }, test: { type: 'boolean' }, status: { type: 'boolean' }, start: { type: 'boolean' }, 'stop-performance': { type: 'boolean' } } });
+    direction: { type: 'string' }, 'capture-seconds': { type: 'string' }, dial: { type: 'boolean' }, test: { type: 'boolean' }, status: { type: 'boolean' },
+    'dry-run': { type: 'boolean' }, start: { type: 'boolean' }, 'stop-performance': { type: 'boolean' } } });
   if (Number(Boolean(values.dial)) + Number(Boolean(values.test)) + Number(Boolean(values.status)) > 1) throw new Error('Choose setup, --dial, --test or --status.');
   if (!values.dial && (values.direction || values['capture-seconds'] || values['jiggle-travel'] || values['jiggle-reversal'] || values['disable-jiggle']))
     throw new Error('Use direction, capture duration and jiggle settings with --dial.');
   if (values['stop-performance'] && (values.test || values.status)) throw new Error('--stop-performance applies only to button or dial setup.');
   if (values.start && (values.dial || values.test || values.status)) throw new Error('--start applies to button setup. Start the named peripheral service separately after other commands.');
   const profilePath = resolve(values.config ?? options.configPath ?? join(homedir(), '.config/show-tools/peripheral.json'));
+  if (values['dry-run']) {
+    if (values.dial || values.test || values.status) throw new Error('Use --dry-run with button setup.');
+    const plan = {
+      dryRun: true, planOnly: true, profilePath,
+      switches: PHYSICAL_SWITCH_IDS, ledPrompts: ARCADE_SWITCH_IDS, inputOnly: INPUT_ONLY_SWITCH_IDS,
+      normalRunReplacesPhysicalMap: true, capturePerformed: false, candidateMapValidated: false,
+      configurationWritten: false, servicesChanged: false, deviceWrites: false,
+      note: 'A normal setup captures input codes and asks you to confirm LED outputs. Song cue bindings stay as saved.',
+    };
+    const write = options.io?.write ?? (message => process.stdout.write(message));
+    write(JSON.stringify(plan, null, 2) + '\n');
+    return;
+  }
   const existing = await profileSnapshot(profilePath);
   const previous = existing ? decodePeripheralBridgeConfig(JSON.parse(existing.toString('utf8'))) : undefined;
   const runner = values.runner ?? options.serviceRunner;
