@@ -18,8 +18,9 @@ class AlsaRun {
 
   template<class Device>
   int utility(Instrument& instrument, Device& device) {
+    if (!instrument.audio_needed()) return 0;
     if (finishing_) return -1;
-    if (active_ || !instrument.audio_needed()) return 0;
+    if (active_) return 0;
     if (instrument.pending()) return -1;
     const int prepared = device.prepare();
     if (prepared < 0) return prepared;

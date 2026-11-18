@@ -221,6 +221,8 @@ int main() {
   device.hold_drain = true;
   require(run.complete(instrument, device) == 0 && device.drains == 1 && device.drops == 0);
   require(run.active() && run.start(instrument, device, start) == -1 && device.prepares == 1);
+  require(instrument.prepare(packet.data(), uint32_t(packet.size()), profiles));
+  require(run.utility(instrument, device) == 0 && device.prepares == 1 && device.drops == 0);
   device.hold_drain = false;
   require(run.complete(instrument, device) == 0 && !run.active() && device.drains == 1);
   require(run.start(instrument, device, start) == 0);
