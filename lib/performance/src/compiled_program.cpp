@@ -484,6 +484,15 @@ bool Program::has_capture() const noexcept {
   for (int id = 0; id < cue_count_; ++id) if (pending_[id].reserved_take >= 0) return true;
   return false;
 }
+void Program::discard_capture() noexcept {
+  const int recording = active_capture_.take;
+  for (int id = 0; id < cue_count_; ++id) {
+    const auto& pending = pending_[id];
+    if (pending.reserved_take >= 0 || (recording >= 0 && pending.cue >= 0 && cues_[pending.cue].commit == recording))
+      pending_[id] = {};
+  }
+  if (recording >= 0) discard_invalid_draft(cues_[takes_[recording].commit_cue]);
+}
 bool Program::recording_rows(uint32_t rows) const noexcept {
   if (active_capture_.take < 0) return false;
   for (int button = 0; button < PF_CHANNELS; ++button)

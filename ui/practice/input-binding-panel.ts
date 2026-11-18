@@ -9,9 +9,8 @@ export type InputBindingPanelView = {
 	reason?: string;
 };
 
-const names: Record<PhysicalSwitchId, string> = {
-	blue: 'Blue', yellow: 'Yellow', red: 'Red', green: 'Green', pedal: 'Pedal', mushroom: 'Mushroom',
-};
+const names = { blue: 'Blue', yellow: 'Yellow', red: 'Red', green: 'Green' };
+const arcadeSwitches = PHYSICAL_SWITCH_IDS.filter(id => id !== 'pedal' && id !== 'mushroom');
 const rowOrder: readonly ChannelId[] = ['L1', 'R1', 'L2', 'R2'];
 
 const arcadeButtons = {
@@ -28,10 +27,10 @@ export function arcadeColorForRow(row: ChannelId) {
 export function arcadeButton(id: PhysicalSwitchId) {
 	return id === 'pedal' || id === 'mushroom' ? undefined : { ...arcadeButtons[id], name: names[id] };
 }
-type Editor = { controlId: PhysicalSwitchId; action: HTMLSelectElement; rows: Map<ChannelId, HTMLInputElement>; fieldset: HTMLFieldSetElement };
+type Editor = { controlId: (typeof arcadeSwitches)[number]; action: HTMLSelectElement; rows: Map<ChannelId, HTMLInputElement>; fieldset: HTMLFieldSetElement };
 
 function bindingKey(bindings: InputBindings) {
-	return JSON.stringify(PHYSICAL_SWITCH_IDS.map(controlId => {
+	return JSON.stringify(arcadeSwitches.map(controlId => {
 		const target = bindings.find(binding => binding.controlId === controlId)?.target;
 		return target?.kind === 'cue-rows' ? { kind: target.kind, rows: CONTROL_IDS.filter(row => target.rows.includes(row)) } : target ?? null;
 	}));
@@ -51,7 +50,9 @@ export function createInputBindingPanel({ onSave }: { onSave: (bindings: InputBi
 	const style = document.createElement('style');
 	style.textContent = `.input-binding-panel{margin-block:1rem}.input-binding-panel summary{cursor:pointer}.input-binding-song{font-weight:600}.input-binding-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,17rem),1fr));gap:.65rem}.input-binding-grid>fieldset{min-width:0;margin:0;padding:.5rem .65rem}.input-binding-grid legend{font-weight:600}.input-binding-grid select{font:inherit;max-width:100%;margin-left:.5rem}.input-binding-cues{border:0;padding:.45rem 0 0;margin:0;display:flex;gap:.8rem;flex-wrap:wrap}.input-binding-cues[hidden]{display:none}.input-binding-cues legend{font-size:.8em;font-weight:400}.input-binding-cues label{white-space:nowrap}.input-binding-panel [role=alert]{color:var(--danger,#b42318)}.input-binding-panel button{margin-top:.75rem;margin-inline-end:.5rem}`;
 	element.append(style, summary, song, status, error, form);
-	form.append(grid, preset, apply);
+	const fixed = document.createElement('p');
+	fixed.textContent = 'Pedal · Tap tempo. Mushroom · Undo capture and restart, or panic.';
+	form.append(grid, fixed, preset, apply);
 	let view: InputBindingPanelView | undefined;
 	let applied: InputBindings = [];
 	let generation = 0;
@@ -59,7 +60,7 @@ export function createInputBindingPanel({ onSave }: { onSave: (bindings: InputBi
 	let notice = '';
 	let failure = '';
 	const editors: Editor[] = [];
-	for (const controlId of PHYSICAL_SWITCH_IDS) {
+	for (const controlId of arcadeSwitches) {
 		const fieldset = document.createElement('fieldset');
 		const legend = document.createElement('legend'); legend.textContent = names[controlId];
 		const label = document.createElement('label'); label.textContent = 'Action';

@@ -79,6 +79,7 @@ struct pf_engine {
   int mode = PF_TRACKER, phase = PF_IDLE, start = 1, end = 1, selected = 2, beats_per_bar = 4;
   int bar = -1, beat = -1, count_beats = 0, count_elapsed = 0, count_remaining = 0, position = -1;
   double last_beat = -1, run_epoch = -1, sequence = 0, clock_sequence = 0, client_sequence = -1;
+  bool restart_at_end = false;
   bool loop = true, automatic = false, song_click = false, generic_click = false, microphone = false;
   bool used[PF_CHANNELS]{}, suppressed[PF_CHANNELS]{};
   int tap_position[PF_CHANNELS]{};
@@ -112,6 +113,9 @@ bool recording(const pf_engine* engine, int id) {
   return data[ST_SLOT_RECORDING] != 0;
 }
 bool running(const pf_engine* engine) { return engine->phase == PF_COUNT_IN || engine->phase == PF_PLAYING; }
+bool mushroom_recovers_capture(const pf_engine* engine) {
+  return running(engine) && !engine->restart_at_end && engine->compiled && engine->compiled->has_capture();
+}
 bool live_active(const pf_engine* engine) { return engine->mode == PF_PRACTICE && engine->live_authorized && engine->microphone && engine->profiles[PF_DEFAULT_PROFILE].rack && running(engine); }
 void clear_live(pf_engine* engine) {
   engine->live_authorized = false;
@@ -199,6 +203,7 @@ void emit(pf_engine* engine, int type, double when = -1, int applied = -1, int c
   for (int id = 0; id < PF_CHANNELS; ++id) pf_channel_info(engine, id, event + PF_EVENT_CHANNELS + id * PF_CHANNEL_FIELDS);
 }
 void silence(pf_engine* engine, int reason = 3) {
+  engine->restart_at_end = false;
   if (engine->tuning) engine->tuning->close();
   engine->cue_button_held = false;
   if (engine->compiled) engine->compiled->stop();
@@ -927,7 +932,10 @@ int pf_input_is_panic(const pf_engine* engine, uint32_t slot, double session, do
   if (!engine || value != 1 || engine->inputs.check(slot, session, generation, sequence, input, value) != PF_OK) return 0;
   const auto* producer = engine->inputs.producer(slot);
   if (!(producer->released & (1u << input)) || (producer->held & (1u << input))) return 0;
-  if (producer->kind == PF_INPUT_PHYSICAL) return input < PF_INPUT_SWITCHES && engine->inputs.binding(input).kind == PF_INPUT_PANIC;
+  if (producer->kind == PF_INPUT_PHYSICAL) {
+    if (input == performance_input::mushroom) return !mushroom_recovers_capture(engine);
+    return input < PF_INPUT_SWITCHES && engine->inputs.binding(input).kind == PF_INPUT_PANIC;
+  }
   return input == 4;
 }
 int pf_input_event(pf_engine* engine, uint32_t slot, double session, double generation,
@@ -947,6 +955,20 @@ int pf_input_event(pf_engine* engine, uint32_t slot, double session, double gene
       : performance_input::Binding{input < 4 || input == 7 ? PF_INPUT_CUES : input == 4 ? PF_INPUT_PANIC : PF_INPUT_TEMPO,
         input < 4 ? 1u << input : input == 7 ? 15u : 0u};
     producer->ownership[input] = engine->inputs.ownership();
+    if (producer->kind == PF_INPUT_PHYSICAL && input == performance_input::mushroom) {
+      if (mushroom_recovers_capture(engine)) {
+        engine->compiled->discard_capture();
+        engine->restart_at_end = true;
+        emit(engine, PF_STATE, engine->processed);
+        return accepted(engine);
+      }
+      if (engine->compiled) engine->compiled->discard_capture();
+      return pf_control(engine, 4, 1, nullptr, 0);
+    }
+    if (producer->kind == PF_INPUT_PHYSICAL && input == performance_input::pedal && !running(engine)) {
+      emit(engine, PF_STATE, engine->processed);
+      return accepted(engine);
+    }
     if (target.kind == PF_INPUT_PANIC) return pf_control(engine, 4, 0, nullptr, 0);
     if (target.kind == PF_INPUT_TEMPO) return pf_control(engine, 6, 0, nullptr, 0);
     if (target.kind == PF_INPUT_CUES && running(engine)) {
@@ -1005,7 +1027,10 @@ int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
       } else {
         engine->phase = PF_PLAYING; engine->count_remaining = 0; ++engine->position;
         if (engine->position == (engine->end - engine->start + 1) * engine->beats_per_bar) {
-          if (engine->loop) engine->position = 0; else { engine->phase = PF_ENDED; stopped = true; }
+          if (engine->loop || engine->restart_at_end) {
+            engine->position = 0;
+            engine->restart_at_end = false;
+          } else { engine->phase = PF_ENDED; stopped = true; }
         }
         if (!stopped) {
           engine->bar = engine->start + engine->position / engine->beats_per_bar; engine->beat = engine->position % engine->beats_per_bar + 1; downbeat = engine->beat == 1;

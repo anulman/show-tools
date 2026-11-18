@@ -48,7 +48,7 @@ try:
  send(3,4,ident+struct.pack('<H6d',1,120,1,1,4,0,0)); assert result(4)[0]==0
  send(3,5,ident+struct.pack('<H2d',3,0,0)); assert result(5)[0]==0
  send(3,6,ident+struct.pack('<H6d',14,3,5000000,generation,0,3,0)); assert result(6)[0]==0
- routing=inputs(snapshot()); assert routing[1:4]==(1,5000000,2) and routing[4:10]==(3,5000000,0,3,0,0) and not any(routing[10:])
+ routing=inputs(snapshot()); assert routing[1:4]==(1,5000000,2 | (1 << 5)) and routing[4:10]==(3,5000000,0,3,0,0) and not any(routing[10:])
  send(3,7,ident+struct.pack('<H6d',16,3,5000000,generation,100,0,1)); assert result(7)[0]==0
  assert inputs(snapshot())[9]==100
  send(3,8,ident+struct.pack('<H6d',16,3,5000000,generation,100,0,1)); assert result(8)[0]!=0

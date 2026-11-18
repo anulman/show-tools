@@ -132,6 +132,60 @@ void prepare_first_take(pf_engine* engine) {
   ok(engine, pf_control(engine, 0, 0, nullptr, 0));
   until(engine, 3);
 }
+bool take_ready(pf_engine* engine, int take) {
+  double data[PF_TAKE_FIELDS];
+  pf_compiled_take_info(engine, take, data);
+  return data[PF_TAKE_READY] == 1;
+}
+void dedicated_pedal_checks() {
+  Engine engine;
+  load(engine, empty_program({4, PF_INPUT_PANIC, 0}));
+  attach(engine, 0, 1, PF_INPUT_PHYSICAL, 63);
+  event(engine, 0, 1, 1, 4, 1);
+  event(engine, 0, 1, 2, 4, 0);
+  start(engine);
+  event(engine, 0, 1, 3, 4, 1);
+  event(engine, 0, 1, 4, 4, 1);
+  event(engine, 0, 1, 5, 4, 0);
+  double tempo[PF_TEMPO_FIELDS];
+  pf_tempo_info(engine, tempo);
+  require(tempo[PF_TEMPO_COUNT] == 1 && tempo[PF_TEMPO_SOURCE] == 0, "pedal taps tempo once per fresh press regardless of song bindings");
+}
+void mushroom_capture_checks(bool pending, bool second_press) {
+  Engine engine;
+  load(engine, held_program(false));
+  attach(engine, 0, 1, PF_INPUT_PHYSICAL, 63);
+  start(engine);
+  ok(engine, pf_control(engine, 0, 0, nullptr, 0));
+  until(engine, 1);
+  ok(engine, pf_control(engine, 0, 0, nullptr, 0));
+  ok(engine, pf_control(engine, 1, 0, nullptr, 0));
+  if (!pending) {
+    until(engine, 2);
+    require(take_ready(engine, 0), "first take is committed before mushroom recovery");
+  }
+  require(pf_input_is_panic(engine, 0, 1, generation(engine), 1, 5, 1) == 0, "armed or recording take uses recovery");
+  event(engine, 0, 1, 1, 5, 1);
+  event(engine, 0, 1, 2, 5, 1);
+  event(engine, 0, 1, 3, 5, 0);
+  if (second_press) {
+    require(pf_input_is_panic(engine, 0, 1, generation(engine), 4, 5, 1) == 1, "second fresh press is panic");
+    event(engine, 0, 1, 4, 5, 1);
+    double snapshot[PF_FIELDS];
+    pf_snapshot(engine, snapshot);
+    require(snapshot[PF_PHASE] == PF_IDLE, "second press stops transport");
+    return;
+  }
+  until(engine, 6, 4);
+  require(!take_ready(engine, 1), "canceled draft never commits");
+  until(engine, 1);
+  if (!pending) require(take_ready(engine, 0), "queued wrap preserves committed audio");
+  until(engine, 6, 4);
+  double snapshot[PF_FIELDS];
+  for (int i = 0; i < 256; ++i) render(engine);
+  pf_snapshot(engine, snapshot);
+  require(snapshot[PF_PHASE] == PF_ENDED, "one-shot restart does not enable range looping");
+}
 void unbound_light_checks() {
   Engine engine;
   load(engine, empty_program());
@@ -454,6 +508,10 @@ void ordered_batch_checks() {
 }
 }  // namespace
 int main() {
+  dedicated_pedal_checks();
+  mushroom_capture_checks(true, false);
+  mushroom_capture_checks(false, false);
+  mushroom_capture_checks(false, true);
   unbound_light_checks();
   sequenced_baseline_while_held();
   exhaustive_held_image_checks();

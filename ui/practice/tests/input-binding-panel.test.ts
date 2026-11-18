@@ -60,7 +60,7 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	panel.element.open = true;
 	const initial = { songId: 'dyc', title: 'Dance Yrself Clean', bindings: [], editable: true };
 	panel.update(initial);
-	expect(panel.element.querySelectorAll('select').length === 6, 'All six physical controls are available');
+	expect(panel.element.querySelectorAll('select').length === 4, 'Only the four assignable arcade controls are editable');
 	expect([...panel.element.querySelectorAll('select')].every(select => select.value === 'unassigned'), 'No control receives a default role');
 	expect(button(panel).disabled && !panel.dirty, 'Unchanged unassigned state cannot be applied');
 	expect(panel.element.textContent?.includes('Dance Yrself Clean'), 'Panel identifies the selected song');
@@ -70,8 +70,8 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	action(panel, 'Yellow', 'cue-rows'); row(panel, 'Yellow R1', true);
 	expect(button(panel).disabled && panel.element.textContent?.includes('R1 is assigned to both Blue and Yellow'), 'Duplicate row ownership is rejected');
 	row(panel, 'Yellow R1', false); row(panel, 'Yellow L1', true);
-	action(panel, 'Pedal', 'tempo'); action(panel, 'Mushroom', 'panic');
-	expect(!button(panel).disabled && panel.dirty, 'Explicit grouped rows, tempo and Panic form a valid draft');
+	expect(panel.element.textContent?.includes('Pedal · Tap tempo'), 'Dedicated roles are shown outside the editable assignment grid');
+	expect(!button(panel).disabled && panel.dirty, 'Explicit grouped rows form a valid draft');
 	apply(panel); await flush();
 	expect(requestCount() === 1 && !panel.pending, 'Failed save settles once');
 	expect(checkbox(panel, 'Blue R1').checked && checkbox(panel, 'Blue R2').checked, 'Failed save retains grouped row choices');
@@ -137,7 +137,7 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	preset.click();
 	for (const label of ['Yellow L1', 'Green R1', 'Blue L2', 'Red R2'])
 		expect(checkbox(configured, label).checked, `${label} is selected in the preset`);
-	expect(selectControl(configured, 'Pedal').value === 'tempo', 'Preset preserves the pedal action');
+	expect(!configured.element.querySelector('[aria-label="Pedal action"]'), 'The preset keeps the pedal outside the editable assignments');
 	expect(configured.dirty, 'Preset creates a draft for explicit Apply');
 	apply(configured); await flush();
 	expect(!configured.dirty, 'Applied preset stays saved after acknowledgement');

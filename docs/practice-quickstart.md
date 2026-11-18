@@ -174,7 +174,7 @@ For each song:
 2. Open **Button assignments**.
 3. Choose **Cue rows** for each connected button you want to use.
 4. Check the required `R1`, `R2`, `L1`, or `L2` rows for that button.
-5. Leave unused identities **Unassigned**. Use **Tempo tap** or **Panic** only when you want that function on that button.
+5. Leave unused identities **Unassigned**. Use **Tempo tap** or **Panic** only when you want that function on an arcade button. The pedal always taps tempo during practice. The mushroom cancels an armed or recording take, keeps committed loops, and queues one restart after the selected end bar. Press it again while a restart is queued, or press it without an armed capture, to terminate audio.
 6. Click **Apply button assignments**. Wait for **Assignments saved.**
 
 A button can perform several cue rows on one press. Each row can belong to only one physical button. Group rows only when you intend to perform their eligible cues together. With two buttons, choose your grouping explicitly. With more buttons, assign the rows separately as desired.

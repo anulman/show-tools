@@ -156,8 +156,15 @@ export class PersistentDesk implements DeskController {
       this.failAttempt(attempt, reason);
       return;
     }
+    if (value.type === 'event') {
+      const event = nativeEvent(value.event);
+      if (event.type === 'control' && event.control?.id === 'mushroom' && event.applied && event.physicalPanic) {
+        this.publish({ type: 'event', attempt: attempt.id, event });
+        this.stop(attempt);
+      } else if (this.configuration.kind === 'idle') this.publish({ type: 'event', attempt: attempt.id, event });
+      return;
+    }
     if (this.configuration.kind !== 'idle') return;
-    if (value.type === 'event') { this.publish({ type: 'event', attempt: attempt.id, event: nativeEvent(value.event) }); return; }
     const next = performance(value);
     if (next.hostEpoch !== this.view.audio.performance.hostEpoch) { this.failAttempt(attempt, 'Native identity changed'); return; }
     this.view = { ...this.view, revision: revision((BigInt(this.view.revision) + 1n).toString()), audio: { kind: 'ready', attempt: attempt.id, performance: next } };

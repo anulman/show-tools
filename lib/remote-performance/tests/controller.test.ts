@@ -51,6 +51,30 @@ test('audio goals converge, off during start wins, attempts fence stale controls
   } finally { await fixture.dispose(); }
 });
 
+test('an unarmed physical mushroom press terminates audio without a browser', async () => {
+  const fixture = await desk();
+  const { controller, profile } = fixture;
+  try {
+    controller.setAudio('on');
+    const audio = await until(() => { const current = controller.snapshot().audio; return current.kind === 'ready' ? current : undefined; });
+    const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
+    const routing = audio.performance.state.inputRouting;
+    assert.ok(routing);
+    const bindingGeneration = routing.bindingGeneration;
+    const producer = 0, session = routing.sessionHighWatermark + 1;
+    assert.equal((await controller.command(target, { command: 'inputAttach', args: {
+      producer, session, bindingGeneration, kind: 'physical', releasedMask: 32, heldMask: 0,
+    } })).outcome, 'applied');
+    const result = await controller.command(target, { command: 'inputEvent', args: {
+      producer, session, bindingGeneration, sequence: 1, input: 5, value: 1,
+    } });
+    assert.notEqual(result.outcome, 'rejected', JSON.stringify(result));
+    await until(() => controller.snapshot().audio.kind === 'off' ? true : undefined,
+      () => `Physical panic failed to terminate audio (command: ${result.outcome}, audio: ${controller.snapshot().audio.kind})`);
+    assert.deepEqual(await readdir(profile.runtimeRoot), []);
+  } finally { await fixture.dispose(); }
+});
+
 test('failed startup reaps before fault and never automatically retries', async () => {
   const fixture = await desk();
   try {
