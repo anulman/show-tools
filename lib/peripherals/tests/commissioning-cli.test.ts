@@ -20,6 +20,22 @@ function inactiveWeb() {
     stop: async () => {}, start: async () => { throw Error('Previously inactive web must not start'); } };
 }
 
+test('dry run prints the six-switch plan without inspecting installation files or services', async () => {
+  const output: string[] = [];
+  const unused = async () => { throw new Error('dry run attempted an installation operation'); };
+  await runCommissioningCli(['--dry-run', '--config', '/dev/null', '--session-profile', '/dev/null'], {
+    command: unused,
+    webService: { state: unused, start: unused, stop: unused },
+    io: { question: unused, write: message => output.push(message) },
+  });
+  const plan = JSON.parse(output.join(''));
+  assert.equal(plan.profilePath, '/dev/null');
+  assert.deepEqual(plan.switches, ['blue', 'yellow', 'red', 'green', 'pedal', 'mushroom']);
+  assert.deepEqual(plan.ledPrompts, ['blue', 'yellow', 'red', 'green']);
+  assert.deepEqual(plan.inputOnly, ['pedal', 'mushroom']);
+  assert.equal(plan.planOnly, true);
+});
+
 async function fixture(mode = 'complete') {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-cli-')));
   const observer = join(directory, 'raw_keys.py');

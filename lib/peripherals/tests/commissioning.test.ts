@@ -133,6 +133,40 @@ test('all six identities and an explicitly observed relative-Y source fit the in
   assert.equal(inputMap.axis?.code, 1); assert.equal(inputMap.leds[3].sdkChannel, 48);
 });
 
+test('blank setup replaces stale mappings and prompts for LEDs on the four arcade buttons only', async t => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-all-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, 'peripheral.json');
+  const oldMap = assembleInstallationMap({
+    switches: [captured('blue', 30), captured('pedal', 31)],
+    leds: [{ controlId: 'pedal', sdkChannel: 6 }],
+    confirmWiring: true,
+  });
+  await saveCommissionedProfile(path, null, { ...base, inputMap: oldMap });
+  const ids = ['blue', 'yellow', 'red', 'green', 'pedal', 'mushroom'];
+  const answers = ['', '', '', '', '', '', '', '1', '2', '3', '49', 'yes'];
+  const prompts: string[] = [];
+  const completeSource = { ...source, keyCodes: [40, 41, 42, 43, 44, 45] };
+  const profile = await commissionHardware({
+    profilePath: path, baseProfile: { ...base, bindingRevision: 2 }, includeAxis: false,
+    service: { inspect: async () => ({ active: false }), stop: async () => {}, start: async () => {} },
+    audioOff: async () => {},
+    capture: async id => ({ ...captured(id, 40 + ids.indexOf(id)), source: completeSource }),
+    io: { question: async prompt => {
+      prompts.push(prompt);
+      const answer = answers.shift();
+      assert(typeof answer === 'string', 'unexpected setup prompt');
+      return answer;
+    }, write: () => {} },
+  });
+  assert.equal(answers.length, 0);
+  assert.equal(prompts.filter(prompt => prompt.startsWith('LED output for ')).length, 4);
+  assert.deepEqual(profile.inputMap.switches.map(value => value.controlId), ids);
+  assert.deepEqual(profile.inputMap.leds.map(value => [value.controlId, value.sdkChannel]),
+    [['blue', 0], ['yellow', 1], ['red', 2], ['green', 48]]);
+  assert.equal(await readFile(path, 'utf8'), JSON.stringify(profile, null, 2) + '\n');
+});
+
 test('adding an observed dial preserves existing switches, LEDs and explicit jiggle values', async () => {
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'commission-axis-')));
   const path = join(directory, 'peripheral.json');

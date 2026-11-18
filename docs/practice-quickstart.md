@@ -117,18 +117,18 @@ hardware --start --stop-performance
 
 Follow the foreground prompts:
 
-1. Enter the connected identities, separated by commas. With the current two buttons, enter `blue,yellow`. The full set is `blue,yellow,red,green,pedal,mushroom`.
+1. Press Enter to capture blue, yellow, red, green, pedal, and mushroom in order. If some are disconnected, enter two to six connected names separated by commas.
 2. Release every control. Press Enter for the named button.
 3. Wait for `ARMED`. Press and fully release that button three times. Leave it released.
 4. Repeat for each named button.
-5. Enter each button's actual LED output number, or `none` for a button without an LED. The confirmed current wiring is Blue on output `1` and Yellow on output `2`.
+5. Enter each arcade button's actual LED output number, or `none` if its lamp is disconnected. The pedal and mushroom are switch inputs only.
 6. Confirm the listed wiring only after checking the actual connections and polarity.
 
 The setup tool captures actual input codes. It does not derive codes from header labels such as `2SW7`. `--stop-performance` explicitly authorizes stopping the web service and discarding any remaining takes. The tool verifies that its owned processes have exited before capture. This also prevents a browser from enabling audio during the save.
 
 Setup stops the named peripheral service, saves the complete validated map, and starts it after a successful save. It restores a previously active web service after cleanup. On cancellation or failure, read the diagnostic before restarting services. Wait for the terminal to report completion before starting another command.
 
-To add buttons later, rerun `hardware --start --stop-performance` and include every connected identity you want to retain. Two buttons are enough to complete setup. Do not enter six until six separate identities are connected.
+To preview the default capture plan, run `hardware --dry-run`. To add buttons later, rerun `hardware --start --stop-performance` and include every connected identity you want to retain. Setup replaces the saved button and LED map.
 
 ## Check the LEDs with audio off
 

@@ -10,6 +10,8 @@ import { boundedLines, decodePeripheralBridgeConfig, decodePeripheralInputMap, t
 
 const integer = (minimum: number, maximum: number) => Schema.Int.check(Schema.isBetween({ minimum, maximum }));
 const control = Schema.Literals(PHYSICAL_SWITCH_IDS);
+export const INPUT_ONLY_SWITCH_IDS: readonly PhysicalControlId[] = ['pedal', 'mushroom'];
+export const ARCADE_SWITCH_IDS = PHYSICAL_SWITCH_IDS.filter(id => !INPUT_ONLY_SWITCH_IDS.includes(id));
 const absolute = Schema.NonEmptyString.check(Schema.isPattern(/^\//));
 const codes = Schema.Array(integer(0, 65535)).check(Schema.isMaxLength(1024), Schema.makeFilter(values => values.every((value, index) => index === 0 || value > values[index - 1]) || 'Capabilities must be sorted and unique'));
 const SourceSchema = Schema.Struct({ type: Schema.Literal('source'), device: absolute, canonical: absolute,
@@ -379,6 +381,7 @@ export async function saveCommissionedProfile(path: string, expected: Buffer | n
     else { await rename(temporary, path); published = true; temporaryPresent = false; }
     const directory = await open(parent, constants.O_RDONLY | constants.O_DIRECTORY);
     try { await directory.sync(); } finally { await directory.close(); }
+    if (!(await profileSnapshot(path))?.equals(encoded)) throw new Error('Saved profile differs from the commissioned bytes.');
     return valid;
   } catch (error) {
     if (published) throw new CommissioningSaveUncertain(`Profile publication at ${path} needs inspection before restarting the service. ${error instanceof Error ? error.message : String(error)}`);
@@ -401,9 +404,9 @@ async function commissionHardwareUnderLock({ profilePath, baseProfile, service, 
   signal?.throwIfAborted();
   const expected = await profileSnapshot(profilePath);
   signal?.throwIfAborted();
-  const answer = await io.question(`Switch identities (${PHYSICAL_SWITCH_IDS.join(', ')}). Enter the connected names separated by commas: `);
+  const answer = await io.question(`Press Enter to capture all six switches (${PHYSICAL_SWITCH_IDS.join(', ')}), or enter two to six connected names separated by commas: `);
   signal?.throwIfAborted();
-  const selected = answer.split(',').map(value => value.trim());
+  const selected = answer.trim() ? answer.split(',').map(value => value.trim()) : PHYSICAL_SWITCH_IDS;
   if (selected.length < 2 || selected.length > 6 || new Set(selected).size !== selected.length) throw new Error('Choose two to six distinct connected switch identities.');
   const identities = selected.map(value => Schema.decodeUnknownSync(control)(value));
   signal?.throwIfAborted();
@@ -438,6 +441,7 @@ async function commissionHardwareUnderLock({ profilePath, baseProfile, service, 
     const leds: LedAssignment[] = [];
     for (const identity of identities) {
       signal?.throwIfAborted();
+      if (INPUT_ONLY_SWITCH_IDS.includes(identity)) continue;
       const output = (await io.question(`LED output for ${identity} (none, or the board output number 1–96): `)).trim();
       signal?.throwIfAborted();
       if (output === 'none') continue;
@@ -455,6 +459,7 @@ async function commissionHardwareUnderLock({ profilePath, baseProfile, service, 
     if (signal?.aborted) throw new Error('Configuration saved. Commissioning was cancelled after publication; the peripheral service is left stopped.');
     restore = restore || startAfterSave;
     io.write(`Saved ${identities.length} switch identities${axis ? ' and the dial' : ''} to ${profilePath}.\n`);
+    io.write(`Replaced and verified the physical map at revision ${profile.bindingRevision}.\n`);
     return profile;
   } catch (error) {
     if (error instanceof CommissioningSaveUncertain || signal?.aborted) restore = false;
