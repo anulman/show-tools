@@ -36,10 +36,10 @@ test('standalone canonical XML retains verified WAV bytes and full license prove
   assert.deepEqual(Buffer.from(prepared[0].bytes), fixture.bytes);
   const packaged = packageFixture(restored.song);
   const installed = validateInstalledPackage(packaged.manifest, packaged.packet, packaged.configurations);
-  assert.equal(installed.assets.length, 1);
-  assert.equal(installed.assets[0].readUInt16LE(), 15);
-  assert.equal(installed.assets[0].readUInt32LE(2), 0);
-  assert.deepEqual(installed.assets[0].subarray(10), fixture.bytes);
+  const wave = installed.operation.subarray(-fixture.bytes.length - 10);
+  assert.equal(wave.readUInt16LE(), 15);
+  assert.equal(wave.readUInt32LE(2), 0);
+  assert.deepEqual(wave.subarray(10), fixture.bytes);
 });
 
 test('asset hash, URI, container and native manifest limits fail before preparation', async () => {

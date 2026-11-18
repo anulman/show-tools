@@ -180,6 +180,9 @@ void pf_voice_effect_info(const pf_engine* engine, uint32_t profile, uint32_t st
    reauthorize. Null live outputs discard audio while advancing DSP once. */
 int pf_process_stems(pf_engine* engine, const float* input, float* sample_click_left, float* sample_click_right,
   float* live_left, float* live_right, uint32_t frames);
+/* Add the prepared default voice while stopped. The host owns monitor authorization.
+   This advances only the voice effects, without touching transport or capture. */
+int pf_render_idle_monitor(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames);
 /* Process adds output, advances the owned clock, and executes all musical
    decisions. No JavaScript callbacks are used. One caller owns each engine. */
 int pf_process(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames);

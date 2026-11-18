@@ -16,7 +16,7 @@ static int capture_drops = 0, playback_drops = 0, playback_drains = 0;
 static bool async_drain = false;
 struct snd_pcm_hw_params_t { int format; unsigned channels, rate; unsigned long period, buffer; };
 static std::int32_t written[4];
-static int recovery_calls = 0;
+static int capture_recoveries = 0, playback_recoveries = 0, recovery_error = 0;
 static int close_count = 0;
 static bool fail_playback = false;
 static bool fail_capture = false;
@@ -60,7 +60,13 @@ snd_pcm_sframes_t snd_pcm_writei(snd_pcm_t*, const void* data, snd_pcm_uframes_t
   else { auto* v = static_cast<const std::int32_t*>(data); for (int i = 0; i < 4; ++i) written[i] = v[i]; }
   return 1;
 }
-int snd_pcm_recover(snd_pcm_t*, int, int) { ++recovery_calls; return 0; }
+int snd_pcm_recover(snd_pcm_t* pcm, int error, int silent) {
+  require(error == -EPIPE && silent == 1);
+  if (pcm == capture_pcm) ++capture_recoveries;
+  else if (pcm == playback_pcm) ++playback_recoveries;
+  else std::abort();
+  return recovery_error;
+}
 int snd_pcm_drop(snd_pcm_t* pcm) { pcm->state = SND_PCM_STATE_SETUP; if (pcm->direction == SND_PCM_STREAM_CAPTURE) ++capture_drops; else ++playback_drops; return 0; }
 int snd_pcm_drain(snd_pcm_t* pcm) { require(pcm == playback_pcm && capture_pcm->state == SND_PCM_STATE_SETUP); ++playback_drains; pcm->state = async_drain ? SND_PCM_STATE_DRAINING : SND_PCM_STATE_SETUP; return async_drain ? -EAGAIN : 0; }
 int snd_pcm_nonblock(snd_pcm_t*, int mode) { return restore_failure && mode == 0 ? -EIO : 0; }
@@ -146,10 +152,21 @@ int main() {
   require(pcm->read(input, 257) == -EINVAL);
   require(pcm->write(output, 257) == -EINVAL);
   read_error = -EPIPE; write_error = -EPIPE;
+  require(pcm->read(input, 2) == 0 && input[0] == 0.5f);
+  require(pcm->write(output, 2) == 0);
+  require(capture_recoveries == 1 && playback_recoveries == 1);
   require(pcm->read(input, 2) == -EPIPE && pcm->write(output, 2) == -EPIPE);
-  require(recovery_calls == 0);
-  require(pcm->recover(native_alsa::Direction::Capture, -EPIPE) == 0 && recovery_calls == 1);
+  require(capture_recoveries == 1 && playback_recoveries == 1);
+  read_error = 0; write_error = 0;
+  require(pcm->read(input, 2) == 1 && pcm->write(output, 2) == 1);
+  read_error = -ENODEV; write_error = -EPIPE; recovery_error = -ENODEV;
+  require(pcm->read(input, 2) == -ENODEV && pcm->write(output, 2) == -ENODEV);
+  require(capture_recoveries == 1 && playback_recoveries == 2);
+  recovery_error = 0;
   require(pcm->drop() == 0 && pcm->prepare() == 0);
+  read_error = -EPIPE;
+  require(pcm->read(input, 2) == 0 && pcm->write(output, 2) == 0);
+  require(capture_recoveries == 2 && playback_recoveries == 3);
   capture_pcm->state = playback_pcm->state = SND_PCM_STATE_RUNNING;
   require(pcm->prepare() == -EBUSY);
   async_drain = true;
@@ -174,7 +191,10 @@ int main() {
   guarded = true;
   config.capture_device = config.playback_device = "hw:CARD=USB,DEV=0";
   config.identity = native_alsa::UsbIdentity{"/dev/snd/by-id/usb-Focusrite_Scarlett_Solo_USB_Y7PZ8TB58373E7-00", "Y7PZ8TB58373E7", "1235", "8211", "USB", 0, "Direct Monitor Playback Switch"};
-  const auto no_io = [&] { require(pcm_reads == 3 && pcm_writes == 3 && controls_open == 0); };
+  const int reads_before_identity_checks = pcm_reads, writes_before_identity_checks = pcm_writes;
+  const auto no_io = [&] {
+    require(pcm_reads == reads_before_identity_checks && pcm_writes == writes_before_identity_checks && controls_open == 0);
+  };
   const auto rejected = [&](int closed) {
     inspect_calls = info_calls = monitor_reads = 0;
     const int before = close_count;

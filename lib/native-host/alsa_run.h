@@ -8,12 +8,10 @@ class AlsaRun {
   template<class Device>
   int start(Instrument& instrument, Device& device, const Start& start) {
     if (finishing_ || !instrument.can_start()) return -1;
-    if (active_) {
-      if (device.drop() < 0) return -2;
-      active_ = false;
-    }
-    if (!active_ && device.prepare() < 0) return -2;
+    const bool reset = active_ && !instrument.idle_monitor_only();
     if (!instrument.start(start)) return -1;
+    if (reset && drop(device) < 0) return -2;
+    if (!active_ && device.prepare() < 0) return -2;
     active_ = true;
     return 0;
   }
@@ -23,7 +21,8 @@ class AlsaRun {
     if (finishing_) return -1;
     if (active_ || !instrument.audio_needed()) return 0;
     if (instrument.pending()) return -1;
-    if (device.prepare() < 0) return -1;
+    const int prepared = device.prepare();
+    if (prepared < 0) return prepared;
     active_ = true;
     return 0;
   }

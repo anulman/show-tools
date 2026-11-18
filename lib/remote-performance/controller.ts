@@ -6,6 +6,7 @@ import { Effect, Fiber, Schema, Stream } from 'effect';
 import { NodeServices } from '@effect/platform-node';
 import { ChildProcess, ChildProcessSpawner } from 'effect/process';
 import { NativeInstrument } from './instrument.js';
+import { isPriorityCommand } from './commands.js';
 import type { Observation } from './gateway.js';
 import { SongSchema, NativeEventSchema } from './native-schema.js';
 import { prepareInstalledPackage, type validateInstalledPackage } from './prepare.js';
@@ -42,6 +43,7 @@ export class PersistentDesk implements DeskController {
     return this.retirements.get(JSON.stringify([target.attempt, target.hostEpoch])) ?? null;
   }
 
+  private configurationRevision = 0n;
   private configuration: { kind: 'idle' } | { kind: 'preparing'; done: Promise<void> } = { kind: 'idle' };
   constructor(private readonly profile: SessionProfile, private installed: InstalledPackage,
     private readonly songs?: { catalog: InstalledSongCatalog; bindings: SongBindingAuthority }) {
@@ -52,11 +54,19 @@ export class PersistentDesk implements DeskController {
     if (!this.songs) throw new Error('No installed song catalog is configured');
     return this.songs.catalog.choices;
   }
-  private async configure(expectedRevision: string, prepare: () => Promise<{ installed: InstalledPackage; commit: () => void }>): Promise<AudioDecision> {
+  private async configure(expectedRevision: string, prepare: () => Promise<{ installed: InstalledPackage; commit: () => void }>, selecting?: string): Promise<AudioDecision> {
     const rejected = (error: string): AudioDecision => ({ outcome: 'rejected', error, view: this.view });
-    if (this.closing || this.attempt || this.view.audio.kind !== 'off' || this.configuration.kind !== 'idle')
-      return rejected('Turn audio off and wait for its owned process to exit before configuring songs');
-    if (expectedRevision !== this.view.revision) return rejected('Desk changed. Reload its current state before saving');
+    if (this.closing || this.configuration.kind !== 'idle') return rejected('Wait for the current desk operation to finish');
+    const audio = this.view.audio;
+    const stopped = audio.kind === 'ready' && (audio.performance.state.phase === 'idle' || audio.performance.state.phase === 'ended');
+    const attempt = selecting && stopped ? this.attempt : undefined;
+    if (audio.kind !== 'off' && !attempt)
+      return rejected(selecting ? 'Stop practice before switching songs' : 'Turn audio off before changing button assignments');
+    if (!/^(0|[1-9][0-9]{0,19})$/.test(expectedRevision)) return rejected('Invalid desk revision');
+    const seen = BigInt(expectedRevision);
+    if (attempt ? seen < this.configurationRevision || seen > BigInt(this.view.revision) : expectedRevision !== this.view.revision)
+      return rejected('Desk changed. Reload its current state before saving');
+    if (selecting === this.view.song.id) return { outcome: 'accepted', view: this.view };
     let finish!: () => void;
     const done = new Promise<void>(resolve => { finish = resolve; });
     this.configuration = { kind: 'preparing', done };
@@ -64,10 +74,28 @@ export class PersistentDesk implements DeskController {
       const candidate = await prepare();
       const song = Schema.decodeUnknownSync(SongSchema)(candidate.installed.song);
       if (this.closing) return rejected('Desk is shutting down; configuration was not committed');
+      let nextAudio = audio;
+      if (attempt) {
+        const instrument = attempt.instrument;
+        if (!instrument || attempt !== this.attempt || attempt.abort.signal.aborted || audio.kind !== 'ready') return rejected('Hardware audio changed while loading the song');
+        try {
+          if (!await instrument.replaceSong(candidate.installed.operation)) return rejected('Native host could not replace the stopped song');
+          const snapshot = instrument.snapshot();
+          if (!snapshot || snapshot.type !== 'session' || JSON.stringify(Schema.decodeUnknownSync(SongSchema)(snapshot.song)) !== JSON.stringify(song))
+            throw new Error('Native song readback mismatch');
+          if (attempt !== this.attempt || attempt.abort.signal.aborted) return rejected('Hardware audio changed while loading the song');
+          const next = performance(snapshot);
+          if (next.hostEpoch !== audio.performance.hostEpoch || next.state.phase !== 'idle') throw new Error('Native stopped song readback mismatch');
+          nextAudio = { ...audio, performance: next };
+        } catch (error) {
+          this.failAttempt(attempt, errorText(error));
+          throw error;
+        }
+      }
       candidate.commit();
       this.installed = candidate.installed;
-      this.view = { ...this.view, song, revision: revision((BigInt(this.view.revision) + 1n).toString()) };
-      this.publish({ type: 'desk', view: this.view });
+      this.view = { ...this.view, song };
+      this.update(nextAudio);
       return { outcome: 'accepted', view: this.view };
     } catch (error) { return rejected(errorText(error)); }
     finally { this.configuration = { kind: 'idle' }; finish(); }
@@ -78,7 +106,7 @@ export class PersistentDesk implements DeskController {
       const entry = this.songs.catalog.get(songId), authored = this.songs.bindings.read(entry);
       const installed = authored.revision ? (await prepareSongBindings(entry, authored.bindings)).installed : entry.installed;
       return { installed, commit: () => {} };
-    });
+    }, songId);
   }
   configureSongBindings(songId: string, expectedRevision: string, input: unknown): Promise<AudioDecision> {
     return this.configure(expectedRevision, async () => {
@@ -95,6 +123,7 @@ export class PersistentDesk implements DeskController {
   private publish(value: DeskPublication) { for (const listener of this.listeners) listener(value); }
   private update(audio: DeskView['audio']) {
     this.view = { ...this.view, revision: revision((BigInt(this.view.revision) + 1n).toString()), audio };
+    this.configurationRevision = BigInt(this.view.revision);
     this.publish({ type: 'desk', view: this.view });
   }
   setAudio(goal: AudioGoal): AudioDecision {
@@ -121,7 +150,13 @@ export class PersistentDesk implements DeskController {
   }
   private observe(attempt: Attempt, value: Observation) {
     if (this.attempt !== attempt || this.view.audio.kind !== 'ready' || attempt.abort.signal.aborted) return;
-    if (value.type === 'gap') { this.failAttempt(attempt, 'Native observer disconnected'); return; }
+    if (value.type === 'gap') {
+      const reason = typeof value.dropped === 'string' ? `Native observer lost ${value.dropped} event(s)`
+        : typeof value.reason === 'string' ? value.reason : 'Native observer disconnected';
+      this.failAttempt(attempt, reason);
+      return;
+    }
+    if (this.configuration.kind !== 'idle') return;
     if (value.type === 'event') { this.publish({ type: 'event', attempt: attempt.id, event: nativeEvent(value.event) }); return; }
     const next = performance(value);
     if (next.hostEpoch !== this.view.audio.performance.hostEpoch) { this.failAttempt(attempt, 'Native identity changed'); return; }
@@ -177,7 +212,7 @@ export class PersistentDesk implements DeskController {
     if (driver.kind === 'alsa' && driver.requireInactiveUserService) yield* requireLegacyMonitorInactive(driver.requireInactiveUserService);
     const args = [socket, String(native.sampleRate), String(native.blockFrames), String(native.maxVoices), String(native.maxSeconds),
       ...(driver.kind === 'fake' ? [String(driver.inputLevel)] : [`hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, `hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, String(driver.captureChannels), String(driver.inputChannel), String(driver.periodFrames), String(driver.bufferFrames), driver.format,
-        '--usb-identity', driver.identity.byId, driver.identity.usbSerial, driver.identity.usbVendor, driver.identity.usbProduct, driver.identity.alsaCardId, String(driver.identity.pcmDevice), driver.identity.monitorOff]),
+        '--usb-identity', driver.identity.byId, driver.identity.usbSerial, driver.identity.usbVendor, driver.identity.usbProduct, driver.identity.alsaCardId, String(driver.identity.pcmDevice), driver.identity.monitorOff, '--idle-monitor']),
       '--owner-pid', String(process.pid)];
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     attempt.child = { kind: 'pending' };
@@ -227,6 +262,7 @@ export class PersistentDesk implements DeskController {
     const attempt = this.attempt, audio = this.view.audio;
     if (!attempt?.instrument || attempt.abort.signal.aborted || audio.kind !== 'ready' || target.attempt !== attempt.id || target.hostEpoch !== audio.performance.hostEpoch)
       throw new Error('Native target is unavailable or stale');
+    if (this.configuration.kind !== 'idle') throw new Error('Wait for song selection to finish before downloading');
     const bytes = await attempt.instrument.takeAudio(request);
     if (this.attempt !== attempt || this.view.audio.kind !== 'ready' || attempt.abort.signal.aborted) throw new Error('Native target changed during download');
     return bytes;
@@ -235,6 +271,9 @@ export class PersistentDesk implements DeskController {
     const attempt = this.attempt;
     const audio = this.view.audio;
     if (!attempt?.instrument || attempt.abort.signal.aborted || audio.kind !== 'ready' || target.attempt !== attempt.id || target.hostEpoch !== audio.performance.hostEpoch) return { outcome: 'rejected', error: 'Native target is unavailable or stale' };
+    if (this.configuration.kind !== 'idle' && typeof input === 'object' && input !== null && 'command' in input
+      && input.command !== 'inputRevoke' && input.command !== 'inputEvent' && !isPriorityCommand(input, audio.performance.state))
+      return { outcome: 'rejected', error: 'Wait for song selection to finish before sending this command' };
     try {
       const result = outcome(await attempt.instrument.command(input));
       if (this.attempt !== attempt || this.view.audio.kind !== 'ready' || attempt.abort.signal.aborted) return { outcome: 'unknown' };

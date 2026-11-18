@@ -22,7 +22,6 @@ export function validateInstalledPackage(manifest: Buffer, packet: Buffer, confi
 	header.writeUInt32LE(manifest.length, 2);
 	header.writeUInt32LE(packet.length, 6);
 	const operation = Buffer.concat([header, effects.subarray(2, 54), digest, manifest, packet, effects.subarray(54)]);
-	if (operation.length + 32 > 8 * 1024 * 1024) throw new Error('Bundle exceeds host frame limit');
 	const assets = (metadata.song.compiled.externalSamples ?? []).flatMap(sample => {
 		if (!sample.asset) return [];
 		const bytes = decodeExternalSampleWav(sample.asset);
@@ -33,7 +32,9 @@ export function validateInstalledPackage(manifest: Buffer, packet: Buffer, confi
 		assetHeader.writeUInt32LE(bytes.length, 6);
 		return [Buffer.concat([assetHeader, bytes])];
 	});
-	return { song: metadata.song, operation, assets, digest: digest.toString('hex') };
+	const bundle = Buffer.concat([operation, ...assets]);
+	if (bundle.length + 32 > 8 * 1024 * 1024) throw new Error('Bundle with external WAVs exceeds host frame limit');
+	return { song: metadata.song, operation: bundle, digest: digest.toString('hex') };
 }
 
 export async function prepareInstalledPackage(socket: string, installed: ReturnType<typeof validateInstalledPackage>, signal?: AbortSignal) {
@@ -68,11 +69,8 @@ export async function prepareInstalledPackage(socket: string, installed: ReturnT
 	try {
 		connection = await Promise.race([connectPreparedHost(), canceled]);
 		deadline.signal.throwIfAborted();
-		for (const operation of [installed.operation, ...installed.assets]) {
-			deadline.signal.throwIfAborted();
-			const result = await Promise.race([connection.command(operation), canceled]);
-			if (result.length !== 16 || result.readUInt32LE(0) !== 0) throw new Error(`Host rejected preparation (${result.length === 16 ? result.readInt32LE(4) : 'invalid result'})`);
-		}
+		const result = await Promise.race([connection.command(installed.operation), canceled]);
+		if (result.length !== 16 || result.readUInt32LE(0) !== 0) throw new Error(`Host rejected preparation (${result.length === 16 ? result.readInt32LE(4) : 'invalid result'})`);
 	} finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); connection?.close(); }
 }
 

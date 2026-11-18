@@ -645,7 +645,7 @@ function render(next: Partial<PracticeState>) {
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
   elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping';
-  elements['song-select'].disabled = remote && remoteDesk?.snapshot().audio.kind !== 'off' || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
+  elements['song-select'].disabled = remote && (remoteDesk?.connection.kind !== 'connected' || running) || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
   elements['record-demo'].disabled = remote || voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
   const effectsLocked = running || starting || switching || Boolean(preparing) || effectsApplying || outputCapture !== 'idle';
   voiceEffects.render(state.voiceEffects, effectsLocked);
@@ -911,7 +911,14 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
   const { remoteSong, voiceMetadata } = options;
   if (remote && !remoteSong) {
     if (!remoteDesk) throw new Error('Connect to the hardware desk before choosing a song');
-    await remoteDesk.selectSong(id); await mountHardwareSong(remoteDesk.snapshot()); return;
+    const desk = remoteDesk;
+    try {
+      await desk.selectSong(id);
+      await mountHardwareSong(desk.snapshot());
+    } finally {
+      elements['song-select'].value = desk.snapshot().song.id;
+    }
+    return;
   }
   if (voiceCatalog.busy) throw new Error('Wait for the voice library save before switching songs.');
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
@@ -943,6 +950,9 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
       looping: [], error: null, channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
     mountVoiceRows();
     await voiceCatalog.load(loaded).catch(showError);
+    if (remoteSong && audio instanceof RemoteSession) {
+      for (const voice of audio.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);
+    }
     if (remoteSong && ![...elements['song-select'].options].some(option => option.value === loaded.id)) {
       const option = document.createElement('option'); option.value = loaded.id; option.textContent = loaded.chart.title;
       elements['song-select'].append(option);

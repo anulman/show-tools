@@ -332,7 +332,7 @@ async function attachNativeSession(config: PeripheralBridgeConfig, signal: Abort
 		}));
 		if (result.outcome !== 'applied') {
 			if (result.outcome === 'unknown') throw new PeripheralRetry('Peripheral control outcome unknown; this input will not be replayed');
-			if (event.input !== 6 && event.value === 0) throw new Error('Native button release rejected');
+			if (event.input !== 6 && event.value === 0) throw new PeripheralRetry('Native button release rejected; reconnect the physical source');
 			process.stderr.write(`${JSON.stringify({ type: 'input-rejected', event, error: result.error })}\n`); return;
 		}
 		if (result.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed');
@@ -346,6 +346,9 @@ async function attachNativeSession(config: PeripheralBridgeConfig, signal: Abort
 		switch (proof.kind) {
 			case 'rejected-before-admission': return !receipt && proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch && proof.kindOfProducer === 'physical' && proof.bindingGeneration === bindingGeneration;
 			case 'old-engine-ended': return proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch && proof.serverEpoch === bootstrap.view.serverEpoch && proof.kindOfProducer === 'physical' && proof.bindingGeneration === bindingGeneration;
+			case 'binding-generation-retired': return proof.target.attempt === target.attempt && proof.target.hostEpoch === target.hostEpoch
+				&& proof.serverEpoch === bootstrap.view.serverEpoch && proof.kindOfProducer === 'physical' && proof.bindingGeneration === bindingGeneration
+				&& proof.currentBindingGeneration > bindingGeneration && (!receipt || BigInt(proof.replacementRevision) > BigInt(receipt.admissionRevision));
 			case 'exact-revoke-applied': return proof.receipt.target.attempt === target.attempt && proof.receipt.target.hostEpoch === target.hostEpoch && proof.receipt.kind === 'physical' && proof.receipt.bindingGeneration === bindingGeneration && BigInt(proof.revocationRevision) > BigInt(proof.receipt.admissionRevision) && (!receipt || proof.receipt.producer === receipt.producer && proof.receipt.session === receipt.session && proof.receipt.admissionRevision === receipt.admissionRevision);
 		}
 	};

@@ -149,7 +149,7 @@ def fragmented_input_priority(invalidation, panic, saturated=False):
    evidence=(invalidation,panic,saturated,outcomes[start],outcomes[observation],run,canceled)
    if invalidation in ('revoke','prepare'):
     assert outcomes[first]==0, evidence
-    assert outcomes[start]==0 and run==1 and canceled==0, evidence
+    assert outcomes[start]==0 and run==1+(invalidation=='prepare') and canceled==0, evidence
     assert outcomes[observation]==(3 if saturated and not panic else 1), evidence
    elif invalidation in ('held','replay'):
     assert outcomes[start]==0 and run==1 and canceled==0, evidence

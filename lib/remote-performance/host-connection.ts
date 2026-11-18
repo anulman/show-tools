@@ -9,7 +9,7 @@ const RESULT = 4;
 const MAX_PENDING = 256;
 
 export class HostDisconnected extends Error {
-	constructor() { super('Host connection lost; command outcome is unknown'); }
+	constructor(detail?: string) { super(detail ? `Native observer readback failed: ${detail.slice(0, 512)}` : 'Native observer socket closed'); }
 }
 
 export class HostUnavailable extends Error {
@@ -24,6 +24,7 @@ export class HostConnection {
 	private sequence = 0;
 	private connected = false;
 	private unavailable: HostUnavailable | undefined;
+	private readbackFailure: HostDisconnected | undefined;
 	private readonly pending = new Map<number, { resolve: (payload: Buffer) => void; reject: (error: Error) => void }>();
 	get processEpoch() { return this.identity?.subarray(0, 16).toString('hex') ?? ''; }
 
@@ -32,7 +33,10 @@ export class HostConnection {
 		this.socket.once('connect', () => { this.connected = true; });
 		this.socket.on('data', (chunk) => {
 			try { for (const frame of this.decoder.push(Buffer.from(chunk))) this.receive(frame); }
-			catch { this.socket.destroy(); }
+			catch (error) {
+				this.readbackFailure = new HostDisconnected(error instanceof Error ? error.message : 'Unknown observer error');
+				this.socket.destroy();
+			}
 		});
 		this.socket.on('error', error => {
 			if (!this.connected && 'code' in error && (error.code === 'ENOENT' || error.code === 'ECONNREFUSED')) this.unavailable = new HostUnavailable(error.code);
@@ -41,7 +45,7 @@ export class HostConnection {
 			this.ready = false;
 			for (const command of this.pending.values()) command.reject(new HostDisconnected());
 			this.pending.clear();
-			this.disconnected(this.unavailable ?? new HostDisconnected());
+			this.disconnected(this.unavailable ?? this.readbackFailure ?? new HostDisconnected());
 			this.identity = undefined;
 		});
 	}

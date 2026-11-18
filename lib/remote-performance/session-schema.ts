@@ -63,6 +63,9 @@ export const InputIntentStatusSchema = Schema.Union([
     Schema.Struct({ kind: Schema.Literal('rejected-before-admission'), target: NativeTargetSchema,
       kindOfProducer: InputProducerKindSchema, bindingGeneration: InputAttachSchema.fields.bindingGeneration }),
     Schema.Struct({ kind: Schema.Literal('exact-revoke-applied'), receipt: InputLeaseReceiptSchema, revocationRevision: NativeRevisionSchema }),
+    Schema.Struct({ kind: Schema.Literal('binding-generation-retired'), target: NativeTargetSchema, serverEpoch: ServerEpochSchema,
+      kindOfProducer: InputProducerKindSchema, bindingGeneration: InputAttachSchema.fields.bindingGeneration,
+      currentBindingGeneration: InputAttachSchema.fields.bindingGeneration, replacementRevision: NativeRevisionSchema }),
   ]) }),
 ]);
 export const InputIntentStatusRequestSchema = Schema.Struct({ inputOwnerToken: id, intentId: InputIntentIdSchema });

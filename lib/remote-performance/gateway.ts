@@ -46,6 +46,14 @@ export class InputProducerRegistry {
     if (ended && ended.target.attempt === intent.target.attempt && ended.target.hostEpoch === intent.target.hostEpoch
       && ended.serverEpoch === this.controller.snapshot().serverEpoch)
       return { kind: 'retired', proof: { ...ended, kindOfProducer: intent.kindOfProducer, bindingGeneration: intent.bindingGeneration } };
+    const current = this.current(intent.target);
+    const currentBindingGeneration = current?.state.inputRouting?.bindingGeneration;
+    if (current && currentBindingGeneration !== undefined && currentBindingGeneration > intent.bindingGeneration
+      && (intent.status.kind !== 'admitted' || BigInt(current.revision) > BigInt(intent.status.receipt.admissionRevision))) {
+      intent.status = { kind: 'retired', proof: { kind: 'binding-generation-retired', target: intent.target,
+        serverEpoch: this.controller.snapshot().serverEpoch, kindOfProducer: intent.kindOfProducer,
+        bindingGeneration: intent.bindingGeneration, currentBindingGeneration, replacementRevision: current.revision } };
+    }
     return intent.status;
   }
   async readStatus(owner: object, intentId: string): Promise<InputIntentStatus> {
@@ -174,6 +182,7 @@ export class InputProducerRegistry {
       });
       return lease.pending;
     })().catch(() => ({ outcome: 'unknown' as const })).then(result => {
+      if (intent.status.kind === 'retired') return result;
       if (result.outcome === 'rejected') intent.status = { kind: 'retired', proof: { kind: 'rejected-before-admission', target, kindOfProducer: kind, bindingGeneration: command.args.bindingGeneration } };
       else if (result.outcome === 'unknown') intent.status = { kind: 'unknown' };
       return result;

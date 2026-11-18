@@ -41,18 +41,19 @@ export class RemoteDesk {
     if (this.connectionState.kind !== 'connected' || !this.endpoint) throw new Error('Hardware audio is unavailable. Enable audio and wait for ready.');
     return this.endpoint;
   }
-  private updateEndpoint() {
+  private updateEndpoint(songChanged = false) {
     const audio = this.latest.audio;
     if (audio.kind !== 'ready') { this.endpoint?.invalidate(); this.endpoint = undefined; return; }
     if (!this.endpoint?.matches({ attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch })) {
       this.endpoint?.invalidate();
       this.endpoint = new RemoteSession(this, { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch }, audio.performance, chartMetadata(this.latest.song.chart));
-    } else this.endpoint.observe(audio.performance);
+    } else this.endpoint.observe(audio.performance, songChanged ? chartMetadata(this.latest.song.chart) : undefined);
   }
   private observe(view: DeskView) {
     if (view.serverEpoch !== this.latest.serverEpoch) throw new Error('Desk server restarted. Reconnect to the desk.');
     if (BigInt(view.revision) < BigInt(this.latest.revision)) return;
-    this.latest = view; this.updateEndpoint();
+    const songChanged = view.song.id !== this.latest.song.id;
+    this.latest = view; this.updateEndpoint(songChanged);
     for (const listener of this.listeners) listener(view);
   }
   private disconnect(error: unknown) {
@@ -173,7 +174,7 @@ export class RemoteSession {
   private readonly inputAttempts = new Map<InputAttachArgs['kind'], { intentId: string; args: InputAttachArgs; status: InputIntentStatus }>();
   private valid = true;
   private latest: NativePerformance;
-  constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance, private readonly chart: ChartMetadata) {
+  constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance, private chart: ChartMetadata) {
     this.latest = performance;
     this.tuner = {
       snapshot: () => { if (!this.valid) throw new Error('Hardware audio session is stale.'); return this.latest.tuner; },
@@ -185,8 +186,10 @@ export class RemoteSession {
   takeAudio(request: import('../../lib/performance/take-audio.js').TakeAudioRequest) { return this.desk.takeAudio(this, this.target, request); }
   matches(target: NativeTarget) { return this.valid && target.attempt === this.target.attempt && target.hostEpoch === this.target.hostEpoch; }
   invalidate() { this.valid = false; this.listeners.clear(); this.eventListeners.clear(); this.tunerListeners.clear(); }
-  observe(performance: NativePerformance) {
-    if (!this.valid || performance.hostEpoch !== this.target.hostEpoch || BigInt(performance.revision) <= BigInt(this.latest.revision)) return;
+  observe(performance: NativePerformance, chart?: ChartMetadata) {
+    if (!this.valid || performance.hostEpoch !== this.target.hostEpoch) return;
+    if (chart) this.chart = chart;
+    if (BigInt(performance.revision) <= BigInt(this.latest.revision)) return;
     this.latest = performance; for (const listener of this.listeners) listener(this.snapshot());
     for (const listener of this.tunerListeners) listener(performance.tuner);
   }
@@ -267,6 +270,12 @@ export class RemoteSession {
           case 'old-engine-ended':
             matches = proof.target.attempt === this.target.attempt && proof.target.hostEpoch === this.target.hostEpoch
               && proof.serverEpoch === this.desk.snapshot().serverEpoch && proof.kindOfProducer === args.kind && proof.bindingGeneration === attempt.args.bindingGeneration;
+            break;
+          case 'binding-generation-retired':
+            matches = proof.target.attempt === this.target.attempt && proof.target.hostEpoch === this.target.hostEpoch
+              && proof.serverEpoch === this.desk.snapshot().serverEpoch && proof.kindOfProducer === args.kind && proof.bindingGeneration === attempt.args.bindingGeneration
+              && proof.currentBindingGeneration > proof.bindingGeneration
+              && (attempt.status.kind !== 'admitted' || BigInt(proof.replacementRevision) > BigInt(attempt.status.receipt.admissionRevision));
             break;
           case 'exact-revoke-applied':
             matches = this.receiptMatches(proof.receipt, attempt.args) && BigInt(proof.revocationRevision) > BigInt(proof.receipt.admissionRevision)

@@ -163,7 +163,7 @@ test('an unassigned configured listener address fails with EADDRNOTAVAIL before 
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('installed catalog selects all three songs off-only and persists acknowledged canonical button bindings', async () => {
+test('installed catalog switches all three songs while stopped without replacing the native host and persists button bindings', async () => {
   const { directory, profile, headers } = await fixture();
   const [{ default: drunkGirls }, { default: tribulations }] = await Promise.all([import('../../../songs/drunk-girls.js'), import('../../../songs/tribulations.js')]);
   const entries = [profile.catalog.entries[0]];
@@ -200,6 +200,32 @@ test('installed catalog selects all three songs off-only and persists acknowledg
     assert.equal(stale.outcome, 'rejected'); assert.deepEqual(app.controller.snapshot().song.compiled?.inputBindings, bindings);
     const wrongSong = await post('/api/song-bindings', { songId: 'drunk-girls', expectedRevision: app.controller.snapshot().revision, bindings: [] });
     assert.equal(wrongSong.outcome, 'rejected');
+    await post('/api/audio', { goal: 'on' });
+    const ready = await until(() => {
+      const view = app.controller.snapshot();
+      return view.audio.kind === 'ready' ? { view, audio: view.audio } : undefined;
+    });
+    const target = { attempt: ready.audio.attempt, hostEpoch: ready.audio.performance.hostEpoch };
+    let previous = ready.view;
+    for (const songId of ['drunk-girls', 'tribulations', 'dance-yrself-clean']) {
+      await until(() => app.controller.snapshot().revision !== previous.revision ? true : undefined);
+      const selected = await post('/api/song', { songId, expectedRevision: previous.revision });
+      assert.equal(selected.outcome, 'accepted', JSON.stringify(selected.error));
+      assert.equal(selected.view.song.id, songId);
+      assert.equal(selected.view.audio.kind, 'ready');
+      assert.equal(selected.view.audio.attempt, target.attempt);
+      assert.equal(selected.view.audio.performance.hostEpoch, target.hostEpoch);
+      assert.equal(selected.view.audio.performance.state.phase, 'idle');
+      assert.notEqual(selected.view.audio.performance.state.runId, previous.audio.kind === 'ready' && previous.audio.performance.state.runId);
+      const staleSelection = await post('/api/song', { songId, expectedRevision: previous.revision });
+      assert.equal(staleSelection.outcome, 'rejected');
+      previous = app.controller.snapshot();
+    }
+    assert.equal((await app.controller.command(target, { command: 'start', args: {} })).outcome, 'applied');
+    const whilePlaying = await post('/api/song', { songId: 'tribulations', expectedRevision: app.controller.snapshot().revision });
+    assert.equal(whilePlaying.outcome, 'rejected');
+    assert.match(whilePlaying.error, /Stop practice/);
+    assert.equal((await app.controller.command(target, { command: 'stop', args: {} })).outcome, 'applied');
     await app.close(); app = await serveProfile(configured);
     assert.deepEqual(app.controller.snapshot().song.compiled?.inputBindings, bindings, 'the next server reads the actual SQLite authoring record');
     assert.equal(app.controller.snapshot().audio.kind, 'off');

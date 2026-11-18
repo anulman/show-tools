@@ -24,6 +24,7 @@ struct AlsaPcm::Impl {
   snd_pcm_t* capture = nullptr;
   snd_pcm_t* playback = nullptr;
   bool draining = false;
+  bool capture_recovering = false, playback_recovering = false;
   std::vector<std::int32_t> capture_int;
   std::vector<std::int32_t> playback_int;
   std::vector<float> capture_float;
@@ -128,6 +129,13 @@ int configure(snd_pcm_t* pcm, const Config& config, unsigned channels, Parameter
   snd_pcm_hw_params_free(params);
   return rc;
 }
+long transfer_result(snd_pcm_t* pcm, bool& recovering, long frames) {
+  if (frames > 0) recovering = false;
+  if (frames != -EPIPE || recovering) return frames;
+  recovering = true;
+  const int result = snd_pcm_recover(pcm, -EPIPE, 1);
+  return result < 0 ? result : 0;
+}
 std::int32_t to_s32(float sample) {
   if (!std::isfinite(sample)) return 0;
   const double scaled = std::clamp(static_cast<double>(sample), -1.0, 1.0) * 2147483648.0;
@@ -201,8 +209,8 @@ long AlsaPcm::read(float* mono, std::size_t frames) {
   if (!mono || frames > impl_->config.max_block_frames) return -EINVAL;
   const Config& config = impl_->config;
   void* buffer = config.format == SampleFormat::S32LE ? static_cast<void*>(impl_->capture_int.data()) : static_cast<void*>(impl_->capture_float.data());
-  const auto count = snd_pcm_readi(impl_->capture, buffer, frames);
-  if (count < 0) return count;
+  const auto count = transfer_result(impl_->capture, impl_->capture_recovering, snd_pcm_readi(impl_->capture, buffer, frames));
+  if (count <= 0) return count;
   for (long i = 0; i < count; ++i) {
     const auto index = static_cast<std::size_t>(i) * config.capture_channels + config.input_channel;
     mono[i] = config.format == SampleFormat::S32LE ? static_cast<float>(impl_->capture_int[index] / 2147483648.0) : impl_->capture_float[index];
@@ -216,9 +224,13 @@ long AlsaPcm::read(float* mono, std::size_t frames) {
 long AlsaPcm::write(const float* stereo, std::size_t frames) {
 #if defined(__linux__)
   if (!stereo || frames > impl_->config.max_block_frames) return -EINVAL;
-  if (impl_->config.format == SampleFormat::FloatLE) return snd_pcm_writei(impl_->playback, stereo, frames);
-  for (std::size_t i = 0; i < frames * 2; ++i) impl_->playback_int[i] = to_s32(stereo[i]);
-  return snd_pcm_writei(impl_->playback, impl_->playback_int.data(), frames);
+  const void* buffer = stereo;
+  if (impl_->config.format == SampleFormat::S32LE) {
+    for (std::size_t i = 0; i < frames * 2; ++i) impl_->playback_int[i] = to_s32(stereo[i]);
+    buffer = impl_->playback_int.data();
+  }
+  const auto count = snd_pcm_writei(impl_->playback, buffer, frames);
+  return transfer_result(impl_->playback, impl_->playback_recovering, count);
 #else
   (void)stereo; (void)frames; return -ENOSYS;
 #endif
@@ -270,6 +282,7 @@ int AlsaPcm::prepare() {
 #if defined(__linux__)
   const int capture = snd_pcm_prepare(impl_->capture);
   const int playback = snd_pcm_prepare(impl_->playback);
+  if (capture >= 0 && playback >= 0) impl_->capture_recovering = impl_->playback_recovering = false;
   return capture < 0 ? capture : playback;
 #else
   return -ENOSYS;

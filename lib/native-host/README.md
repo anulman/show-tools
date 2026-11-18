@@ -9,13 +9,15 @@ ctest --test-dir /tmp/native-host-build --output-on-failure
 /tmp/native-host-build/native_alsa_host SOCKET SAMPLE_RATE BLOCK_FRAMES MAX_VOICES MAX_SECONDS CAPTURE_DEVICE PLAYBACK_DEVICE CAPTURE_CHANNELS INPUT_CHANNEL PERIOD_FRAMES BUFFER_FRAMES s32|float
 ```
 
-The socket directory must be private and owned by the caller. The audio owner reads the selected capture channel, processes frames in the native engine, and writes stereo playback. Natural completion writes the final host block and drains queued playback before another start is accepted. Stop and panic discard pending host and device output, including during the drain. Device errors terminate the host. The gateway can reconnect while a run remains active. Opening or running the ALSA host accesses the selected physical devices. Building and testing it do not.
+The socket directory must be private and owned by the caller. The audio owner reads the selected capture channel, processes frames in the native engine, and writes stereo playback. Without idle monitoring, natural completion drains queued playback before another start is accepted. Stop and Panic discard pending host and device output. ALSA recovers one underrun per stream between successful transfers. A repeated underrun or another device error terminates the host. The gateway can reconnect while a run remains active. Opening or running the ALSA host accesses the selected physical devices. Building and testing it do not.
 
 The ALSA backend's dependency and license are described in [its README](../native-alsa/README.md). Hardware configuration and physical audio behavior require separate verification on the target machine.
 
 Managed servers append `--owner-pid PID` to either executable. The host verifies its actual parent before acquiring devices and exits if that parent dies. Linux uses parent-death signaling with a race check; the portable synthetic path watches parent identity. A forged owner is rejected. Standalone offline callers may omit the option. The persistent desk owns its native child; stopping musical transport keeps that child and its takes, while terminating audio destroys it and releases devices.
 
 The ABI 8 snapshot appends the complete `PF_LIGHT_FIELDS` engine light image after tempo readback. The native owner calls `pf_light_output()` at its existing observation cadence; network consumers relay those evaluated levels without advancing phase. The remote session schemas retain the image as required `NativePerformance.lights`, alongside state, host epoch and revision, including command results. Control 7 carries the unified cue button's physical edge value, 0 released or 1 held; cue selection and held-brightness precedence remain in PE.
+
+Managed ALSA hosts receive `--idle-monitor`. After the package is loaded, the host monitors the default song voice through the same open device handles used by transport. Stop resumes monitoring, while Panic silences it until Start or a new audio session. Stopped song replacement loads the new effects, program, and WAV assets together. It clears the previous song's takes and advances the input binding generation.
 
 Managed ALSA hosts also receive one complete option group:
 
