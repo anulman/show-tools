@@ -1,3 +1,4 @@
+import { chartMetadata } from '../../lib/performance/chart.js';
 import { prepareDeclaredExternalAssets } from '../../lib/performance/external-assets.js';
 import { connectBrowserPeripheral } from './browser-peripheral.js';
 import { BeatTracker } from './runtime/beat-tracker.js';
@@ -146,8 +147,7 @@ export class PracticeAudio {
     this.onDeviceChange = () => { this.clearMonitoring(); this.publish(); };
     globalThis.navigator?.mediaDevices?.addEventListener('devicechange', this.onDeviceChange);
     tracker.context.addEventListener?.('sinkchange', this.onDeviceChange);
-    this.chartMetadata = { spreadsheetId: chart.spreadsheetId, sheetId: chart.sheetId,
-      columns: chart.bars.map(bar => bar.column), leadInColumn: chart.leadInColumn };
+    this.chartMetadata = chartMetadata(chart);
     this.onMessage = ({ data }) => {
       if (!data?.event) return;
       const event = { ...data.event, state: { ...data.event.state, chart: this.chartMetadata } };

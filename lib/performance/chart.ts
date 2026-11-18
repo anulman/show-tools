@@ -1,5 +1,5 @@
 import { Schema } from 'effect';
-import { CONTROL_IDS, CONTROLS, type Chart, type ChartBar, type ChartSection } from './model.js';
+import { CONTROL_IDS, CONTROLS, type Chart, type ChartBar, type ChartMetadata, type ChartSection } from './model.js';
 import { columnName } from './columns.js';
 export { columnName, CONTROL_IDS, CONTROLS };
 
@@ -60,6 +60,10 @@ export function importSheetChart(input: unknown): Chart {
 
 export function playableBars(chart: Chart): number {
   return chart.bars.at(-1)?.partial ? chart.bars.length - 1 : chart.bars.length;
+}
+
+export function chartMetadata({ spreadsheetId, sheetId, bars, leadInColumn }: Chart): ChartMetadata {
+  return { spreadsheetId, sheetId, columns: bars.map(bar => bar.column), leadInColumn };
 }
 
 export function rangeForBar(chart: Chart, bar: number | null, phase = 'playing'): string {

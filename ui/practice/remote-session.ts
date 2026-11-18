@@ -1,10 +1,11 @@
+import { chartMetadata } from '../../lib/performance/chart.js';
 import { decodeInputBindings, type InputBindings } from '../../lib/performance/input-bindings.js';
 import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
 import { HardwareKeyRejectedError } from './hardware-auth.js';
 import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
 import { decodeSongChoices, decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus } from './remote-schema.js';
 import type { DeskView, NativePerformance, NativeTarget, InputIntentStatus, InputAttachOutcome, NativeOutcome, InputLeaseReceipt } from '../../lib/remote-performance/session-schema.js';
-import type { ChannelId, ChannelSettings, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
+import type { ChannelId, ChannelSettings, ChartMetadata, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
 
 async function readJson(response: Response): Promise<unknown> {
@@ -45,7 +46,7 @@ export class RemoteDesk {
     if (audio.kind !== 'ready') { this.endpoint?.invalidate(); this.endpoint = undefined; return; }
     if (!this.endpoint?.matches({ attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch })) {
       this.endpoint?.invalidate();
-      this.endpoint = new RemoteSession(this, { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch }, audio.performance);
+      this.endpoint = new RemoteSession(this, { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch }, audio.performance, chartMetadata(this.latest.song.chart));
     } else this.endpoint.observe(audio.performance);
   }
   private observe(view: DeskView) {
@@ -172,7 +173,7 @@ export class RemoteSession {
   private readonly inputAttempts = new Map<InputAttachArgs['kind'], { intentId: string; args: InputAttachArgs; status: InputIntentStatus }>();
   private valid = true;
   private latest: NativePerformance;
-  constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance) {
+  constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance, private readonly chart: ChartMetadata) {
     this.latest = performance;
     this.tuner = {
       snapshot: () => { if (!this.valid) throw new Error('Hardware audio session is stale.'); return this.latest.tuner; },
@@ -186,12 +187,15 @@ export class RemoteSession {
   invalidate() { this.valid = false; this.listeners.clear(); this.eventListeners.clear(); this.tunerListeners.clear(); }
   observe(performance: NativePerformance) {
     if (!this.valid || performance.hostEpoch !== this.target.hostEpoch || BigInt(performance.revision) <= BigInt(this.latest.revision)) return;
-    this.latest = performance; for (const listener of this.listeners) listener(performance.state);
+    this.latest = performance; for (const listener of this.listeners) listener(this.snapshot());
     for (const listener of this.tunerListeners) listener(performance.tuner);
   }
-  event(event: PracticeEvent) { for (const listener of this.eventListeners) listener(event); }
+  event(event: PracticeEvent) {
+    const linked = { ...event, state: { ...event.state, chart: this.chart } };
+    for (const listener of this.eventListeners) listener(linked);
+  }
   get microphone() { return this.latest.state.microphone; }
-  snapshot() { return this.latest.state; }
+  snapshot() { return { ...this.latest.state, chart: this.chart }; }
   subscribe(listener: (state: PracticeState) => void) { this.listeners.add(listener); listener(this.snapshot()); return () => this.listeners.delete(listener); }
   onEvent(listener: (event: PracticeEvent) => void) { this.eventListeners.add(listener); return () => this.eventListeners.delete(listener); }
   private command(command: string, args: object = {}) {

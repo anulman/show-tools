@@ -4,9 +4,11 @@ import { test } from 'node:test';
 import { Schema } from 'effect';
 import { NativeTargetSchema } from '../../../lib/remote-performance/session-schema.js';
 import { strict as assert } from 'node:assert';
+import { chartMetadata } from '../../../lib/performance/chart.js';
 import { loadSong } from '../../../songs/index.js';
 import { createMusicalInputProducer } from '../peripheral-input.js';
 import { RemoteDesk, RemoteSession } from '../remote-session.js';
+import { createChartFollower } from '../open-chart.js';
 import vm from 'node:vm';
 import { sourceForVM } from '../../../scripts/source-for-vm.js';
 import type { TunerCommand, TunerState } from '../../../lib/tuner/model.js';
@@ -100,6 +102,27 @@ test('native patches retain song, reject old revisions and filter stale attempt 
     assert.equal(desk.snapshot().audio.kind, 'ready');
     assert.equal(desk.connection.kind, 'disconnected');
     await assert.rejects(desk.terminateAudio(), /disconnected/);
+  });
+});
+
+test('hardware clock events and snapshots select the installed sheet during count-in and playing', async () => {
+  await fixture(async ({ desk, publish }) => {
+    await publish({ type: 'desk', view: ready });
+    const session = desk.performance();
+    const requests: unknown[] = [];
+    const follower = createChartFollower({ fetch: async (_url, init) => {
+      const input = JSON.parse(String(init?.body));
+      requests.push(input);
+      return Response.json({ ok: true, selectedRange: input.range, url: 'https://docs.google.com/' });
+    } });
+    session.onEvent(follower.receive);
+    for (const [seq, phase, bar] of [[1, 'count-in', null], [2, 'playing', 2]] as const) {
+      await publish({ type: 'event', attempt: 'attempt', event: { v: 1, type: 'beat', runId: 'run', seq, state: { ...state, seq, phase, bar } } });
+    }
+    assert.deepEqual(requests, ['B:B', 'D:D'].map(range => ({
+      spreadsheetId: song.chart.spreadsheetId, sheetId: song.chart.sheetId, range, activate: false,
+    })));
+    assert.equal(session.snapshot().chart?.sheetId, song.chart.sheetId);
   });
 });
 
@@ -339,8 +362,8 @@ test('invalidating a used source before same-engine handoff remains fail-closed'
   const calls: string[] = [];
   const desk = { async command(_endpoint: unknown, _target: unknown, command: string) { calls.push(command); return native.state; }, async inputIntentStatus() { return { kind: 'unknown' }; } };
   const target = Schema.decodeUnknownSync(NativeTargetSchema)({ attempt: 'same-attempt', hostEpoch: 'same-engine' });
-  const first = new RemoteSession(desk as never, target, native as never);
-  const second = new RemoteSession(desk as never, target, native as never);
+  const first = new RemoteSession(desk as never, target, native as never, chartMetadata(song.chart));
+  const second = new RemoteSession(desk as never, target, native as never, chartMetadata(song.chart));
   let current = first;
   const producer = createMusicalInputProducer({ kind: 'pointer', endpoint: async () => current, releasedMask: 223 });
   await producer.event(0, 1); await producer.event(0, 0);
