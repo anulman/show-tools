@@ -6,7 +6,7 @@ Start with [how the practice instrument fits together](docs/architecture.md) for
 
 For optional Sheets following, run `./show-tools sheets` to open the set list, or `./show-tools sheets 1` to open a song chart. The [CLI guide](scripts/open-chart.md) covers browser reuse, `--no-cdp`, `--skip-open`, and local `.envrc` overrides. Practice audio works independently.
 
-Build and open the static practice desk.
+Build and open the static Performance Desk.
 
 ```sh
 npm install
@@ -27,7 +27,7 @@ For mobile practice, publish `dist/` on an HTTPS static host and open `/ui/pract
 | Path | Contents |
 | --- | --- |
 | [songs](songs/README.md) | Loadable song scripts, chart snapshots, and control-row actions |
-| [ui/practice](ui/practice/README.md) | Practice desk, browser audio adapter, and worklets |
+| [ui/practice](ui/practice/README.md) | Performance Desk, browser audio adapter, and worklets |
 | [ui/practice/sheets-extension](ui/practice/sheets-extension/README.md) | Deterministic local Chrome chart follower |
 | [lib/beat-tracker](lib/beat-tracker/README.md) | C++ clock, optional tempo detector, and WASM builds |
 | [lib/sampler](lib/sampler/README.md) | Shared C++ PCM capture and playback, native tests, and WASM bridge |

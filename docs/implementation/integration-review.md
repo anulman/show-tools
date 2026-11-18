@@ -1,6 +1,6 @@
 # DYC integration review checkpoint
 
-This is the earlier ABI 4 checkpoint. The later [practice desk rehab](practice-desk-rehab.md) records the merged ABI 5 engine, independent voice effects, and chart-gated chorus. This record separates verified components from a performance-ready song. The [decision trail](integration-decisions.tsv) preserves the review decisions and later corrections.
+This is the earlier ABI 4 checkpoint. The later [Performance Desk rehab](practice-desk-rehab.md) records the merged ABI 5 engine, independent voice effects, and chart-gated chorus. This record separates verified components from a performance-ready song. The [decision trail](integration-decisions.tsv) preserves the review decisions and later corrections.
 
 ## Landed changes
 

@@ -5,6 +5,8 @@ import { audioMode, audioModeURL, canChangeAudioMode, changeAudioMode } from '..
 test('browser is the default and mode URLs preserve other state', () => {
   const url = new URL('https://example.test/practice/?song=one&test#cue');
   assert.equal(audioMode(url), 'browser');
+  assert.equal(audioMode(url, 'hardware'), 'hardware');
+  assert.equal(audioMode(audioModeURL(url, 'browser', 'hardware'), 'hardware'), 'browser');
   const hardware = audioModeURL(url, 'hardware');
   assert.equal(audioMode(hardware), 'hardware');
   assert.equal(hardware.searchParams.get('song'), 'one');

@@ -1,6 +1,6 @@
-# Practice desk contract
+# Performance Desk contract
 
-The practice desk is a static website. Browser audio controls and state use the local WASM/worklet bridge. Practice makes no relay API requests. Song modules live in top-level `songs/`, outside `ui/` and `lib/`.
+The Performance Desk is a static website. Browser audio controls and state use the local WASM/worklet bridge. Practice makes no relay API requests. Song modules live in top-level `songs/`, outside `ui/` and `lib/`.
 
 ## Timing ownership
 

@@ -45,7 +45,7 @@ bool send_all(int fd,const void* data,size_t size) { auto* p=static_cast<const u
 bool send_frame(int fd,uint16_t tag,uint32_t sequence,const Bytes& payload) { uint8_t header[16]; encode_header(header,{tag,uint32_t(payload.size()),sequence}); return send_all(fd,header,16)&&send_all(fd,payload.data(),payload.size()); }
 struct Observation {
   uint64_t revision=0, run=0;
-  uint32_t demo=0;
+  uint32_t demo=0, audition=0;
   std::array<double,PF_FIELDS> state{};
   std::array<double,PF_CHANNELS*PF_CHANNEL_FIELDS> channels{};
   std::array<double,PF_VOICE_PROFILES*PF_VOICE_FIELDS> voices{};
@@ -74,7 +74,7 @@ void observe(Instrument& instrument,Observation& out,uint64_t revision) {
 struct Presentation { Bytes manifest; std::array<uint8_t,32> digest{}; };
 Bytes snapshot(const Observation& state,const Presentation& presentation) {
   Bytes out; out.reserve(22000+presentation.manifest.size()); put64(out,state.revision); put64(out,state.run); put32(out,uint32_t(presentation.manifest.size())); out.insert(out.end(),presentation.manifest.begin(),presentation.manifest.end()); out.insert(out.end(),presentation.digest.begin(),presentation.digest.end());
-  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); array(out,state.lights); array(out,state.tuner); array(out,state.inputs); if(state.demo)put32(out,state.demo); return out;
+  array(out,state.state); array(out,state.channels); array(out,state.voices); array(out,state.effects); array(out,state.live); array(out,state.takes); array(out,state.tempo); array(out,state.lights); array(out,state.tuner); array(out,state.inputs); if(state.demo || state.audition) { put32(out,state.demo); if(state.audition)put32(out,state.audition); } return out;
 }
 int64_t discard(void*,const float*,uint32_t frames) { return frames; }
 }
@@ -110,6 +110,12 @@ bool parse(Request& request,const Bytes& data) {
     return true;
   }
   if(request.op==19 || request.op==20)return !left;
+  if(request.op==22) {
+    if(left!=8)return false;
+    request.args[0]=f64(p);
+    const double profile=request.args[0];
+    return profile>=-1 && profile<PF_VOICE_PROFILES && std::floor(profile)==profile;
+  }
   if(request.op==18) {
     if(left!=32)return false;
     for(int i=0;i<4;++i) { request.args[i]=f64(p+i*8); if(!std::isfinite(request.args[i]) || std::floor(request.args[i])!=request.args[i] || request.args[i]<0)return false; }
@@ -202,7 +208,11 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #endif
   std::vector<float> input(block,input_level);
   uint64_t revision=0, run=0; unsigned tick=0;
-  auto publish=[&](Observation& obs) { observe(instrument,obs,revision); obs.run=run; if(demo.available())obs.demo=uint32_t(demo.state())+1; };
+  auto publish=[&](Observation& obs) {
+    observe(instrument,obs,revision); obs.run=run;
+    if(demo.available())obs.demo=uint32_t(demo.state())+1;
+    if(instrument.supports_audition())obs.audition=uint32_t(instrument.audition_profile()+2);
+  };
   auto drain=[&] {
     if(!instrument.engine())return;
     std::array<double,PF_EVENT_FIELDS> data{};
@@ -266,6 +276,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
              device_fault("prepare tuner",alsa_run.utility(instrument,*device)))rc=-1;
 #endif
           break;
+        case 22: rc=instrument.audition(int(a[0])); break;
         case 19: rc=instrument.engine() && demo.arm()?0:-1; break;
         case 20: if(demo.available()) { demo.finish(); rc=0; } break;
         case 18: {

@@ -8,7 +8,7 @@ Status: historical README-driven prototype. The implemented interface uses `--no
 show-tools sheets dance-yrself-clean
 ```
 
-Start a dedicated Chromium browser and the local Sheets helper. Open the song's chart at its lead-in column. Leave this command running while you practice. The practice desk sends subsequent column selections as the sequencer counts.
+Start a dedicated Chromium browser and the local Sheets helper. Open the song's chart at its lead-in column. Leave this command running while you practice. The Performance Desk sends subsequent column selections as the sequencer counts.
 
 Proposed output:
 
@@ -26,7 +26,7 @@ The command starts no audio, requests no microphone access, and does not start t
 ## Choose what starts and opens
 
 ```sh
-# Start chart following; let the practice desk choose the chart later.
+# Start chart following; let the Performance Desk choose the chart later.
 show-tools sheets
 
 # Use a browser you started yourself. Fail if CDP is unavailable.
@@ -92,7 +92,7 @@ Ctrl+C stops the helper and any browser launched by this invocation.
 Browsers that were already running remain running.
 ```
 
-The helper remains at `127.0.0.1:9223`, which the practice desk currently expects. Leave helper-port customization out of the first version until the UI can discover or configure it too.
+The helper remains at `127.0.0.1:9223`, which the Performance Desk currently expects. Leave helper-port customization out of the first version until the UI can discover or configure it too.
 
 ## Lifecycle contract
 

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#293325">
-  <meta name="description" content="The Show Tools practice desk.">
-  <title>Practice desk · Show tools</title>
+  <meta name="description" content="The Show Tools Performance Desk.">
+  <title>Performance Desk · Show tools</title>
   <link rel="icon" href="./icon.svg" type="image/svg+xml">
   <link rel="manifest" href="./manifest.webmanifest">
   <link rel="stylesheet" href="./style.css">
@@ -15,10 +15,42 @@
 <body>
 <main id="practice-desk" class="desk">
   <header class="topline">
-    <a class="brand" href="./">SHOW TOOLS</a><span class="brand-divider" aria-hidden="true">/</span>
+    <a class="brand" href="./">Performance Desk</a><span class="brand-divider" aria-hidden="true">/</span>
     <select id="song-select" aria-label="Song"></select>
-    <button id="open-tuner" type="button" class="secondary">Tuner</button>
+    <div class="desk-tools">
+      <button id="open-tuner" type="button" class="secondary">Tuner</button>
+      <button id="open-settings" type="button" class="secondary" aria-haspopup="dialog"><span id="desk-signal" hidden aria-hidden="true"></span>Settings</button>
+    </div>
   </header>
+  <div id="error" class="error" role="alert" hidden></div>
+  <noscript><p class="error">Enable JavaScript to use the Performance Desk.</p></noscript>
+  <section class="transport" aria-label="Song transport">
+    <div class="position-block">
+      <div class="position-labels"><span id="phase-label">READY</span><span id="range-label">BARS 1–76</span></div>
+      <div class="position"><div><span id="bar-number">01</span><span class="unit">BAR</span></div><span class="position-divider">/</span><div><span id="beat-number">1</span><span class="unit">BEAT</span></div><div id="beat-dots" class="beat-dots" aria-label="Four beats"><i></i><i></i><i></i><i></i></div></div>
+    </div>
+    <div class="transport-actions"><button id="start" class="primary" type="button"><span aria-hidden="true">▶</span><span>Start</span></button><button id="stop" class="secondary stop" type="button" disabled>■ Stop</button></div>
+    <div class="transport-options">
+      <label class="field"><span>TEMPO · BPM</span><input id="bpm" type="number" inputmode="decimal" min="40" max="240" step="1" value="98" aria-label="Tempo in BPM"></label>
+      <label class="field"><span>COUNT-IN</span><select id="count-in" aria-label="Count-in bars"><option value="1">1 bar</option><option value="2">2 bars</option><option value="0">None</option></select></label>
+      <label class="field section-field"><span>START AT</span><select id="start-section" aria-label="Start section"><option value="1">Instrumental A1</option></select></label>
+      <label class="field"><span>END AT BAR</span><input id="end-bar" type="text" inputmode="numeric" min="1" max="217" value="76" aria-label="End bar"></label>
+
+    </div>
+  </section>
+  <section id="live-voices" class="live-voices" aria-label="Live voices" hidden></section>
+  <section id="pads" class="pads" aria-label="Sample pads"></section>
+  <section id="voice-library-root" aria-label="Other voices and instruments"></section>
+  <section id="recording-controls" class="utility" aria-label="Recording and stop controls">
+    <button id="record-demo" class="secondary" type="button"><span class="record-dot" aria-hidden="true"></span><span>Record demo</span></button>
+    <span id="recording-hint" role="status">Ready to record.</span><a id="download-demo" hidden download>Download take ↗</a>
+    <button id="mushroom" class="panic" type="button" aria-label="Panic stop all audio">Panic <kbd>ESC</kbd></button>
+  </section>
+  <section id="chart-source" class="chart-source" aria-label="Chart source and inspection"></section>
+  <footer><span id="offline-status">Local audio.</span><a href="./README.md">Setup &amp; notes ↗</a></footer>
+</main>
+<dialog id="settings-dialog" aria-labelledby="settings-title" class="desk-dialog">
+  <div class="dialog-heading"><h2 id="settings-title">Desk settings</h2><button id="close-settings" class="secondary" type="button">Done</button></div>
   <div class="audio-mode">
     <label for="musical-input-select">Controls</label>
     <select id="musical-input-select" aria-describedby="musical-input-hint">
@@ -34,46 +66,23 @@
       <option value="browser">Browser mode (this device)</option>
       <option value="hardware">Hardware mode (EliteDesk)</option>
     </select>
-    <span id="audio-mode-hint">Stop browser audio before changing modes. Changing modes reloads the desk; download your take first. Hardware mode requires the EliteDesk gateway.</span>
+    <span id="audio-mode-hint">Changing mode reloads this page.</span>
   </div>
   <section id="hardware-audio" class="hardware-audio" aria-label="Hardware audio engine" hidden>
     <span id="hardware-audio-status" role="status">Connecting to desk…</span>
     <div class="hardware-audio-actions"><button id="enable-audio" type="button" class="primary" disabled>Enable audio</button><button id="terminate-audio" type="button" class="secondary" disabled>Terminate audio</button><button id="hardware-key" type="button" class="secondary">Enter key</button></div>
     <span id="hardware-key-status" role="status"></span>
-    <p>Enable audio lets you hear your mic before starting practice. Stop keeps your takes. Switching songs clears the current takes. Terminate audio releases the device and discards all in-memory takes.</p>
+    <p>Enable audio to monitor your mic. Terminate audio releases the interface and discards captured loops.</p>
   </section>
-  <div id="error" class="error" role="alert" hidden></div>
-  <noscript><p class="error">Enable JavaScript to use the practice desk.</p></noscript>
-  <section class="transport" aria-label="Song transport">
-    <div class="position-block">
-      <div class="position-labels"><span id="phase-label">READY</span><span id="range-label">BARS 1–76</span></div>
-      <div class="position"><div><span id="bar-number">01</span><span class="unit">BAR</span></div><span class="position-divider">/</span><div><span id="beat-number">1</span><span class="unit">BEAT</span></div><div id="beat-dots" class="beat-dots" aria-label="Four beats"><i></i><i></i><i></i><i></i></div></div>
-    </div>
-    <div class="transport-actions"><button id="start" class="primary" type="button"><span aria-hidden="true">▶</span><span>Start practice</span></button><button id="stop" class="secondary stop" type="button" disabled>■ Stop</button></div>
-    <div class="transport-options">
-      <label class="field"><span>TEMPO · BPM</span><input id="bpm" type="number" inputmode="decimal" min="40" max="240" step="1" value="98" aria-label="Tempo in BPM"></label>
-      <label class="field"><span>COUNT-IN</span><select id="count-in" aria-label="Count-in bars"><option value="1">1 bar</option><option value="2">2 bars</option><option value="0">None</option></select></label>
-      <label class="field section-field"><span>START AT</span><select id="start-section" aria-label="Start section"><option value="1">Instrumental A1</option></select></label>
-      <label class="field"><span>END AT BAR</span><input id="end-bar" type="text" inputmode="numeric" min="1" max="217" value="76" aria-label="End bar"></label>
-      <div class="transport-switches"><label class="switch"><input id="loop" type="checkbox" checked><span>Loop range</span></label><label class="switch"><input id="click" type="checkbox"><span>Song click</span></label></div>
-    </div>
-  </section>
-  <section id="live-voices" class="live-voices" aria-label="Live voices" hidden></section>
-  <section id="pads" class="pads" aria-label="Sample pads"></section>
-  <section id="voice-library-root" aria-label="Other voices and instruments"></section>
-  <section class="utility" aria-label="Recording and stop controls">
-    <button id="record-demo" class="secondary" type="button"><span class="record-dot" aria-hidden="true"></span><span>Record demo</span></button>
-    <span id="recording-hint" role="status">Ready to record.</span><a id="download-demo" hidden download>Download take ↗</a>
-    <button id="mushroom" class="panic" type="button" aria-label="Panic stop all audio">Panic <kbd>ESC</kbd></button>
-  </section>
-  <details class="settings"><summary>Audio &amp; Sheets</summary><div class="settings-body">
+  <div class="settings-options">
+    <div class="transport-switches"><label class="switch"><input id="loop" type="checkbox" checked><span>Loop range</span></label><label class="switch"><input id="click" type="checkbox"><span>Song click</span></label></div>
+  </div>
+  <div class="settings-body">
     <label class="field"><span>LIVE MONITORING</span><select id="monitor-relationship" aria-describedby="monitor-hint"><option value="unknown">Not confirmed · monitoring off</option><option value="different-devices">Input and output are different devices</option><option value="same-usb-interface">Same USB audio interface</option><option value="same-non-usb">Same non-USB device · monitoring off</option></select></label>
     <button id="sheet-link" class="secondary" type="button">Open current bar in Sheets ↗</button><span id="sheet-status" role="status"></span>
     <p id="monitor-hint">Browser-default audio. Confirm monitoring after Start.</p>
-  </div></details>
-  <section id="chart-source" class="chart-source" aria-label="Chart source and inspection"></section>
-  <footer><span id="offline-status">Local audio.</span><a href="./README.md">Setup &amp; notes ↗</a></footer>
-</main>
+  </div>
+</dialog>
 <dialog id="tuner-dialog" aria-label="Tuner" class="tuner-dialog">
   <button id="close-tuner" type="button" class="tuner-close">Close tuner</button>
   <div id="tuner-root"></div>

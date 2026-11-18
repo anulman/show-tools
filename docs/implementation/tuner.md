@@ -1,6 +1,6 @@
 # Tuner in the shared audio session
 
-The tuner borrows the practice desk's microphone, audio device, and native performance engine. It has no standalone microphone, AudioContext, WASM loader, or JavaScript pitch detector. The same C++ utility runs inside browser WASM and the native host.
+The tuner borrows the Performance Desk's microphone, audio device, and native performance engine. It has no standalone microphone, AudioContext, WASM loader, or JavaScript pitch detector. The same C++ utility runs inside browser WASM and the native host.
 
 `lib/tuner/` owns monophonic pitch detection, note spelling, scale planning, manual progression, and reference synthesis. `pf_process_stems()` supplies raw microphone input before voice effects and capture. Reference tones enter the sample/click output bus and never enter the digital microphone capture path. Acoustic speaker leakage remains possible.
 

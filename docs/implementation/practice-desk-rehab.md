@@ -1,4 +1,4 @@
-# Practice desk rehab
+# Performance Desk rehab
 
 The performer sees transport first, two chart-derived vocal rows, and the four pads in Q/W above A/S order. Ordered effect summaries stay inside each voice footer. Their disclosure reveals stopped venue settings. Recording, download, Panic, monitoring confirmation, optional Sheets following, and the collapsed chart inspector remain accessible below the instrument.
 

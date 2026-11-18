@@ -1,6 +1,7 @@
+import { dismissOnBackdrop } from './dialog.js';
 import { chartBarLabel, chartBarOrdinal } from '../../lib/performance/chart-position.js';
 import { enablePhoneMotion } from './phone-motion.js';
-import { audioMode, canChangeAudioMode, changeAudioMode } from './audio-mode.js';
+import { audioMode, defaultAudioMode, changeAudioMode } from './audio-mode.js';
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
 import { exportMusicXmlWithVoices } from '../../lib/performance/musicxml-authoring.js';
 import { musicXmlSourceView } from '../../lib/performance/musicxml-source-view.js';
@@ -91,13 +92,18 @@ const voiceAvatars = new Map<number, { root: HTMLElement; name: string }>();
 const liveVoiceStates = new Map<number, HTMLSpanElement>();
 const rotationControls: HTMLButtonElement[] = [];
 let effectsApplying = false;
-const voiceEffects = createVoiceEffectsEditor(profile => { void act(() => applyVoiceEffects(profile)); });
+const voiceEffects = createVoiceEffectsEditor(profile => { void act(() => applyVoiceEffects(profile)); }, scheduleAuditionEffect);
+const auditionButtons: { button: HTMLButtonElement; profile: number }[] = [];
+let auditionTimer: ReturnType<typeof setTimeout> | undefined;
+let auditionApplying = false;
 let chart: Chart | undefined;
 let song: SongScript | undefined;
 let songGeneration = 0;
 let switching = false;
 let outputCapture: 'idle' | 'starting' | 'waiting' | 'recording' | 'stopping' = 'idle';
-const mode = audioMode(new URL(location.href));
+const deskURL = new URL(location.href);
+const defaultMode = await defaultAudioMode(deskURL);
+const mode = audioMode(deskURL, defaultMode);
 const remote = mode === 'hardware';
 type PerformanceSession = PracticeAudio | RemoteSession;
 let audio: PerformanceSession | undefined;
@@ -153,7 +159,7 @@ let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorke
 let transportGeneration = 0;
 type DisplayState = Pick<PracticeState, 'phase' | 'bar' | 'beat' | 'selectedChannel' | 'channels'> & Partial<PracticeState>;
 let state: DisplayState = { phase: 'idle', bar: null, beat: 1, selectedChannel: 'R1', channels: CONTROLS.map(({ id }) => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })) };
-const sampleDownloads = createSampleDownloads(elements['live-voices'], () => ({ song: song?.compiled, state, source: audio }), () => render(state));
+const sampleDownloads = createSampleDownloads(requiredElement('#recording-controls', HTMLElement), () => ({ song: song?.compiled, state, source: audio }), () => render(state));
 let recorder: MediaRecorder | undefined;
 let recordingURL: string | undefined;
 let chartFollower: ReturnType<typeof createChartFollower> | undefined;
@@ -284,7 +290,7 @@ requiredElement('#open-tuner', HTMLButtonElement).addEventListener('click', () =
   syncTunerSession();
   tunerDialog.showModal();
 });
-requiredElement('#close-tuner', HTMLButtonElement).addEventListener('click', () => {
+function dismissTuner() {
   void act(async () => {
     await tunerPanel?.close();
     tunerPanel = undefined;
@@ -292,7 +298,15 @@ requiredElement('#close-tuner', HTMLButtonElement).addEventListener('click', () 
     tunerPort = undefined;
     tunerDialog.close();
   });
-});
+}
+requiredElement('#close-tuner', HTMLButtonElement).addEventListener('click', dismissTuner);
+dismissOnBackdrop(tunerDialog, dismissTuner);
+tunerDialog.addEventListener('cancel', event => { event.preventDefault(); dismissTuner(); });
+
+const settingsDialog = requiredElement('#settings-dialog', HTMLDialogElement);
+requiredElement('#open-settings', HTMLButtonElement).addEventListener('click', () => settingsDialog.showModal());
+requiredElement('#close-settings', HTMLButtonElement).addEventListener('click', () => settingsDialog.close());
+dismissOnBackdrop(settingsDialog, () => settingsDialog.close());
 
 function controlName(id: ChannelId): string {
   return song?.compiled?.parts.find(part => part.role.kind === 'pad' && part.role.buttonId === id)?.name || chart?.controlNames[id] || id;
@@ -339,9 +353,40 @@ async function pressPad(id: ChannelId, source: 'keyboard' | 'pointer') {
   await (source === 'keyboard' ? keyboardProducer : pointerProducer).event(CONTROL_IDS.indexOf(id), 1);
 }
 
-async function applyVoiceEffects(profile: number) {
+function scheduleAuditionEffect(profile: number) {
+  const instance = audio;
+  if (!(instance instanceof RemoteSession) || instance.auditionProfile() !== profile || isRunning() || starting) return;
+  if (auditionTimer !== undefined) clearTimeout(auditionTimer);
+  elements.start.disabled = true;
+  auditionTimer = setTimeout(() => {
+    auditionTimer = undefined;
+    if (audio !== instance || instance.auditionProfile() !== profile || isRunning() || starting) { render(state); return; }
+    if (effectsApplying) { scheduleAuditionEffect(profile); return; }
+    void act(() => applyVoiceEffects(profile, true));
+  }, 110);
+}
+
+function addAuditionButton(parent: HTMLElement, profile: number, name: string) {
+  const button = document.createElement('button');
+  button.type = 'button'; button.className = 'audition-button secondary';
+  button.textContent = 'Audition'; button.hidden = true;
+  button.setAttribute('aria-label', `Audition ${name}`);
+  button.addEventListener('click', () => {
+    void act(async () => {
+      const instance = audio;
+      if (!(instance instanceof RemoteSession) || instance.auditionProfile() === undefined || isRunning() || effectsApplying) return;
+      const next = instance.auditionProfile() === profile ? null : profile;
+      await instance.audition(next);
+      if (next !== null && voiceEffects.hasChanges(next)) scheduleAuditionEffect(next);
+    });
+  });
+  parent.append(button);
+  auditionButtons.push({ button, profile });
+}
+
+async function applyVoiceEffects(profile: number, audition = false) {
   if (isRunning() || starting || switching || effectsApplying || outputCapture !== 'idle') return;
-  effectsApplying = true; render(state);
+  effectsApplying = true; auditionApplying = audition; render(state);
   try {
     const configurations = voiceEffects.configurations(profile);
     if (remote) {
@@ -355,7 +400,7 @@ async function applyVoiceEffects(profile: number) {
       const instance = await ensureAudio(configurations);
       await instance.configureVoiceEffects(configurations);
     }
-  } finally { effectsApplying = false; render(state); }
+  } finally { effectsApplying = false; auditionApplying = false; render(state); }
 }
 
 async function rotate(value: number, source: 'keyboard' | 'pointer' = 'pointer') {
@@ -371,7 +416,7 @@ function monitoringRelationship(value: string): MonitoringRelationship {
 }
 
 async function startPractice() {
-  if (voiceCatalog.busy || starting || isRunning() || outputCapture === 'starting' || outputCapture === 'stopping') return;
+  if (voiceCatalog.busy || starting || isRunning() || effectsApplying || auditionTimer !== undefined || outputCapture === 'starting' || outputCapture === 'stopping') return;
   if (!chart) throw new Error('The song chart is still loading. Try again in a moment.');
   const bpm = Number(elements.bpm.value);
   const startBar = Number(elements['start-section'].value);
@@ -529,13 +574,15 @@ function mountVoiceRows() {
     avatar.hidden = true; delete avatar.dataset.avatar;
   }
   elements['live-voices'].replaceChildren();
+  auditionButtons.length = 0;
   for (const pad of pads.values()) pad.shell.querySelector('.voice-effects')?.remove();
   const parts = [...song?.compiled?.parts ?? [], ...song?.compiled?.sourceProfiles?.map(profile => ({ ...profile, role: { kind: 'sampled-source' as const } })) ?? []];
   for (const part of parts) {
     if (part.role.kind === 'pad') {
       const pad = pads.get(part.role.buttonId);
       if (pad) {
-        voiceEffects.mount(part, pad.shell, remote ? undefined : () => voiceCatalog.openProfile(part.profile));
+        const editor = voiceEffects.mount(part, pad.shell, remote ? undefined : () => voiceCatalog.openProfile(part.profile));
+        if (remote) addAuditionButton(editor, part.profile, part.name);
         voiceAvatars.set(part.profile, { root: requiredElement('.performance-avatar', HTMLElement, pad.button), name: part.name });
       }
       continue;
@@ -551,6 +598,7 @@ function mountVoiceRows() {
     const tools = document.createElement('div'); tools.className = 'voice-tools';
     const status = document.createElement('span'); status.className = 'voice-state'; status.textContent = 'STANDBY';
     liveVoiceStates.set(part.profile, status); tools.append(status);
+    if (remote) addAuditionButton(tools, part.profile, part.name);
     if (part.role.kind === 'rotation-live') {
       const rotations = document.createElement('div'); rotations.className = 'rotation-controls';
       for (const [value, text] of [[-1, '↶'], [1, '↷']] satisfies readonly [number, string][]) {
@@ -616,9 +664,13 @@ elements['audio-mode-select'].addEventListener('change', () => {
   const select = elements['audio-mode-select'];
   const next = select.value;
   if (next !== 'browser' && next !== 'hardware') { select.value = mode; return; }
+  if (next === mode || changingAudioMode) return;
+  const warning = remote && isRunning() ? 'The EliteDesk will keep performing after you leave Hardware mode. Switch audio mode?'
+    : !remote && browserModeBusy() ? 'Switching audio mode ends browser audio and discards any take you have not downloaded. Switch audio mode?' : '';
+  if (warning && !window.confirm(warning)) { select.value = mode; return; }
   changingAudioMode = true;
   select.disabled = true;
-  void changeAudioMode({ current: mode, next, browserBusy: browserModeBusy(), url: new URL(location.href),
+  void changeAudioMode({ current: mode, next, browserBusy: false, url: deskURL, fallback: defaultMode,
     dispose: async () => { if (remote) await remoteDesk?.dispose(); else await audio?.dispose(); }, navigate: url => location.assign(url.href) })
     .then(changed => { if (!changed) { changingAudioMode = false; select.value = mode; select.disabled = false; } })
     .catch(error => { changingAudioMode = false; select.value = mode; select.disabled = false; showError(error); });
@@ -635,7 +687,7 @@ function render(next: Partial<PracticeState>) {
     if (audio && !remote) void audio.disableMicrophone().catch(showError);
   }
   applyPendingPracticeUpdate();
-  elements['audio-mode-select'].disabled = changingAudioMode || !canChangeAudioMode(mode, browserModeBusy());
+  elements['audio-mode-select'].disabled = changingAudioMode;
   if (remote) {
     renderButtonBindings();
     renderRemoteDemo();
@@ -657,17 +709,24 @@ function render(next: Partial<PracticeState>) {
   elements['bar-number'].classList.toggle('pickup', Boolean(currentBar?.label && !/^\d/.test(currentBar.label)));
   elements['beat-number'].textContent = String(state.beat || 1);
   elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
-  elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping' || remoteDemoChanging || (remote && remoteDesk?.demoState() === 'finishing');
-  elements['song-select'].disabled = remote && (remoteDesk?.connection.kind !== 'connected' || running) || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
+  elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping' || remoteDemoChanging || auditionTimer !== undefined || (remote && remoteDesk?.demoState() === 'finishing');
+  elements['song-select'].disabled = remote && remoteDesk?.connection.kind !== 'connected' || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
   if (!remote) elements['record-demo'].disabled = voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
-  const effectsLocked = running || starting || switching || Boolean(preparing) || effectsApplying || outputCapture !== 'idle';
+  const effectsLocked = running || starting || switching || Boolean(preparing) || (effectsApplying && !auditionApplying) || outputCapture !== 'idle';
+  const preview = remoteDesk?.auditionProfile();
+  for (const { button, profile } of auditionButtons) {
+    button.hidden = preview === undefined;
+    button.disabled = effectsLocked || effectsApplying;
+    button.textContent = preview === profile ? 'End audition' : 'Audition';
+    button.setAttribute('aria-pressed', String(preview === profile));
+  }
   voiceEffects.render(state.voiceEffects, effectsLocked);
   voiceCatalog.update({ bar: state.bar, voiceEffects: state.voiceEffects });
   for (const [profile, avatar] of voiceAvatars) renderVoiceAvatar(avatar.root, voiceCatalog.voiceForProfile(profile), avatar.name);
   for (const [profile, label] of liveVoiceStates) {
     const applied = state.voiceEffects?.find(voice => voice.profile === profile);
-    label.textContent = applied?.activity === 'live' ? 'LIVE' : applied?.activity === 'tail' ? 'RELEASING' : applied?.activity === 'capture' ? 'RECORDING' : 'STANDBY';
-    label.dataset.activity = applied?.activity || 'standby';
+    label.textContent = preview === profile ? 'AUDITIONING' : applied?.activity === 'live' ? 'LIVE' : applied?.activity === 'tail' ? 'RELEASING' : applied?.activity === 'capture' ? 'RECORDING' : 'STANDBY';
+    label.dataset.activity = preview === profile ? 'live' : applied?.activity || 'standby';
     if (applied?.rotationEligible) label.textContent += applied.rotationRemainingBeats > 0 ? ` · ${applied.rotationRemainingBeats.toFixed(2)} BEAT` : ' · KNOB CUE';
   }
   for (const button of rotationControls) button.disabled = !running || !audio || !state.voiceEffects?.some(voice => voice.rotationEligible);
@@ -678,7 +737,7 @@ function render(next: Partial<PracticeState>) {
     : audio?.monitoringRelationship === 'same-non-usb'
       ? 'Same non-USB device confirmed. Live monitoring stays off. Downloads include processed voice.'
       : 'Live monitoring is off. Confirm your physical setup after Start. Downloads still include processed voice.';
-  startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start practice';
+  startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start';
   elements.stop.disabled = !starting && !running && !recording;
   for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting;
   elements['sheet-link'].setAttribute('aria-label', `Open ${inCountIn ? 'lead-in' : `bar ${chartBarLabel(chart, displayBar)}`} in Google Sheets`);
@@ -852,7 +911,10 @@ async function toggleOutputRecording() {
   }
 }
 
-elements.start.addEventListener('click', () => act(startPractice));
+elements.start.addEventListener('click', () => act(async () => {
+  if (remote && !audio && remoteDesk?.snapshot().audio.kind === 'off') { await remoteDesk.enableAudio(); return; }
+  await startPractice();
+}));
 elements['sheet-link'].addEventListener('click', () => act(async () => {
   if (!chart) throw new Error('Choose a song first');
   const currentChart = chart;
@@ -870,7 +932,19 @@ elements['sheet-link'].addEventListener('click', () => act(async () => {
   }
   finally { elements['sheet-link'].disabled = false; }
 }));
-elements['song-select'].addEventListener('change', () => act(() => switchSong(elements['song-select'].value)));
+elements['song-select'].addEventListener('change', () => act(async () => {
+  const select = elements['song-select'];
+  const next = select.value;
+  if (remote && isRunning()) {
+    if (!window.confirm('Switching songs stops the current performance and clears its captured samples. Continue?')) {
+      select.value = remoteDesk?.snapshot().song.id ?? next;
+      return;
+    }
+    try { await stopPractice(); }
+    catch (error) { select.value = remoteDesk?.snapshot().song.id ?? next; throw error; }
+  }
+  await switchSong(next);
+}));
 elements.stop.addEventListener('click', () => act(stopPractice));
 elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic); });
 elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording));
@@ -928,12 +1002,11 @@ window.addEventListener('keydown', event => {
     if ((event.code === 'Space' || event.code === 'Enter') && target?.closest('#start,#stop,#mushroom,#pads button,.rotation-controls button')) event.preventDefault();
     return;
   }
-  if (event.repeat || heldKeys.has(event.code)) return;
+  if (event.repeat || heldKeys.has(event.code) || document.querySelector('dialog[open]')) return;
   if (event.code === 'Escape') {
     event.preventDefault(); heldKeys.add(event.code); flash('mushroom', true);
     act(panic); return;
   }
-  if (document.querySelector('dialog[open]')) return;
   const target = event.target instanceof Element ? event.target : null;
   if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
     || keyboardFocusBlocksShortcut(event.code, Boolean(target?.closest('input,select,textarea,[contenteditable=true]')), Boolean(target?.closest('button,summary,a,[role=button]')))) return;
@@ -975,6 +1048,9 @@ window.addEventListener('message', event => {
 
 window.addEventListener('blur', releasePresses);
 document.addEventListener('visibilitychange', () => { if (document.hidden) releasePresses(); });
+window.addEventListener('beforeunload', event => {
+  if (isRunning() && !changingAudioMode) { event.preventDefault(); event.returnValue = ''; }
+});
 window.addEventListener('pagehide', () => { void pointerProducer.reset().catch(() => {}); releasePresses(); phoneMotionAbort?.abort(); preparationAbort?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
 
 makePads();
@@ -1036,7 +1112,7 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
       elements['song-select'].append(option);
     }
     elements['song-select'].value = loaded.id;
-    document.title = `${loaded.chart.title} · Practice desk`;
+    document.title = `${loaded.chart.title} · Performance Desk`;
     elements.bpm.value = String(loaded.chart.bpm);
     elements['start-section'].replaceChildren();
     for (const section of loaded.chart.sections.filter(section => section.startBar <= playableBars(loaded.chart))) {
@@ -1089,6 +1165,7 @@ function syncRemoteTransport(current: PracticeState) {
 
 const hardwareCard = requiredElement('#hardware-audio', HTMLElement);
 const hardwareStatus = requiredElement('#hardware-audio-status', HTMLSpanElement);
+const deskSignal = requiredElement('#desk-signal', HTMLSpanElement);
 const enableAudio = requiredElement('#enable-audio', HTMLButtonElement);
 const terminateAudio = requiredElement('#terminate-audio', HTMLButtonElement);
 
@@ -1115,7 +1192,10 @@ function renderHardwareUnavailable() {
   renderRemoteDemo();
   if (chart) elements['range-label'].textContent = `BARS ${chartBarLabel(chart, Number(elements['start-section'].value))}–${elements['end-bar'].value}`;
   for (const control of [elements.start, elements.stop, elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop, elements.click, elements.mushroom, elements['record-demo'], elements['song-select'], elements['monitor-relationship']]) control.disabled = true;
-  elements['song-select'].disabled = !remoteDesk || remoteDesk.connection.kind !== 'connected' || remoteDesk.snapshot().audio.kind !== 'off' || switching;
+  const canEnable = remoteDesk?.connection.kind === 'connected' && remoteDesk.snapshot().audio.kind === 'off';
+  if (canEnable) elements.start.disabled = false;
+  startLabel.textContent = canEnable ? 'Enable audio' : 'Start';
+  elements['song-select'].disabled = !canEnable || switching;
   elements['phase-label'].textContent = remoteDesk?.connection.kind === 'connected' && remoteDesk.snapshot().audio.kind === 'off' ? 'AUDIO OFF' : 'AUDIO UNAVAILABLE';
   elements['bar-number'].textContent = '··';
   elements['beat-number'].textContent = '·';
@@ -1133,6 +1213,10 @@ if (remote) {
   const hardwareKeyStatus = requiredElement('#hardware-key-status', HTMLSpanElement);
   const hardwareAuth = createHardwareAuth({ endpoint: new URL('/api/session', location.href).href });
   hardwareCard.hidden = false;
+  deskSignal.hidden = false;
+  deskSignal.dataset.state = 'off';
+  elements['monitor-relationship'].closest('label')?.setAttribute('hidden', '');
+  elements['monitor-hint'].hidden = true;
   elements['offline-status'].textContent = 'Audio runs on the remote host.';
   chartSource.hidden = true;
   renderHardwareUnavailable();
@@ -1157,6 +1241,9 @@ if (remote) {
         const connected = connection.kind === 'connected';
         hardwareCard.dataset.connection = connection.kind;
         hardwareCard.dataset.audio = connected ? status.kind : '';
+        deskSignal.dataset.state = connected ? status.kind : connection.kind;
+        const settings = requiredElement('#open-settings', HTMLButtonElement);
+        settings.setAttribute('aria-label', `Settings · ${connected && status.kind === 'ready' ? 'hardware audio on' : connected ? 'hardware audio ' + status.kind : 'hardware ' + connection.kind}`);
         hardwareStatus.textContent = connection.kind === 'disconnected' ? 'Connection lost; audio may still be running. Reconnect to the desk.'
           : connection.kind === 'connecting' ? 'Connecting to desk…'
           : status.kind === 'fault' ? `Audio fault · ${status.error}`

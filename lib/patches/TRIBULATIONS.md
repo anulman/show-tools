@@ -10,7 +10,7 @@ auto rack = patches::Rack::create(stages, 1);
 
 Preparation accepts finite sample rates from 16,000 through 192,000 Hz and returns null on failure. Stereo input becomes its arithmetic channel mean. Output is the same synthesized signal on both channels. Nonfinite input channels become zero before processing. No raw voice is mixed into the output.
 
-The factory is available in the standalone C++ patches library. The practice desk, voice catalog, and compiled performance protocol do not yet expose this effect. No voice assignment, production graph type, or musical cue is implied by its name.
+The factory is available in the standalone C++ patches library. The Performance Desk, voice catalog, and compiled performance protocol do not yet expose this effect. No voice assignment, production graph type, or musical cue is implied by its name.
 
 ## Signal and state
 

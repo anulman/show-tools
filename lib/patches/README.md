@@ -2,7 +2,7 @@
 
 This standalone C++17 module renders ordered, full-output effects. Slapback and Chorus are prepared effect types. The fixed [Tribulations guitar](TRIBULATIONS.md) factory preserves the approved Legato fuzz instrument without adding production voice bindings. A take stores the exact processed live PCM for playback and auxiliary original source PCM for evolving effect history. Cached audio never enters its baked effects stack again.
 
-The performance engine owns routing, effect activation, capture admission and recording boundaries. This module supplies prepared racks, capture storage and evolving playback; it does not select musical controls or schedule captures. The practice desk is the supported browser UI. Native/WASM fixtures do not establish physical device latency.
+The performance engine owns routing, effect activation, capture admission and recording boundaries. This module supplies prepared racks, capture storage and evolving playback; it does not select musical controls or schedule captures. The Performance Desk is the supported browser UI. Native/WASM fixtures do not establish physical device latency.
 
 ## Build and run the native tests
 

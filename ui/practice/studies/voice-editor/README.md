@@ -1,6 +1,6 @@
 # Voice editor design studies
 
-These three runnable layout studies use explicit sample states. They do not connect to audio or durable storage. The supported page remains the practice desk.
+These three runnable layout studies use explicit sample states. They do not connect to audio or durable storage. The supported page remains the Performance Desk.
 
 - **A:** compact ensemble roster and inline inspectors. Retained: row proportions, generous effect controls, saved/applied language.
 - **B:** avatar cast cards and a shared side editor. Retained: one editor, independent character/frame appearance, sticky footer.

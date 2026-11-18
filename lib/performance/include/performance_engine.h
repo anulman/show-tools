@@ -187,6 +187,7 @@ int pf_process_stems_with_song_span(pf_engine* engine, const float* input, float
 /* Add the prepared default voice while stopped. The host owns monitor authorization.
    This advances only the voice effects, without touching transport or capture. */
 int pf_render_idle_monitor(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames);
+int pf_render_idle_monitor_voice(pf_engine* engine, uint32_t profile, const float* input, float* left, float* right, uint32_t frames);
 /* Process adds output, advances the owned clock, and executes all musical
    decisions. No JavaScript callbacks are used. One caller owns each engine. */
 int pf_process(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames);

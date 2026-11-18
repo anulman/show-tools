@@ -322,8 +322,8 @@ void queue_tracker(pf_engine* engine, const double* event) {
   double* destination = engine->telemetry[(engine->telemetry_head + engine->telemetry_count++) % telemetry_capacity];
   std::copy(event, event + BT_E_COUNT, destination);
 }
-void render_default_voice(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames) {
-  auto& rack = *engine->profiles[PF_DEFAULT_PROFILE].rack;
+void render_voice(pf_engine* engine, uint32_t profile, const float* input, float* left, float* right, uint32_t frames) {
+  auto& rack = *engine->profiles[profile].rack;
   for (uint32_t index = 0; index < frames; ++index) {
     float value = input && std::isfinite(input[index]) ? input[index] : 0;
     const auto output = rack.process({value, value});
@@ -341,7 +341,7 @@ void render_segment(pf_engine* engine, const float* input, float* left, float* r
       fail(engine, error); emit(engine, PF_FAULT, start + count);
     }
   }
-  else if (live_active(engine)) render_default_voice(engine, input, live_left, live_right, count);
+  else if (live_active(engine)) render_voice(engine, PF_DEFAULT_PROFILE, input, live_left, live_right, count);
   if (engine->mode != PF_TRACKER && !engine->compiled) {
     uint32_t limited = st_capture(engine->sampler, input, count, start);
     if (engine->mode == PF_PRACTICE && engine->phase == PF_PLAYING) {
@@ -1163,10 +1163,13 @@ int pf_process_stems_with_song_span(pf_engine* engine, const float* input, float
   return process_stems(engine, input, left, right, live_left, live_right, frames, *song_offset, *song_frames);
 }
 int pf_render_idle_monitor(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames) {
+  return pf_render_idle_monitor_voice(engine, PF_DEFAULT_PROFILE, input, left, right, frames);
+}
+int pf_render_idle_monitor_voice(pf_engine* engine, uint32_t profile, const float* input, float* left, float* right, uint32_t frames) {
   const float* spans[] = {input, left, right};
   if (!engine || engine->mode != PF_PRACTICE || running(engine) || !engine->microphone ||
-      !engine->profiles[PF_DEFAULT_PROFILE].rack || !disjoint_audio(spans, 3, frames)) return -1;
-  render_default_voice(engine, input, left, right, frames);
+      profile >= PF_VOICE_PROFILES || !engine->profiles[profile].rack || !disjoint_audio(spans, 3, frames)) return -1;
+  render_voice(engine, profile, input, left, right, frames);
   return 0;
 }
 int pf_set_jiggle_thresholds(pf_engine* engine, double travel, double reversal) {

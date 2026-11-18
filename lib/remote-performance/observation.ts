@@ -90,9 +90,12 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	const lightImage = reader.array(LIGHT.LIGHT_FIELDS);
 	const tunerData = reader.array(PF.TUNER_FIELDS);
 	const inputData = reader.array(PF.INPUT_INFO_FIELDS);
-	const hasDemo = reader.remaining !== 0;
-	const demo = hasDemo ? demoStates[reader.u32() - 1] : undefined;
-	if (hasDemo && demo === undefined) throw new Error('Invalid recording state');
+	const demoCode = reader.remaining ? reader.u32() : 0;
+	const demo = demoCode ? demoStates[demoCode - 1] : undefined;
+	if (demoCode && demo === undefined) throw new Error('Invalid recording state');
+	const auditionCode = reader.remaining ? reader.u32() : 0;
+	if (auditionCode > PF.VOICE_PROFILES + 1) throw new Error('Invalid audition state');
+	const audition = auditionCode === 0 ? undefined : auditionCode === 1 ? null : auditionCode - 2;
 	reader.end();
 	if (revision === 0n && manifestBytes.length === 0 && digest.every(byte => byte === 0)) return null;
 	const tuner = decodeTunerState(tunerData);
@@ -109,7 +112,7 @@ export function decodeSnapshot(payload: Buffer, runId: string) {
 	state.compiledTakes = Array.from({ length: manifest.takeCount }, (_, i) => decodeNativeTake(takes.subarray(i * PF.TAKE_FIELDS, (i + 1) * PF.TAKE_FIELDS), i));
 	state.tempoHits = decodeNativeTempo(tempo);
 	state.inputRouting = decodeNativeInputRouting(inputData);
-	return { revision, run, song: manifest.song, state, lights, tuner, demo };
+	return { revision, run, song: manifest.song, state, lights, tuner, demo, audition };
 }
 
 export function decodeEvent(payload: Buffer, runId: string) {

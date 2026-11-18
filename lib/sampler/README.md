@@ -2,7 +2,7 @@
 
 The C++ engine in [src/sample_engine.cpp](src/sample_engine.cpp) owns sample PCM, capture buffers, retained variants, active voices, resampling, gain, mute, and mixing. Its public C interface is [include/sample_engine.h](include/sample_engine.h).
 
-The [practice desk](../../ui/practice/README.md) uses that engine inside its shared audio worklet. Both WASM build scripts link it into the same module as the C++ clock, sequencer, and performance engine. The standalone native library builds the same source without aubio.
+The [Performance Desk](../../ui/practice/README.md) uses that engine inside its shared audio worklet. Both WASM build scripts link it into the same module as the C++ clock, sequencer, and performance engine. The standalone native library builds the same source without aubio.
 
 ## Browser integration
 

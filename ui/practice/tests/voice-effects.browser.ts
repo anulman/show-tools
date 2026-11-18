@@ -4,7 +4,7 @@ const status = document.createElement('pre'); status.id = 'test-results'; docume
 const results: string[] = [];
 window.addEventListener('error', event => { status.textContent += `\nFAIL ${event.message}`; document.title = 'FAIL: effect rows'; });
 function check(value: unknown, name: string) { if (!value) throw new Error(name); results.push(`PASS ${name}`); status.textContent = results.join('\n'); }
-const host = document.createElement('div'); host.id = 'fx-test-host'; host.style.display = 'none'; document.body.append(host);
+const host = document.createElement('div'); host.id = 'fx-test-host'; host.style.cssText = 'position:fixed; left:-200vw; width:420px'; document.body.append(host);
 let applying: number | undefined;
 const editor = createVoiceEffectsEditor(profile => { applying = profile; });
 const voice = { id: 'vocals', name: 'Vocals', profile: DEFAULT_LIVE_PROFILE };
@@ -24,19 +24,25 @@ editor.render(states, false); editor.render(states, false);
 check(vox.querySelector('input') === input && input.value === '125', 'native render preserves knob identity and pending edit');
 check(editor.configurations(ROTATION_LIVE_PROFILE).find(item => item.profile === DEFAULT_LIVE_PROFILE)?.effects[0]?.kind === 'slapback' && JSON.stringify(editor.configurations(ROTATION_LIVE_PROFILE).find(item => item.profile === DEFAULT_LIVE_PROFILE)?.effects) === JSON.stringify(states.find(item => item.profile === DEFAULT_LIVE_PROFILE)?.effects), 'applying another profile preserves applied Vocals');
 vox.querySelector<HTMLButtonElement>('.fx-apply')?.click(); check(applying === DEFAULT_LIVE_PROFILE, 'Apply targets this voice');
-check(vox.querySelector('.fx-state')?.textContent === 'Unapplied', 'Apply waits for native acknowledgement');
+check(!vox.querySelector<HTMLButtonElement>('.fx-apply')?.hidden, 'Apply waits for native acknowledgement');
 const changed = editor.configurations().find(item => item.profile === DEFAULT_LIVE_PROFILE); if (!changed) throw new Error('missing draft');
 editor.render(states.map(state => state.profile === DEFAULT_LIVE_PROFILE ? { ...state, effects: changed.effects } : state), false);
-check(vox.querySelector('.fx-state')?.textContent === 'Applied', 'native acknowledgement clears pending state');
+check(vox.querySelector<HTMLButtonElement>('.fx-apply')?.hidden, 'native acknowledgement clears pending state');
 editor.render(states, true); check(input.disabled && vox.querySelector<HTMLButtonElement>('.fx-apply')?.disabled, 'running lock disables knobs and Apply');
 editor.setEffects(DEFAULT_LIVE_PROFILE, []); editor.render(states, false);
 check(!vox.querySelectorAll('.fx-stage').length && !vox.querySelector<HTMLElement>('.voice-effects')?.hidden && !vox.querySelector<HTMLButtonElement>('.fx-apply')?.hidden, 'pending dry change keeps Apply accessible');
 editor.render(states.map(state => state.profile === DEFAULT_LIVE_PROFILE ? { ...state, effects: [] } : state), false);
 check(vox.querySelector<HTMLElement>('.voice-effects')?.hidden, 'acknowledged dry hides effect region');
 const remote = document.createElement('div'); host.append(remote); editor.mount({ id: 'remote', name: 'Remote', profile: DEFAULT_LIVE_PROFILE }, remote);
-check(remote.querySelector('summary')?.textContent === 'Add effect', 'remote dry voice retains stack management');
-remote.querySelector<HTMLButtonElement>('.fx-management button')?.click();
+const openStack = remote.querySelector<HTMLButtonElement>('.fx-empty');
+check(openStack?.textContent === 'Effects', 'remote dry voice retains stack management');
+openStack?.click();
+const stack = remote.querySelector<HTMLDialogElement>('.fx-editor');
+check(stack?.open, 'effects open a dialog without expanding the voice');
+stack?.querySelector<HTMLButtonElement>('.fx-editor-add button')?.click();
 check(remote.querySelectorAll('.fx-stage').length === 1, 'remote dry voice can add an effect');
+stack?.querySelector<HTMLButtonElement>('.dialog-heading button')?.click();
+check(stack && !stack.open, 'Done closes the stack editor');
 editor.setEffects(DEFAULT_LIVE_PROFILE, [
   { kind: 'slapback', delayMs: 100.4, feedback: .203, wet: .357 },
   { kind: 'chorus', rateHz: .82, depthMs: 5.13, baseDelayMs: 20.17, wet: .321 },

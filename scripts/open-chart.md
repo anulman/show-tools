@@ -6,7 +6,7 @@ Start the combined browser and Sheets helper from the repository root:
 ./show-tools sheets 1
 ```
 
-The command reuses Chromium at the configured CDP port, or launches a dedicated browser if none is listening. It starts the local helper and opens the selected song's lead-in column. Leave the command running while you practice. The practice desk sends changed bar columns as the sequencer counts.
+The command reuses Chromium at the configured CDP port, or launches a dedicated browser if none is listening. It starts the local helper and opens the selected song's lead-in column. Leave the command running while you practice. The Performance Desk sends changed bar columns as the sequencer counts.
 
 Use a song slug or a 1-indexed set-list number:
 
@@ -22,7 +22,7 @@ Without a song, the command finds and activates a tab for `SHOW_TOOLS_SET_LIST_U
 
 An explicit startup song selects its chart only. Choose the matching song separately in the practice UI. Later practice events identify their own song chart, so the helper follows UI song changes.
 
-The CLI starts no audio or practice web server. Microphone capture still starts through **Start practice** in the page. Startup chart opening activates the chart tab once. Automatic bar following stays in the background and does not move keyboard focus away from the practice controls.
+The CLI starts no audio or practice web server. Microphone capture still starts through **Start** in the page. Startup chart opening activates the chart tab once. Automatic bar following stays in the background and does not move keyboard focus away from the practice controls.
 
 Press **Ctrl+C** to stop the helper and any browser this invocation launched. A reused browser stays running. The startup output reports whether it launched or reused Chromium. An occupied helper port or incompatible CDP service produces an error without stopping another process. Browser profiles and recordings are never deleted.
 
@@ -77,7 +77,7 @@ The dedicated profile is separate from your normal browser profile. If Sheets re
 
 ## Follow during practice
 
-The practice desk's **Open current bar in Sheets** button sends a spreadsheet ID, sheet ID, and column range to the loopback helper. The helper opens or reuses that spreadsheet, switches to the correct sheet, selects the column, and confirms the Name box before acknowledging.
+The Performance Desk's **Open current bar in Sheets** button sends a spreadsheet ID, sheet ID, and column range to the loopback helper. The helper opens or reuses that spreadsheet, switches to the correct sheet, selects the column, and confirms the Name box before acknowledging.
 
 Practice audio runs independently. The helper is optional and runs on the desktop controlling Sheets. It is unnecessary for mobile audio practice.
 

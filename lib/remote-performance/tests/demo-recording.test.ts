@@ -31,6 +31,7 @@ test('the native desk records the exact song mix and serves the last completed W
     controller.setAudio('on');
     const audio = await until(ready);
     assert.equal(audio.performance.demo, 'idle');
+    assert.equal(audio.performance.audition, null);
     const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
     const bootstrap = await fetch(base + 'session', { headers }).then(response => response.json());
     let sequence = 0;
@@ -41,9 +42,14 @@ test('the native desk records the exact song mix and serves the last completed W
       const result = await response.json();
       assert.equal(result.outcome, 'applied', JSON.stringify(result));
     }
+    assert.equal(await fetch(base + 'desk-mode').then(response => response.text()), 'hardware');
+    await command('audition', { profile: 5 });
+    assert.equal(ready()?.performance.audition, 5);
+    assert.equal(ready()?.performance.state.phase, 'idle');
     await command('setClick', { enabled: false });
     await command('start', { bpm: 240, countInBars: 1, startBar: 1, endBar: 1, loop: false, recordDemo: true });
     assert.equal(ready()?.performance.demo, 'armed');
+    assert.equal(ready()?.performance.audition, null, 'Transport takes back the monitor route');
     assert.equal((await download('HEAD')).status, 404);
     await until(() => ready()?.performance.demo === 'saved' ? true : undefined);
     assert.equal(ready()?.performance.state.phase, 'ended');

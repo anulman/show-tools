@@ -29,6 +29,7 @@ bool Instrument::prepare(const uint8_t* packet, uint32_t bytes, const Profiles& 
   auto pump = std::make_unique<AudioPump>(candidate.get(), config_.block_capacity);
   pump_ = std::move(pump); engine_ = std::move(candidate); lifecycle_ = Lifecycle::Prepared;
   output_ = Output::Performance;
+  audition_profile_ = -1;
   return true;
 }
 bool Instrument::prepare_profiles(const Profiles& profiles) {
@@ -41,6 +42,7 @@ bool Instrument::start(const Start& start) {
   if (output_ == Output::Tuner) pump_->discard();
   if (!pending()) output_ = Output::Performance;
   if (idle_monitor_ == IdleMonitor::PanicMuted) idle_monitor_ = IdleMonitor::Enabled;
+  audition_profile_ = -1;
   lifecycle_ = Lifecycle::Running; return true;
 }
 bool Instrument::can_start() const { return lifecycle_ == Lifecycle::Prepared && (!pending() || output_ != Output::Performance); }
@@ -50,6 +52,7 @@ void Instrument::stop() {
   if (lifecycle_ != Lifecycle::Faulted) lifecycle_ = Lifecycle::Prepared;
 }
 void Instrument::silence_panic() {
+  audition_profile_ = -1;
   pump_->discard();
   output_ = Output::Performance;
   lifecycle_ = Lifecycle::Prepared;
@@ -92,6 +95,12 @@ int Instrument::tuner(int operation, uint32_t expected_revision, int value, int 
   return engine_ && (lifecycle_ == Lifecycle::Prepared || ((operation == PF_TUNER_CLOSE || operation == PF_TUNER_SILENCE) && lifecycle_ == Lifecycle::Running))
     ? pf_tuner_command_apply(engine_.get(), operation, expected_revision, value, scale) : -1;
 }
+int Instrument::audition(int profile) {
+  if (!monitoring() || profile < -1 || profile >= PF_VOICE_PROFILES) return -1;
+  if (idle_monitor_only() && output_ == Output::IdleMonitor) pump_->discard();
+  audition_profile_ = profile;
+  return 0;
+}
 bool Instrument::monitoring() const { return lifecycle_ == Lifecycle::Prepared && idle_monitor_ == IdleMonitor::Enabled; }
 bool Instrument::idle_monitor_only() const { return monitoring() && !pf_audio_needed(engine_.get()) && output_ != Output::Tuner; }
 bool Instrument::audio_needed() const {
@@ -101,7 +110,7 @@ int Instrument::render(const float* input, uint32_t frames) {
   if (!audio_needed()) return -1;
   const bool running = lifecycle_ == Lifecycle::Running;
   const bool monitor_only = monitoring() && !pf_audio_needed(engine_.get());
-  if (pump_->render(input, frames, monitoring()) < 0) { lifecycle_ = Lifecycle::Faulted; return -1; }
+  if (pump_->render(input, frames, monitoring(), audition_profile_ < 0 ? PF_DEFAULT_PROFILE : uint32_t(audition_profile_)) < 0) { lifecycle_ = Lifecycle::Faulted; return -1; }
   output_ = running ? Output::Performance : monitor_only ? Output::IdleMonitor : Output::Tuner;
   if (!running) return 0;
   std::array<double, PF_FIELDS> state{};
