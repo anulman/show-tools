@@ -63,7 +63,7 @@ Default-live effects apply during count-in and playing. The click and cached sam
 ./show-tools chart encode --song /tmp/song.json --out /tmp/song.pfp
 ```
 
-Compilation runs offline after fetch. `--draft` saves source-located diagnostics and cannot emit `.pfp` bytes. Schema/packet 5 and ABI 7 retain explicit capture end, loop end, and group anchor. Import a resolved artifact through the practice desk while stopped. Current DYC authoring answers are encoded. Its disjoint recording intervals permit F21 future arming while R1 still records; native state keeps live routing, capture ownership, and reservations separate.
+Compilation runs offline after fetch. `--draft` saves source-located diagnostics and cannot emit `.pfp` bytes. Schema/packet 5 and ABI 7 retain explicit capture end, loop end, and group anchor. Import a resolved artifact through the Performance Desk while stopped. Current DYC authoring answers are encoded. Its disjoint recording intervals permit F21 future arming while R1 still records; native state keeps live routing, capture ownership, and reservations separate.
 
 `encode` validates and converts the exact inspected JSON into native bytes. It does not fetch or recompile the worksheet. Replace the removed `compile --native-out` option with this separate command. Each command validates its input before publishing one complete output by rename; concurrent runs use separate temporary directories. Input aliases are rejected. Validation and pre-publication failures preserve the previous output. This does not establish power-loss durability or a transaction across the JSON and `.pfp` files.
 

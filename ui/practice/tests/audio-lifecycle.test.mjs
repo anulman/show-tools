@@ -11,7 +11,7 @@ import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
 import { audioMode, canChangeAudioMode, changeAudioMode } from '../audio-mode.ts';
 
 function prepareUIContext(context) {
-  for (const [key, value] of Object.entries({ postPerformanceEvent() {}, createMusicalInputProducer, createMusicalInputPolicy, CONTROL_IDS: ['L1', 'L2', 'R1', 'R2'], chartBarLabel, chartBarOrdinal, URL, URLSearchParams, AbortController, preparationAbort: undefined, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
+  for (const [key, value] of Object.entries({ postPerformanceEvent() {}, dismissOnBackdrop() {}, createMusicalInputProducer, createMusicalInputPolicy, CONTROL_IDS: ['L1', 'L2', 'R1', 'R2'], chartBarLabel, chartBarOrdinal, URL, URLSearchParams, AbortController, preparationAbort: undefined, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
   context.createInputBindingPanel ??= () => ({ element: {}, update() {} });
   context.createSampleDownloads ??= () => ({ render() {}, busy: false });
   if (context.HTMLElement) context.HTMLElement.prototype.after ??= () => {};
@@ -56,7 +56,7 @@ for (const gate of ['resume']) for (const action of ['stop', 'panic', 'physical-
 }
 
 const uiSource = (await sourceForVM(new URL('../app.ts', import.meta.url)))
-  .replace(/^import .*;\n/gm, '').replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })').split('elements.start.addEventListener(')[0];
+  .replace(/^import .*;\n/gm, '').replace('const defaultMode = await defaultAudioMode(deskURL);', 'const defaultMode = "browser";').replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })').split('elements.start.addEventListener(')[0];
 
 for (const action of ['stopPractice', 'panic']) {
   test(`UI ${action} cancels initial audio preparation before launch`, async () => {
@@ -120,8 +120,7 @@ test('repeated Record demo taps during audio preparation create one recorder', a
     PracticeAudio: { create: () => preparing.promise },
   };
   prepareUIContext(context);
-  const source = (await sourceForVM(new URL('../app.ts', import.meta.url))).replace(/^import .*;\n/gm, '').replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })').split('elements.start.addEventListener(')[0];
-  vm.runInContext(`${source}\nfunction render() {}\nchart = { bars: Array.from({ length: 218 }, (_, index) => ({ bar: index + 1 })) }; song = { chart, program: { lengthBeats: 4, events: [] } }; globalThis.recordDemo = toggleOutputRecording;`, context);
+  vm.runInContext(`${uiSource}\nfunction render() {}\nchart = { bars: Array.from({ length: 218 }, (_, index) => ({ bar: index + 1 })) }; song = { chart, program: { lengthBeats: 4, events: [] } }; globalThis.recordDemo = toggleOutputRecording;`, context);
   const first = context.recordDemo();
   const second = context.recordDemo();
   preparing.resolve({ subscribe() {}, onEvent() {}, outputStream: {} });
@@ -194,6 +193,7 @@ function voiceEditorHarness() {
     addEventListener(name, callback) { this.listeners.set(name, callback); }
     reportValidity() { return this.value !== '' && !this.validationMessage; }
     querySelector() { return null; }
+    contains(element) { return this.children.includes(element); }
   }
   const roots = new Map(), applied = [];
   const editor = createVoiceEffectsEditor(profile => applied.push(profile));
@@ -219,7 +219,7 @@ function voiceEditorHarness() {
     input.value = value; input.listeners.get('input')();
   }
   return { editor, native, applied, field, apply(profile) {
-    descendants(roots.get(profile)).find(element => element.tag === 'button' && element.textContent === 'Apply settings').listeners.get('click')();
+    descendants(roots.get(profile)).find(element => element.tag === 'button' && element.textContent === 'Apply changes').listeners.get('click')();
   } };
 }
 

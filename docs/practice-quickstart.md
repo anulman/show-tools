@@ -2,7 +2,7 @@
 
 Use this procedure on the EliteDesk as `anulman`. It covers Dance Yrself Clean, Drunk Girls, and Tribulations with two through six physical buttons and the dial.
 
-The web service keeps the desk available. The peripheral service reads the I-PAC and lights held buttons, including when audio is off. **Enable audio** opens the Scarlett and lets you hear the selected song’s default microphone voice. **Start practice** starts the count-in and song. These are separate actions.
+The web service keeps the desk available. The peripheral service reads the I-PAC and lights held buttons, including when audio is off. **Enable audio** opens the Scarlett and lets you hear the selected song’s default microphone voice. **Start** starts the count-in and song. These are separate actions.
 
 ## Find the installed commands
 
@@ -166,7 +166,7 @@ Expect `Dial: configured`. Direction here labels your capture motion. The tool d
 
 ## Assign buttons to each song
 
-Open [the EliteDesk practice desk](https://proxmox.tail54fc55.ts.net:8443/ui/practice/?remote) on your laptop or phone. Keep **Hardware mode (EliteDesk)** selected. If requested, use **Enter key** with the existing private session key. The browser can remember the key on that origin. Do not paste the key into a URL or this document.
+Open [the EliteDesk Performance Desk](https://proxmox.tail54fc55.ts.net:8443/ui/practice/?remote) on your laptop or phone. Keep **Hardware mode (EliteDesk)** selected. If requested, use **Enter key** with the existing private session key. The browser can remember the key on that origin. Do not paste the key into a URL or this document.
 
 For each song:
 
@@ -188,7 +188,7 @@ Start with Dance Yrself Clean:
 1. Select the song with audio off. Check its saved button assignments and practice range.
 2. Set the Scarlett monitor level before enabling audio.
 3. Click **Enable audio**. Wait for the ready state and check that you hear the processed microphone while transport is stopped.
-4. Click **Start practice**. During the count-in, check the click and processed microphone sound. Perform the first written recording cue with its assigned physical button. If routing or levels are wrong, use **Panic** or **Terminate audio** to silence the output before continuing.
+4. Click **Start**. During the count-in, check the click and processed microphone sound. Perform the first written recording cue with its assigned physical button. If routing or levels are wrong, use **Panic** or **Terminate audio** to silence the output before continuing.
 5. Check that the recording button pulses with the beat. Hold it briefly to check that full brightness overrides the pulse.
 6. Release it. Check that the recording pulse resumes. After commit, check playback. The LED becomes steady when its assigned rows are playing and none are recording; a continuing recording keeps the pulse.
 7. Click **Stop**. Check that the takes remain available.
@@ -203,7 +203,7 @@ During a song, any configured button with an LED still reaches full brightness w
 
 ## Download a practice demo
 
-**Start practice** records a stereo demo after count-in. Press **Stop** to finish both practice and the demo. Press **Finish take** to save the demo and keep playing. When **WAV ready** appears, choose **Download take**. Turning audio off leaves the last completed demo available while the web service runs. Download it before stopping the service or finishing another demo.
+**Start** records a stereo demo after count-in. Press **Stop** to finish both practice and the demo. Press **Finish take** to save the demo and keep playing. When **WAV ready** appears, choose **Download take**. Turning audio off leaves the last completed demo available while the web service runs. Download it before stopping the service or finishing another demo.
 
 Use **Voice samples** after stopping transport to download individual committed chart takes.
 

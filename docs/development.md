@@ -134,7 +134,7 @@ Use rendered PCM, native/WASM comparisons, allocation checks, and a browser take
 
 Begin with `ui/practice/index.html`, `style.css`, and the render and input code in `app.ts`. Use `PracticeAudio` commands and subscriptions for instrument behavior. Keep song-specific names and actions in the chart snapshot and song module.
 
-The practice desk uses browser-default audio devices. Choose the microphone and output in browser or system sound settings before Start. Do not add device enumeration or sink switching to its startup path.
+The Performance Desk uses browser-default audio devices. Choose the microphone and output in browser or system sound settings before Start. Do not add device enumeration or sink switching to its startup path.
 
 Preserve Q/W over A/S, Escape-to-Panic, native light states, unity sample gains, automatic microphone setup, and automatic demo recording. Keep the mandatory lead-in click independent of the song-click preference. Keep recording preparation and MP3 export states visible and prevent a new take from replacing an export in progress.
 
@@ -258,7 +258,7 @@ The [catalog migration core](implementation/catalog-migration.md) is preparation
 
 The independent [CAD desk](../ui/cad/README.md) lives under `ui/cad/`; its local publisher service lives under `hardware/cad/`. Keep OCP Viewer on port 3939 running, then use `hardware/cad/cad desk --disco-step '/absolute/path/to/Disco Ball.step'` and open <http://127.0.0.1:3940/>. This tool uses the isolated CAD environment and does not start audio, Sheets, Chrome CDP, USB listeners, or printer jobs.
 
-The box-mount, disco-bar, mushroom-mount, and micro-enclosure sessions own separate CAD files and headless checks. The coordinator owns the desk and shared viewer publication. Run `node_modules/.bin/tsc --project ui/cad` for its browser code, and use the [CAD workspace guide](../hardware/cad/WORKSPACES.md) for geometry checks and manufacturing gates. The practice desk remains the supported musical instrument UI.
+The box-mount, disco-bar, mushroom-mount, and micro-enclosure sessions own separate CAD files and headless checks. The coordinator owns the desk and shared viewer publication. Run `node_modules/.bin/tsc --project ui/cad` for its browser code, and use the [CAD workspace guide](../hardware/cad/WORKSPACES.md) for geometry checks and manufacturing gates. The Performance Desk remains the supported musical instrument UI.
 
 Cue-row changes belong to the authoring/compiler boundary in `lib/voice-catalog/cue-mapping.ts`, not browser beat dispatch. Verify version-one SQLite/JSON migration, cue-reference round trips, stale-label rejection, exact voice/worksheet selection, and preservation of loaded native instructions until an inspected song is explicitly loaded. The library worker returns version-two documents; older JSON backups are decoded and migrated at import. Static screen avatars use only saved character IDs and do not replace source-owned pad names or native activity labels.
 
@@ -284,7 +284,7 @@ Package a registered compiled song with `node --import tsx lib/remote-performanc
 
 For Hardware mode, verify that enabling audio renders the default microphone voice without starting the clock. Stop should restore monitoring and Panic should silence it. Switch through the three installed songs while stopped and verify the same native attempt and host epoch, then check that a running transport rejects song selection.
 
-The practice desk audio mode selector preserves the existing `?remote` gateway path. Verify that a busy browser session blocks switching, that leaving hardware only detaches the client, and that returning to browser mode does not start audio. Check the selector at desktop and 390px widths. Static hosting cannot connect Hardware mode without the gateway.
+The Performance Desk audio mode selector preserves the existing `?remote` gateway path. Verify that a busy browser session blocks switching, that leaving hardware only detaches the client, and that returning to browser mode does not start audio. Check the selector at desktop and 390px widths. Static hosting cannot connect Hardware mode without the gateway.
 
 The persistent gateway is started with `node --import tsx scripts/serve-hardware-desk.ts --profile PROFILE.json`. The version-two profile binds the server, private credentials, validated installed song catalog, private authoring database, restart policy, native executable, and exact device parameters. Starting it publishes an audio-off desk without opening a native socket or device. Authenticated Enable audio creates an owned native process and prepares it stopped; Terminate audio releases it without stopping HTTP. Native commands carry the current attempt and epoch. Update the gateway, shared schemas and `RemoteDesk` together when changing that protocol. Follow the [EliteDesk practice quickstart](practice-quickstart.md) for operator commands and target acceptance.
 
@@ -429,7 +429,7 @@ Tuning capture UI and native singing checks run with `node --import tsx --test u
 
 Run `node --import tsx --test ui/practice/tests/voice-effects.test.ts ui/practice/tests/voice-catalog.test.ts ui/practice/tests/audio-lifecycle.test.mjs`. After `npm run build:ui`, build the browser check with `node --import tsx scripts/build-voice-effects-check.ts --out-dir dist/fx-check`. Publish it with `./show-tools ui preview --session fx-check` and open `/fx-check/index.html` at the printed origin. The page checks real DOM draft edits, native acknowledgements, per-profile Apply, pending dry changes, remote stack management, exact saved decimals, invalid drafts and 390px overflow. Its final title must read `PASS: effect rows`.
 
-In the actual practice desk, verify keyboard arrows adjust a focused knob without triggering Q/W/A/S or Space transport shortcuts. Verify Apply readback and reload persistence while stopped. Drag up/right to increase, down/left to decrease; Shift gives fine control. Keep the operator's active desk and audio session untouched. Main-view controls lock during practice; native DSP and the existing save/apply boundary own the effect change.
+In the actual Performance Desk, verify keyboard arrows adjust a focused knob without triggering Q/W/A/S or Space transport shortcuts. Verify Apply readback and reload persistence while stopped. Drag up/right to increase, down/left to decrease; Shift gives fine control. Keep the operator's active desk and audio session untouched. Main-view controls lock during practice; native DSP and the existing save/apply boundary own the effect change.
 
 For the full Drunk Girls pickup/capture regression, run `node --import tsx scripts/verify-drunk-girls-performance.ts` after rebuilding WASM. It creates private temporary artifacts and executes the native host; it does not start a service or access devices. Inspect the canonical song with `./show-tools chart inspect songs/drunk-girls.musicxml`. Periodic live-source preparation and pickup-phase witnesses also run in `lib/performance/tests/terse-wasm.test.ts`.
 

@@ -6,7 +6,7 @@ AudioPump::AudioPump(pf_engine* engine, uint32_t capacity)
   : engine_(engine), capacity_(capacity), sample_left_(capacity), sample_right_(capacity),
     live_left_(capacity), live_right_(capacity), stereo_(size_t(capacity) * 2) {}
 
-int AudioPump::render(const float* input, uint32_t frames, bool monitor) {
+int AudioPump::render(const float* input, uint32_t frames, bool monitor, uint32_t monitor_profile) {
   if (!engine_ || !frames || frames > capacity_ || pending()) return -1;
   std::fill_n(sample_left_.data(), frames, 0);
   std::fill_n(sample_right_.data(), frames, 0);
@@ -16,7 +16,7 @@ int AudioPump::render(const float* input, uint32_t frames, bool monitor) {
   if ((!monitor || pf_audio_needed(engine_)) &&
       pf_process_stems_with_song_span(engine_, input, sample_left_.data(), sample_right_.data(),
                        live_left_.data(), live_right_.data(), frames, &song_offset_, &song_frames_) < 0) return -1;
-  if (monitor && pf_render_idle_monitor(engine_, input, live_left_.data(), live_right_.data(), frames) < 0) return -1;
+  if (monitor && pf_render_idle_monitor_voice(engine_, monitor_profile, input, live_left_.data(), live_right_.data(), frames) < 0) return -1;
   for (uint32_t i = 0; i < frames; ++i) {
     stereo_[i * 2] = sample_left_[i] + live_left_[i];
     stereo_[i * 2 + 1] = sample_right_[i] + live_right_[i];

@@ -22,6 +22,7 @@ export const NativePerformanceSchema = Schema.Struct({
   lights: LightPublicationSchema,
   tuner: TunerStateSchema,
   demo: Schema.optionalKey(DemoStateSchema),
+  audition: Schema.optionalKey(Schema.NullOr(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 })))),
 });
 export const AudioStateSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('off') }),

@@ -18,7 +18,7 @@ The extension has not been installed automatically. It requests active-tab scrip
 
 ## Start following
 
-1. Open the practice desk in Chrome.
+1. Open the Performance Desk in Chrome.
 2. Open the song's Google Sheets tab and select its song sheet.
 3. Click the extension toolbar button while viewing that chart tab.
 4. Enter the practice page's exact URL in the follower page.

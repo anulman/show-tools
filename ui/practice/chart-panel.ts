@@ -235,7 +235,7 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
       try {
         if (options.isBusy()) throw new Error('Practice became busy. The staged song was not loaded.');
         await options.onLoad(song, stagedSource ?? undefined, stagedVoices);
-        if (current(value)) status.textContent = `Loaded ${song.title}. Start practice when ready.`;
+        if (current(value)) status.textContent = `Loaded ${song.title}. Start when ready.`;
       } catch (error) { failed(error, value); }
       finally { finish(value); }
     })();

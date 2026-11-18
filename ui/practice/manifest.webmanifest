@@ -1,6 +1,6 @@
 {
-  "name": "Show tools practice desk",
-  "short_name": "Practice desk",
+  "name": "Show tools Performance Desk",
+  "short_name": "Performance Desk",
   "description": "A pocket rehearsal desk for samples and song charts.",
   "start_url": "./",
   "scope": "./",

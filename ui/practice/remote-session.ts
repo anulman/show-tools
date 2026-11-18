@@ -134,6 +134,7 @@ export class RemoteDesk {
     return decodeInputIntentStatus(await readJson(response));
   }
   demoState() { return this.endpoint?.demoState(); }
+  auditionProfile() { return this.endpoint?.auditionProfile(); }
   private async demoRequest(method: 'GET' | 'HEAD') {
     if (this.connectionState.kind !== 'connected') throw new Error('Connect to the hardware desk first.');
     return fetch('/api/demo-recording', { method, headers: { Authorization: `Bearer ${this.token}` },
@@ -227,6 +228,8 @@ export class RemoteSession {
   start(options: StartOptions = {}) { return this.command('start', { ...options, ...(this.demoState() === undefined ? {} : { recordDemo: true }) }); }
   stop() { return this.command('stop'); }
   demoState() { return this.latest.demo; }
+  auditionProfile() { return this.latest.audition; }
+  audition(profile: number | null) { return this.command('audition', { profile }); }
   recordDemo(recording: boolean) { return this.command('recordDemo', { recording }); }
   control(control: Control, options: { commandId?: string } | string = {}) { return this.command('control', { control, commandId: typeof options === 'string' ? options : options.commandId }); }
   private receiptMatches(receipt: InputLeaseReceipt, args: InputAttachArgs) {

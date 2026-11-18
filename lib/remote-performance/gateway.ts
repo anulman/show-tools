@@ -32,7 +32,7 @@ export interface GatewayConfig {
 	tls?: { cert: Buffer; key: Buffer };
 }
 
-export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; tuner?: TunerState; demo?: import('./session-schema.js').NativePerformance['demo']; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
+export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; tuner?: TunerState; demo?: import('./session-schema.js').NativePerformance['demo']; audition?: number | null; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
 type Session = { readonly inputOwnerToken: string; highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
 type InputIntent = { target: NativeTarget; kindOfProducer: InputAttach['kind']; bindingGeneration: number; request: string; status: InputIntentStatus; result: Promise<InputAttachOutcome> };
 type InputLease = InputAttach & { intent: InputIntent; target: NativeTarget; status: 'pending' | 'active' | 'quarantined'; pending: Promise<InputAttachOutcome>; revoking?: Promise<NativeOutcome> };
@@ -234,7 +234,7 @@ const decodeTakeAudioRequest = Schema.decodeUnknownSync(Schema.Struct({
 }), { onExcessProperty: 'error' });
 const requestFields = { sessionId: Schema.NonEmptyString, sequence: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })) };
 const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,
-  command: Schema.Literals(['start', 'stop', 'recordDemo', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
+  command: Schema.Literals(['start', 'stop', 'recordDemo', 'audition', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
   args: Schema.Record(Schema.String, Schema.Unknown), target: NativeTargetSchema,
 }));
 const decodeAudio = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields, goal: AudioGoalSchema }));
@@ -316,6 +316,10 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 			if (!request.url || request.url.length > 8192) throw new Error('Invalid request target');
 			path = new URL(request.url, config.origin).pathname;
 		} catch { return json(response, 400, { error: 'Invalid request target' }); }
+    if (request.method === 'GET' && path === '/api/desk-mode') {
+      response.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
+      return response.end('hardware');
+    }
 		if (path.startsWith('/api/')) {
 			if (!authenticated(request)) return json(response, 401, { error: 'Unauthorized' });
 			if (request.headers.origin && request.headers.origin !== config.origin) return json(response, 403, { error: 'Invalid origin' });

@@ -38,6 +38,9 @@ public:
   int tuner(int operation, uint32_t expected_revision, int value, int scale);
   bool audio_needed() const;
   bool idle_monitor_only() const;
+  bool supports_audition() const { return config_.idle_microphone_monitor; }
+  int audition_profile() const { return audition_profile_; }
+  int audition(int profile);
   int render(const float* input, uint32_t frames);
   int64_t write(AudioPump::Write sink, void* context);
   Lifecycle lifecycle() const;
@@ -53,6 +56,7 @@ private:
   enum class IdleMonitor { Disabled, Enabled, PanicMuted };
   enum class Output { Performance, Tuner, IdleMonitor };
   IdleMonitor idle_monitor_;
+  int audition_profile_ = -1;
   Output output_ = Output::Performance;
   bool monitoring() const;
   void silence_panic();

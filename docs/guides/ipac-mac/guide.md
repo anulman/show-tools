@@ -158,7 +158,7 @@ The [L4B replacement pack](https://www.ultimarc.com/output/led-and-output-contro
 <!-- page -->
 # Keep an installation record
 
-Complete the earlier worksheet at the bench. Retain the raw device observations before assigning controls to the practice desk. This guide was source-checked and PDF-reviewed; your physical installation still needs the tests.
+Complete the earlier worksheet at the bench. Retain the raw device observations before assigning controls to the Performance Desk. This guide was source-checked and PDF-reviewed; your physical installation still needs the tests.
 
 ## Optional: capture exact input identities
 

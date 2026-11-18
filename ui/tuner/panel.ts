@@ -60,7 +60,7 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
   const intro = element('div', 'tuner-intro');
   intro.append(element('p', 'tuner-eyebrow', 'SHARED PRACTICE AUDIO'), element('h2', 'tuner-title', 'Tuner'));
   const connection = element('div', 'tuner-connection');
-  const connectionText = element('p', 'tuner-muted', 'Use the practice desk audio to hear a reference or listen to your voice.');
+  const connectionText = element('p', 'tuner-muted', 'Use the Performance Desk audio to hear a reference or listen to your voice.');
   const connect = button('Use shared audio', () => { void connectSession(); });
   connection.append(connectionText, connect);
   const error = element('p', 'tuner-error');
@@ -146,7 +146,7 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
     const attached = state !== null;
     connect.hidden = attached;
     connect.disabled = busy || closing !== null;
-    connectionText.textContent = attached ? 'Shared practice audio connected.' : 'Use the practice desk audio to hear a reference or listen to your voice.';
+    connectionText.textContent = attached ? 'Shared performance audio connected.' : 'Use the Performance Desk audio to hear a reference or listen to your voice.';
     panel.setAttribute('aria-busy', String(busy || closing !== null));
     for (const control of [hear, playScale, silence, confirm, reset, listen]) control.disabled = !attached || busy || closing !== null;
     for (const control of [rootField.select, octaveField.select, scaleField.select]) control.disabled = closing !== null;

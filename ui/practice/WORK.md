@@ -1,4 +1,4 @@
-# Practice desk implementation notes
+# Performance Desk implementation notes
 
 Current ownership, audio flow, and design rationale live in [the architecture explanation](../../docs/architecture.md). Use [the development handoff](../../docs/development.md) for separate workstreams, setup, and verification. The [practice contract](CONTRACT.md) describes current commands and state. The complete musical engine now runs in shared C++. It owns transport, chart actions, sequencing, sample storage, capture, playback, mixing, and click generation. Browser worklets transfer blocks and controls and publish native state.
 

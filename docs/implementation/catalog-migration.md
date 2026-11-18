@@ -1,6 +1,6 @@
 # Voice catalog migration core
 
-This work prepares a filesystem authority without changing the running practice desk. The browser still stores schema-v2 SQLite through sql.js in IndexedDB. A native file adapter is verified with temporary databases. No sidecar service, endpoint, automatic synchronization, backup schedule or operator-data migration is installed.
+This work prepares a filesystem authority without changing the running Performance Desk. The browser still stores schema-v2 SQLite through sql.js in IndexedDB. A native file adapter is verified with temporary databases. No sidecar service, endpoint, automatic synchronization, backup schedule or operator-data migration is installed.
 
 Follow the [canonical data policy](../data-retention.md). The operator selected forward migrations over backward-compatible APIs. Old schemas are migration inputs, not alternate canonical write protocols.
 

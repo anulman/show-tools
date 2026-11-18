@@ -21,7 +21,7 @@ export function openCatalogDatabase(factory: IDBFactory): Promise<IDBDatabase> {
     let rejected = false;
     request.onupgradeneeded = () => { request.result.createObjectStore(storeName); };
     request.onerror = () => reject(new Error('Could not open the local voice library.', { cause: request.error }));
-    request.onblocked = () => { rejected = true; reject(new Error('Voice library upgrade is blocked by another tab. Close other practice desk tabs and reload.')); };
+    request.onblocked = () => { rejected = true; reject(new Error('Voice library upgrade is blocked by another tab. Close other Performance Desk tabs and reload.')); };
     request.onsuccess = () => {
       const database = request.result;
       if (rejected) { database.close(); return; }

@@ -106,4 +106,4 @@ await writeFile(resolve(output, 'build-meta.json'), JSON.stringify(result.metafi
 const finalSource = await sourceInfo(root);
 if (source.revision !== finalSource.revision || source.tree !== finalSource.tree || source.dirty !== finalSource.dirty) throw new Error('Source identity changed during the UI build. Rebuild before publishing.');
 await writeFile(resolve(output, 'build-info.json'), JSON.stringify({ version: 1, source }, null, 2));
-process.stdout.write('Built the practice desk and deterministic Sheets extension in dist/ui/practice/.\n');
+process.stdout.write('Built the Performance Desk and deterministic Sheets extension in dist/ui/practice/.\n');

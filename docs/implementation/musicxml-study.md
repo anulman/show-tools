@@ -4,7 +4,7 @@ The [canonical MusicXML cutover](musicxml-cutover.md) supersedes this experiment
 
 This experiment converts a frozen Google Sheets chart and its matching mapping into MusicXML 4.0.
 It lets us inspect a complete song before choosing an official intermediate representation.
-The practice desk still loads the existing compiled song format. Audio execution, storage, and the native ABI are unchanged.
+The Performance Desk still loads the existing compiled song format. Audio execution, storage, and the native ABI are unchanged.
 
 ## Design choice
 

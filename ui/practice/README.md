@@ -28,7 +28,7 @@ Open **MusicXML song & inspection** to import a complete MusicXML song or fetch 
 
 The DYC authoring answers are encoded: unity gains, automatic cowbell variants, matching doubled groups, explicit `2c3` silent-source remainder, starred tempo hits, configurable ±25 ms cue windows, and native chart-gated backup chorus. F18 commit and F21 future arm are legal in either press order during bar 4: Drums & Claps records until bar 5, then Bing-Bong starts. Arming immediately changes the monitored voice while the earlier recording keeps its own processing. Software readiness is tracked in the integration review; physical microphone, room, and browser download checks remain operator-test steps.
 
-For an executable compiled song, choose your default microphone and output in browser or system sound settings, configure each voice’s effect footer, and press **Start practice**. Grant microphone access. The demo recorder waits through the lead-in and starts with the song. Arm switches live processing immediately to the target voice; recording starts at the declared boundary. Commit starts the selected take or layers at its boundary without another play tap. `crb` commits the old take and starts the next capture at the same crossing.
+For an executable compiled song, choose your default microphone and output in browser or system sound settings, configure each voice’s effect footer, and press **Start**. Grant microphone access. The demo recorder waits through the lead-in and starts with the song. Arm switches live processing immediately to the target voice; recording starts at the declared boundary. Commit starts the selected take or layers at its boundary without another play tap. `crb` commits the old take and starts the next capture at the same crossing.
 
 An already-started compiled take finishes automatically at its written capture endpoint if you miss its commit cue. The engine saves and loops that take. A missed commit-and-arm also starts its declared next recording. Initial arm, play, and stop cues still require your press. Missed play and stop cues do nothing.
 
@@ -64,15 +64,19 @@ These names come from Dance Yrself Clean's chart notes. Each song supplies its o
 | Q · L1 · Whistle | W · R1 · Drums & Claps |
 | A · L2 · Bing Bong | S · R2 · Cowbell |
 
-Touch and mouse presses use the same actions. **Space** starts or stops transport. **Escape** presses the mushroom and stops everything, including while a slider or other input has focus. Other shortcuts ignore inputs and selectors. Held keys do not retrigger controls.
+Touch and mouse presses use the same actions. **Space** starts or stops transport. **Escape** closes an open dialog. On the desk, it triggers Panic even when a slider or other input has focus. Other shortcuts ignore inputs and selectors. Held keys do not retrigger controls.
 
 Each sample starts at 100%. Use the horizontal volume slider beneath its pad to adjust that channel, and **MUTE** to silence it. Unmuting preserves a running loop's phase. **LOAD** chooses an optional audio file for that pad while stopped. **Song click** defaults off and controls clicks during the song. The lead-in always clicks.
 
 To load a file instead of capturing a take, stop practice and press **LOAD** on that pad. Loading a file does not change the chart action behind the pad. Supported audio formats depend on the browser.
 
+## Audition an effect
+
+On the EliteDesk, enable audio and leave transport stopped. Select **Audition** on a vocal row, or open a pad’s effects and select **Audition** there. Adjust the dials and listen through the EliteDesk. The desk applies edits as you adjust the selected voice. Select **End audition** to return to the default monitor voice. Starting the song returns control of routing to the chart.
+
 ## Record a demo
 
-1. Press **Start practice**. Microphone access starts immediately. Stereo output recording starts automatically when the song begins, after the lead-in.
+1. Press **Start**. Microphone access starts immediately. Stereo output recording starts automatically when the song begins, after the lead-in.
 2. Perform the chart's capture and playback cues.
 3. Press **Stop** to finish the take and release the microphone, then **Download take**. **Finish take** can end the demo recording while practice continues.
 
@@ -130,10 +134,10 @@ npm run check:layout
 
 ## Try live microphone effects during practice
 
-Build this checkout with `npm run build` and serve its `dist/` directory on localhost or HTTPS. Use the existing practice desk. Sheets, a relay, and the CDP helper are not required for audio. Choose the actual microphone/output setup in your browser or operating system before testing.
+Build this checkout with `npm run build` and serve its `dist/` directory on localhost or HTTPS. Use the existing Performance Desk. Sheets, a relay, and the CDP helper are not required for audio. Choose the actual microphone/output setup in your browser or operating system before testing.
 
 1. While stopped, open a voice’s **FX** footer. Adjust its ordered stages, then use **Save voice**. Applied values come from native readback. New settings do not change a previously captured take’s effects. Initial Slapback values are delay 100 ms, feedback 0, and wet amount 0.25.
-2. Choose the practice range and count-in, then press **Start practice**. Grant microphone access. Wait for the native-confirmed live voice status and applied revision.
+2. Choose the practice range and count-in, then press **Start**. Grant microphone access. Wait for the native-confirmed live voice status and applied revision.
 3. Live monitoring starts closed. After Start, open **Audio & Sheets** and use **Live monitoring** to confirm the actual physical relationship of your input/output devices. Different physical devices or the same USB audio interface permit monitoring. Same non-USB hardware or an unconfirmed setup leaves it off. Do not claim a different-device or USB setup unless you know it is true.
 4. Speak or clap. On an eligible output, expect centered live voice and one repeat about 100 ms later. The song click stays separate from the effect. Changing effect values during a run is unavailable in this capability.
 5. Press **Stop** or Escape. Live audio and delay history stop immediately, and microphone access releases. Wait for MP3 export, then use **Download take**. The download includes processed live voice even if monitoring stayed off. The mandatory lead-in stays outside the demo download.
@@ -176,7 +180,7 @@ The static avatar library includes five pixel-final snapshots and 46 gallery pre
 
 Choose Browser mode to run practice audio on this device. Choose Hardware mode when the desk is served by the EliteDesk gateway; the native host owns audio and timing. Hardware mode requires the gateway and its token. Stop browser audio before switching modes. Switching reloads the desk, so download a take first. Leaving Hardware mode detaches this desk without stopping the native instrument. Start remains a separate action after switching.
 
-The Hardware desk stays available with audio off. **Enable audio** opens and prepares the configured native engine without starting practice. Once ready, use **Start practice** for the count-in and performance. Loading or reloading a page attaches to the current engine and transport; it never restarts them. Enable is disabled while an engine exists, and practice Start is disabled during an existing performance.
+The Hardware desk stays available with audio off. **Enable audio** opens and prepares the configured native engine without starting practice. Once ready, use **Start** for the count-in and performance. Loading or reloading a page attaches to the current engine and transport; it never restarts them. Enable is disabled while an engine exists, and practice Start is disabled during an existing performance.
 
 **Stop** silences the performance and retains the prepared engine and captured takes. **Terminate audio** releases the sound card and discards the engine's in-memory takes; the web desk stays connected. A native failure leaves the desk available for diagnosis and explicit re-enabling. Connection loss disables controls and warns that audio may still be running. See the [session CLI](../../docs/implementation/session-cli.md) to start or stop the web service from an existing host terminal.
 

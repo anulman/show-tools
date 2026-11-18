@@ -50,7 +50,7 @@ export function createSampleDownloads(root: HTMLElement, current: () => { song: 
   const section = document.createElement('section'); section.className = 'sample-downloads'; section.hidden = true;
   section.setAttribute('aria-label', 'Voice sample downloads');
   const title = document.createElement('h2'); title.textContent = 'Voice samples';
-  const hint = document.createElement('p'); hint.textContent = 'Stop practice to download captured samples. Download before terminating audio or changing songs.';
+  const hint = document.createElement('p'); hint.textContent = 'Stop transport to download captured samples. Download before terminating audio or changing songs.';
   const actions = document.createElement('div'); actions.className = 'sample-download-actions';
   const status = document.createElement('p'); status.setAttribute('role', 'status');
   section.append(title, hint, actions, status); root.insertAdjacentElement('afterend', section);

@@ -103,6 +103,17 @@ void verify_idle_monitor() {
   require(before == after && after[PF_PHASE] == PF_IDLE);
   require(run.complete(instrument, device) == 0 && device.drains == 0);
 
+  require(instrument.audition(PF_BACKUP_PROFILE) == 0);
+  require(instrument.render(input.data(), uint32_t(input.size())) == 0);
+  Sink auditioned{{}, 17};
+  while (instrument.pending()) require(instrument.write(write_short, &auditioned) > 0);
+  require(auditioned.samples[0] == .5f && auditioned.samples[1] == .5f);
+  require(auditioned.samples[640] == 0 && auditioned.samples[641] == 0);
+  pf_snapshot(instrument.engine(), after.data());
+  require(before == after && instrument.audition_profile() == PF_BACKUP_PROFILE);
+  require(instrument.audition(-1) == 0 && instrument.audition_profile() == -1);
+
+
   require(instrument.render(input.data(), uint32_t(input.size())) == 0);
   require(instrument.write(write_short, &preflight) == 17);
   const auto old_engine = instrument.engine();
@@ -127,7 +138,9 @@ void verify_idle_monitor() {
 
   const native_host::Start start{120, 1, 1, 1, 0, 0};
   require(instrument.render(input.data(), uint32_t(input.size())) == 0);
+  require(instrument.audition(PF_BACKUP_PROFILE) == 0);
   require(run.start(instrument, device, start) == 0 && device.prepares == 1 && device.drops == 0);
+  require(instrument.audition_profile() == -1 && instrument.audition(PF_BACKUP_PROFILE) < 0);
   require(instrument.lifecycle() == native_host::Lifecycle::Running && !instrument.idle_monitor_only());
   while (instrument.pending()) require(instrument.write(StatefulDevice::write, &device) > 0);
   require(instrument.render(input.data(), uint32_t(input.size())) == 0);

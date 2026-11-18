@@ -1,10 +1,11 @@
+import { dismissOnBackdrop } from './dialog.js';
 import { createEffectKnob } from './effect-knob.js';
 import { VOICE_PROFILE_COUNT, ROTATION_LIVE_PROFILE, DEFAULT_LIVE_PROFILE } from '../../lib/performance/model.js';
 import type { LiveEffectDefinition, VoiceEffectConfiguration, VoiceEffectsState } from '../../lib/performance/model.js';
 
 type Voice = { id: string; name: string; profile: number };
 type Knob = ReturnType<typeof createEffectKnob> & { value: () => number };
-type Footer = { edit?: () => void; voice: Voice; root: HTMLElement; pending: HTMLSpanElement; controls: HTMLInputElement[]; buttons: HTMLButtonElement[]; knobs: Knob[]; apply?: HTMLButtonElement };
+type Footer = { edit?: () => void; voice: Voice; root: HTMLElement; editor: HTMLDialogElement; editorBody: HTMLElement; open: HTMLButtonElement; controls: HTMLInputElement[]; buttons: HTMLButtonElement[]; knobs: Knob[]; apply?: HTMLButtonElement };
 const slapback = (): LiveEffectDefinition => ({ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 });
 const chorus = (): LiveEffectDefinition => ({ kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: .35 });
 export function initialVoiceEffects(mode: 'compiled' | 'dry' = 'compiled', sourceProfiles: readonly number[] = []): VoiceEffectConfiguration[] {
@@ -16,27 +17,26 @@ export function effectSummary(effects: readonly LiveEffectDefinition[]): string 
     ? `Slapback · ${effect.delayMs} ms · ${Math.round(effect.wet * 100)}%`
     : `Chorus · ${effect.rateHz} Hz · ${Math.round(effect.wet * 100)}%`).join(' → ') || 'Dry';
 }
-export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
+export function createVoiceEffectsEditor(onApply: (profile: number) => void, onChange?: (profile: number) => void) {
   let mode: 'compiled' | 'dry' = 'compiled';
-  let drafts = initialVoiceEffects(mode);
+  let baseline = initialVoiceEffects(mode);
+  let drafts = baseline;
   let applied: readonly VoiceEffectsState[] = [];
   let locked = false;
   const footers: Footer[] = [];
   function draft(profile: number) { return drafts.find(item => item.profile === profile)?.effects ?? []; }
   function dirty(profile: number) {
     const native = applied.find(item => item.profile === profile && item.prepared);
-    return !native || JSON.stringify(native.effects) !== JSON.stringify(draft(profile));
+    const original = native?.effects ?? baseline.find(item => item.profile === profile)?.effects ?? [];
+    return JSON.stringify(original) !== JSON.stringify(draft(profile));
   }
   function refresh() {
     for (const footer of footers) {
       const native = applied.find(item => item.profile === footer.voice.profile && item.prepared);
       const empty = !draft(footer.voice.profile).length && !native?.effects.length;
-      footer.root.hidden = empty && Boolean(footer.edit);
-      footer.pending.hidden = empty;
-      footer.pending.title = native ? `Applied: ${effectSummary(native.effects)}` : 'Not yet prepared by the audio engine';
-      const status = dirty(footer.voice.profile) ? 'Unapplied' : 'Applied';
-      if (footer.pending.textContent !== status) footer.pending.textContent = status;
-      footer.pending.dataset.dirty = String(dirty(footer.voice.profile));
+      footer.root.hidden = empty;
+      footer.open.hidden = !empty;
+      footer.open.disabled = locked && Boolean(footer.edit);
       footer.root.dataset.prepared = String(Boolean(native));
       for (const knob of footer.knobs) {
         knob.setValue(knob.value());
@@ -44,7 +44,7 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
       }
       for (const input of footer.controls) input.disabled = locked;
       for (const button of footer.buttons) button.disabled = locked || button.dataset.unavailable === 'true';
-      if (footer.apply) { footer.apply.hidden = empty || !dirty(footer.voice.profile); footer.apply.disabled = locked || !dirty(footer.voice.profile); }
+      if (footer.apply) { footer.apply.hidden = empty || locked || !dirty(footer.voice.profile); footer.apply.disabled = locked || !dirty(footer.voice.profile); }
     }
   }
   function setProfileEffects(profile: number, effects: readonly LiveEffectDefinition[]) {
@@ -54,7 +54,9 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
   }
   function renderFields(footer: Footer) {
     for (const knob of footer.knobs) knob.cancelDrag();
+    const restoreFocus = footer.editorBody.contains(document.activeElement);
     footer.root.replaceChildren();
+    footer.editorBody.replaceChildren();
     footer.controls = []; footer.buttons = []; footer.knobs = [];
     const body = document.createElement('div'); body.className = 'fx-body';
     const effects = draft(footer.voice.profile);
@@ -66,15 +68,22 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
     function replace(index: number, effect: LiveEffectDefinition) {
       drafts = drafts.map(item => item.profile === footer.voice.profile ? { ...item, effects: item.effects.map((old, i) => i === index ? effect : old) } : item);
       refresh();
+      onChange?.(footer.voice.profile);
     }
     for (const [index, effect] of effects.entries()) {
-      const stage = document.createElement('fieldset'); stage.className = 'fx-stage';
-      const legend = document.createElement('legend'); legend.textContent = `${index + 1}. ${effect.kind === 'slapback' ? 'Slapback' : 'Chorus'}`;
-      stage.dataset.effect = effect.kind; stage.append(legend);
+      const stage = document.createElement('div'); stage.className = 'fx-stage';
+      const name = effect.kind === 'slapback' ? 'Slapback' : 'Chorus';
+      const stageName = `${index + 1}. ${name}`;
+      stage.setAttribute('role', 'group'); stage.setAttribute('aria-label', stageName);
+      const title = document.createElement('button'); title.type = 'button'; title.className = 'fx-title'; title.textContent = name;
+      title.setAttribute('aria-label', `Manage ${footer.voice.name} effects · ${name}`);
+      title.setAttribute('aria-haspopup', 'dialog');
+      title.addEventListener('click', () => footer.edit ? footer.edit() : footer.editor.showModal());
+      stage.dataset.effect = effect.kind; stage.append(title);
       const knobs = document.createElement('div'); knobs.className = 'fx-knobs';
       knobs.style.setProperty('--knob-count', String(effect.kind === 'slapback' ? 3 : 4)); stage.append(knobs);
       function field(label: string, read: () => number, min: number, max: number, step: number, format: (value: number) => string, update: (value: number) => void) {
-        const knob = createEffectKnob({ label, accessibleName: `${footer.voice.name}, ${legend.textContent}, ${label}`,
+        const knob = createEffectKnob({ label, accessibleName: `${footer.voice.name}, ${stageName}, ${label}`,
           value: read(), min, max, step, format, onInput: update });
         knobs.append(knob.root); footer.controls.push(knob.input); footer.knobs.push({ ...knob, value: read });
       }
@@ -92,50 +101,73 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void) {
         field('Wet', () => current()?.wet ?? effect.wet, 0, 1, .01, percent, value => { const old = current(); if (old?.kind === 'chorus') replace(index, { ...old, wet: value }); });
       }
       if (!footer.edit) {
+        const row = document.createElement('div'); row.className = 'fx-editor-row';
+        const label = document.createElement('strong'); label.textContent = name;
         const actions = document.createElement('div'); actions.className = 'fx-stage-actions';
-        const change = (stages: readonly LiveEffectDefinition[]) => setProfileEffects(footer.voice.profile, stages);
+        const change = (stages: readonly LiveEffectDefinition[]) => {
+          setProfileEffects(footer.voice.profile, stages);
+          onChange?.(footer.voice.profile);
+        };
         actions.append(action('↑', () => {
           const next = [...draft(footer.voice.profile)]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; change(next);
         }, index === 0));
-        actions.lastElementChild?.setAttribute('aria-label', `Move ${legend.textContent} earlier for ${footer.voice.name}`);
+        actions.lastElementChild?.setAttribute('aria-label', `Move ${stageName} earlier for ${footer.voice.name}`);
         actions.append(action('↓', () => {
           const next = [...draft(footer.voice.profile)]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; change(next);
         }, index === effects.length - 1));
-        actions.lastElementChild?.setAttribute('aria-label', `Move ${legend.textContent} later for ${footer.voice.name}`);
+        actions.lastElementChild?.setAttribute('aria-label', `Move ${stageName} later for ${footer.voice.name}`);
         actions.append(action('Remove', () => change(draft(footer.voice.profile).filter((_, i) => i !== index))));
-        stage.append(actions);
+        row.append(label, actions); footer.editorBody.append(row);
       }
       body.append(stage);
     }
-    const actions = document.createElement('div'); actions.className = 'fx-actions';
-    const management = document.createElement('details'); management.className = 'fx-management';
-    const managementLabel = document.createElement('summary'); managementLabel.textContent = effects.length ? 'Edit stack' : 'Add effect';
-    management.append(managementLabel);
-    management.open = footer.root.dataset.editing === 'true';
-    management.addEventListener('toggle', () => { footer.root.dataset.editing = String(management.open); });
-    if (footer.edit) actions.append(action('Edit stack', footer.edit));
-    else actions.append(management);
-    for (const [label, factory] of [['+ Slapback', slapback], ['+ Chorus', chorus]] satisfies readonly [string, () => LiveEffectDefinition][]) {
-      if (!footer.edit) management.append(action(label, () => {
-        setProfileEffects(footer.voice.profile, [...draft(footer.voice.profile), factory()]);
-      }, effects.length >= 64));
+    if (!footer.edit) {
+      const additions = document.createElement('div'); additions.className = 'fx-editor-add';
+      for (const [label, factory] of [['Add Slapback', slapback], ['Add Chorus', chorus]] satisfies readonly [string, () => LiveEffectDefinition][]) {
+        additions.append(action(label, () => {
+          setProfileEffects(footer.voice.profile, [...draft(footer.voice.profile), factory()]);
+          onChange?.(footer.voice.profile);
+        }, effects.length >= 64));
+      }
+      footer.editorBody.append(additions);
     }
-    actions.append(footer.pending);
-    const apply = action('Apply settings', () => {
+    const apply = action('Apply changes', () => {
       if (footer.controls.every(input => input.reportValidity())) onApply(footer.voice.profile);
-    }); apply.className = 'fx-apply'; footer.apply = apply; actions.append(apply); body.append(actions); footer.root.append(body);
+    });
+    apply.className = 'fx-apply';
+    footer.apply = apply;
+    body.append(apply);
+    footer.root.append(body);
+    if (restoreFocus) footer.editor.querySelector<HTMLButtonElement>('button[autofocus]')?.focus();
   }
   return {
-    reset(nextMode: 'compiled' | 'dry') { for (const footer of footers) for (const knob of footer.knobs) knob.cancelDrag(); mode = nextMode; drafts = initialVoiceEffects(mode); applied = []; footers.length = 0; },
-    setEffects: setProfileEffects,
+    reset(nextMode: 'compiled' | 'dry') { for (const footer of footers) { for (const knob of footer.knobs) knob.cancelDrag(); footer.editor.remove(); footer.open.remove(); } mode = nextMode; baseline = initialVoiceEffects(mode); drafts = baseline; applied = []; footers.length = 0; },
+    setEffects(profile: number, effects: readonly LiveEffectDefinition[]) {
+      baseline = baseline.map(item => item.profile === profile ? { ...item, effects } : item);
+      setProfileEffects(profile, effects);
+    },
+    hasChanges: dirty,
     mount(voice: Voice, container: HTMLElement, edit?: () => void) {
       const root = document.createElement('section'); root.className = 'voice-effects'; root.dataset.voice = voice.id;
       root.setAttribute('aria-label', `${voice.name} effects`);
       root.addEventListener('wheel', event => event.stopPropagation());
       container.append(root);
-      const pending = document.createElement('span'); pending.className = 'fx-state';
-      const footer: Footer = { edit, voice, root, pending, controls: [], buttons: [], knobs: [] };
+      const editor = document.createElement('dialog'); editor.className = 'desk-dialog fx-editor';
+      editor.setAttribute('aria-label', `${voice.name} effect stack`);
+      const heading = document.createElement('div'); heading.className = 'dialog-heading';
+      const title = document.createElement('h2'); title.textContent = `${voice.name} effects`;
+      const done = document.createElement('button'); done.type = 'button'; done.textContent = 'Done'; done.autofocus = true;
+      done.addEventListener('click', () => editor.close());
+      dismissOnBackdrop(editor, () => editor.close());
+      const editorBody = document.createElement('div');
+      heading.append(title, done); editor.append(heading, editorBody); container.append(editor);
+      const open = document.createElement('button'); open.type = 'button'; open.className = 'fx-empty secondary'; open.textContent = 'Effects';
+      open.setAttribute('aria-label', `Manage ${voice.name} effects`); open.setAttribute('aria-haspopup', 'dialog');
+      open.addEventListener('click', () => edit ? edit() : editor.showModal());
+      (container.querySelector('.pad-volume, .voice-tools') ?? container).append(open);
+      const footer: Footer = { edit, voice, root, editor, editorBody, open, controls: [], buttons: [], knobs: [] };
       footers.push(footer); renderFields(footer); refresh();
+      return editor;
     },
     configurations(profile?: number): readonly VoiceEffectConfiguration[] {
       const defaults = initialVoiceEffects(mode);
