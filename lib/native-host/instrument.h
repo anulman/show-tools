@@ -43,6 +43,7 @@ public:
   Lifecycle lifecycle() const;
   pf_engine* engine() const;
   uint32_t pending() const;
+  const AudioPump* mix() const { return pump_.get(); }
 private:
   using Engine = std::unique_ptr<pf_engine, decltype(&pf_destroy)>;
   InstrumentConfig config_;

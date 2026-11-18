@@ -180,6 +180,10 @@ void pf_voice_effect_info(const pf_engine* engine, uint32_t profile, uint32_t st
    reauthorize. Null live outputs discard audio while advancing DSP once. */
 int pf_process_stems(pf_engine* engine, const float* input, float* sample_click_left, float* sample_click_right,
   float* live_left, float* live_right, uint32_t frames);
+// Reports the contiguous song-playing portion of this block, excluding count-in and idle.
+int pf_process_stems_with_song_span(pf_engine* engine, const float* input, float* left, float* right,
+                                    float* live_left, float* live_right, uint32_t frames,
+                                    uint32_t* song_offset, uint32_t* song_frames);
 /* Add the prepared default voice while stopped. The host owns monitor authorization.
    This advances only the voice effects, without touching transport or capture. */
 int pf_render_idle_monitor(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames);

@@ -1101,8 +1101,9 @@ void pf_flush(pf_engine* engine) {
     }
   } while (count == 64);
 }
-static int process_stems(pf_engine* engine, const float* input, float* left, float* right, float* live_left, float* live_right, uint32_t frames) {
+static int process_stems(pf_engine* engine, const float* input, float* left, float* right, float* live_left, float* live_right, uint32_t frames, uint32_t& song_offset, uint32_t& song_frames) {
   if (!engine || !frame(engine->processed) || engine->processed < 0 || engine->processed + frames > safe_frame) return fail(engine, PF_ACTION_FAILED, "Invalid audio block");
+  song_offset = song_frames = 0;
   pf_flush(engine);
   unsigned block = unsigned(std::max(1.0, std::min(1024.0, std::floor(engine->rate * 0.25))));
   for (unsigned offset = 0; offset < frames;) {
@@ -1116,6 +1117,16 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
         tuning.detector.confidence, tuning.detector.midi, tuning.targets[tuning.step].midi, tuning.step);
     }
     double start = engine->processed;
+    auto render = [&](unsigned end) {
+      const unsigned first = offset + cursor, count = end - cursor;
+      if (count && engine->phase == PF_PLAYING && engine->mode == PF_PRACTICE) {
+        if (!song_frames) song_offset = first;
+        song_frames += count;
+      }
+      render_segment(engine, input ? input + first : nullptr, left ? left + first : nullptr,
+        right ? right + first : nullptr, live_left ? live_left + first : nullptr,
+        live_right ? live_right + first : nullptr, count, start + cursor);
+    };
     bt_process(engine->tracker, input ? input + offset : nullptr, length);
     double events[64 * BT_E_COUNT]; unsigned count;
     do {
@@ -1124,25 +1135,32 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
         const double* event = events + index * BT_E_COUNT;
         if (event[BT_E_TYPE] == BT_CLOCK && event[BT_E_EPOCH] == engine->epoch) {
           unsigned end = unsigned(std::max(double(cursor), std::min(double(length), std::ceil(event[BT_E_FRAME] - start))));
-          render_segment(engine, input ? input + offset + cursor : nullptr, left ? left + offset + cursor : nullptr, right ? right + offset + cursor : nullptr, live_left ? live_left + offset + cursor : nullptr, live_right ? live_right + offset + cursor : nullptr, end - cursor, start + cursor);
+          render(end);
           cursor = end;
           pf_on_beat(engine, event[BT_E_ID], event[BT_E_FRAME], event[BT_E_EPOCH]);
         }
         queue_tracker(engine, event);
       }
     } while (count == 64);
-    render_segment(engine, input ? input + offset + cursor : nullptr, left ? left + offset + cursor : nullptr, right ? right + offset + cursor : nullptr, live_left ? live_left + offset + cursor : nullptr, live_right ? live_right + offset + cursor : nullptr, length - cursor, start + cursor);
+    render(length);
     offset += length;
   }
   return 0;
 }
 int pf_process(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames) {
-  return process_stems(engine, input, left, right, nullptr, nullptr, frames);
+  uint32_t offset, playing;
+  return process_stems(engine, input, left, right, nullptr, nullptr, frames, offset, playing);
 }
 int pf_process_stems(pf_engine* engine, const float* input, float* left, float* right, float* live_left, float* live_right, uint32_t frames) {
+  uint32_t offset, playing;
+  return pf_process_stems_with_song_span(engine, input, left, right, live_left, live_right, frames, &offset, &playing);
+}
+int pf_process_stems_with_song_span(pf_engine* engine, const float* input, float* left, float* right,
+                                    float* live_left, float* live_right, uint32_t frames,
+                                    uint32_t* song_offset, uint32_t* song_frames) {
   const float* spans[] = {input, left, right, live_left, live_right};
-  if (!disjoint_audio(spans, 5, frames)) return -1;
-  return process_stems(engine, input, left, right, live_left, live_right, frames);
+  if (!song_offset || !song_frames || !disjoint_audio(spans, 5, frames)) return -1;
+  return process_stems(engine, input, left, right, live_left, live_right, frames, *song_offset, *song_frames);
 }
 int pf_render_idle_monitor(pf_engine* engine, const float* input, float* left, float* right, uint32_t frames) {
   const float* spans[] = {input, left, right};

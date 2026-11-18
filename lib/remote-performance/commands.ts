@@ -29,8 +29,9 @@ const Commands = Schema.Union([
 	Schema.Struct({ command: Schema.Literal('inputRevoke'), args: InputRevokeSchema }),
 	Schema.Struct({ command: Schema.Literal('tuner'), args: TunerCommandSchema }),
 	Schema.Struct({ command: Schema.Literal('configureJiggle'), args: Schema.Struct({ minimumTravel: Finite, minimumReversal: Finite }) }),
-	Schema.Struct({ command: Schema.Literal('start'), args: Schema.Struct({ bpm: Schema.optionalKey(Finite), countInBars: Schema.optionalKey(Schema.Int), startBar: Schema.optionalKey(Schema.Int), endBar: Schema.optionalKey(Schema.Int), loop: Schema.optionalKey(Schema.Boolean), automatic: Schema.optionalKey(Schema.Boolean), runId: Schema.optionalKey(Schema.String) }) }),
+	Schema.Struct({ command: Schema.Literal('start'), args: Schema.Struct({ bpm: Schema.optionalKey(Finite), countInBars: Schema.optionalKey(Schema.Int), startBar: Schema.optionalKey(Schema.Int), endBar: Schema.optionalKey(Schema.Int), loop: Schema.optionalKey(Schema.Boolean), automatic: Schema.optionalKey(Schema.Boolean), recordDemo: Schema.optionalKey(Schema.Boolean), runId: Schema.optionalKey(Schema.String) }) }),
 	Schema.Struct({ command: Schema.Literal('stop'), args: Schema.Struct({}) }),
+	Schema.Struct({ command: Schema.Literal('recordDemo'), args: Schema.Struct({ recording: Schema.Boolean }) }),
 	Schema.Struct({ command: Schema.Literal('control'), args: Schema.Struct({ control: Schema.Union([Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2']), edge: Schema.optionalKey(Schema.Literal('release')) }), Schema.Struct({ id: Schema.Literals(['mushroom', 'tempo']) }), Schema.Struct({ id: Schema.Literal('knob'), value: Finite }), Schema.Struct({ id: Schema.Literal('cueButton'), value: Schema.Literals([0, 1]) }), Schema.Struct({ id: Schema.Literal('external'), slot: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 63 })) })]), commandId: Schema.optionalKey(Schema.String) }) }),
 	Schema.Struct({ command: Schema.Literal('selectChannel'), args: Schema.Struct({ channelId: Channel }) }),
 	Schema.Struct({ command: Schema.Literal('setChannel'), args: Schema.Struct({ channelId: Channel, settings: Schema.Struct({ gain: Schema.optionalKey(Finite), muted: Schema.optionalKey(Schema.Boolean) }) }) }),
@@ -125,9 +126,10 @@ export function encodeCommand(input: unknown, state: PracticeState) {
 		case 'start': {
 			const { bpm = state.bpm, countInBars = 1, startBar = 1, endBar = state.endBar, loop = true, automatic = false } = command.args;
 			if (bpm < 40 || bpm > 240 || countInBars < 0 || countInBars > 4 || startBar < 1 || endBar < startBar) throw new Error('Invalid start options');
-			return numeric(1, [bpm, countInBars, startBar, endBar, Number(loop), Number(automatic)]);
+			return numeric(command.args.recordDemo ? 21 : 1, [bpm, countInBars, startBar, endBar, Number(loop), Number(automatic)]);
 		}
 		case 'stop': return numeric(2);
+		case 'recordDemo': return numeric(command.args.recording ? 19 : 20);
 		case 'control': {
 			const control = command.args.control;
 			const id = control.id === 'external' ? control.slot + 16 : 'edge' in control && control.edge === 'release' ? CONTROL_IDS.indexOf(control.id) + 8

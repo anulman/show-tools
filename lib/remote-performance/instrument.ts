@@ -21,8 +21,8 @@ export class NativeInstrument implements Instrument {
 				const changed = !this.current || JSON.stringify(this.current.song) !== JSON.stringify(next.song);
 				this.current = next;
 				this.publish(changed
-					? { type: 'session', song: next.song, state: next.state, lights: next.lights, tuner: next.tuner, revision: next.revision.toString(), hostEpoch: connection.processEpoch }
-					: { type: 'state', state: next.state, lights: next.lights, tuner: next.tuner, revision: next.revision.toString(), hostEpoch: connection.processEpoch });
+					? { type: 'session', song: next.song, state: next.state, lights: next.lights, tuner: next.tuner, demo: next.demo, revision: next.revision.toString(), hostEpoch: connection.processEpoch }
+					: { type: 'state', state: next.state, lights: next.lights, tuner: next.tuner, demo: next.demo, revision: next.revision.toString(), hostEpoch: connection.processEpoch });
 				this.notify();
 			} else if (frame.tag === 6) {
 				this.publish({ type: 'event', event: decodeEvent(frame.payload, connection.processEpoch), hostEpoch: connection.processEpoch });
@@ -44,7 +44,7 @@ export class NativeInstrument implements Instrument {
 	private notify() { for (const waiter of this.waiters) waiter(); }
 	private publish(value: Observation) { for (const listener of this.listeners) listener(value); }
 	snapshot(): Observation | null {
-		return this.current && { type: 'session', song: this.current.song, state: this.current.state, lights: this.current.lights, tuner: this.current.tuner, revision: this.current.revision.toString(), hostEpoch: this.connection?.processEpoch };
+		return this.current && { type: 'session', song: this.current.song, state: this.current.state, lights: this.current.lights, tuner: this.current.tuner, demo: this.current.demo, revision: this.current.revision.toString(), hostEpoch: this.connection?.processEpoch };
 	}
 	subscribe(listener: (value: Observation) => void) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
 	async command(input: unknown): Promise<Outcome> {
@@ -62,7 +62,7 @@ export class NativeInstrument implements Instrument {
 		if (status > 3) throw new Error('Invalid host result status');
 		if (status !== 0) return { outcome: 'rejected', error: status === 3 ? 'Host is busy' : `Native command rejected (${code})` };
 		const readback = await this.waitForRevision(connection, revision);
-		return { outcome: 'applied', state: readback.state, lights: readback.lights, tuner: readback.tuner, revision: readback.revision.toString(), hostEpoch: connection.processEpoch };
+		return { outcome: 'applied', state: readback.state, lights: readback.lights, tuner: readback.tuner, demo: readback.demo, revision: readback.revision.toString(), hostEpoch: connection.processEpoch };
 	}
 	async replaceSong(operation: Buffer) {
 		const connection = this.connection;

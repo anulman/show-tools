@@ -6,6 +6,7 @@ import { realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { extname, resolve, sep } from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { Schema } from 'effect';
 import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
 import { decodeClientInputCommand, isPriorityCommand, type ClientInputCommand } from './commands.js';
@@ -31,7 +32,7 @@ export interface GatewayConfig {
 	tls?: { cert: Buffer; key: Buffer };
 }
 
-export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; tuner?: TunerState; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
+export type Outcome = { outcome: 'applied' | 'rejected'; error?: string; state?: unknown; lights?: number[]; tuner?: TunerState; demo?: import('./session-schema.js').NativePerformance['demo']; revision?: string; hostEpoch?: string } | { outcome: 'unknown' };
 type Session = { readonly inputOwnerToken: string; highWater: number; inFlight: number; attached: boolean; results: Map<number, { request: string; result: Promise<Outcome | AudioDecision | NativeOutcome> }> };
 type InputIntent = { target: NativeTarget; kindOfProducer: InputAttach['kind']; bindingGeneration: number; request: string; status: InputIntentStatus; result: Promise<InputAttachOutcome> };
 type InputLease = InputAttach & { intent: InputIntent; target: NativeTarget; status: 'pending' | 'active' | 'quarantined'; pending: Promise<InputAttachOutcome>; revoking?: Promise<NativeOutcome> };
@@ -233,7 +234,7 @@ const decodeTakeAudioRequest = Schema.decodeUnknownSync(Schema.Struct({
 }), { onExcessProperty: 'error' });
 const requestFields = { sessionId: Schema.NonEmptyString, sequence: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })) };
 const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,
-  command: Schema.Literals(['start', 'stop', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
+  command: Schema.Literals(['start', 'stop', 'recordDemo', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
   args: Schema.Record(Schema.String, Schema.Unknown), target: NativeTargetSchema,
 }));
 const decodeAudio = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields, goal: AudioGoalSchema }));
@@ -339,6 +340,18 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         return json(response, 200, original ? await inputs.readStatus(original.owner, input.intentId) : { kind: 'unknown' });
       }
 			if (request.method === 'GET' && path === '/api/songs') return songs ? json(response, 200, { songs: songs.choices() }) : json(response, 404, { error: 'Song catalog is not configured' });
+      if ((request.method === 'GET' || request.method === 'HEAD') && path === '/api/demo-recording') {
+        const demo = await controller.openDemo?.().catch(() => null);
+        if (!demo) return json(response, 404, { error: 'No completed demo' });
+        response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': demo.bytes, 'Cache-Control': 'no-store',
+          'Content-Disposition': 'attachment; filename="practice-demo.wav"' });
+        if (request.method === 'HEAD') {
+          await demo.file.close();
+          return response.end();
+        }
+        await pipeline(demo.file.createReadStream(), response).catch(() => response.destroy());
+        return;
+      }
       if (request.method === 'POST' && path === '/api/take-audio') {
         if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
         let input: ReturnType<typeof decodeTakeAudioRequest>;
