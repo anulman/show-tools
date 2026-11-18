@@ -58,7 +58,7 @@ const song = Schema.Struct({ id, chart: ChartSchema, program: Schema.Struct({ le
   }));
 const event = Schema.Struct({ v: Schema.Literal(1), runId: id, seq: count, type: Schema.Literals(['state', 'beat', 'control', 'fault', 'tempo-hit']), state,
   frame: Schema.optionalKey(frameCoordinate), sampleRate: Schema.optionalKey(finite), control: Schema.optionalKey(control), commandId: Schema.optionalKey(text),
-  applied: Schema.optionalKey(Schema.Boolean), error: Schema.optionalKey(text), tempoHit: Schema.optionalKey(tempo), cueIndex: Schema.optionalKey(count) });
+  applied: Schema.optionalKey(Schema.Boolean), physicalPanic: Schema.optionalKey(Schema.Literal(true)), error: Schema.optionalKey(text), tempoHit: Schema.optionalKey(tempo), cueIndex: Schema.optionalKey(count) });
 export const LightPublicationSchema = Schema.mutable(Schema.Array(finite)
   .check(Schema.isMinLength(LIGHT.LIGHT_FIELDS)).check(Schema.isMaxLength(LIGHT.LIGHT_FIELDS))
   .check(Schema.makeFilter(image => {

@@ -90,6 +90,7 @@ export function decodeNativeEvent(event: Float64Array, runId: string, message: (
         const id = event[PF.EVENT_CONTROL];
         result.control = id === 4 ? { id: 'mushroom' } : id === 5 ? { id: 'knob', value: event[PF.EVENT_VALUE] } : id === 6 ? { id: 'tempo' } : id === 7 ? { id: 'cueButton', value: event[PF.EVENT_VALUE] === 1 ? 1 : 0 } : id >= 16 && id < 80 ? { id: 'external', slot: id - 16 } : id >= 8 && id < 12 ? { id: CONTROL_IDS[id - 8], edge: 'release' } : { id: CONTROL_IDS[id] };
         result.applied = event[PF.EVENT_APPLIED] === 1;
+        if (id === 4 && result.applied && event[PF.EVENT_VALUE] === 1) result.physicalPanic = true;
       }
       if (type === 'tempo-hit') result.tempoHit = { beatHint: event[PF.EVENT_VALUE] === 1 ? 1 : null,
         source: event[PF.EVENT_CONTROL] === 1 ? 'chart' : 'pedal', estimated: event[PF.EVENT_APPLIED] === 1 };

@@ -149,6 +149,7 @@ export interface PracticeEvent {
   control?: Control;
   commandId?: string;
   applied?: boolean;
+  physicalPanic?: true;
   error?: string;
   tempoHit?: TempoHitObservation;
   cueIndex?: number;

@@ -59,6 +59,7 @@ class Program {
   int error() const noexcept { return error_; }
   void clear_error() noexcept { error_ = PF_OK; }
   bool has_capture() const noexcept;
+  void discard_capture() noexcept;
   bool recording() const noexcept { return active_capture_.take >= 0; }
   bool recording_rows(uint32_t rows) const noexcept;
   bool cue_warning(int end_bar, uint32_t rows = 15) const noexcept;

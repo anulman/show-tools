@@ -12,6 +12,7 @@ constexpr double maximum_identity = 9007199254740991.;
 inline bool identity(double value) {
   return std::isfinite(value) && value >= 1 && value <= maximum_identity && std::floor(value) == value;
 }
+constexpr uint32_t pedal = 4, mushroom = 5;
 struct Binding {
   int kind = -1;
   uint32_t rows = 0;
@@ -62,7 +63,11 @@ class Router {
     }
     std::copy(bindings, bindings + PF_INPUT_SWITCHES, bindings_);
   }
-  const Binding& binding(uint32_t input) const { return bindings_[input]; }
+  Binding binding(uint32_t input) const {
+    if (input == pedal) return {PF_INPUT_TEMPO, 0};
+    if (input == mushroom) return {PF_INPUT_PANIC, 0};
+    return bindings_[input];
+  }
   Producer* producer(uint32_t slot) { return slot < PF_INPUT_PRODUCERS ? &producers_[slot] : nullptr; }
   const Producer* producer(uint32_t slot) const { return slot < PF_INPUT_PRODUCERS ? &producers_[slot] : nullptr; }
   int check(uint32_t slot, double session, double generation, double sequence, uint32_t input, double value) const {
@@ -124,7 +129,7 @@ class Router {
     out[PF_INPUT_GENERATION] = generation_;
     out[PF_INPUT_SESSION_HIGH_WATERMARK] = session_high_watermark();
     for (uint32_t input = 0; input < PF_INPUT_SWITCHES; ++input)
-      if (bindings_[input].kind == PF_INPUT_PANIC) out[PF_INPUT_PANIC_MASK] += 1u << input;
+      if (binding(input).kind == PF_INPUT_PANIC) out[PF_INPUT_PANIC_MASK] += 1u << input;
     uint32_t count = 0;
     for (uint32_t slot = 0; slot < PF_INPUT_PRODUCERS; ++slot) {
       const auto& item = producers_[slot];
