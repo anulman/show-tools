@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Four fixed signed WEB lifecycle operations; no audio or peripheral enablement."""
+"""Fixed signed WEB lifecycle operations; no audio or peripheral enablement."""
 import argparse
 import base64
 from dataclasses import dataclass
@@ -39,13 +39,16 @@ ARCHIVE = {'url': 'http://100.91.87.3:18742/show-tools-session-release-743160a.t
            'root': 'show-tools-session-release-743160a', 'installRelease': str(RELEASE)}
 MANIFEST_SHA256 = '16317463ab6302dd79679cf676a05d12cd5410070c8751492147d8b103094067'
 KINDS = {'stop-old-web': 'web-stop', 'install-v2-profile': 'configure',
-         'start-v2-web': 'web-start', 'initial-bindings-backup': 'configure'}
+         'start-v2-web': 'web-start', 'start-existing-web': 'web-start', 'initial-bindings-backup': 'configure'}
+WEB_STARTS = ('start-v2-web', 'start-existing-web')
 CLI_PREFIX = [str(RELEASE / 'runtime/node'), str(RELEASE / 'gateway/session-cli.mjs')]
 EFFECTS = {
  'stop-old-web': ['read-only-current-d8-release-verification', 'authenticated-current-status', 'stop-owned-web-unit', 'verify-inactive-empty-cgroup'],
  'install-v2-profile': ['retain-captured-profile-unit-backups', 'replace-exact-profile', 'replace-exact-unit', 'user-daemon-reload'],
  'start-v2-web': ['start-owned-web-unit', 'initialize-new-app-sqlite-before-listen', 'sqlite-rollback-journal-and-lock-effects',
                   'verify-authenticated-audio-off', 'verify-sqlite-schema-integrity-and-metadata', 'read-only-sqlite-version-and-journal-query', 'fsync-database-and-parent'],
+ 'start-existing-web': ['verify-existing-private-sqlite-and-absent-sidecars', 'start-owned-web-unit', 'open-existing-app-sqlite-with-normal-lock-effects',
+                        'verify-authenticated-audio-off', 'verify-observed-database-metadata-and-schema-after-start'],
  'initial-bindings-backup': ['create-or-qualify-private-backups-directory', 'sqlite-vacuum-into-owned-private-temporary',
                            'create-only-hardlink-backup-publication', 'remove-only-owned-temporary-on-all-paths',
                            'verify-final-singlelink-logical-snapshot-and-durability'],
@@ -212,6 +215,7 @@ class Runtime:
         self.pending_profile, self.pending_unit = self.expected_profile, self.expected_unit
         self.result = None
         self.effect_barrier = None
+        self.prechecked_database = None
 
     def capture(self, path, digest=None, mode=0o600, maximum=1048576):
         data, info = self.common['capture'](path, maximum, OWNER, (mode,))
@@ -272,8 +276,16 @@ class Runtime:
             for fd in reversed(fds): os.close(fd)
 
     def db_absent(self):
-        for suffix in ('', '-journal', '-wal', '-shm'):
+        self.absent(DATABASE)
+        self.db_sidecars_absent()
+
+    def db_sidecars_absent(self):
+        for suffix in ('-journal', '-wal', '-shm'):
             self.absent(Path(str(DATABASE) + suffix))
+
+    def existing_database_metadata(self):
+        self.db_sidecars_absent()
+        return self.metadata(DATABASE)
 
     def protected(self):
         result = {}
@@ -350,6 +362,9 @@ class Runtime:
         if self.kind == 'install-v2-profile':
             self.capture(self.candidate_profile, NEW_PROFILE); self.capture(self.candidate_unit, NEW_UNIT)
         if self.kind == 'start-v2-web': self.db_absent()
+        if self.kind == 'start-existing-web':
+            self.prechecked_database = self.verify_existing_db()
+            result['database'] = self.prechecked_database
         if self.kind == 'initial-bindings-backup':
             result['database'] = self.metadata(DATABASE)
             try:
@@ -425,7 +440,7 @@ class Runtime:
         finally: os.close(fd)
         require(self.metadata(path, directory=directory) == before, 'Durability pathname changed')
 
-    def verify_db(self, path):
+    def verify_db(self, path, *, durable=True):
         info = self.metadata(path)
         output = self.command(CLI_PREFIX + ['bindings', 'verify', '--input', str(path)], seconds=30)
         require(re.fullmatch(r'Verified [0-9]+ binding records\. Only per-song button bindings and chart source hashes; excludes charts, effects and recordings\.\s*', output), 'Unexpected binding verification output')
@@ -436,8 +451,14 @@ class Runtime:
         diagnostics = self.common['strict_json'](self.command([CLI_PREFIX[0], '-e', diagnostics_script, str(path)]))
         require(type(diagnostics.get('sqliteVersion')) is str and diagnostics.get('journalMode') == 'delete',
                 'Unexpected actual SQLite runtime or journal mode')
-        self.sync(path)
+        if durable: self.sync(path)
         return {'metadata': info, 'verification': output.strip(), 'sqlite': diagnostics}
+
+    def verify_existing_db(self):
+        before = self.existing_database_metadata()
+        checked = self.verify_db(DATABASE, durable=False)
+        require(checked['metadata'] == before == self.existing_database_metadata(), 'Bindings store changed during verification')
+        return checked
 
 
     def apply(self, barrier, evidence):
@@ -461,13 +482,26 @@ class Runtime:
             self.latest_inspection(barrier, managed)
             self.command(['/usr/bin/systemctl', '--user', 'daemon-reload'])
             self.result = {'replaced': [first, second], 'daemonReloaded': True}
-        elif self.kind == 'start-v2-web':
-            self.service(False); self.db_absent(); barrier(); self.db_absent()
+        elif self.kind in WEB_STARTS:
+            self.service(False)
+            if self.kind == 'start-v2-web':
+                self.db_absent(); barrier(); self.db_absent()
+            else:
+                require(self.prechecked_database is not None, 'Existing database was not verified during preflight')
+                expected = self.prechecked_database['metadata']
+                require(self.existing_database_metadata() == expected, 'Bindings store changed before start')
+                managed = self.managed_state()
+                self.latest_inspection(barrier, managed)
+                require(self.existing_database_metadata() == expected, 'Bindings store changed after start inspection')
             output = self.command(CLI_PREFIX + ['start', '--profile', str(PROFILE)], seconds=45)
             require('Server active (show-tools-web.service). Audio off. Linger=yes.' in output, 'Web did not report authenticated audio-off readiness')
             self.service(True); view = self.ensure_off()
-            database = self.verify_db(DATABASE); self.sync(ROOT, directory=True)
-            for suffix in ('-journal', '-wal', '-shm'): self.absent(Path(str(DATABASE) + suffix))
+            if self.kind == 'start-v2-web':
+                database = self.verify_db(DATABASE); self.sync(ROOT, directory=True)
+            else:
+                database = self.verify_existing_db()
+                require(database == self.prechecked_database, 'Observed bindings store differs after start')
+            self.db_sidecars_absent()
             versions = self.command([CLI_PREFIX[0], '-p', 'JSON.stringify(process.versions)'])
             self.result = {'start': output.strip(), 'authenticated': view, 'database': database,
                            'runtimeVersions': self.common['strict_json'](versions), 'sqliteSidecarsAfterCommit': 'absent'}
@@ -511,8 +545,11 @@ class Runtime:
         require(self.protected() == self.preserved['protected'] and self.persistence() == self.preserved['persistence']
                 and self.credential_metadata() == self.preserved['credentials'], 'Preserved protected/wrapper/enablement/Linger state changed')
         self.capture(PROFILE, self.pending_profile); self.capture(UNIT, self.pending_unit)
-        service = self.service(self.kind in ('start-v2-web', 'initial-bindings-backup'))
-        if self.kind in ('start-v2-web', 'initial-bindings-backup'): self.ensure_off()
+        web_active = self.kind in (*WEB_STARTS, 'initial-bindings-backup')
+        service = self.service(web_active)
+        if web_active: self.ensure_off()
+        if self.kind == 'start-existing-web':
+            require(self.existing_database_metadata() == self.prechecked_database['metadata'], 'Observed bindings store differs at readback')
         return {'service': service, 'profileSha256': self.pending_profile, 'unitSha256': self.pending_unit,
                 'release': self.verify_release(), 'persistenceUnchanged': True, 'nativeAudioStartRequested': False}
 

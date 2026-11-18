@@ -95,7 +95,7 @@ class Effects:
 
 
 class AdmissionTests(unittest.TestCase):
-    def test_all_four_fixed_operations_decode_and_complete(self):
+    def test_all_fixed_operations_decode_and_complete(self):
         for kind in runner.KINDS:
             with self.subTest(kind=kind):
                 req, _ = request(kind); effects, evidence = Effects(), Evidence(); checker = FakeChecker(req)
@@ -437,6 +437,109 @@ class FilesystemTests(unittest.TestCase):
                 with self.subTest(suffix=suffix), self.assertRaisesRegex(RuntimeError, 'Expected absent'):
                     self.runtime.db_absent()
                 path.unlink()
+
+    def existing_start_fixture(self):
+        database = self.root / 'bindings.sqlite'
+        self.stack.enter_context(patch.object(runner, 'DATABASE', database))
+        self.stack.enter_context(patch.object(runner, 'ROOT', self.root))
+        req, _ = request('start-v2-web')
+        req = replace(req, plan=dict(req.plan, kind='start-existing-web'))
+        self.runtime = runner.Runtime(req, self.local, {}, {}, None, None, self.candidate, self.candidate_unit, self.root / 'evidence')
+        self.path.write_bytes(self.candidate.read_bytes())
+        self.unit.write_bytes(self.candidate_unit.read_bytes())
+        self.runtime.protected = self.runtime.persistence = self.runtime.credential_metadata = lambda: {'preserved': True}
+        self.runtime.manager_environment = lambda: {'protected': True}
+        self.runtime.failure_snapshot = lambda: {'observed': True}
+        self.runtime.verify_release = lambda: {'reviewed': True}
+        checks, effects = [], []
+        self.runtime.service = lambda active: {'active': active}
+        self.runtime.status = {'read_status': lambda *_args: checks.append('status') or {'audio': {'kind': 'off'}}}
+
+        def process(argv, seconds, cap):
+            if argv == runner.CLI_PREFIX + ['bindings', 'verify', '--input', str(database)]:
+                checks.append('bindings')
+                if database.read_bytes() != b'reviewed bindings': raise RuntimeError('Invalid fixture binding schema')
+                return b'Verified 1 binding records. Only per-song button bindings and chart source hashes; excludes charts, effects and recordings.'
+            if argv[:2] == [runner.CLI_PREFIX[0], '-e'] and argv[3:] == [str(database)]:
+                return b'{"sqliteVersion":"fixture","journalMode":"delete"}'
+            if argv == [runner.CLI_PREFIX[0], '-p', 'JSON.stringify(process.versions)']:
+                return b'{"node":"fixture"}'
+            self.assertEqual(argv, runner.CLI_PREFIX + ['start', '--profile', str(self.path)])
+            effects.append('start')
+            return b'Server active (show-tools-web.service). Audio off. Linger=yes.'
+
+        self.local['bounded_process'] = process
+        return req, database, checks, effects
+
+    def test_existing_web_start_rejects_missing_invalid_database_or_sidecars_before_claim(self):
+        req, database, _, effects = self.existing_start_fixture()
+        for mode, expected_error in (('missing', 'No such file'), ('invalid', 'Invalid fixture binding schema'),
+                                     ('sidecar', 'Expected absent app path')):
+            with self.subTest(mode=mode):
+                database.unlink(missing_ok=True)
+                if mode != 'missing':
+                    database.write_bytes(b'foreign' if mode == 'invalid' else b'reviewed bindings'); database.chmod(0o600)
+                if mode == 'sidecar': database.with_name(database.name + '-journal').touch()
+                checker = FakeChecker(req)
+                result = runner.execute(req, self.runtime, checker, Evidence(), STATUS, common)
+                self.assertEqual(result['outcome'], 'blocked-preclaim')
+                self.assertIn(expected_error, result['error'])
+                self.assertEqual(effects, [])
+                self.assertEqual(checker.calls, [])
+
+    def test_existing_web_start_verifies_bindings_before_claim_and_after_one_start(self):
+        req, database, checks, effects = self.existing_start_fixture()
+        database.write_bytes(b'reviewed bindings'); database.chmod(0o600)
+        checker, evidence = FakeChecker(req), Evidence()
+        call = checker.call
+        def require_verification(operation, *args):
+            if operation == 'claim': self.assertIn('bindings', checks)
+            return call(operation, *args)
+        checker.call = require_verification
+        result = runner.execute(req, self.runtime, checker, evidence, STATUS, common)
+        self.assertEqual(result['outcome'], 'completed')
+        self.assertEqual(effects, ['start'])
+        self.assertGreaterEqual(checks.count('bindings'), 2)
+        self.assertEqual(database.read_bytes(), b'reviewed bindings')
+        self.assertFalse(evidence.items['result.json']['readback']['nativeAudioStartRequested'])
+
+    def test_existing_web_start_reports_replacement_during_start_as_uncertain(self):
+        req, database, _, effects = self.existing_start_fixture()
+        database.write_bytes(b'reviewed bindings'); database.chmod(0o600)
+        replacement = self.root / 'replacement.sqlite'
+        replacement.write_bytes(database.read_bytes()); replacement.chmod(0o600)
+        process = self.local['bounded_process']
+        def replace_during_start(argv, seconds, cap):
+            output = process(argv, seconds, cap)
+            if argv[2] == 'start': os.replace(replacement, database)
+            return output
+        self.local['bounded_process'] = replace_during_start
+        checker = FakeChecker(req)
+        result = runner.execute(req, self.runtime, checker, Evidence(), STATUS, common)
+        self.assertEqual(effects, ['start'])
+        self.assertEqual(result['outcome'], 'uncertain')
+        self.assertIn('Observed bindings store differs after start', result['error'])
+        self.assertEqual(checker.rows[-1]['outcome'], 'uncertain')
+
+    def test_terminal_during_last_existing_start_precheck_prevents_start(self):
+        req, database, _, effects = self.existing_start_fixture()
+        database.write_bytes(b'reviewed bindings'); database.chmod(0o600)
+        checker = FakeChecker(req)
+        checks = 0
+
+        def service(active):
+            nonlocal checks
+            self.assertFalse(active)
+            checks += 1
+            if checks == 4: checker.call('record', 'uncertain', 'f' * 64)
+            return {'active': False}
+
+        self.runtime.service = service
+        result = runner.execute(req, self.runtime, checker, Evidence(), STATUS, common)
+        self.assertEqual(result['outcome'], 'uncertain')
+        self.assertEqual(effects, [])
+        self.assertIn('terminalRecordWithheld', result)
+        self.assertEqual(checks, 4)
 
     def test_backup_failure_does_not_delete_database_or_published_backup(self):
         database, backups = self.root / 'bindings.sqlite', self.root / 'backups'
