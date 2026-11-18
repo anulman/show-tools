@@ -10,6 +10,12 @@ export const SESSION_BUNDLES = {
 export async function writeSessionLaunchers(output: string) {
   for (const [command, entry] of Object.entries({ 'show-tools-session': 'session-cli.mjs', 'show-tools-peripheral': 'peripheral-cli.mjs' }))
     await writeFile(join(output, 'bin', command), `#!/bin/sh\nset -eu\nST_RELEASE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\nexec "$ST_RELEASE/runtime/node" "$ST_RELEASE/gateway/${entry}" "$@"\n`, { mode: 0o755 });
+  await writeFile(join(output, 'bin', 'show-tools-config'), `#!/bin/sh
+set -eu
+ST_RELEASE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ "$#" -eq 0 ]; then set -- --stop-performance --start; fi
+exec "$ST_RELEASE/bin/show-tools-peripheral" setup "$@"
+`, { mode: 0o755 });
 }
 
 export async function buildSessionBundles(root: string, output: string) {

@@ -187,7 +187,7 @@ finally:
 });
 
 
-async function motionFixture(multiple = false) {
+async function motionFixture(multiple = false, mode: 'balanced' | 'opposite' | 'same' | 'replug' = 'balanced') {
   const f = await fixture();
   const reader = join(f.directory, 'raw_motion.py');
   await writeFile(reader, `import argparse,json,os,pathlib,time
@@ -201,7 +201,10 @@ def record(v,public=False):
 record(dict(type='source',device='/dev/input/event24',canonical='/sys/synthetic/event24',eventClock='CLOCK_MONOTONIC',interfaceNumber=2,eventTypes=[0,2],keyCodes=[],relativeAxes=[0,1]))
 nonce='b'*32
 context=dict(schemaVersion=1,trialId=a.trial,controlId='knob',operatorDirection=a.direction)
-record(dict(type='ready',nonce=nonce,**context),True)
+mode=${JSON.stringify(mode)}
+reverse=a.direction=='counterclockwise' and mode in ('opposite','replug')
+instance=[1,2,'3','5' if reverse and mode=='replug' else '4']
+record(dict(type='ready',nonce=nonce,usbParent='/sys/synthetic/usb',instance=instance,**context),True)
 start=time.monotonic()
 while not (d/'arm.json').exists():
  if time.monotonic()-start>3:raise RuntimeError('no arm')
@@ -209,9 +212,10 @@ while not (d/'arm.json').exists():
 record(dict(type='armed',nonce=nonce,**context),True)
 axes=[]
 for code in (${multiple ? '[0,1]' : '[1]'}):
- for value in (5,-5,5,-5):record(dict(type='motion',device='/dev/input/event24',eventType=2,code=code,value=value))
- axes.append(dict(device='/dev/input/event24',interfaceNumber=2,eventType=2,code=code,samples=4,delta=0,positiveCounts=10,negativeCounts=10))
-terminal=dict(type='terminal',complete=True,inputsClosed=True,requiresSuccessfulExit=True,error=None,observedAxes=axes,**context)
+ values=(5,-5,5,-5) if mode=='balanced' else ((-5,)*4 if reverse else (5,)*4)
+ for value in values:record(dict(type='motion',device='/dev/input/event24',eventType=2,code=code,value=value))
+ axes.append(dict(device='/dev/input/event24',interfaceNumber=2,eventType=2,code=code,samples=4,delta=sum(values),positiveCounts=sum(v for v in values if v>0),negativeCounts=-sum(v for v in values if v<0)))
+terminal=dict(type='terminal',complete=True,inputsClosed=True,requiresSuccessfulExit=True,error=None,deviceWrites=False,observedAxes=axes,**context)
 record(terminal);os.fsync(f);os.close(f);print(json.dumps(terminal),flush=True)
 `, { mode: 0o600 });
   return { ...f, reader };
@@ -270,6 +274,37 @@ test('the installed dial CLI uses the motion reader and preserves the existing b
         io: { question: async () => '', write: () => {} } }), /jiggle/);
       assert.equal(inspected, false); assert.deepEqual(await readFile(config), exact);
     }
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+for (const scenario of ['opposite', 'same', 'replug', 'mapped'] as const) test(`read-only dial check with ${scenario} evidence preserves the profile`, async () => {
+  const fixtureMode = scenario === 'mapped' ? 'opposite' : scenario;
+  const f = await motionFixture(false, fixtureMode);
+  const config = join(f.directory, 'peripheral.json');
+  const desk = sessionProfile(f.directory);
+  const source = { interfaceNumber: 0, eventTypes: [0, 1], keyCodes: [30], relativeAxes: [] };
+  const axis = { source: { interfaceNumber: 2, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] },
+    type: 2 as const, code: 1, evidencePath: '/tmp/synthetic-axis' };
+  const inputMap = assembleInstallationMap({ switches: [{ controlId: 'blue', source, type: 1, code: 30, evidencePath: '/tmp/synthetic' }],
+    leds: [], confirmWiring: false, ...(scenario === 'mapped' ? { axis } : {}) });
+  const output: string[] = [];
+  const unused = async () => { throw new Error('dial check attempted an installation operation'); };
+  try {
+    await saveCommissionedProfile(config, null, { version: 2, origin: desk.origin, tokenFile: desk.tokenFile,
+      helperExecutable: '/release/native/peripheral/peripheral-host', bindingRevision: 1, jiggle: null, inputMap });
+    const original = await readFile(config);
+    const result = runCommissioningCli(['--check-knob', '--config', config, '--bench-dir', f.directory, '--staging-root', f.directory], {
+      command: unused, webService: { state: unused, start: unused, stop: unused }, audioOff: unused,
+      service: { inspect: unused, start: unused, stop: unused }, io: { question: async () => '', write: text => output.push(text) },
+    });
+    if (scenario === 'opposite') {
+      await result;
+      assert.match(output.join(''), /clockwise \+?20, counterclockwise -20/);
+    } else {
+      await assert.rejects(result, { same: /opposite signed motion/, replug: /attachment changed/, mapped: /without a dial mapping/ }[scenario]);
+    }
+    assert.equal(output.filter(message => message.includes('ARMED')).length, scenario === 'mapped' ? 0 : 2);
+    assert.deepEqual(await readFile(config), original);
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 
