@@ -3,9 +3,12 @@
 #include "performance_engine.h"
 #include "patch_engine.h"
 #include "input_router.h"
+#include <cmath>
 #include <memory>
 
 namespace compiled {
+// The same crossing must choose the same sample in the block splitter and cue scheduler.
+inline double boundary_frame(double frame) noexcept { return std::ceil(frame - 1e-7); }
 struct VoiceInfo { bool ready = false, looping = false, muted = false; int status = PF_EMPTY, light = PF_OFF, pending = PF_NONE; double release_ms = 0, gain = 1; };
 class Program {
  public:
@@ -25,7 +28,7 @@ class Program {
   void outcomes(void* context, void (*notify)(void*, double, int, int, int)) noexcept { outcome_context_ = context; outcome_ = notify; }
   void tempo_handler(void* context, int (*hit)(void*, int)) noexcept { tempo_context_ = context; tempo_hit_ = hit; }
   void tempo_changed(double frame, double old_bpm, double new_bpm) noexcept;
-  void start(int start_bar, int count_in_beats, double frame, double bpm) noexcept;
+  void start(int start_bar, int count_in_beats, double frame, double bpm, int end_bar = 0) noexcept;
   void stop() noexcept;
   void microphone_lost() noexcept;
   int press(int button, double frame, double bpm, bool microphone) noexcept;
@@ -34,7 +37,7 @@ class Program {
   int press_rows(uint32_t rows, uint64_t owner, double frame, double bpm, bool microphone) noexcept;
   void release_owner(uint64_t owner) noexcept;
   const performance_input::Binding* input_bindings() const noexcept { return input_bindings_; }
-  void beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm) noexcept;
+  void beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm, bool live = true) noexcept;
   void render(const float* input, float* left, float* right, float* live_left, float* live_right,
     uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack, patches::Rack& backup_rack) noexcept;
   void set_channel(int button, double gain, bool muted) noexcept;
@@ -99,7 +102,9 @@ class Program {
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   Program() = default;
   int resolve(int button, double frame, double bpm) noexcept;
-  int press_selected(int cue, double frame, double bpm, bool microphone) noexcept;
+  int recoverable_playback(int button, double frame, double bpm) const noexcept;
+  int press_buttons(uint32_t rows, uint64_t owner, double frame, double bpm, bool microphone, bool report_rows) noexcept;
+  int press_selected(int cue, double frame, double bpm, bool microphone, bool recovering) noexcept;
   bool reservation_available(int take, int button, int committing) const noexcept;
   int available_bank(int take) const noexcept;
   int preflight_commit(const Cue& cue, CommitPlan& plan) const noexcept;
@@ -121,7 +126,7 @@ class Program {
   void switch_route(int voice, bool history_handed_off = false) noexcept;
   double position(double frame, double bpm) const noexcept;
   double frame_at(double position) const noexcept;
-  void apply_pending(double frame, double bpm) noexcept;
+  void apply_pending(double frame, double bpm, bool live) noexcept;
   double cue_frame(const Cue& cue, double bpm) const noexcept;
   void remember_cues(double frame, double bpm) noexcept;
   double loop_phase(const Take& take, int bank) const noexcept;
@@ -151,7 +156,7 @@ class Program {
   bool detached_tail_[PF_VOICE_PROFILES]{};
   uint64_t tail_generation_[PF_VOICE_PROFILES]{}, capture_generation_ = 0;
   int take_count_ = 0, cue_count_ = 0, member_count_ = 0, playback_count_ = 0;
-  int beats_ = 4, bars_ = 1, end_ = 1, start_ = 1, phase_ = PF_IDLE, bar_ = 0;
+  int beats_ = 4, bars_ = 1, end_ = 1, start_ = 1, run_end_ = 1, phase_ = PF_IDLE, bar_ = 0;
   int binding_[PF_CHANNELS]{0, 1, 2, 3}, selection_[PF_CHANNELS]{-1, -1, -1, -1};
   int gated_[PF_CHANNELS]{-1, -1, -1, -1}, held_[PF_CHANNELS]{-1, -1, -1, -1};
   uint64_t input_owner_[PF_CHANNELS]{};
@@ -162,6 +167,7 @@ class Program {
   uint64_t drain_[PF_VOICE_PROFILES + 2]{};
   double rate_ = 0, bpm_ = 120, early_ = 0, late_ = 0, anchor_frame_ = 0, anchor_position_ = 0, query_position_ = 0, query_frame_ = 0;
   ActiveCapture active_capture_;
+  bool captures_cancelled_ = false;
   int live_route_ = -1, error_ = PF_OK;
   double last_motion_frame_ = -1, motion_velocity_ = 0, bend_baseline_[PF_CHANNELS]{}, bend_velocity_per_semitone_ = 24, bend_stale_ms_ = 100;
   void* cue_context_ = nullptr;

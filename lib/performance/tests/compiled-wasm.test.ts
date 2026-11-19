@@ -78,7 +78,7 @@ test('compiled artifact drives effected WASM capture, crb handoff, layer autopla
     const pendingLight = native.state().channels.find(channel => channel.id === 'R1')?.light;
     assert(pendingLight?.kind === 'releasing' && pendingLight.remainingMs > 0);
     const clock = Array.from(native.query('pf_snapshot'));
-    const target = Math.ceil(clock[PF.CLOCK_BEAT_FRAME] + 1000);
+    const target = Math.round(clock[PF.CLOCK_BEAT_FRAME] + 1000);
     const remaining = target - native.processedFrames;
     const stopped = render(native, remaining + 1);
     assert(Math.abs(stopped.mixed[0][remaining - 1] - .625) < 1e-6);
@@ -198,10 +198,13 @@ test('stale venue bank rejects recapture nonfatally during transport until stopp
     native.prepareLiveEffects(edited);
     startAndCapture('new-venue');
     until(native, 4, 4);
-    until(native, 1);
+    const untilWrap = render(native, 4000);
+    assert(untilWrap.events.some(event => event.type === 'control' && /No reusable take bank/.test(event.error ?? '')),
+      'automatic recapture reports a stale bank without faulting the transport');
+    assert.equal(native.state().bar, 1);
     const before = native.compiledTake(0);
     const channels = native.state().channels;
-    assert.throws(() => native.control({ id: 'R1' }), /No reusable take bank/);
+    native.control({ id: 'R1' });
     assert.deepEqual(native.compiledTake(0), before);
     assert.deepEqual(native.state().channels, channels);
     const output = render(native, 128);
@@ -448,7 +451,6 @@ test('historical DYC short practice loops discard unfinished source spans instea
       }
       assert.equal(native.state().phase, 'playing');
       assert.equal(native.state().error, null);
-      assert.equal(native.state().recording, null);
       const unfinished = song.compiled.takes.findIndex(take => endBar === 1
         ? take.voiceId === 'drums-claps' && take.begin.bar === 1
         : take.voiceId === 'bing-bong' && take.begin.bar === 7);

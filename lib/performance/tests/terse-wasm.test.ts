@@ -107,18 +107,19 @@ test('manual per-note instrument hits select supplied order, skip missed notes a
   } finally { native.dispose(); }
 });
 
-test('missing a group only completes its authored outgoing commit and never launches the missed play', async () => {
+test('unpressed groups finish capture and wait for a manual press to recover loop playback', async () => {
   const song = await terseCaptureFixture();
   const native = engine(Array.from(encodeCompiledProgram(song)));
   try {
     native.prepareLiveEffects([]); native.setMicrophone(true);
     native.start({ runId: 'missed-group', bpm: 120, countInBars: 1, startBar: 4, endBar: 10 });
-    until(native, 4); press(native); release(native);
-    until(native, 5); press(native); release(native);
-    until(native, 6); press(native); release(native);
     until(native, 7);
+    assert.equal(native.compiledTake(2).frames, 16000, 'unpressed arm and cx preserve the complete strum source');
     assert.equal(native.state().compiledTakes?.[3].playback, 'playing', 'missed c completes with its declared autoplay');
     assert.equal(native.state().compiledTakes?.[2].playback, 'idle', 'missed explicit strum play stays silent');
+    until(native, 7, 2); press(native); release(native);
+    assert.equal(native.state().compiledTakes?.[2].playback, 'playing', 'late press recovers the missed loop');
+    assert.equal(native.state().compiledTakes?.[3].playback, 'idle', 'recovery replaces the active take without replaying the commit');
   } finally { native.dispose(); }
 });
 
@@ -133,8 +134,8 @@ test('loop launch reconstructs the source phase instead of resetting a late atta
   try {
     native.prepareLiveEffects([]); native.setMicrophone(true);
     native.start({ runId: 'source-phase', bpm: 120, countInBars: 1, startBar: 1, endBar: 5 });
-    until(native, 1, 3); render(native, 2000); native.control({ id: 'L1' });
-    render(native, 2000, .1); render(native, 14000, .8); native.control({ id: 'L1' });
+    until(native, 1, 3); render(native, 2000);
+    render(native, 2000 - native.compiledTake(0).frames, .1); render(native, 14000, .8);
     until(native, 3, 4); native.control({ id: 'L1' });
     assert.equal(native.compiledTake(0).phase, 2000, '3& source origin advances half a beat by attack count four');
     assert(Math.abs(render(native, 1)[0] - .8) < 1e-6, 'late launch reaches the corresponding stored source frame');
@@ -362,7 +363,7 @@ test('live periodic preparation trims silence and sustains native h/g; silence, 
   const input = terseCaptureInput();
   const values = input.source.values.map(row => [...row]);
   for (const control of input.mapping.controls) values[control.cueRow - 1].fill('', 2);
-  values[17][2] = '1r'; values[17][3] = '1cx'; values[17][4] = '1h'; values[17][5] = '1g'; values[17][6] = '1p';
+  values[17][2] = '1r'; values[17][3] = '1cx'; values[17][4] = '1h'; values[17][6] = '1g'; values[17][7] = '1p';
   const mapping = { ...input.mapping, sourceBindings: input.mapping.sourceBindings?.map(binding => binding.sourceName === 'words' ? { ...binding, sustain: { kind: 'periodic' as const } } : binding) };
   const song = await compileSheetsSong({ ...input.source, values }, mapping);
   assert(song.executable, JSON.stringify(song.diagnostics));
@@ -395,10 +396,10 @@ test('live periodic preparation trims silence and sustains native h/g; silence, 
         assert(!held.slice(0, 800).every(value => value === 0), 'trimmed region omits captured silence');
         assert.equal(native.compiledTake(0).frames, 16000, 'parent recording remains complete');
         release(native); assert(render(native, 64, 0).every(value => value === 0));
-        until(native, 4); press(native); render(native, 8000, 0); release(native);
+        until(native, 5); press(native); render(native, 8000, 0); release(native);
         assert.equal(native.state().compiledTakes?.[0].playback, 'idle');
         press(native); assert(render(native, 400, 0).some(value => Math.abs(value) > .1)); release(native);
-        until(native, 5); press(native); release(native);
+        until(native, 6); press(native); release(native);
         render(native, 16001, 0); assert.equal(native.state().compiledTakes?.[0].playback, 'idle', 'ordinary word p exits gated mode and remains finite');
       }
     } finally { native.dispose(); }
@@ -415,10 +416,9 @@ test('canonical Drunk Girls pickup loop restarts at Pickup8 phase and crosses nu
   try {
     native.prepareLiveEffects([]); native.setMicrophone(true);
     native.start({ runId: 'dg-pickup', bpm: 144, countInBars: 1, startBar: 1, endBar: 10 });
-    until(native, 1, 3); render(native, 1667); press(native); release(native);
     until(native, 9); render(native, 1); native.setMicrophone(false);
     const guitar = native.compiledTake(6);
-    assert(guitar.ready); assert.equal(guitar.frames, 98333); assert.equal(guitar.period, 106667);
+    assert(guitar.ready); assert(Math.abs(guitar.frames - 98333) <= 1); assert.equal(guitar.period, 106667);
     assert(render(native, 100, 0).every(value => value === 0), 'virtual source rest preserves the 3& pickup offset');
     until(native, 9, 3); render(native, 1668, 0);
     assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'captured source begins again at Pickup8 3&');

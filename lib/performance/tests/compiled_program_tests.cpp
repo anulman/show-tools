@@ -126,7 +126,7 @@ void capture_layers_and_boundaries() {
   require(std::all_of(restored.live_left.begin(), restored.live_left.end(), [](float value) { return value == 0; }), "microphone readiness cannot reauthorize live processing");
   until(engine, 3, 4); ok(engine, press(engine, 0));
   auto clock = state(engine);
-  auto remaining = uint32_t(std::ceil(clock[PF_CLOCK_BEAT_FRAME] + 1000) - clock[PF_FRAME]);
+  auto remaining = uint32_t(compiled::boundary_frame(clock[PF_CLOCK_BEAT_FRAME] + 1000) - clock[PF_FRAME]);
   auto scheduled = channel(engine, 0);
   require(scheduled[PF_CHANNEL_LIGHT] == PF_RELEASING && scheduled[PF_CHANNEL_RELEASE_MS] > 0, "scheduled stop reports a diminishing release countdown");
   auto stop = render(engine, remaining + 1);
@@ -152,8 +152,10 @@ void capture_layers_and_boundaries() {
 void authored_capture_end_finishes_without_finish_press() {
   for (double rate : {8000., 44100., 48000.}) {
     Engine engine(rate); prepare(engine, table());
-    ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0)); ok(engine, press(engine, 0));
-    until(engine, 1); until(engine, 2);
+    ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0));
+    until(engine, 1);
+    require(channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING, "initial capture starts without a button press");
+    until(engine, 2);
     require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == rate * 2,
       "missing finish press commits at the authored endpoint");
     require(!take(engine, 1)[PF_TAKE_READY] && channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING,
@@ -339,11 +341,19 @@ void stale_bank_rejection_preserves_looping_transport() {
   ok(engine, pf_prepare_live_effects(engine, &edited, 1, 2));
   ok(engine, pf_start(engine, 120, 0, 1, 4, 1, 0)); until(engine, 1); ok(engine, press(engine, 0));
   until(engine, 2); ok(engine, press(engine, 0)); until(engine, 4, 4); until(engine, 1);
+  std::array<double, PF_EVENT_CAPACITY * PF_EVENT_FIELDS> events{};
+  const auto count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+  bool rejected = false;
+  for (uint32_t index = 0; index < count; ++index) {
+    const auto* event = events.data() + index * PF_EVENT_FIELDS;
+    rejected |= event[PF_EVENT_TYPE] == PF_CONTROL && event[PF_EVENT_ERROR] == PF_TAKE_UNAVAILABLE;
+  }
+  require(rejected, "default recapture reports the stale spare bank without stopping transport");
   const auto retained = take(engine, 0);
   const auto before = channel(engine, 0);
   std::array<float, 128> input{}, left{}, right{}, live_left{}, live_right{}; input.fill(.25f);
   heap_allocations = heap_frees = 0; watch_heap = true;
-  require(press(engine, 0) < 0 && state(engine)[PF_ERROR] == PF_TAKE_UNAVAILABLE, "stale spare bank rejects recapture before route or owner mutation");
+  ok(engine, press(engine, 0));
   require(take(engine, 0) == retained && channel(engine, 0) == before, "rejected recapture preserves committed playback, phase, pending action and lights");
   ok(engine, pf_process_stems(engine, input.data(), left.data(), right.data(), live_left.data(), live_right.data(), input.size()));
   watch_heap = false;
@@ -376,11 +386,14 @@ void joined_capture_suffix_and_phase() {
   until(engine, 4, 2); ok(engine, press(engine, 0)); until(engine, 4, 3);
   auto first = take(engine, 0), second = take(engine, 1);
   require(first[PF_TAKE_LENGTH] == 32000 && first[PF_TAKE_PERIOD] == 32000 && second[PF_TAKE_LENGTH] == 24000 && second[PF_TAKE_PERIOD] == 32000, "explicit six-count capture plus two-count zero-source suffix retains eight-count group period");
-  require(first[PF_TAKE_PHASE] == 24000 && second[PF_TAKE_PHASE] == 24000, "new layer joins existing phrase phase without restarting either member");
+  const auto cursor = state(engine);
+  const auto elapsed = uint32_t(cursor[PF_FRAME] - compiled::boundary_frame(cursor[PF_CLOCK_BEAT_FRAME]));
+  require(first[PF_TAKE_PHASE] == 24000 + elapsed && second[PF_TAKE_PHASE] == first[PF_TAKE_PHASE],
+    "new layer joins existing phrase phase without restarting either member");
   auto joined = render(engine, 1);
   require(std::abs(joined.left[0] - .375f) < 1e-6, "join outputs old loop plus new end-state tail, with no restarted note");
   require(std::abs(joined.live_left[0] - .25f) < 1e-6, "capture-end shadow is sole audible owner of outgoing voice tail");
-  auto suffix = render(engine, 7999);
+  auto suffix = render(engine, 7999 - elapsed);
   require(std::abs(suffix.left.back() - .3125f) < 1e-6, "declared suffix consumes zero source after natural tail drains");
   auto wrapped = render(engine, 801);
   require(std::abs(wrapped.left.back() - .625f) < 1e-6 && take(engine, 0)[PF_TAKE_PHASE] == take(engine, 1)[PF_TAKE_PHASE], "both layers wrap in unison while effects history evolves");
@@ -428,10 +441,11 @@ void loop_wrap_discards_unfinished_capture_and_preserves_latest() {
     ok(engine, pf_start(engine, 120, 1, 1, end_bar, 1, 0)); ok(engine, press(engine, 0)); until(engine, 1);
     render(engine, uint32_t(end_bar * 16000 + 16000));
     require(state(engine)[PF_PHASE] == PF_PLAYING && !state(engine)[PF_ERROR]
-      && channel(engine, 0)[PF_CHANNEL_STATUS] != PF_RECORDING,
-      "one-bar and multi-bar practice wraps cannot leave an orphan recording");
+      && (channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING) == (end_bar == 2),
+      "wrap starts a fresh capture only when its full source fits the selected range");
+    pf_stop(engine);
     require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == retained[PF_TAKE_LENGTH],
-      "practice wrap preserves the previously committed take while discarding an incomplete replacement");
+      "canceling a partial lap preserves a complete take");
   }
 }
 void actual_rate_quantization_join() {
@@ -487,9 +501,19 @@ void tempo_intent_proximity_and_ties() {
   ok(chart, press(chart, 0));
   require(channel(chart, 0)[PF_CHANNEL_PENDING_KIND] == PF_STOP, "past cue retains actual frame across tempo change at the 25ms late edge");
   Engine miss; ready_tempo_song(miss); ok(miss, press(miss, 0)); render(miss, 4100); ok(miss, pf_control(miss, 6, 0, nullptr, 0)); render(miss, 100);
-  auto intact = channel(miss, 0);
-  require(press(miss, 0) < 0 && state(miss)[PF_ERROR] == PF_CUE_LATE && channel(miss, 0) == intact, "outside the millisecond window cannot toggle existing loops");
-  Engine ties; ready_tempo_song(ties, 0, true); render(ties, 4124); intact = channel(ties, 0);
+  ok(miss, press(miss, 0));
+  require(channel(miss, 0)[PF_CHANNEL_PENDING_KIND] == PF_STOP,
+    "late press honors the existing stop boundary even beyond the manual timing window");
+  render(miss, 2400);
+  require(!channel(miss, 0)[PF_CHANNEL_LOOPING], "queued late stop executes");
+  ok(miss, press(miss, 0));
+  require(!channel(miss, 0)[PF_CHANNEL_LOOPING], "repeated presses cannot replay superseded starts");
+  Engine beyond; ready_tempo_song(beyond); until(beyond, 4);
+  require(channel(beyond, 0)[PF_CHANNEL_LOOPING], "missed stop does not affect playback on its own");
+  ok(beyond, press(beyond, 0));
+  require(!channel(beyond, 0)[PF_CHANNEL_LOOPING] && tempo(beyond)[PF_TEMPO_COUNT] == 0,
+    "next press applies the past stop immediately and never replays the superseded starred start");
+  Engine ties; ready_tempo_song(ties, 0, true); render(ties, 4124); auto intact = channel(ties, 0);
   require(press(ties, 0) < 0 && state(ties)[PF_ERROR] == PF_CUE_AMBIGUOUS && channel(ties, 0) == intact, "equidistant eligible cues reject without selecting list order");
   Engine empty; prepare(empty, tempo_table()); ok(empty, pf_start(empty, 120, 0, 3, 4, 0, 0)); until(empty, 3);
   require(press(empty, 0) < 0 && state(empty)[PF_ERROR] == PF_NO_SAMPLE && tempo(empty)[PF_TEMPO_COUNT] == 0, "star preflights playback before applying any tempo effect");
@@ -613,8 +637,11 @@ void tempo_provenance_retry_and_blank_cell() {
     }
   }
   require(hits == 1, "isolated starred evidence remains observable exactly once");
-  until(engine, 4); auto intact = channel(engine, 0); ok(engine, press(engine, 0));
-  require(channel(engine, 0) == intact, "blank compiled column performs no action on existing loop");
+  until(engine, 4); ok(engine, press(engine, 0));
+  const auto stopped = channel(engine, 0);
+  ok(engine, press(engine, 0));
+  require(!stopped[PF_CHANNEL_LOOPING] && channel(engine, 0) == stopped && tempo(engine) == prior,
+    "blank bar recovers the missed stop once without replaying the starred start");
 }
 
 void tempo_hits_require_active_practice() {
@@ -705,8 +732,8 @@ void song_lead_in_cue_belongs_to_bar_one() {
     Engine engine; prepare(engine, song);
     ok(engine, pf_start(engine, 120, 1, start, 4, 0, 0));
     render(engine, 1);
-    require(channel(engine, 0)[PF_CHANNEL_LIGHT] == (start == 1 ? PF_CUE : PF_OFF),
-      "the song intro only lights the pad when counting in from bar one");
+    require(channel(engine, 0)[PF_CHANNEL_LIGHT] == (start == 1 ? PF_STEADY : PF_OFF),
+      "the song intro is already armed only when counting in from bar one");
     ok(engine, press(engine, 0));
     ok(engine, pf_control(engine, 7, 1, nullptr, 0));
     ok(engine, pf_control(engine, 7, 0, nullptr, 0));
@@ -801,9 +828,12 @@ void missed_commit_finishes_before_reserved_start() {
   Engine immediate; prepare(immediate, disjoint_handoff_table(true));
   ok(immediate, pf_start(immediate, 120, 1, 1, 7, 0, 0)); until(immediate, 2); ok(immediate, press(immediate, 2)); until(immediate, 5);
   auto before = take(immediate, 0);
+  const auto incoming = take(immediate, 1);
+  require(channel(immediate, 1)[PF_CHANNEL_STATUS] == PF_RECORDING && incoming[PF_TAKE_LENGTH] <= 1,
+    "incoming arm automatically follows the native endpoint completion");
   ok(immediate, press(immediate, 1));
-  require(take(immediate, 0) == before && take(immediate, 1)[PF_TAKE_LENGTH] == 0,
-    "immediate incoming arm is admitted after native endpoint completion");
+  require(take(immediate, 0) == before && take(immediate, 1) == incoming,
+    "an extra press cannot restart either side of the handoff");
   auto invalid = disjoint_handoff_table();
   invalid[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS + 1] = 4;
   invalid[PF_COMPILED_HEADER_FIELDS + PF_COMPILED_TAKE_FIELDS + 3] = 6;
@@ -899,19 +929,20 @@ void crb_history_has_one_audible_owner() {
 
 std::vector<double> missing_middle_handoff_table() {
   return {
-    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 5, 120, 5, 25, 25, 4, 8, 7, 0, 0, 1, 2, 3,
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 5, 120, 5, 25, 25, 4, 9, 7, 0, 0, 1, 2, 3,
     0, 1, 0, 2, 0, 1, 2, 0, 0,
     0, 2, 0, 3, 0, 1, 3, 0, 0,
     0, 3, 0, 4, 0, 1, 4, 0, 0,
     1, 4, 0, 5, 0, 1, 5, 0, 3,
     0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
     0, 0, 1, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0,
-    0, 0, 2, 0, PF_ARM, 0, 0, 1, -1, -1, 0,
+    0, 0, 1, 2, PF_ARM, 1, 0, 1, -1, -1, 0,
     0, 0, 2, 1, PF_COMMIT, 1, 0, -1, 1, 1, 0,
     0, 0, 3, 0, PF_ARM, 0, 0, 2, -1, -1, 0,
     0, 0, 3, 1, PF_COMMIT, 1, 0, -1, 2, 2, 0,
     1, 1, 3, 1, PF_ARM, 1, 0, 3, -1, -1, 0,
     1, 1, 4, -1, PF_COMMIT, 1, 0, -1, 3, 3, 0,
+    2, 0, 2, 0, PF_PLAY, 0, 0, -1, -1, 0, 0,
     0, 0, 1,
     1, 0, 1, 1, 1, 1,
     2, 0, 1, 2, 1, 1, 2, 2, 1,
@@ -920,8 +951,11 @@ std::vector<double> missing_middle_handoff_table() {
 }
 void commit_preflights_entire_selection_before_publication() {
   Engine engine; prepare(engine, missing_middle_handoff_table());
-  ok(engine, pf_start(engine, 120, 1, 1, 5, 0, 0)); ok(engine, press(engine, 0)); until(engine, 1); ok(engine, press(engine, 0)); until(engine, 2);
-  until(engine, 3); ok(engine, press(engine, 0)); until(engine, 3, 2); ok(engine, press(engine, 0)); ok(engine, press(engine, 1));
+  ok(engine, pf_start(engine, 120, 1, 1, 1, 0, 0)); until(engine, 1, 4); render(engine, 4001);
+  require(take(engine, 0)[PF_TAKE_READY], "automatic commit on the last range boundary publishes the first take");
+  ok(engine, pf_start(engine, 120, 0, 2, 5, 0, 0)); until(engine, 2); ok(engine, press(engine, 2));
+  until(engine, 3, 2);
+  ok(engine, press(engine, 0)); ok(engine, press(engine, 1));
   std::array<double, PF_EVENT_CAPACITY * PF_EVENT_FIELDS> events{}; pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
   until(engine, 4);
   require(!take(engine, 1)[PF_TAKE_READY] && !take(engine, 2)[PF_TAKE_READY] && !take(engine, 3)[PF_TAKE_READY] && take(engine, 3)[PF_TAKE_LENGTH] == 0, "missing middle member prevents draft publication and dependent incoming start");
@@ -1371,7 +1405,7 @@ void prefix_late_arm_zero_cut() {
   auto data = prefix_table(); data[data.size() - 2] = 1. / 960;
   auto program = compiled::Program::create(data.data(), data.size(), 1000, *definition, 1);
   require(bool(program), "sub-frame source prefix loads");
-  program->start(82, 0, 82000, 240); program->beat(PF_PLAYING, 82, 1, 0, 82250, 240);
+  program->start(82, 0, 82000, 240); program->beat(PF_PLAYING, 82, 1, 0, 82250, 240, false);
   require(program->press(0, 82251, 240, true) == PF_OK, "one-frame late arm is admitted");
   std::array<float, 1000> input{}, output{};
   input.fill(.25f); program->render(input.data(), output.data(), nullptr, nullptr, nullptr, 1000, 82251, 240, true, *definition, *backup);

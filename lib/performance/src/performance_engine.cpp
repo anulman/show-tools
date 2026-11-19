@@ -724,7 +724,7 @@ int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int l
   ++engine->light_run;
   for (bool& suppressed : engine->suppressed) suppressed = false;
   engine->live_authorized = engine->mode == PF_PRACTICE && engine->microphone && bool(engine->profiles[PF_DEFAULT_PROFILE].rack);
-  if (engine->compiled) engine->compiled->start(start, engine->count_beats, engine->processed, bpm);
+  if (engine->compiled) engine->compiled->start(start, engine->count_beats, engine->processed, bpm, end);
   emit(engine, PF_STATE);
   return 0;
 }
@@ -1119,8 +1119,10 @@ int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
     if (engine->position == 0 || engine->count_elapsed == 1) sq_mark_one(engine->sequencer);
   }
   if (sequence_result(engine, sq_on_beat(engine->sequencer, id, when, epoch)) < 0) stopped = true;
-  if (engine->compiled && running && !stopped) {
-    engine->compiled->beat(engine->phase, engine->bar, engine->beat, engine->count_remaining, when, engine->bpm);
+  if (engine->compiled && running && (!stopped || engine->phase == PF_ENDED)) {
+    const int bar = stopped ? engine->end + 1 : engine->bar;
+    const int beat = stopped ? 1 : engine->beat;
+    engine->compiled->beat(engine->phase, bar, beat, engine->count_remaining, when, engine->bpm, live_active(engine));
     if (engine->compiled->error() != PF_OK) {
       int error = engine->compiled->error(); engine->compiled->clear_error();
       fail(engine, error); if (error != PF_LOOP_MISMATCH) stopped = true;
@@ -1221,7 +1223,9 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
       for (unsigned index = 0; index < count; ++index) {
         const double* event = events + index * BT_E_COUNT;
         if (event[BT_E_TYPE] == BT_CLOCK && event[BT_E_EPOCH] == engine->epoch) {
-          unsigned end = unsigned(std::max(double(cursor), std::min(double(length), std::ceil(event[BT_E_FRAME] - start))));
+          const double crossing = event[BT_E_FRAME] - start;
+          const double split = engine->compiled ? compiled::boundary_frame(crossing) : std::ceil(crossing);
+          unsigned end = unsigned(std::max(double(cursor), std::min(double(length), split)));
           render(end);
           cursor = end;
           dispatch_clock(engine, event);

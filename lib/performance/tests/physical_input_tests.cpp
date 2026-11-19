@@ -126,10 +126,11 @@ std::vector<double> held_program(bool grouped_failure) {
   return data;
 }
 void prepare_first_take(pf_engine* engine) {
-  start(engine);
-  ok(engine, pf_control(engine, 0, 0, nullptr, 0));
-  until(engine, 1);
-  ok(engine, pf_control(engine, 0, 0, nullptr, 0));
+  ok(engine, pf_set_microphone(engine, 1));
+  ok(engine, pf_start(engine, 120, 1, 1, 1, 0, 0));
+  until(engine, 1, 4);
+  for (int block = 0; block < 32; ++block) render(engine, 128);
+  ok(engine, pf_start(engine, 120, 0, 3, 6, 0, 0));
   until(engine, 3);
 }
 bool take_ready(pf_engine* engine, int take) {
@@ -213,10 +214,7 @@ void mushroom_capture_checks(bool pending, bool second_press) {
   load(engine, held_program(false));
   attach(engine, 0, 1, PF_INPUT_PHYSICAL, 63);
   start(engine);
-  ok(engine, pf_control(engine, 0, 0, nullptr, 0));
   until(engine, 1);
-  ok(engine, pf_control(engine, 0, 0, nullptr, 0));
-  ok(engine, pf_control(engine, 1, 0, nullptr, 0));
   if (!pending) {
     until(engine, 2);
     require(take_ready(engine, 0), "first take is committed before mushroom recovery");
