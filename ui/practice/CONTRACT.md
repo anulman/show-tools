@@ -74,7 +74,7 @@ Effect status is queried into current snapshots and command receipts. Historical
 
 The main thread posts `{ kind: 'show-tools-performance', event }` to its own window origin. A same-window `show-tools-state-request` message returns the current snapshot envelope when audio exists.
 
-The local CDP helper follows changed bar columns automatically for localhost practice pages. Hosted Browser mode opts in by using **Open current bar in Sheets**. Hardware mode uses the same button as a direct Sheets link. The hardware Sheets process subscribes to the EliteDesk event stream without involving the desk page. Following keeps only the latest pending column and does not activate Chrome. The Chrome extension provides a separate direct-tab option. Both implementations verify the visible song sheet and Name box. Neither integration owns the musical clock or serves as a dependency of mobile practice.
+The local CDP helper follows changed bar columns automatically for localhost practice pages. The hardware Sheets process subscribes to the EliteDesk event stream without involving the desk page. Following keeps only the latest pending column and does not activate Chrome. The Chrome extension provides a separate direct-tab option. Both implementations verify the visible song sheet and Name box. Neither integration owns the musical clock or serves as a dependency of mobile practice.
 
 The standalone relay under `lib/relay/` retains a future hardware event contract. It is not connected to this WASM practice UI.
 
