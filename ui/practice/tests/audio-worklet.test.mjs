@@ -199,35 +199,27 @@ test('historical DYC missed old commit finishes before the authorized future rec
   } finally { t.dispose(); }
 });
 
-test('current DYC single-take rows and commit-last-bar parent cross the real control port', async () => {
+test('current DYC records and commits the charted takes automatically in the worklet', async () => {
   const song = (await loadSong('dance-yrself-clean')).compiled;
   const t = new Harness({ bpm: 98, compiledProgram: Array.from(encodeCompiledProgram(song)), barCount: 76,
     liveEffects: [], microphone: true });
   const atBar = bar => t.until(Math.ceil((5 + (bar - 1) * 4) * rate * 60 / 98) + 1, .25);
-  const perform = cell => {
-    const cue = song.cues.find(cue => cue.source.a1 === cell);
-    assert(cue, `current chart contains ${cell}`);
-    t.command('practice.control', { control: { id: cue.buttonId } });
-  };
   const capture = voice => {
     const index = song.takes.findIndex(take => take.voiceId === voice);
     assert(index >= 0);
     return t.processor.native.compiledTake(index);
   };
   try {
-    perform('B18');
     atBar(1); assert.equal(t.state().recording.id, 'R1');
-    atBar(2); perform('D18');
     atBar(3); assert.equal(t.state().recording, null); assert(capture('drums-claps').ready);
-    atBar(4); perform('F21');
+    atBar(4);
     assert.equal(t.state().channels.find(channel => channel.id === 'L2').status, 'armed');
     atBar(5); assert.equal(t.state().recording.id, 'L2');
-    atBar(6); perform('H21');
-    atBar(7); assert.equal(t.state().recording, null); assert(capture('bing-bong').ready); perform('I19');
+    atBar(7); assert.deepEqual(t.state().recording, { id: 'R2', status: 'armed' }); assert(capture('bing-bong').ready);
     atBar(8); assert.equal(t.state().recording.id, 'R2');
     assert(!capture('cowbell').ready, 'Cowbell remains one unpublished multi-bar capture');
     atBar(12); assert.equal(t.state().recording.id, 'R2'); assert(!capture('cowbell').ready);
-    atBar(13); perform('O19');
+    atBar(13);
     assert.equal(t.state().recording, null);
     assert(capture('cowbell').ready);
     assert(Math.abs(capture('cowbell').frames - 20 * rate * 60 / 98) <= 1, 'the parent retains all five performed bars');

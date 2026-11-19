@@ -84,7 +84,7 @@ struct pf_engine {
   int bar = -1, beat = -1, count_beats = 0, count_elapsed = 0, count_remaining = 0, position = -1;
   double last_beat = -1, run_epoch = -1, sequence = 0, clock_sequence = 0, client_sequence = -1;
   bool restart_at_end = false;
-  bool loop = true, automatic = false, song_click = false, generic_click = false, microphone = false;
+  bool loop = false, automatic = false, song_click = false, generic_click = false, microphone = false;
   bool used[PF_CHANNELS]{}, suppressed[PF_CHANNELS]{};
   int tap_position[PF_CHANNELS]{};
   Pending pending[PF_CHANNELS];

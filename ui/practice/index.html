@@ -59,9 +59,8 @@
   <div class="audio-mode">
     <label for="musical-input-select">Controls</label>
     <select id="musical-input-select" aria-describedby="musical-input-hint">
-      <option value="unselected">Choose controls</option>
       <option value="keyboard">Keyboard shortcuts</option>
-      <option value="native-controls">Physical controls</option>
+      <option value="native-controls" selected>Physical controls</option>
     </select>
     <span id="musical-input-hint">Touch buttons always work. Keyboard mode requires releasing a key before its first cue.</span>
   </div>
@@ -80,7 +79,7 @@
     <p>Live enables microphone monitoring. Standby stops audio, releases the interface, and clears captured loops.</p>
   </section>
   <div class="settings-options">
-    <div class="transport-switches"><label class="switch"><input id="loop" type="checkbox" checked><span>Loop range</span></label><label class="switch"><input id="click" type="checkbox"><span>Song click</span></label></div>
+    <div class="transport-switches"><label class="switch"><input id="loop" type="checkbox"><span>Loop range</span></label><label class="switch"><input id="click" type="checkbox"><span>Song click</span></label></div>
   </div>
   <div class="settings-body">
     <label class="field"><span>LIVE MONITORING</span><select id="monitor-relationship" aria-describedby="monitor-hint"><option value="unknown">Not confirmed · monitoring off</option><option value="different-devices">Input and output are different devices</option><option value="same-usb-interface">Same USB audio interface</option><option value="same-non-usb">Same non-USB device · monitoring off</option></select></label>

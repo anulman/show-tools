@@ -127,7 +127,7 @@ export function encodeCommand(input: unknown, state: PracticeState) {
 			return numeric(12, [minimumTravel, minimumReversal]);
 		}
 		case 'start': {
-			const { bpm = state.bpm, countInBars = 1, startBar = 1, endBar = state.endBar, loop = true, automatic = false } = command.args;
+			const { bpm = state.bpm, countInBars = 1, startBar = 1, endBar = state.endBar, loop = false, automatic = false } = command.args;
 			if (bpm < 40 || bpm > 240 || countInBars < 0 || countInBars > 4 || startBar < 1 || endBar < startBar) throw new Error('Invalid start options');
 			return numeric(command.args.recordDemo ? 21 : 1, [bpm, countInBars, startBar, endBar, Number(loop), Number(automatic)]);
 		}

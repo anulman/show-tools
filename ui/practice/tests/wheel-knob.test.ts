@@ -75,11 +75,9 @@ test('an open voice dialog keeps vertical scrolling native and never manipulates
 });
 
 
-test('unselected and physical-control policies keep DOM scrolling outside the musical engine', async () => {
+test('physical controls keep DOM scrolling outside the musical engine', async () => {
   const { wheel, commands, Element, inputPolicy } = await fixture();
-  for (const selection of ['unselected', 'native-controls']) {
-    inputPolicy.select(selection);
-    wheel({ deltaY: 12, target: new Element(), preventDefault() { assert.fail('native scrolling remains available'); } });
-  }
+  inputPolicy.select('native-controls');
+  wheel({ deltaY: 12, target: new Element(), preventDefault() { assert.fail('native scrolling remains available'); } });
   assert.deepEqual(commands, []);
 });

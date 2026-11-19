@@ -1,7 +1,7 @@
 import { Schema } from 'effect';
 import type { InputAttach, InputEvent } from '../../lib/performance/input-bindings.js';
 
-const Policy = Schema.Literals(['unselected', 'keyboard', 'native-controls']);
+const Policy = Schema.Literals(['keyboard', 'native-controls']);
 export type MusicalInputPolicy = typeof Policy.Type;
 export type InputAttachArgs = Omit<InputAttach, 'producer' | 'session'>;
 export type InputEventArgs = Omit<InputEvent, 'producer' | 'session'> & { readonly kind: InputAttach['kind'] };
@@ -16,8 +16,8 @@ export function currentMusicalInputPolicy(storage?: PolicyStorage): MusicalInput
   if (!storage && clientSelection) return clientSelection;
   try {
     const value = decodePolicy((storage ?? sessionStorage).getItem(storageKey));
-    return value._tag === 'Some' ? value.value : 'unselected';
-  } catch { return 'unselected'; }
+    return value._tag === 'Some' ? value.value : 'native-controls';
+  } catch { return 'native-controls'; }
 }
 
 export function createMusicalInputPolicy(options: { storage?: PolicyStorage; changed?: () => void } = {}) {
