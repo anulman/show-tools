@@ -4,6 +4,23 @@ This standalone C++17 module renders ordered, full-output effects. Slapback and 
 
 The performance engine owns routing, effect activation, capture admission and recording boundaries. This module supplies prepared racks, capture storage and evolving playback; it does not select musical controls or schedule captures. The Performance Desk is the supported browser UI. Native/WASM fixtures do not establish physical device latency.
 
+## Trigger shake instruments
+
+`ShakePercussion` is a C++ instrument source with original synthesized tambourine and sleigh bells hits. It prepares six variations per instrument. Short, bright collisions give the tambourine its rattle. The sleigh bells use staggered collisions and longer metallic resonances. The sounds require no audio assets or external libraries.
+
+```cpp
+#include "shake_percussion.h"
+
+auto kit = patches::ShakePercussion::create(48000); // Before rendering.
+if (!kit) return;
+kit->note_on(patches::tambourine_note, 96); // At the chosen audio frame.
+patches::Stereo hit = kit->next();         // Once per output frame.
+```
+
+Pass note 54 for tambourine or note 83 for sleigh bells. MIDI velocity 1–127 changes level. Velocity zero is a silent no-op. Each hit rings out without a note-off. Up to eight hits can overlap across both instruments. `note_on()` returns false for unsupported notes, invalid velocities, and positive-velocity triggers when all eight slots are occupied. `reset()` silences the kit and restarts the variation cycle.
+
+Prepare one kit for the render owner at a finite sample rate from 16 to 192 kHz. Rendering and note admission use fixed slots and prepared PCM. The kit owns no transport, channel assignment, or device input. The desk and phone can connect through a future note-event route. For shake detection, use a pulse in gravity-free acceleration as the trigger and rotation rate for flicks. Re-arm after the motion falls so one stroke generates one note. Calibrate velocity and retrigger behavior on the actual phone before choosing thresholds.
+
 ## Build and run the native tests
 
 From the repository root, run these commands.
@@ -18,7 +35,7 @@ ctest --test-dir /tmp/show-tools-patches --output-on-failure
 
 `--fixture` writes deterministic, interleaved stereo float32 PCM with no header. `--demo` writes three seconds of synthetic dry and wet stereo PCM at 48 kHz to `PREFIX-dry.f32` and `PREFIX-wet.f32`. These are local verification artifacts, not recordings from a microphone. Keep them outside Git.
 
-Run `node --import tsx scripts/verify-patches.ts` to build the native and WASM versions of both test executables and compare their complete PCM fixtures. The test source also compiles with Emscripten. Use the same source and flags when comparing its emitted fixture to native output. Enable `NODERAWFS` for the test executable so its fixture reaches the host filesystem. The module itself has no filesystem or browser dependency.
+Run `node --import tsx scripts/verify-patches.ts` to build the native and WASM versions of the test executables and compare their complete PCM fixtures. The test source also compiles with Emscripten. Use the same source and flags when comparing its emitted fixture to native output. Enable `NODERAWFS` for the test executable so its fixture reaches the host filesystem. The module itself has no filesystem or browser dependency.
 
 ## Prepare the graph before audio processing
 
