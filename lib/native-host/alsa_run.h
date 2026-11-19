@@ -30,12 +30,15 @@ class AlsaRun {
 
   template<class Device>
   int complete(Instrument& instrument, Device& device) {
-    if (!active_ || instrument.audio_needed() || instrument.pending()) return 0;
+    if (!active_ || instrument.pending() || (!finishing_ && instrument.audio_needed())) return 0;
     if (instrument.lifecycle() == Lifecycle::Faulted) return -1;
     finishing_ = true;
     int result = device.finish();
     if (result < 0) return -1;
-    if (result == 0) { active_ = false; finishing_ = false; }
+    if (result == 0) {
+      active_ = false; finishing_ = false;
+      return utility(instrument, device);
+    }
     return 0;
   }
 

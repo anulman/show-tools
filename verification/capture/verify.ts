@@ -95,6 +95,7 @@ const sourceFiles = [
   'verification/capture/replay.cpp', 'lib/performance/src/performance_engine.cpp', 'lib/performance/src/compiled_program.cpp',
   'lib/beat-tracker/src/beat_tracker.cpp', 'lib/beat-tracker/src/beat_clock.cpp', 'lib/beat-tracker/src/tempo_follower.cpp',
   'lib/sampler/src/sample_engine.cpp', 'lib/sequencer/src/audio_sequence_engine.cpp', 'lib/patches/src/patch_engine.cpp',
+  'lib/patches/src/shake_percussion.cpp',
   'lib/tuner/src/tuner.cpp',
   'lib/patches/src/tribulations_guitar.cpp', 'lib/patches/src/tribulations_string.cpp', 'lib/patches/src/tribulations_filter.cpp', 'lib/patches/src/tribulations_amp.cpp',
   'lib/peripherals/src/peripheral_controls.cpp',

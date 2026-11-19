@@ -79,6 +79,7 @@ Bytes snapshot(const Observation& state,const Presentation& presentation) {
 int64_t discard(void*,const float*,uint32_t frames) { return frames; }
 }
 namespace {
+constexpr uint16_t audition_tambourine = 23;
 bool parse(Request& request,const Bytes& data) {
   if(data.size()<34)return false;
   request.op=u16(data.data()+32);
@@ -115,6 +116,11 @@ bool parse(Request& request,const Bytes& data) {
     request.args[0]=f64(p);
     const double profile=request.args[0];
     return profile>=-1 && profile<PF_VOICE_PROFILES && std::floor(profile)==profile;
+  }
+  if(request.op==audition_tambourine) {
+    if(left!=8)return false;
+    const double velocity=request.args[0]=f64(p);
+    return velocity>=-1 && velocity<=127 && std::floor(velocity)==velocity;
   }
   if(request.op==18) {
     if(left!=32)return false;
@@ -277,6 +283,18 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #endif
           break;
         case 22: rc=instrument.audition(int(a[0])); break;
+        case audition_tambourine: {
+#ifdef NATIVE_ALSA_HOST
+          const bool drop_output=a[0]==-1 && instrument.has_tambourine_output() && alsa_run.active();
+#endif
+          rc=instrument.audition_tambourine(int32_t(a[0]));
+#ifdef NATIVE_ALSA_HOST
+          if(rc==0 && ((drop_output && device_fault("drop on Tambourine audition end",alsa_run.drop(*device))) ||
+                       ((drop_output || (a[0]>0 && alsa_run.can_activate())) &&
+                        device_fault("prepare stopped audio",alsa_run.utility(instrument,*device)))))rc=-1;
+#endif
+          break;
+        }
         case 19: rc=instrument.engine() && demo.arm()?0:-1; break;
         case 20: if(demo.available()) { demo.finish(); rc=0; } break;
         case 18: {
@@ -311,11 +329,15 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
         case 9: {
           Profiles profiles{r->counts,r->revisions,r->effects.data(),uint32_t(r->effects.size())};
           const bool replacing=instrument.engine()!=nullptr;
+#ifdef NATIVE_ALSA_HOST
+          const bool drop_output=instrument.has_tambourine_output() && alsa_run.active();
+#endif
           if(instrument.prepare(r->packet.data(),uint32_t(r->packet.size()),profiles,r->waves)) {
             if(replacing) { ++run; demo.finish(); }
             rc=0;
 #ifdef NATIVE_ALSA_HOST
-            if(device_fault("prepare idle monitor",alsa_run.utility(instrument,*device)))rc=-1;
+            if((drop_output && device_fault("drop on song replacement",alsa_run.drop(*device))) ||
+               device_fault("prepare idle monitor",alsa_run.utility(instrument,*device)))rc=-1;
 #endif
           }
           break;
@@ -354,9 +376,10 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           Profiles profiles{r->counts,r->revisions,r->effects.data(),uint32_t(r->effects.size())}; rc=valid && instrument.prepare_profiles(profiles)?0:-1; break;
         }
       }
-      if(instrument.engine()) { pf_flush(instrument.engine()); std::array<double,PF_FIELDS> state{}; pf_snapshot(instrument.engine(),state.data()); r->code=int(state[PF_ERROR]); }
-      r->status=rc<0?1:0; if(rc>=0 && r->op && r->op!=18) { ++revision; if(r->op==1 || r->op==21)++run; }
+      if(r->op!=audition_tambourine && instrument.engine()) { pf_flush(instrument.engine()); std::array<double,PF_FIELDS> state{}; pf_snapshot(instrument.engine(),state.data()); r->code=int(state[PF_ERROR]); }
+      r->status=rc<0?1:0; if(rc>=0 && r->op && r->op!=18 && r->op!=audition_tambourine) { ++revision; if(r->op==1 || r->op==21)++run; }
     }
+    if(r->op==audition_tambourine) { r->observation.revision=revision; return; }
     drain(); publish(r->observation);
   };
   #ifndef NATIVE_ALSA_HOST
@@ -389,14 +412,14 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           std::cerr<<"Native audio interleaved output failed\n";
           shared.device_failed=true;
         }
-      } else if(instrument.audio_needed()) {
+      } else if(alsa_run.can_activate() && instrument.audio_needed()) {
         const auto frames=device->read(input.data(),block);
         if(!device_fault("capture read",frames) && frames>0 && render(uint32_t(frames))<0) {
           std::cerr<<"Native audio render failed: "<<pf_error(instrument.engine())<<"\n";
           shared.device_failed=true;
         }
       }
-      if(!shared.device_failed.load())device_fault("playback drain",alsa_run.complete(instrument,*device));
+      if(!shared.device_failed.load())device_fault("finish or resume playback",alsa_run.complete(instrument,*device));
       if(shared.device_failed.load()) instrument.stop();
 #else
       if(instrument.pending()) instrument.write(discard,nullptr);
@@ -430,6 +453,7 @@ bool send_result(int fd,Request* request,const Presentation& presentation,uint64
   Bytes payload; put32(payload,uint32_t(request->status)); put32(payload,uint32_t(request->code)); put64(payload,request->observation.revision);
   if(request->op==18 && request->status==0)payload.insert(payload.end(),request->packet.begin(),request->packet.end());
   if(request->op && !send_frame(fd,4,request->sequence,payload))return false;
+  if(request->op==audition_tambourine)return true;
   if(request->observation.revision<published_revision)return true;
   published_revision=request->observation.revision;
   return send_frame(fd,5,0,snapshot(request->observation,presentation));
@@ -464,9 +488,11 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
   auto update_routing=[&](const Observation& observation) {
     if(observation.revision>=routing_revision) { routing=observation.inputs; routing_revision=observation.revision; }
   };
+  bool owns_tambourine=false;
   auto record_ownership=[&](const Request& result) {
     if(result.connection!=connection || result.status!=0)return;
     if(result.op==9) owned_sessions.fill(0);
+    else if(result.op==audition_tambourine && result.args[0]<=0) owns_tambourine=result.args[0]==0;
     else if(result.op==14) owned_sessions[uint32_t(result.args[0])]=result.args[1];
     else if(result.op==17 && owned_sessions[uint32_t(result.args[0])]==result.args[1]) owned_sessions[uint32_t(result.args[0])]=0;
   };
@@ -479,7 +505,7 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
         pending_bytes-=result->wire_bytes;
         if(result->op==9 && result->status==0) { presentation.manifest=std::move(result->manifest); presentation.digest=result->digest; }
         if(result->op==0) bootstrapped=true;
-        update_routing(result->observation);
+        if(result->op!=audition_tambourine)update_routing(result->observation);
         if(!send_result(fd,result,presentation,published_revision))active=false;
       }
       delete result;
@@ -517,6 +543,11 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
     while(shared.results.pop(result)) { record_ownership(*result); if(result->op==9 && result->status==0) { presentation.manifest=std::move(result->manifest); presentation.digest=result->digest; } if(result->connection==connection && outstanding)--outstanding; delete result; }
     while(shared.stop_results.pop(result)) { if(result->connection==connection)stop_outstanding=false; delete result; }
     if(outstanding || stop_outstanding)std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  if(owns_tambourine) {
+    auto* cleanup=new Request; cleanup->connection=connection; cleanup->order=++order;
+    cleanup->op=audition_tambourine; cleanup->args[0]=-1;
+    if(shared.commands.push(cleanup)) ++outstanding; else delete cleanup;
   }
   for(uint32_t slot=0;slot<PF_INPUT_PRODUCERS;++slot) {
     if(!owned_sessions[slot])continue;

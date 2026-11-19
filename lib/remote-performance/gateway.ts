@@ -10,7 +10,7 @@ import { extname, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Schema } from 'effect';
 import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
-import { decodeClientInputCommand, isPriorityCommand, type ClientInputCommand } from './commands.js';
+import { decodeClientInputCommand, isPriorityCommand, TambourineVelocity, type ClientInputCommand } from './commands.js';
 import { InputBindingsSchema, decodeInputBindings, decodeInputAttach, type InputBindings, type InputAttach } from '../performance/input-bindings.js';
 
 export interface Observation {
@@ -235,9 +235,10 @@ const decodeTakeAudioRequest = Schema.decodeUnknownSync(Schema.Struct({
 }), { onExcessProperty: 'error' });
 const requestFields = { sessionId: Schema.NonEmptyString, sequence: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })) };
 const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,
-  command: Schema.Literals(['start', 'stop', 'recordDemo', 'audition', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
+  command: Schema.Literals(['start', 'stop', 'recordDemo', 'audition', 'auditionTambourine', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
   args: Schema.Record(Schema.String, Schema.Unknown), target: NativeTargetSchema,
 }));
+const decodeTambourine = Schema.decodeUnknownSync(Schema.Struct({ velocity: TambourineVelocity }), { onExcessProperty: 'error' });
 const decodeAudio = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields, goal: AudioGoalSchema }));
 
 function json(response: ServerResponse, status: number, value: unknown) {
@@ -283,8 +284,52 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 	const sessions = new Map<string, Session>();
 	const inputs = new InputProducerRegistry(controller);
   const inputOwners = new Map<string, { owner: Session; reads: number }>();
+  let audition: { owner: Session; target: NativeTarget } | undefined;
+  let auditionTransition = Promise.resolve();
+  const queueAudition = <T>(operation: () => Promise<T>) => {
+    const next = auditionTransition.then(operation);
+    auditionTransition = next.then(() => {}, () => {});
+    return next;
+  };
+  const isAuditionTarget = (target: NativeTarget) => {
+    const view = controller.snapshot();
+    return view.song.id === 'tribulations' && view.audio.kind === 'ready'
+      && view.audio.attempt === target.attempt && view.audio.performance.hostEpoch === target.hostEpoch;
+  };
+  const sendAudition = (target: NativeTarget, velocity: number): Promise<NativeOutcome> =>
+    controller.command(target, { command: 'auditionTambourine', args: { velocity } }).catch(() => ({ outcome: 'unknown' }));
+  const endAudition = async (lease: NonNullable<typeof audition>) => {
+    if (lease !== audition) return { outcome: 'rejected' as const, error: 'This session has no Tambourine audition' };
+    const result = await sendAudition(lease.target, -1);
+    if (result.outcome === 'applied' || !isAuditionTarget(lease.target)) audition = undefined;
+    return result;
+  };
+  const commandAudition = (owner: Session, target: NativeTarget, input: unknown): Promise<NativeOutcome> => {
+    let velocity: number;
+    try { ({ velocity } = decodeTambourine(input)); }
+    catch { return Promise.resolve({ outcome: 'rejected', error: 'Invalid Tambourine audition velocity' }); }
+    return queueAudition(async () => {
+      if (!owner.attached || !isAuditionTarget(target))
+        return { outcome: 'rejected', error: 'Connect to hardware audio with Tribulations selected' };
+      if (audition && !isAuditionTarget(audition.target)) audition = undefined;
+      if (audition && audition.owner !== owner && !audition.owner.attached) await endAudition(audition);
+      if (!owner.attached || !isAuditionTarget(target))
+        return { outcome: 'rejected', error: 'Tambourine audition target changed' };
+      if (audition && audition.owner !== owner)
+        return { outcome: 'rejected', error: 'Another desk holds the Tambourine audition' };
+      if (velocity !== 0 && !audition)
+        return { outcome: 'rejected', error: 'Start Tambourine audition first' };
+      if (velocity === -1 && audition) return endAudition(audition);
+      const result = await sendAudition(target, velocity);
+      if (velocity === 0 && result.outcome !== 'rejected') audition = { owner, target };
+      return result;
+    });
+  };
   const closeSession = (sessionId: string, session: Session) => {
+    if (sessions.get(sessionId) !== session) return;
     sessions.delete(sessionId);
+    session.attached = false;
+    void queueAudition(async () => { if (audition?.owner === session) await endAudition(audition); });
     void inputs.close(session);
     if (inputs.isClosedAndEmpty(session)) inputOwners.delete(session.inputOwnerToken);
   };
@@ -408,6 +453,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				const result: Promise<Outcome | AudioDecision | NativeOutcome> = ('goal' in body
 					? Promise.resolve(controller.setAudio(body.goal))
           : 'expectedRevision' in body ? songs ? 'bindings' in body ? songs.bindings(body.expectedRevision, decodeInputBindings(body.bindings)) : songs.select(body.songId, body.expectedRevision) : Promise.resolve({ outcome: 'rejected' as const, error: 'Song configuration is unavailable', view: controller.snapshot() })
+					: body.command === 'auditionTambourine' ? commandAudition(session, body.target, body.args)
 					: body.command.startsWith('input') ? inputs.command(session, body.target, { command: body.command, args: body.args })
 						: controller.command(body.target, { command: body.command, args: body.args })).catch(
 					() => ({ outcome: 'unknown' } as const),
@@ -471,6 +517,6 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 		});
 	};
 	const server = config.tls ? createHttpsServer(config.tls, safeHandler) : createServer(safeHandler);
-	server.on('close', () => { clearInterval(heartbeat); unsubscribe(); for (const client of clients) client.destroy(); for (const session of sessions.values()) void inputs.close(session); sessions.clear(); });
+	server.on('close', () => { clearInterval(heartbeat); unsubscribe(); for (const client of clients) client.destroy(); for (const [id, session] of sessions) closeSession(id, session); });
 	return server;
 }

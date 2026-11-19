@@ -6,6 +6,7 @@ import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical
 type PracticeMessage = { id: number } & (
   | { command: 'practice.start'; payload: StartOptions & { runId: string } }
   | { command: 'practice.stop'; payload?: object }
+  | { command: 'practice.audition-tambourine'; payload: { velocity: number } }
   | { command: 'practice.take-audio'; payload: import('../../lib/performance/take-audio.js').TakeAudioRequest }
   | { command: 'practice.peripheral-lights'; payload: { enabled: boolean } }
   | { command: 'practice.jiggle'; payload: { minimumTravel: number; minimumReversal: number } }
@@ -73,6 +74,7 @@ export class PracticeProcessor extends PerformanceProcessor {
       }
       switch (command) {
         case 'practice.start': this.native.start(message.payload); break;
+        case 'practice.audition-tambourine': this.native.auditionTambourine(message.payload.velocity); break;
         case 'practice.stop': this.native.stop(); break;
         case 'practice.peripheral-lights': this.peripheralLights = message.payload.enabled; break;
         case 'practice.jiggle': this.native.setJiggleThresholds(message.payload.minimumTravel, message.payload.minimumReversal); break;

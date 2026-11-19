@@ -28,6 +28,7 @@ const sources = readdirSync(join(moduleRoot, 'src'))
 for (const [target, source] of [
   ['patch_engine_tests', 'native_tests.cpp'],
   ['tribulations_guitar_tests', 'tribulations_guitar_tests.cpp'],
+  ['shake_percussion_tests', 'shake_percussion_tests.cpp'],
 ]) {
   const nativeFixture = join(artifacts, `${target}-native.f32`);
   run(join(nativeBuild, target), ['--fixture', nativeFixture]);

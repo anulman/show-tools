@@ -228,6 +228,7 @@ export class RemoteSession {
   stop() { return this.command('stop'); }
   demoState() { return this.latest.demo; }
   auditionProfile() { return this.latest.audition; }
+  auditionTambourine(velocity: number) { return this.command('auditionTambourine', { velocity }); }
   audition(profile: number | null) { return this.command('audition', { profile }); }
   recordDemo(recording: boolean) { return this.command('recordDemo', { recording }); }
   control(control: Control, options: { commandId?: string } | string = {}) { return this.command('control', { control, commandId: typeof options === 'string' ? options : options.commandId }); }

@@ -70,7 +70,7 @@ for relative in "${engine_sources[@]}"; do
 done
 em++ -O3 -std=c++17 -fno-exceptions \
     -I"$module_dir/include" -I"$sampler_dir/include" -I"$sequencer_dir/include" -I"$performance_dir/include" -I"$performance_dir/../peripherals/include" -I"$patches_dir/include" -I"$performance_dir/../tuner/include" -I"$build_dir/include" -I"$aubio_dir/src" \
-    "${sources[@]}" "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$performance_dir/src/compiled_program.cpp" "$performance_dir/../peripherals/src/peripheral_controls.cpp" "$patches_dir/src/patch_engine.cpp" "$performance_dir/../tuner/src/tuner.cpp" "$build_dir/libaubio.a" \
+    "${sources[@]}" "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$performance_dir/src/compiled_program.cpp" "$performance_dir/../peripherals/src/peripheral_controls.cpp" "$patches_dir/src/patch_engine.cpp" "$patches_dir/src/shake_percussion.cpp" "$performance_dir/../tuner/src/tuner.cpp" "$build_dir/libaubio.a" \
     --no-entry -sSTANDALONE_WASM=1 -sFILESYSTEM=0 -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 \
     -sINITIAL_MEMORY=268435456 -sSTACK_SIZE=1048576 \
     "-sEXPORTED_FUNCTIONS=$exports" \

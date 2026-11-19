@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enablePhoneMotion, browserMotionSurface, shakeDetector, type MotionReading, type MotionSurface } from '../phone-motion.js';
+import { enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, type MotionReading, type MotionSurface } from '../phone-motion.js';
 function fixture(permission?: MotionSurface['permission']) {
   let receive: ((reading: MotionReading) => void) | undefined, hide: (() => void) | undefined;
   let removed = 0;
@@ -22,7 +22,7 @@ test('denial, missing sensors and stale permission never attach input or acquire
   let resolve: (value: unknown) => void = () => {};
   const waiting = new Promise<unknown>(done => { resolve = done; }), env = fixture(() => waiting), abort = new AbortController();
   const pending = enablePhoneMotion({ surface: env.surface, signal: abort.signal, current: () => true, hit: () => assert.fail('No stale input') });
-  abort.abort(); resolve('granted'); await assert.rejects(pending); assert.equal(env.removed(), 0);
+  abort.abort(); resolve('granted'); await assert.rejects(pending); assert.equal(env.removed(), 1);
   await assert.rejects(enablePhoneMotion({ surface: { ...env.surface, permission: async () => 'denied' }, signal: new AbortController().signal, current: () => true, hit() {} }), /permission/);
   await assert.rejects(enablePhoneMotion({ surface: { ...env.surface, available: false }, signal: new AbortController().signal, current: () => true, hit() {} }), /motion input/);
 });
@@ -54,4 +54,32 @@ test('browser ingress uses finite gravity data when linear acceleration axes are
     window.dispatchEvent(new Motion(0)); window.dispatchEvent(new Motion(12)); assert.equal(hits, 1);
     connection.stop();
   } finally { for (const [key, value] of saved) { if (value) Object.defineProperty(globalThis, key, value); else Reflect.deleteProperty(globalThis, key); } }
+});
+
+
+test('gyro threshold, release, cooldown and MIDI velocity follow angular speed', () => {
+  const detect = gyroscopeDetector();
+  const read = (x: number | null, time: number, gravity = false) => detect({ x, y: 0, z: 0, time, gravity });
+  assert.equal(read(149, 0), 0);
+  assert.equal(read(150, 20), 28);
+  assert.equal(read(500, 140), 0, 'a sustained excursion cannot double-trigger');
+  assert.equal(read(60, 150), 0, 'returning to the release threshold re-arms');
+  assert.equal(read(-350, 170), 78);
+  assert.equal(read(0, 190), 0);
+  assert.equal(read(550, 200), 0, 'accepted hits stay at least 100 ms apart');
+  assert.equal(read(null, 290), 0);
+  assert.equal(read(1000, 290, true), 0);
+  assert.equal(read(-1000, 290), 127);
+  assert.equal(read(0, 280), 0, 'out-of-order readings cannot re-arm');
+  assert.equal(read(200, 500), 0);
+});
+
+test('hide while permission is pending prevents late motion attachment', async () => {
+  let resolve: (value: unknown) => void = () => {};
+  const env = fixture(() => new Promise(done => { resolve = done; }));
+  const pending = enablePhoneMotion({ surface: env.surface, signal: new AbortController().signal, current: () => true, hit: () => assert.fail('No stale input') });
+  env.hide();
+  resolve('granted');
+  await assert.rejects(pending, { name: 'AbortError' });
+  assert.equal(env.removed(), 1);
 });

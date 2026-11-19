@@ -16,7 +16,8 @@ Instrument::Instrument(InstrumentConfig config) : config_(config),
   idle_monitor_(config.idle_microphone_monitor && config.microphone_ready ? IdleMonitor::Enabled : IdleMonitor::Disabled) {}
 bool Instrument::prepare(const uint8_t* packet, uint32_t bytes, const Profiles& profiles,
                          const std::vector<ExternalWave>& waves) {
-  if (lifecycle_ == Lifecycle::Running || lifecycle_ == Lifecycle::Faulted || (pending() && output_ != Output::IdleMonitor) || !packet || !bytes ||
+  const bool pending_non_audition = pending() && output_ != Output::IdleMonitor && !has_tambourine_output();
+  if (lifecycle_ == Lifecycle::Running || lifecycle_ == Lifecycle::Faulted || pending_non_audition || !packet || !bytes ||
       !valid(profiles) || bytes > 8 * 1024 * 1024 || !std::isfinite(config_.sample_rate) || config_.sample_rate <= 0 || config_.max_voices <= 0 ||
       !std::isfinite(config_.max_seconds) || config_.max_seconds <= 0 || !config_.block_capacity) return false;
   Engine candidate(pf_create(config_.sample_rate, PF_PRACTICE, config_.max_voices, config_.max_seconds, 4), pf_destroy);
@@ -39,7 +40,7 @@ bool Instrument::prepare_profiles(const Profiles& profiles) {
 bool Instrument::start(const Start& start) {
   if (!can_start() || pf_start(engine_.get(), start.bpm, start.count_in_bars, start.start_bar,
       start.end_bar, start.loop, start.automatic) < 0) return false;
-  if (output_ == Output::Tuner) pump_->discard();
+  if (output_ == Output::IdleUtility || has_tambourine_output()) pump_->discard();
   if (!pending()) output_ = Output::Performance;
   if (idle_monitor_ == IdleMonitor::PanicMuted) idle_monitor_ = IdleMonitor::Enabled;
   audition_profile_ = -1;
@@ -101,17 +102,31 @@ int Instrument::audition(int profile) {
   audition_profile_ = profile;
   return 0;
 }
+int Instrument::audition_tambourine(int32_t velocity) {
+  if (!engine_ || lifecycle_ == Lifecycle::Faulted ||
+      (velocity >= 0 && (lifecycle_ != Lifecycle::Prepared || (pending() && output_ == Output::Performance)))) return -1;
+  const int result = pf_audition_tambourine(engine_.get(), velocity);
+  if (result < 0) return result;
+  if (velocity == -1 && has_tambourine_output()) {
+    pump_->discard();
+    output_ = Output::Performance;
+  }
+  return 0;
+}
 bool Instrument::monitoring() const { return lifecycle_ == Lifecycle::Prepared && idle_monitor_ == IdleMonitor::Enabled; }
-bool Instrument::idle_monitor_only() const { return monitoring() && !pf_audio_needed(engine_.get()) && output_ != Output::Tuner; }
+bool Instrument::idle_monitor_only() const {
+  return monitoring() && !pf_audio_needed(engine_.get()) && output_ != Output::IdleUtility && !has_tambourine_output();
+}
 bool Instrument::audio_needed() const {
   return engine_ && lifecycle_ != Lifecycle::Faulted && (monitoring() || pf_audio_needed(engine_.get()));
 }
 int Instrument::render(const float* input, uint32_t frames) {
   if (!audio_needed()) return -1;
   const bool running = lifecycle_ == Lifecycle::Running;
+  const bool tambourine = pf_tambourine_active(engine_.get());
   const bool monitor_only = monitoring() && !pf_audio_needed(engine_.get());
   if (pump_->render(input, frames, monitoring(), audition_profile_ < 0 ? PF_DEFAULT_PROFILE : uint32_t(audition_profile_)) < 0) { lifecycle_ = Lifecycle::Faulted; return -1; }
-  output_ = running ? Output::Performance : monitor_only ? Output::IdleMonitor : Output::Tuner;
+  output_ = running ? Output::Performance : tambourine ? Output::Tambourine : monitor_only ? Output::IdleMonitor : Output::IdleUtility;
   if (!running) return 0;
   std::array<double, PF_FIELDS> state{};
   pf_snapshot(engine_.get(), state.data());

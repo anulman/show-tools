@@ -15,7 +15,7 @@ import { musicalInputPolicyEvent } from './musical-input-policy.js';
 export type MonitoringRelationship = 'unknown' | 'different-devices' | 'same-usb-interface' | 'same-non-usb';
 type MonitoringConfirmation = { kind: 'unconfirmed' } | { kind: 'confirmed'; stream: MediaStream; relationship: Exclude<MonitoringRelationship, 'unknown'> };
 
-type AudioOptions = { signal?: AbortSignal; chart: Chart; program?: Program; compiled?: CompiledSong; initialVoiceEffects?: readonly VoiceEffectConfiguration[] };
+type AudioOptions = { audioContext?: AudioContext; signal?: AbortSignal; chart: Chart; program?: Program; compiled?: CompiledSong; initialVoiceEffects?: readonly VoiceEffectConfiguration[] };
 type AdapterOptions = AudioOptions & { deferPeripheral?: boolean; tracker: BeatTracker; endpoint: AudioEndpoint; sessionId: string };
 
 export class PracticeAudio {
@@ -82,7 +82,7 @@ export class PracticeAudio {
     if (!(value instanceof Uint8Array)) throw new Error('Invalid sample audio response');
     return value;
   }
-  static async create({ chart, program, compiled, initialVoiceEffects, signal }: AudioOptions) {
+  static async create({ chart, program, compiled, initialVoiceEffects, signal, audioContext }: AudioOptions) {
     if (!chart?.bars?.length) throw new Error('A parsed chart is required');
     signal?.throwIfAborted();
     const assets = await prepareDeclaredExternalAssets(compiled?.externalSamples);
@@ -92,6 +92,7 @@ export class PracticeAudio {
     const sessionId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
     try {
       tracker = await BeatTracker.create({
+        audioContext, ownsAudioContext: true,
         wasmUrl: new URL('./wasm/manual-clock.wasm', document.baseURI),
         workletUrl: new URL('./practice-worklet.js', document.baseURI), processorName: 'practice', outputChannelCounts: [2, 2],
         processorOptions: { practice: { bpm: chart.bpm, beatsPerBar: chart.beatsPerBar, runId: `${sessionId}-ready`,
@@ -296,6 +297,7 @@ export class PracticeAudio {
     const commandId = typeof options === 'string' ? options : options.commandId;
     return this.request('practice.control', { control, commandId });
   }
+  auditionTambourine(velocity: number) { return this.request('practice.audition-tambourine', { velocity }); }
   inputAttach(args: InputAttachArgs) { return this.request('practice.input-attach', args); }
   inputEvent(args: InputEventArgs) {
     const routing = this.latest.inputRouting;
