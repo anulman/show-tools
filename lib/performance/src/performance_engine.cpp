@@ -428,7 +428,7 @@ void render_segment(pf_engine* engine, const float* input, float* left, float* r
     }
   }
   if (engine->mode != PF_TRACKER) st_render(engine->sampler, left, right, count, start);
-  if (engine->tambourine_armed && engine->percussion->active()) {
+  if (pf_tambourine_active(engine)) {
     for (unsigned index = 0; index < count; ++index) {
       const auto sample = engine->percussion->next();
       if (left) left[index] += sample.left;
@@ -797,10 +797,13 @@ int pf_audition_tambourine(pf_engine* engine, int32_t velocity) {
   engine->tambourine_armed = true;
   return 0;
 }
+int pf_tambourine_active(const pf_engine* engine) {
+  return engine && engine->tambourine_armed && engine->percussion->active();
+}
 int pf_audio_needed(const pf_engine* engine) {
   if (!engine || !engine->tuning) return 0;
   const auto state = engine->tuning->snapshot();
-  return running(engine) || engine->tambourine_armed || state.listening || state.previewKind != tuner::PreviewKind::Silent;
+  return running(engine) || pf_tambourine_active(engine) || state.listening || state.previewKind != tuner::PreviewKind::Silent;
 }
 void pf_tuner_info(const pf_engine* engine, double* out) {
   if (!out) return;

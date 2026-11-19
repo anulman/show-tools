@@ -93,7 +93,7 @@ void stopped_tambourine_audition_uses_sample_output() {
   };
   require(!pf_audio_needed(engine) && pf_audition_tambourine(engine, 96) < 0, "unarmed hit is rejected");
   arm();
-  require(pf_audio_needed(engine), "armed audition can receive hits even without a microphone");
+  require(!pf_audio_needed(engine), "arming alone does not need audio");
   require(silent(render(engine, 128).left), "arming does not play a hit");
   require(pf_audition_tambourine(engine, -2) < 0 && pf_audition_tambourine(engine, 128) < 0, "out-of-range velocities reject");
 
@@ -101,10 +101,12 @@ void stopped_tambourine_audition_uses_sample_output() {
   uint32_t song_offset = 128, song_frames = 128;
   heap_allocations = heap_frees = 0; watch_heap = true;
   hit();
+  const bool needs_audio = pf_audio_needed(engine);
   const int result = pf_process_stems_with_song_span(engine, nullptr, left.data(), right.data(), live_left.data(), live_right.data(),
     left.size(), &song_offset, &song_frames);
   watch_heap = false;
   ok(engine, result);
+  require(needs_audio, "a hit needs audio even without a microphone");
   require(heap_allocations == 0 && heap_frees == 0, "hits and rendering do no heap work");
   require(left.front() != 0 && right.front() != 0 && left != right, "a hit starts on the next rendered frame in stereo");
   require(silent(live_left) && silent(live_right) && song_offset == 0 && song_frames == 0, "the audition stays out of live input and the demo recording");
@@ -115,7 +117,8 @@ void stopped_tambourine_audition_uses_sample_output() {
   disarmed();
   require(!pf_audio_needed(engine), "ending the audition releases idle audio");
   arm(); hit();
-  require(!silent(render(engine, 12000).left) && silent(render(engine, 128).left), "a hit ends on its own while armed");
+  require(!silent(render(engine, 12000).left) && !pf_audio_needed(engine) && silent(render(engine, 128).left),
+    "once the hit ends, the armed audition releases idle audio");
   hit(); pf_stop(engine); disarmed();
   arm(); hit(); ok(engine, press(engine, 4)); disarmed();
   arm(); hit(); ok(engine, pf_configure_compiled(engine, song.data(), uint32_t(song.size()))); disarmed();

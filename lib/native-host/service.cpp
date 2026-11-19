@@ -285,13 +285,13 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
         case 22: rc=instrument.audition(int(a[0])); break;
         case audition_tambourine: {
 #ifdef NATIVE_ALSA_HOST
-          if(a[0]>=0 && !alsa_run.can_activate())break;
           const bool drop_output=a[0]==-1 && instrument.has_tambourine_output() && alsa_run.active();
 #endif
           rc=instrument.audition_tambourine(int32_t(a[0]));
 #ifdef NATIVE_ALSA_HOST
           if(rc==0 && ((drop_output && device_fault("drop on Tambourine audition end",alsa_run.drop(*device))) ||
-                       (a[0]<=0 && device_fault("prepare stopped audio",alsa_run.utility(instrument,*device)))))rc=-1;
+                       ((drop_output || (a[0]>0 && alsa_run.can_activate())) &&
+                        device_fault("prepare stopped audio",alsa_run.utility(instrument,*device)))))rc=-1;
 #endif
           break;
         }
@@ -412,14 +412,14 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
           std::cerr<<"Native audio interleaved output failed\n";
           shared.device_failed=true;
         }
-      } else if(instrument.audio_needed()) {
+      } else if(alsa_run.can_activate() && instrument.audio_needed()) {
         const auto frames=device->read(input.data(),block);
         if(!device_fault("capture read",frames) && frames>0 && render(uint32_t(frames))<0) {
           std::cerr<<"Native audio render failed: "<<pf_error(instrument.engine())<<"\n";
           shared.device_failed=true;
         }
       }
-      if(!shared.device_failed.load())device_fault("playback drain",alsa_run.complete(instrument,*device));
+      if(!shared.device_failed.load())device_fault("finish or resume playback",alsa_run.complete(instrument,*device));
       if(shared.device_failed.load()) instrument.stop();
 #else
       if(instrument.pending()) instrument.write(discard,nullptr);

@@ -131,6 +131,7 @@ void pf_tuner_info(const pf_engine* engine, double* out);
    Once armed, 1..127 submits a Tambourine hit for the next rendered frame.
    Start, Stop, Panic and song replacement disarm it and clear its audio. */
 int pf_audition_tambourine(pf_engine* engine, int32_t velocity);
+int pf_tambourine_active(const pf_engine* engine);
 int pf_audio_needed(const pf_engine* engine);
 /* IDs preserve JavaScript UTF-16 code-unit identity, including embedded NULs.
    Null pointer with zero length means no ID. Other IDs contain 1..200 units. */

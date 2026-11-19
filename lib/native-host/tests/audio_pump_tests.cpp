@@ -171,10 +171,11 @@ void verify_tambourine_audition() {
   require(instrument.idle_monitor_only() && run.utility(instrument, device) == 0);
   require(instrument.audition_tambourine(127) < 0);
   require(instrument.audition_tambourine(0) == 0 && instrument.audition_tambourine(127) == 0);
-  require(instrument.has_tambourine_output() && !instrument.idle_monitor_only());
+  require(!instrument.has_tambourine_output() && !instrument.idle_monitor_only());
 
   std::array<float, 128> input{}; input.fill(.25f);
   require(instrument.render(input.data(), input.size()) == 0 && instrument.mix()->song_frames() == 0);
+  require(instrument.has_tambourine_output());
   Sink mix{{}, 17};
   while (instrument.pending()) require(instrument.write(write_short, &mix) > 0);
   require(mix.samples.size() == input.size() * 2 && mix.samples[0] != .25f && mix.samples[1] != .25f);
@@ -200,6 +201,46 @@ void verify_tambourine_audition() {
   require(instrument.render(input.data(), input.size()) == 0);
   require(instrument.prepare(packet.data(), uint32_t(packet.size()), dry));
   require(instrument.pending() == 0 && instrument.audition_tambourine(127) < 0);
+
+  require(instrument.audition_tambourine(0) == 0 && instrument.audition_tambourine(127) == 0);
+  mix.samples.clear();
+  for (unsigned block = 0; block < 91; ++block) {
+    require(instrument.render(input.data(), input.size()) == 0);
+    while (instrument.pending()) require(instrument.write(write_short, &mix) > 0);
+  }
+  require(instrument.idle_monitor_only() && !instrument.has_tambourine_output());
+  require(instrument.render(input.data(), input.size()) == 0);
+  require(instrument.audition_tambourine(-1) == 0 && instrument.pending() == input.size());
+}
+
+void verify_tambourine_retrigger_during_drain() {
+  native_host::Instrument instrument({48000, 32, 30, 256, false});
+  native_host::AlsaRun run;
+  StatefulDevice device;
+  const auto packet = compiled_packet();
+  native_host::Profiles dry{}; dry.revisions.fill(1);
+  require(instrument.prepare(packet.data(), packet.size(), dry));
+  require(instrument.audition_tambourine(0) == 0 && !instrument.audio_needed());
+  require(run.utility(instrument, device) == 0 && !run.active() && device.prepares == 0);
+
+  require(instrument.audition_tambourine(127) == 0 && instrument.audio_needed());
+  require(run.utility(instrument, device) == 0 && run.active() && device.prepares == 1);
+  while (instrument.audio_needed()) {
+    device.read();
+    require(instrument.render(nullptr, 256) == 0);
+    while (instrument.pending()) require(instrument.write(StatefulDevice::write, &device) > 0);
+  }
+  device.hold_drain = true;
+  require(run.complete(instrument, device) == 0 && !run.can_activate() && device.drains == 1);
+  require(instrument.audition_tambourine(127) == 0 && instrument.audio_needed());
+  require(run.complete(instrument, device) == 0 && !run.can_activate() && device.prepares == 1);
+  device.hold_drain = false;
+  require(run.complete(instrument, device) == 0 && run.can_activate() && run.active());
+  require(device.prepares == 2 && device.drops == 0);
+  require(instrument.render(nullptr, 256) == 0);
+  Sink retrigger{{}, 256};
+  require(instrument.write(write_short, &retrigger) == 256);
+  require(retrigger.samples[0] != 0 && retrigger.samples[1] != 0);
 }
 
 struct Engine {
@@ -220,6 +261,7 @@ struct Engine {
 int main() {
   verify_idle_monitor();
   verify_tambourine_audition();
+  verify_tambourine_retrigger_during_drain();
   native_host::Instrument instrument({8000, 32, 30, 509, true});
   native_host::Profiles profiles{}; profiles.revisions.fill(1);
   auto packet = compiled_packet();

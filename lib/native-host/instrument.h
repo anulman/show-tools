@@ -42,7 +42,7 @@ public:
   int audition_profile() const { return audition_profile_; }
   int audition(int profile);
   int audition_tambourine(int32_t velocity);
-  bool has_tambourine_output() const { return tambourine_output_ == TambourineOutput::HasHits; }
+  bool has_tambourine_output() const { return output_ == Output::Tambourine; }
   int render(const float* input, uint32_t frames);
   int64_t write(AudioPump::Write sink, void* context);
   Lifecycle lifecycle() const;
@@ -56,10 +56,8 @@ private:
   Engine engine_{nullptr, pf_destroy};
   std::unique_ptr<AudioPump> pump_;
   enum class IdleMonitor { Disabled, Enabled, PanicMuted };
-  enum class Output { Performance, IdleUtility, IdleMonitor };
-  enum class TambourineOutput { Closed, Open, HasHits };
+  enum class Output { Performance, IdleUtility, IdleMonitor, Tambourine };
   IdleMonitor idle_monitor_;
-  TambourineOutput tambourine_output_ = TambourineOutput::Closed;
   int audition_profile_ = -1;
   Output output_ = Output::Performance;
   bool monitoring() const;

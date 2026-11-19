@@ -262,7 +262,7 @@ for (const reason of ['off', 'fault', 'disconnected']) {
         document: { createElement: () => new Node() }, isRunning: () => false, starting: false, outputCapture: 'idle',
         connected: reason !== 'disconnected', status: { kind: reason === 'fault' ? 'fault' : 'off' },
         createTunerDial: () => ({ element: new Node(), update() {}, dispose() { dialDisposals++; } }),
-        transportGeneration: 0, releasePresses() {}, chartFollower: null, renderHardwareUnavailable() {} });
+        transportGeneration: 0, phoneMotionAbort: undefined, releasePresses() {}, chartFollower: null, renderHardwareUnavailable() {} });
       vm.runInContext(`${panelSource}\n${wrapper}\n
         tunerPort = sharedTuner(audio);
         tunerPanel = mountTuner(root, { connect: async () => tunerPort });
