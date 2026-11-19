@@ -47,10 +47,9 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	let fail = true;
 	let settle: ((bindings: InputBindings) => void) | undefined;
 	const requests: InputBindings[] = [];
-	const savedSongs: string[] = [];
 	const requestCount = () => requests.length;
-	const panel = create({ onSave: async (bindings, songId) => {
-		requests.push(bindings); savedSongs.push(songId);
+	const panel = create({ onSave: async bindings => {
+		requests.push(bindings);
 		if (fail) throw new Error('Connection lost. Retry Apply.');
 		return new Promise(resolve => { settle = resolve; });
 	} });
@@ -58,12 +57,12 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	panel.element.style.width = '390px';
 	expect(!panel.element.open, 'Panel starts collapsed');
 	panel.element.open = true;
-	const initial = { songId: 'dyc', title: 'Dance Yrself Clean', bindings: [], editable: true };
+	const initial = { bindings: [], editable: true };
 	panel.update(initial);
 	expect(panel.element.querySelectorAll('select').length === 4, 'Only the four assignable arcade controls are editable');
 	expect([...panel.element.querySelectorAll('select')].every(select => select.value === 'unassigned'), 'No control receives a default role');
 	expect(button(panel).disabled && !panel.dirty, 'Unchanged unassigned state cannot be applied');
-	expect(panel.element.textContent?.includes('Dance Yrself Clean'), 'Panel identifies the selected song');
+	expect(panel.element.textContent?.includes('Applies to every song.'), 'Panel identifies the global scope');
 	action(panel, 'Blue', 'cue-rows');
 	expect(button(panel).disabled && panel.element.textContent?.includes('choose at least one cue row'), 'Incomplete row choice has an actionable validation error');
 	row(panel, 'Blue R1', true); row(panel, 'Blue R2', true);
@@ -81,7 +80,7 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	expect(panel.pending && button(panel).disabled, 'Pending save locks Apply');
 	expect([...panel.element.querySelectorAll('select')].every(select => select.matches(':disabled')), 'Pending save locks the real DOM controls');
 	panel.update(initial);
-	expect(panel.pending && checkbox(panel, 'Blue R1').checked, 'Routine same-song observations preserve the pending draft');
+	expect(panel.pending && checkbox(panel, 'Blue R1').checked, 'Routine desk observations preserve the pending draft');
 	const acknowledged: InputBindings = [
 		{ controlId: 'blue', target: { kind: 'cue-rows', rows: ['R2'] } },
 		{ controlId: 'yellow', target: { kind: 'cue-rows', rows: ['L1'] } },
@@ -100,35 +99,32 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	panel.update({ ...initial, bindings: acknowledged });
 	row(panel, 'Blue R1', true); apply(panel);
 	expect(panel.pending, 'A later edit can be saved');
-	const oldSave = settle; expect(oldSave, 'Later save is deferred');
-	panel.update({ songId: 'dg', title: 'Drunk Girls', bindings: [], editable: true });
-	expect(!panel.pending && !panel.dirty, 'Song change starts from that song’s acknowledged assignments');
-	expect([...panel.element.querySelectorAll('select')].every(select => select.value === 'unassigned'), 'Assignments are never copied across songs');
-	oldSave(acknowledged); await flush();
-	expect(!panel.dirty && panel.element.textContent?.includes('Drunk Girls'), 'Late save cannot overwrite the next song');
-	expect([...panel.element.querySelectorAll('select')].every(select => select.value === 'unassigned'), 'Late save leaves the next song unassigned');
+	const pendingSave = settle; expect(pendingSave, 'Later save is deferred');
+	panel.update({ ...initial, bindings: acknowledged, editable: false });
+	expect(panel.pending && panel.dirty, 'The pending global draft survives a song transition');
+	panel.update({ ...initial, bindings: acknowledged });
+	pendingSave(acknowledged); await flush();
+	expect(!panel.pending && !panel.dirty && checkbox(panel, 'Blue R2').checked, 'The global save acknowledgement restores the assigned row');
 	action(panel, 'Blue', 'tempo');
-	panel.update({ songId: 'dg', title: 'Drunk Girls', bindings: [], editable: true });
-	expect(panel.dirty && selectControl(panel, 'Blue').value === 'tempo', 'Unrelated same-song observations retain unsaved edits');
+	panel.update({ ...initial, bindings: acknowledged });
+	expect(panel.dirty && selectControl(panel, 'Blue').value === 'tempo', 'Unrelated desk observations retain unsaved edits');
 	expect(panel.element.scrollWidth <= panel.element.clientWidth, 'Panel fits a 390px container');
 	expect(requests[0].find(binding => binding.controlId === 'blue')?.target.kind === 'cue-rows', 'Save uses the canonical binding schema');
-	expect(savedSongs.join(',') === 'dyc,dyc,dyc', 'Each save carries the song identity captured before awaiting');
-	const rejectedSongs: string[] = [];
 	let acknowledgeRejectedUpdate: ((bindings: InputBindings) => void) | undefined;
-	const rejected = create({ onSave: async (_bindings, songId) => { rejectedSongs.push(songId); return new Promise(resolve => { acknowledgeRejectedUpdate = resolve; }); } });
+	const rejected = create({ onSave: async () => new Promise(resolve => { acknowledgeRejectedUpdate = resolve; }) });
 	document.body.append(rejected.element); rejected.element.open = true; rejected.update(initial);
 	action(rejected, 'Blue', 'tempo');
-	const invalidNext = { songId: 'dg', title: 'Drunk Girls', editable: true, bindings: [{ controlId: 'not-a-control', target: { kind: 'tempo' } }] };
-	function rejectedUpdate() { let failed = false; try { Reflect.apply(rejected.update, undefined, [invalidNext]); } catch { failed = true; } expect(failed, 'Invalid next-song bindings are rejected'); }
+	const invalidNext = { editable: true, bindings: [{ controlId: 'not-a-control', target: { kind: 'tempo' } }] };
+	function rejectedUpdate() { let failed = false; try { Reflect.apply(rejected.update, undefined, [invalidNext]); } catch { failed = true; } expect(failed, 'Invalid global bindings are rejected'); }
 	rejectedUpdate();
-	expect(rejected.element.textContent?.includes('Dance Yrself Clean') && rejected.dirty && selectControl(rejected, 'Blue').value === 'tempo', 'Rejected update preserves the original song and draft');
+	expect(rejected.dirty && selectControl(rejected, 'Blue').value === 'tempo', 'Rejected update preserves the draft');
 	apply(rejected);
-	expect(rejectedSongs.join(',') === 'dyc' && rejected.pending && button(rejected).disabled, 'Apply after a rejected update targets the original song');
+	expect(rejected.pending && button(rejected).disabled, 'Apply after a rejected update saves the existing draft');
 	rejectedUpdate();
 	expect(rejected.pending && button(rejected).disabled, 'Rejected update cannot unlock or invalidate a pending save');
-	expect(acknowledgeRejectedUpdate, 'Original-song save remains in flight');
+	expect(acknowledgeRejectedUpdate, 'Global save remains in flight');
 	acknowledgeRejectedUpdate([{ controlId: 'blue', target: { kind: 'tempo' } }]); await flush();
-	expect(!rejected.pending && !rejected.dirty && rejected.element.textContent?.includes('Dance Yrself Clean'), 'Original pending save still applies to its own song after rejection');
+	expect(!rejected.pending && !rejected.dirty, 'Pending save still applies after rejection');
 	const configured = create({ onSave: async bindings => bindings });
 	document.body.append(configured.element);
 	configured.update({ ...initial, bindings: [{ controlId: 'pedal', target: { kind: 'tempo' } }] });
@@ -147,7 +143,7 @@ async function browserChecks(create: typeof createInputBindingPanel) {
 	return { requestCount: requests.length, width: panel.element.clientWidth };
 }
 
-test('real browser edits, validates, saves and locks explicit per-song button assignments', { skip: browser ? false : 'Chrome or Chromium is not installed', timeout: 30000 }, async () => {
+test('real browser edits, validates, saves and locks explicit global button assignments', { skip: browser ? false : 'Chrome or Chromium is not installed', timeout: 30000 }, async () => {
 	assert(browser);
 	const temporary = await mkdtemp(join(tmpdir(), 'input-binding-panel-'));
 	try {

@@ -9,12 +9,11 @@ import { Schema } from 'effect';
 import { canonicalSongJson, inspectCompiledSong } from '../lib/performance/compiled-song.js';
 import { compiledProgramBytes } from '../lib/performance/compiled-native.js';
 import { NativePerformance } from '../lib/performance/wasm-performance.js';
-import { CONTROL_IDS } from '../lib/performance/model.js';
 import type { LiveEffectDefinition } from '../lib/performance/model.js';
 import { PF } from '../lib/performance/wasm-abi.js';
 import { compileMusicXmlSong, readMusicXmlSong, writeMusicXmlSong } from '../lib/performance/musicxml-song.js';
 import { prepareDeclaredExternalAssets } from '../lib/performance/external-assets.js';
-import type { InputBindings } from '../lib/performance/input-bindings.js';
+import { DEFAULT_BUTTON_BINDINGS, PHYSICAL_SWITCH_IDS } from '../lib/performance/input-bindings.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const directory = await mkdtemp(join(tmpdir(), 'show-tools-practice-songs-'));
@@ -41,12 +40,10 @@ const build = join(directory, 'native');
 await command('cmake', ['-S', 'lib/performance', '-B', build, '-DCMAKE_BUILD_TYPE=Release']);
 await command('cmake', ['--build', build, '--target', 'compiled_song_host', '--parallel', '4']);
 const module = await WebAssembly.compile(await readFile(join(root, 'ui/practice/wasm/manual-clock.wasm')));
-const bindings = [
-  { controlId: 'blue', target: { kind: 'cue-rows', rows: ['L1'] } },
-  { controlId: 'yellow', target: { kind: 'cue-rows', rows: ['L2'] } },
-  { controlId: 'red', target: { kind: 'cue-rows', rows: ['R1'] } },
-  { controlId: 'green', target: { kind: 'cue-rows', rows: ['R2'] } },
-] satisfies InputBindings;
+const bindings = DEFAULT_BUTTON_BINDINGS;
+const buttonByRow = new Map(bindings.flatMap(({ controlId, target }) => target.kind === 'cue-rows'
+  ? target.rows.map(row => [row, 8 + PHYSICAL_SWITCH_IDS.indexOf(controlId)] as const)
+  : []));
 const results = [];
 let failed = false;
 for (const songId of ['dance-yrself-clean', 'drunk-girls', 'tribulations']) {
@@ -72,7 +69,9 @@ for (const songId of ['dance-yrself-clean', 'drunk-girls', 'tribulations']) {
     const authored = new Map<string, { frame: number; button: number; value: number; windowEndCount: number; source: string; text: string }>();
     for (const cue of song.cues) {
       const frame = cue.bar === 0 ? 1 : at((cue.bar - 1) * song.chart.beatsPerBar + (cue.cueBeat ?? 0));
-      const button = 8 + CONTROL_IDS.indexOf(cue.buttonId);
+      const button = buttonByRow.get(cue.buttonId);
+      assert(button !== undefined, "No physical button assigned to " + cue.buttonId);
+
       authored.set(`${frame}/${button}`, { frame, button, value: 1, windowEndCount: -1, source: cue.source.a1, text: cue.source.text });
     }
     const pads = [...authored.values()].flatMap(press => [press,
@@ -231,7 +230,7 @@ for (const songId of ['dance-yrself-clean', 'drunk-girls', 'tribulations']) {
     status: reports.some(report => report.status === 'FAIL') ? 'FAIL' : 'PASS', reports });
 }
 const report = { artifactDirectory: directory, fixture: { inputBindings: bindings, holdMilliseconds: 50,
-  meaning: 'Synthetic acceptance inputs. These bindings and releases are not operator assignments or authored performance durations.',
+  meaning: 'Synthetic acceptance inputs using the default global button layout and a fixed test hold duration.',
   microphone: 'Periodic synthetic PCM', voiceEffects: 'Matching synthetic slapback and chorus profiles in both engines' }, results };
 await writeFile(join(directory, 'result.json'), JSON.stringify(report, null, 2));
 process.stdout.write(JSON.stringify(report, null, 2) + '\n');

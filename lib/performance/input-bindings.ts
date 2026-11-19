@@ -33,6 +33,11 @@ export type InputBinding = typeof InputBindingSchema.Type;
 export type InputBindings = typeof InputBindingsSchema.Type;
 export const decodeInputBindings = Schema.decodeUnknownSync(InputBindingsSchema, { onExcessProperty: 'error' });
 
+export const DEFAULT_ARCADE_ROWS = { blue: 'L2', yellow: 'L1', red: 'R2', green: 'R1' } as const;
+export const DEFAULT_BUTTON_BINDINGS: InputBindings = Object.entries(DEFAULT_ARCADE_ROWS)
+  .map(([controlId, row]) => ({ controlId: controlId as keyof typeof DEFAULT_ARCADE_ROWS,
+    target: { kind: 'cue-rows', rows: [row] } }));
+
 const identity = Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER }));
 const producer = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: INPUT_PRODUCER_LIMIT - 1 }));
 const mask = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 255 }));

@@ -27,14 +27,14 @@ export async function serveProfile(input: SessionProfile) {
   if (database === root || database.startsWith(root + sep)) throw new Error('Authoring database must be outside the static root');
   const bindings = SongBindingAuthority.open(database);
   let installed;
-  try { const initial = catalog.get(catalog.initialSongId), authored = bindings.read(initial);
-    installed = authored.revision ? (await prepareSongBindings(initial, authored.bindings)).installed : initial.installed;
+  try { const initial = catalog.get(catalog.initialSongId), authored = bindings.read();
+    installed = (await prepareSongBindings(initial, authored.bindings)).installed;
   } catch (error) { bindings.close(); throw error; }
   const controller = new PersistentDesk(profile, installed, { catalog, bindings });
   const server = createGateway({ host: profile.host, port: profile.port, origin: profile.origin,
     token: Buffer.from(tokenFile.toString('utf8').trim()), staticRoot: root, tls }, controller, {
       choices: () => controller.songChoices(), select: (id, expected) => controller.selectSong(id, expected),
-      bindings: (id, expected, values) => controller.configureSongBindings(id, expected, values),
+      bindings: (expected, values) => controller.configureButtonBindings(expected, values),
     });
   try {
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(profile.port, profile.host, () => { server.removeListener('error', reject); resolve(); }); });

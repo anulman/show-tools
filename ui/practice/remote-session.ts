@@ -120,11 +120,10 @@ export class RemoteDesk {
     if (decision.outcome === 'rejected') throw new Error(decision.error);
     return decision.view;
   }
-  async configureSongBindings(songId: string, input: InputBindings, expectedRevision: string) {
-    const decision = decodeAudioDecision(await this.post('/api/song-bindings', { songId, expectedRevision, bindings: decodeInputBindings(input) }));
+  async configureButtonBindings(input: InputBindings, expectedRevision: string) {
+    const decision = decodeAudioDecision(await this.post('/api/button-bindings', { expectedRevision, bindings: decodeInputBindings(input) }));
     this.observe(decision.view);
     if (decision.outcome === 'rejected') throw new Error(decision.error);
-    if (decision.view.song.id !== songId) throw new Error('Song assignment acknowledgement belongs to another song');
     return { bindings: decodeInputBindings(decision.view.song.compiled?.inputBindings ?? []), revision: decision.view.revision };
   }
   async inputIntentStatus(intentId: string) {

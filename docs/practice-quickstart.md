@@ -164,13 +164,13 @@ hardware --status
 
 Expect `Dial: configured`. Direction here labels your capture motion. The tool does not infer degrees, counts per revolution, or an effect assignment.
 
-## Assign buttons to each song
+## Assign buttons for all songs
 
 Open [the EliteDesk Performance Desk](https://proxmox.tail54fc55.ts.net:8443/ui/practice/?remote) on your laptop or phone. Keep **Hardware mode (EliteDesk)** selected. If requested, use **Enter key** with the existing private session key. The browser can remember the key on that origin. Do not paste the key into a URL or this document.
 
-For each song:
+The default layout is L1 yellow, R1 green, L2 blue, and R2 red. To change the layout:
 
-1. Keep audio off. Select the song at the top of the desk.
+1. Keep audio off.
 2. Open **Button assignments**.
 3. Choose **Cue rows** for each connected button you want to use.
 4. Check the required `R1`, `R2`, `L1`, or `L2` rows for that button.
@@ -179,13 +179,15 @@ For each song:
 
 A button can perform several cue rows on one press. Each row can belong to only one physical button. Group rows only when you intend to perform their eligible cues together. With two buttons, choose your grouping explicitly. With more buttons, assign the rows separately as desired.
 
-Assignments belong to the selected song and persist in SQLite. Repeat the assignment step for all three songs. Stop practice to switch songs. Turn audio off to change assignments. Reload the page and select each song again to check the saved choices.
+Assignments persist in SQLite and apply to every song. Each song supplies the cues performed by those rows. Stop practice to switch songs. Turn audio off to change assignments.
+
+To replace the whole layout with a JSON array of assignments, run `practice bindings apply --bindings /path/to/buttons.json` with audio off. Each entry pairs a physical identity such as `"blue"` in `controlId` with a `target` such as `{"kind":"cue-rows","rows":["L2"]}`.
 
 ## Test one capture before playing the whole song
 
 Start with Dance Yrself Clean:
 
-1. Select the song with audio off. Check its saved button assignments and practice range.
+1. Select the song with audio off. Check the song’s practice range and the desk’s global button assignments.
 2. Set the Scarlett monitor level before enabling audio.
 3. Click **Enable audio**. Wait for the ready state and check that you hear the processed microphone while transport is stopped.
 4. Click **Start**. During the count-in, check the click and processed microphone sound. Perform the first written recording cue with its assigned physical button. If routing or levels are wrong, use **Panic** or **Terminate audio** to silence the output before continuing.
@@ -193,7 +195,7 @@ Start with Dance Yrself Clean:
 6. Release it. Check that the recording pulse resumes. After commit, check playback. The LED becomes steady when its assigned rows are playing and none are recording; a continuing recording keeps the pulse.
 7. Click **Stop**. Check that the takes remain available.
 
-If the short test passes, start the full practice range. Then repeat the short test and full practice for Drunk Girls and Tribulations. To change songs, click **Stop**, then select the next song with audio still enabled. Changing songs clears the previous song’s in-memory takes. The arcade controls reconnect to the new song’s input bindings. Use the desk’s **Panic** control if you need to silence the mic while they reconnect.
+If the short test passes, start the full practice range. Then repeat the short test and full practice for Drunk Girls and Tribulations. To change songs, click **Stop**, then select the next song with audio still enabled. Changing songs clears the previous song’s in-memory takes. The arcade controls reconnect with the same global assignments. Use the desk’s **Panic** control if you need to silence the mic while they reconnect.
 
 For Drunk Girls, check the eight-bar pickup loop before the later sustained-sample passages. For Tribulations, check replacement guitar layers and the prepared tambourine sample. Musical cues come from the canonical chart. A missed play or stop remains missed. Only authored commit operations auto-complete.
 
@@ -243,7 +245,7 @@ systemctl --user stop show-tools-peripheral.service
 practice stop
 ```
 
-## Back up the song assignments
+## Back up button assignments
 
 Choose a new backup filename:
 
@@ -253,7 +255,7 @@ practice bindings backup --output /home/anulman/practice-bindings-backup.sqlite
     --input /home/anulman/practice-bindings-backup.sqlite
 ```
 
-This backup contains per-song button bindings and chart source hashes. It excludes MusicXML charts, effects, character assignments, and recordings. Restore creates a new database file and does not change the running profile:
+This backup contains global button assignments and any archived per-song records. It excludes MusicXML charts, effects, character assignments, and recordings. Restore creates a new database file and does not change the running profile:
 
 ```sh
 "$PRACTICE_RELEASE/bin/show-tools-session" bindings restore \
@@ -272,7 +274,7 @@ This backup contains per-song button bindings and chart source hashes. It exclud
 | Capture reports no complete pairs | Release every button. Rerun capture and wait for `ARMED` before pressing the named button three times. |
 | Two buttons produce the same identity | Capture and configure distinct board key assignments before mapping them to different song actions. |
 | Capture works, but an LED stays dark | Check the saved output association, LED supply, wiring, and peripheral journal. Do not infer an enable-mask or firmware change. |
-| A held LED works, but no cue runs | Check audio readiness, the selected song's saved row assignments, and the current chart cell. Idle presses are not replayed when audio starts. |
+| A held LED works, but no cue runs | Check audio readiness, the desk’s global row assignments, and the current chart cell. Idle presses are not replayed when audio starts. |
 | A button stays at full brightness after release | Stop the peripheral service. Check for a missing release or device error before restarting it. |
 | Song selection or assignments are disabled | Click **Stop** before selecting a song. Use **Terminate audio** before changing button assignments. |
 | Audio fails to enable | Read the web journal. Check the configured interface and its direct-monitor setting. Do not choose a floating default device. |

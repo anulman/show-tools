@@ -73,7 +73,7 @@ struct pf_engine {
   std::unique_ptr<compiled::Program> compiled;
   EffectProfile profiles[PF_VOICE_PROFILES];
   double tempo_info[PF_TEMPO_FIELDS]{};
-  double tempo_epoch = -1;
+  double tempo_epoch = -1, pedal_tempo_beat = -1;
   bool live_authorized = false, cue_button_held = false;
   double light_run = 0, light_sequence = 0;
   int jiggle_travel = 4, jiggle_reversal = 2;
@@ -238,6 +238,8 @@ void publish_beat_prediction_if_changed(pf_engine* engine) {
   emit(engine, PF_BEAT_PREDICTION, forecast.observed_frame);
 }
 void silence(pf_engine* engine, int reason = 3) {
+  bt_cancel_pedal_tempo(engine->tracker);
+  engine->pedal_tempo_beat = -1;
   engine->restart_at_end = false;
   if (engine->tuning) engine->tuning->close();
   engine->cue_button_held = false;
@@ -286,15 +288,33 @@ int execute(pf_engine* engine, int id, const Cue& cue, double when) {
   }
   return 0;
 }
-int tempo_hit(pf_engine* engine, int hint, int source) {
+int tempo_hit(pf_engine* engine, int hint, int source, bool pedal = false) {
   if (engine->mode != PF_PRACTICE || !running(engine)) return PF_TEMPO_REJECTED;
-  if (engine->tempo_info[PF_TEMPO_COUNT] && engine->tempo_epoch == engine->epoch && engine->tempo_info[PF_TEMPO_FRAME] == engine->processed) return PF_OK;
+  if (!pedal && engine->tempo_info[PF_TEMPO_COUNT] && engine->tempo_epoch == engine->epoch && engine->tempo_info[PF_TEMPO_FRAME] == engine->processed) return PF_OK;
+  double clock[BT_S_COUNT];
   int estimated = 0;
-  if (bt_tempo_hit(engine->tracker, engine->processed, &estimated) != BT_OK) return PF_TEMPO_REJECTED;
-  double clock[BT_S_COUNT]; bt_snapshot(engine->tracker, clock);
-  double bpm = clock[BT_S_BPM];
-  if (engine->compiled) engine->compiled->tempo_changed(engine->processed, engine->bpm, bpm);
-  engine->bpm = bpm;
+  double bpm = engine->bpm;
+  if (pedal) {
+    bt_snapshot(engine->tracker, clock);
+    const double downbeat = engine->beat < 1
+      ? clock[BT_S_BEAT_ID] + 1
+      : engine->last_beat + engine->beats_per_bar - engine->beat + 1;
+    double estimate = 0;
+    const int result = bt_pedal_tempo_hit(engine->tracker, engine->processed, downbeat, &estimate);
+    if (result != BT_OK) return PF_TEMPO_REJECTED;
+    if (estimate < 0) return PF_OK;
+    if (estimate > 0) {
+      estimated = 1;
+      bpm = estimate;
+      engine->pedal_tempo_beat = downbeat;
+    }
+  } else {
+    if (bt_tempo_hit(engine->tracker, engine->processed, &estimated) != BT_OK) return PF_TEMPO_REJECTED;
+    bt_snapshot(engine->tracker, clock);
+    bpm = clock[BT_S_BPM];
+    if (engine->compiled) engine->compiled->tempo_changed(engine->processed, engine->bpm, bpm);
+    engine->bpm = bpm;
+  }
   ++engine->tempo_info[PF_TEMPO_COUNT]; engine->tempo_info[PF_TEMPO_FRAME] = engine->processed;
   engine->tempo_info[PF_TEMPO_HINT] = hint; engine->tempo_info[PF_TEMPO_SOURCE] = source;
   engine->tempo_info[PF_TEMPO_ESTIMATED] = estimated; engine->tempo_info[PF_TEMPO_BPM] = bpm;
@@ -1018,8 +1038,9 @@ int pf_input_event(pf_engine* engine, uint32_t slot, double session, double gene
       if (engine->compiled) engine->compiled->discard_capture();
       return pf_control(engine, 4, 1, nullptr, 0);
     }
-    if (producer->kind == PF_INPUT_PHYSICAL && input == performance_input::pedal && !running(engine)) {
-      emit(engine, PF_STATE, engine->processed);
+    if (producer->kind == PF_INPUT_PHYSICAL && input == performance_input::pedal) {
+      if (!running(engine)) emit(engine, PF_STATE, engine->processed);
+      else if (const int code = tempo_hit(engine, 0, 0, true); code != PF_OK) return fail(engine, code);
       return accepted(engine);
     }
     if (target.kind == PF_INPUT_PANIC) return pf_control(engine, 4, 0, nullptr, 0);
@@ -1140,6 +1161,17 @@ int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
   if (engine->compiled && running && !stopped) engine->compiled->publish_cue_entries(engine->end);
   return stopped && engine->error_code ? -1 : running ? 1 : 0;
 }
+static void dispatch_clock(pf_engine* engine, const double* event) {
+  if (event[BT_E_TYPE] != BT_CLOCK || event[BT_E_EPOCH] != engine->epoch) return;
+  const double when = event[BT_E_FRAME];
+  if (event[BT_E_ID] == engine->pedal_tempo_beat) {
+    const double bpm = event[BT_E_BPM];
+    if (engine->compiled) engine->compiled->tempo_changed(when, engine->bpm, bpm);
+    engine->bpm = bpm;
+    engine->pedal_tempo_beat = -1;
+  }
+  pf_on_beat(engine, event[BT_E_ID], when, event[BT_E_EPOCH]);
+}
 void pf_flush(pf_engine* engine) {
   if (!engine) return;
   double state[BT_S_COUNT]; bt_snapshot(engine->tracker, state);
@@ -1150,7 +1182,7 @@ void pf_flush(pf_engine* engine) {
     count = bt_drain_events(engine->tracker, events, 64);
     for (unsigned index = 0; index < count; ++index) {
       const double* event = events + index * BT_E_COUNT;
-      if (event[BT_E_TYPE] == BT_CLOCK && event[BT_E_EPOCH] == engine->epoch) pf_on_beat(engine, event[BT_E_ID], event[BT_E_FRAME], event[BT_E_EPOCH]);
+      dispatch_clock(engine, event);
       queue_tracker(engine, event);
     }
   } while (count == 64);
@@ -1192,7 +1224,7 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
           unsigned end = unsigned(std::max(double(cursor), std::min(double(length), std::ceil(event[BT_E_FRAME] - start))));
           render(end);
           cursor = end;
-          pf_on_beat(engine, event[BT_E_ID], event[BT_E_FRAME], event[BT_E_EPOCH]);
+          dispatch_clock(engine, event);
         }
         queue_tracker(engine, event);
       }

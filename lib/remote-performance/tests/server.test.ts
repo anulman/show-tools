@@ -6,6 +6,7 @@ import { chmod, mkdir, mkdtemp, readFile, realpath, rm, stat, symlink, writeFile
 import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
+import { DEFAULT_BUTTON_BINDINGS, decodeInputBindings } from '../../performance/input-bindings.js';
 import { decodeSessionProfile } from '../session-profile.js';
 import { serveProfile } from '../server.js';
 import { decodeDeskBootstrap, decodeDeskPublication } from '../session-schema.js';
@@ -189,17 +190,16 @@ test('installed catalog switches all three songs while stopped without replacing
     for (const songId of ['drunk-girls', 'tribulations', 'dance-yrself-clean']) {
       const selected = await post('/api/song', { songId, expectedRevision: app.controller.snapshot().revision });
       assert.equal(selected.outcome, 'accepted'); assert.equal(selected.view.song.id, songId); assert.equal(selected.view.audio.kind, 'off');
+      assert.deepEqual(selected.view.song.compiled.inputBindings, DEFAULT_BUTTON_BINDINGS);
     }
     const before = app.controller.snapshot();
     const unknown = await post('/api/song', { songId: 'not-installed', expectedRevision: before.revision });
     assert.equal(unknown.outcome, 'rejected'); assert.equal(app.controller.snapshot(), before);
-    const bindings = [{ controlId: 'blue', target: { kind: 'cue-rows', rows: ['R1', 'R2'] } }, { controlId: 'yellow', target: { kind: 'cue-rows', rows: ['L1', 'L2'] } }];
-    const saved = await post('/api/song-bindings', { songId: before.song.id, expectedRevision: before.revision, bindings });
+    const bindings = decodeInputBindings([{ controlId: 'blue', target: { kind: 'cue-rows', rows: ['R1', 'R2'] } }, { controlId: 'yellow', target: { kind: 'cue-rows', rows: ['L1', 'L2'] } }]);
+    const saved = await post('/api/button-bindings', { expectedRevision: before.revision, bindings });
     assert.equal(saved.outcome, 'accepted'); assert.deepEqual(saved.view.song.compiled.inputBindings, bindings);
-    const stale = await post('/api/song-bindings', { songId: before.song.id, expectedRevision: before.revision, bindings: [] });
+    const stale = await post('/api/button-bindings', { expectedRevision: before.revision, bindings: [] });
     assert.equal(stale.outcome, 'rejected'); assert.deepEqual(app.controller.snapshot().song.compiled?.inputBindings, bindings);
-    const wrongSong = await post('/api/song-bindings', { songId: 'drunk-girls', expectedRevision: app.controller.snapshot().revision, bindings: [] });
-    assert.equal(wrongSong.outcome, 'rejected');
     await post('/api/audio', { goal: 'on' });
     const ready = await until(() => {
       const view = app.controller.snapshot();
@@ -212,6 +212,7 @@ test('installed catalog switches all three songs while stopped without replacing
       const selected = await post('/api/song', { songId, expectedRevision: previous.revision });
       assert.equal(selected.outcome, 'accepted', JSON.stringify(selected.error));
       assert.equal(selected.view.song.id, songId);
+      assert.deepEqual(selected.view.song.compiled.inputBindings, bindings, 'the same saved assignments are sent with every song');
       assert.equal(selected.view.audio.kind, 'ready');
       assert.equal(selected.view.audio.attempt, target.attempt);
       assert.equal(selected.view.audio.performance.hostEpoch, target.hostEpoch);
@@ -244,13 +245,13 @@ test('configuration locks audio and selection, commits no data on failure, and c
   const controller = new PersistentDesk(profile, entry.installed, { catalog, bindings: authority });
   const source = join(profile.catalog.entries[0].path, 'source.musicxml');
   const original = await readFile(source);
-  const bindings = [{ controlId: 'blue', target: { kind: 'tempo' } }];
+  const bindings = decodeInputBindings([{ controlId: 'blue', target: { kind: 'tempo' } }]);
   try {
     await writeFile(source, '<invalid/>');
-    const failed = await controller.configureSongBindings(entry.id, controller.snapshot().revision, bindings);
-    assert.equal(failed.outcome, 'rejected'); assert.equal(authority.read(entry).revision, 0);
+    const failed = await controller.configureButtonBindings(controller.snapshot().revision, bindings);
+    assert.equal(failed.outcome, 'rejected'); assert.equal(authority.read().revision, 0);
     await rm(source); execFileSync('/usr/bin/mkfifo', [source]);
-    const pending = controller.configureSongBindings(entry.id, controller.snapshot().revision, bindings);
+    const pending = controller.configureButtonBindings(controller.snapshot().revision, bindings);
     assert.equal(controller.setAudio('on').outcome, 'rejected');
     assert.equal((await controller.selectSong(entry.id, controller.snapshot().revision)).outcome, 'rejected');
     await writeFile(source, original); assert.equal((await pending).outcome, 'accepted');
@@ -259,18 +260,18 @@ test('configuration locks audio and selection, commits no data on failure, and c
     const prepared = await prepareSongBindings(entry, []);
     await rm(source); execFileSync('/usr/bin/mkfifo', [source]);
     const before = controller.snapshot();
-    const conflict = controller.configureSongBindings(entry.id, before.revision, bindings);
+    const conflict = controller.configureButtonBindings(before.revision, bindings);
     const other = SongBindingAuthority.open(profile.authoringDatabase);
-    try { other.save(prepared, authority.read(entry).revision); } finally { other.close(); }
+    try { other.save(prepared.bindings, authority.read().revision); } finally { other.close(); }
     await writeFile(source, original);
     assert.equal((await conflict).outcome, 'rejected'); assert.equal(controller.snapshot(), before, 'CAS failure cannot activate its prepared package');
     await rm(source); execFileSync('/usr/bin/mkfifo', [source]);
-    const canceled = controller.configureSongBindings(entry.id, before.revision, bindings);
-    const revisionBeforeClose = authority.read(entry).revision;
+    const canceled = controller.configureButtonBindings(before.revision, bindings);
+    const revisionBeforeClose = authority.read().revision;
     const closing = controller.close();
     await writeFile(source, original);
     assert.equal((await canceled).outcome, 'rejected'); await closing;
-    assert.equal(authority.read(entry).revision, revisionBeforeClose, 'shutdown before commit preserves authored bindings');
+    assert.equal(authority.read().revision, revisionBeforeClose, 'shutdown before commit preserves authored bindings');
   } finally { await controller.close(); authority.close(); await rm(directory, { recursive: true, force: true }); }
 });
 

@@ -54,7 +54,7 @@ async function fixture() {
       if (transitions > 0 && --transitions === 0) kind = audioFault ? 'fault' : kind === 'starting' ? 'ready' : 'off';
       res.end(JSON.stringify(view()));
     } else if (req.url === '/api/songs') { res.end(JSON.stringify({ songs: [{ id: song.id, title: 'DYC', packageDigest: 'a'.repeat(64) }] }));
-    } else if (req.url === '/api/song' || req.url === '/api/song-bindings') {
+    } else if (req.url === '/api/song' || req.url === '/api/button-bindings') {
       res.end(JSON.stringify(kind === 'off' ? { outcome: 'accepted', view: view() } : { outcome: 'rejected', error: 'Audio must be off', view: view() }));
     } else if (req.url === '/api/audio') {
       assert.deepEqual(body, { sessionId: 'cli', sequence: 1, goal: kind === 'ready' ? 'off' : 'on' });
@@ -269,11 +269,11 @@ test('song list and explicit bindings use authenticated sequenced gateway revisi
     assert.equal(selected.code, 0, selected.stderr);
     const bindings = [{ controlId: 'red', target: { kind: 'cue-rows', rows: ['R1'] } }];
     const filename = join(f.workspace, 'buttons.json'); await writeFile(filename, JSON.stringify(bindings));
-    const assigned = await f.cli('songs', 'bind', '--song', song.id, '--bindings', filename, '--profile', f.profilePath);
+    const assigned = await f.cli('bindings', 'apply', '--bindings', filename, '--profile', f.profilePath);
     assert.equal(assigned.code, 0, assigned.stderr);
-    assert.deepEqual(f.requests.filter(request => request.path === '/api/song' || request.path === '/api/song-bindings'), [
+    assert.deepEqual(f.requests.filter(request => request.path === '/api/song' || request.path === '/api/button-bindings'), [
       { path: '/api/song', body: { sessionId: 'cli', sequence: 1, songId: song.id, expectedRevision: '1' } },
-      { path: '/api/song-bindings', body: { sessionId: 'cli', sequence: 1, songId: song.id, expectedRevision: '1', bindings } },
+      { path: '/api/button-bindings', body: { sessionId: 'cli', sequence: 1, expectedRevision: '1', bindings } },
     ]);
     f.set({ kind: 'ready' });
     const blocked = await f.cli('songs', 'select', '--song', song.id, '--profile', f.profilePath);

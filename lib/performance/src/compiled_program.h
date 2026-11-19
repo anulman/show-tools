@@ -124,6 +124,8 @@ class Program {
   void apply_pending(double frame, double bpm) noexcept;
   double cue_frame(const Cue& cue, double bpm) const noexcept;
   void remember_cues(double frame, double bpm) noexcept;
+  double loop_phase(const Take& take, int bank) const noexcept;
+  bool follows_changed_tempo(const Take& take, int bank, double bpm) const noexcept;
   bool cue_visible(const Cue& cue, int end_bar) const noexcept;
   bool commit_period(int take, uint32_t& period) const noexcept;
   std::unique_ptr<double[]> table_;
@@ -158,7 +160,6 @@ class Program {
   double gain_[PF_CHANNELS]{1, 1, 1, 1};
   uint64_t drain_[PF_VOICE_PROFILES + 2]{};
   double rate_ = 0, bpm_ = 120, early_ = 0, late_ = 0, anchor_frame_ = 0, anchor_position_ = 0, query_position_ = 0, query_frame_ = 0;
-  double capture_bpm_ = 120;
   ActiveCapture active_capture_;
   int live_route_ = -1, error_ = PF_OK;
   double last_motion_frame_ = -1, motion_velocity_ = 0, bend_baseline_[PF_CHANNELS]{}, bend_velocity_per_semitone_ = 24, bend_stale_ms_ = 100;

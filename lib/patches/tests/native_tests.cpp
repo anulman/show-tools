@@ -832,7 +832,66 @@ void source_slice_views() {
     }
   }
 }
+void warped_loop_preserves_pitch_and_source_cutoff() {
+  constexpr uint32_t sample_rate = 8000, source_frames = sample_rate, grain = 192;
+  constexpr double pi = 3.14159265358979323846, pitch = 440;
+  auto rack = Rack::create(nullptr, 0);
+  auto take = ProcessedTake::create(*rack, source_frames, 1, 1);
+  auto player = Playback::create(*take);
+  std::array<float, source_frames> source{}, output_left{}, output_right{};
+  for (uint32_t frame = 0; frame < source_frames; ++frame)
+    source[frame] = float(.65 * std::sin(2 * pi * pitch * frame / sample_rate));
+  require(take->begin(*rack)
+    && take->capture(*rack, source.data(), source.data(), output_left.data(), output_right.data(), source_frames)
+    && take->commit(), "prepare a one-second A4");
+  {
+    NoHeap guard;
+    for (double speed : {.75, 1.35}) {
+      player->reset();
+      require(player->start(true), "start a loop for stretching");
+      float previous = 0;
+      double energy = 0;
+      uint32_t crossings = 0, frames = 0;
+      for (uint32_t output = 0; output * speed < source_frames; ++output) {
+        Stereo sample = player->next_warped(output * speed, grain);
+        close(sample.right, sample.left, "warp uses one phase and alignment for both channels");
+        if (output >= 2 * grain) {
+          ++frames;
+          energy += double(sample.left) * sample.left;
+          if (previous < 0 && sample.left >= 0) ++crossings;
+        }
+        previous = sample.left;
+      }
+      require(std::abs(double(crossings) * sample_rate / frames - pitch) < 7, "stretching and compressing preserve source pitch");
+      require(std::sqrt(energy / frames) > .36, "overlap preserves audible tone energy");
+    }
+    player->reset();
+    require(player->start_window(true, 1000, 1500, 600, *rack), "start an explicitly cropped source view");
+    for (uint32_t frame = 0; frame < 1500; ++frame) {
+      const double phase = std::fmod(frame * .8, 600.0);
+      const Stereo output = player->next_warped(phase, grain);
+      if (phase >= 500) equal(output, {}, "an authored virtual suffix never leaks a prior grain");
+    }
+    player->stop();
+    equal(player->next_warped(0, grain), {}, "warp respects the playback release boundary");
+    require(take->reset_for_capture(), "release playback before reusing the capture bank");
+    source.fill(0);
+    source[0] = 1;
+    require(take->begin(*rack)
+      && take->capture(*rack, source.data(), source.data(), output_left.data(), output_right.data(), source_frames)
+      && take->commit() && player->start(true), "prepare a transient at the downbeat");
+    for (uint32_t frame = 0; frame * .75 < source_frames; ++frame) {
+      const double phase = frame * .75;
+      const Stereo sample = player->next_warped(phase, grain);
+      if (phase >= source_frames - grain) equal(sample, {}, "outgoing grains do not anticipate the next downbeat");
+    }
+    equal(player->next_warped(0, grain), {1, 1}, "loop wrap keeps the downbeat exactly aligned");
+
+  }
+}
+
 int main(int argc, char** argv) {
+  warped_loop_preserves_pitch_and_source_cutoff();
   source_slice_views();
   source_prefix_views(); validation_and_order(); impulses(); arbitrary_stop(false); arbitrary_stop(true); block_partitioning_and_heap(); appended_capture_and_reuse(); mono_source_storage(); finite_slapback_release(); evolving_history(); capture_period_history(); capture_period_admission(); chorus_validation_and_impulses(); chorus_independent_oracle_and_state(); chorus_order_and_capture(); chorus_release_bounds();
   if (argc == 3 && std::strcmp(argv[1], "--fixture") == 0) require(write_pcm(argv[2], fixture), "write deterministic fixture");
