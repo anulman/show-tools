@@ -199,7 +199,9 @@ void early_capture_admission_has_bounded_source_capacity() {
       require(program->error() == PF_OK, "admitted early source cannot exhaust its buffer before the authored endpoint");
     }
     watch_heap = false;
-    require(heap_allocations == 0 && heap_frees == 0 && !program->has_capture(),
+    std::array<double, PF_TAKE_FIELDS> rejected{};
+    program->take_info(0, rejected.data());
+    require(heap_allocations == 0 && heap_frees == 0 && !program->has_capture() && !rejected[PF_TAKE_READY],
       "misaligned early capture is discarded recoverably at its written end without callback allocation");
   }
   const double long_song[]{PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 7, 40, 7, 25, 25, 1, 2, 1, 0, 0, 1, 2, 3,
@@ -512,6 +514,47 @@ void tempo_change_preserves_layered_capture() {
   first = take(engine, 0); second = take(engine, 1);
   require(std::abs(first[PF_TAKE_PHASE] - 4000) <= 2 && std::abs(second[PF_TAKE_PHASE] - 4000) <= 2,
     "both layers wrap onto the same chart count after the tempo change");
+}
+void layer_can_join_after_returning_to_capture_tempo() {
+  const double song[]{
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 17, 98, 17, 25, 25, 2, 4, 3, 0, 0, 1, 2, 3,
+    0, 1, 0, 3, 0, 1, 3, 0, 0,
+    0, 15, 0, 16, 2, 1, 17, 0, 0,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
+    0, 0, 2, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0,
+    0, 0, 14, -1, PF_ARM, 1, 0, 1, -1, -1, 0,
+    0, 0, 16, 1, PF_COMMIT, 2, 2, -1, 1, 1, 0,
+    0, 0, 1, 1, 0, 1, 1, 1, 1
+  };
+  auto rack = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
+  auto program = compiled::Program::create(song, std::size(song), 8000, *rack, 1);
+  require(bool(program), "returned-tempo fixture loads");
+  constexpr double frames_per_minute = 8000 * 60;
+  double bpm = 98;
+  program->start(1, 4, 0, bpm);
+  program->beat(PF_COUNT_IN, 0, 1, 4, 0, bpm);
+  require(program->press(0, 0, bpm, true) == PF_OK, "arm the original two-bar loop");
+  double frame = 4 * frames_per_minute / bpm;
+  const float input = .25f;
+  for (int bar = 1; bar <= 16; ++bar) for (int beat = 1; beat <= 4; ++beat) {
+    if (beat == 1 && (bar == 11 || bar == 12)) {
+      const double next_bpm = bar == 11 ? 100 : 98;
+      program->tempo_changed(frame, bpm, next_bpm);
+      bpm = next_bpm;
+    }
+    program->beat(PF_PLAYING, bar, beat, 0, frame, bpm);
+    if (bar == 14 && beat == 1)
+      require(program->press(0, std::ceil(frame), bpm, true) == PF_OK, "arm the overdub after restoring the original BPM");
+    const double next_frame = frame + frames_per_minute / bpm;
+    for (uint32_t at = std::ceil(frame); at < std::ceil(next_frame); ++at)
+      program->render(&input, nullptr, nullptr, nullptr, nullptr, 1, at, bpm, true, *rack, *backup);
+    frame = next_frame;
+  }
+  std::array<double, PF_TAKE_FIELDS> original{}, layer{};
+  program->take_info(0, original.data());
+  program->take_info(1, layer.data());
+  require(original[PF_TAKE_READY] && layer[PF_TAKE_READY] && program->channel_info(0, bpm).looping,
+    "restoring a recorded BPM keeps chart-phase validation for an already warped loop");
 }
 void joined_path_and_tempo_have_no_heap_work() {
   Engine engine; prepare(engine, joined_table());
@@ -1349,4 +1392,4 @@ void prefix_capture_maps_and_selection() {
 }
 
 }
-int main() { committed_sample_exports_are_bounded_and_owned(); jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); tempo_change_preserves_layered_capture(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); tempo_change_preserves_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }
+int main() { committed_sample_exports_are_bounded_and_owned(); jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); tempo_change_preserves_layered_capture(); layer_can_join_after_returning_to_capture_tempo(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); tempo_change_preserves_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }

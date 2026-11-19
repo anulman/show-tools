@@ -522,7 +522,8 @@ bool Program::commit_period(int id, uint32_t& period) const noexcept {
   const auto& grid = take.grid[active_capture_.bank];
   const double counts = take.loop_end - take.begin;
   const bool warped = grid.tempo_changed;
-  if (warped && (query_position_ + bpm_ / (rate_ * 60) < take.end || !cache->length())) return false;
+  if (warped && (std::abs(grid.points[0].count - take.begin) > grid.initial_bpm / (rate_ * 60) + epsilon ||
+    query_position_ + bpm_ / (rate_ * 60) < take.end || !cache->length())) return false;
   const double expected = warped ? cache->length() + std::ceil((take.loop_end - take.end) * rate_ * 60 / bpm_)
     : std::ceil(counts * rate_ * 60 / grid.initial_bpm);
   if (expected < 1 || expected > std::numeric_limits<uint32_t>::max()) return false;
@@ -531,7 +532,7 @@ bool Program::commit_period(int id, uint32_t& period) const noexcept {
     const Take& anchor = takes_[take.anchor];
     if (anchor.latest < 0 || anchor.playback[anchor.latest]->state() != patches::PlaybackState::playing) return false;
     const auto& anchor_grid = anchor.grid[anchor.latest];
-    if (warped || anchor_grid.tempo_changed || std::abs(anchor_grid.initial_bpm - grid.initial_bpm) > epsilon) {
+    if (warped || follows_changed_tempo(anchor, anchor.latest, bpm_) || std::abs(anchor_grid.initial_bpm - grid.initial_bpm) > epsilon) {
       const double recorded = std::fmod(take.end - take.begin, counts);
       const double delta = std::abs(loop_phase(anchor, anchor.latest) - recorded);
       if (std::min(delta, counts - delta) > 2 * bpm_ / (rate_ * 60)) return false;
@@ -1065,7 +1066,7 @@ int Program::execute(int id, double frame) noexcept {
     if (cue.replacement_capture) for (int previous = 0; previous < take_count_; ++previous)
       if (takes_[previous].profile == take.profile && previous != cue.commit) for (auto& playback : takes_[previous].playback) playback->stop();
     if (!take.cache[bank]->reset_for_capture() || !take.cache[bank]->begin(*voices_[take.profile])) return error_ = PF_ACTION_FAILED;
-    take.grid[bank].begin(take.begin, bpm_);
+    take.grid[bank].begin(position(frame, bpm_), bpm_);
     const Take& anchor = takes_[take.anchor];
     take.capture_start_phase = take.anchor != cue.take && anchor.latest >= 0 ? anchor.playback[anchor.latest]->phase() % anchor.cache[anchor.latest]->period() : 0;
     uint64_t generation = ++capture_generation_;
