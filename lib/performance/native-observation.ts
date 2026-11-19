@@ -1,5 +1,5 @@
-import { CONTROL_IDS } from './model.js';
-import type { PadLight, Phase, PracticeState, PracticeEvent, TempoHitState, VoiceEffectsState, LiveEffectsState, LiveEffectDefinition, CompiledTakeState } from './model.js';
+import { CONTROL_IDS, INPUT_PRODUCER_KINDS, PHYSICAL_SWITCH_IDS } from './model.js';
+import type { PadLight, Phase, PracticeState, PracticeEvent, TempoHitState, VoiceEffectsState, LiveEffectsState, LiveEffectDefinition, CompiledTakeState, IdentifiedInputControl } from './model.js';
 import { PF } from './wasm-abi.js';
 import type { InputRoutingState } from './input-bindings.js';
 
@@ -80,9 +80,13 @@ export function decodeNativeLiveEffects(data: ArrayLike<number>): LiveEffectsSta
       revision: data[PF.LIVE_REVISION], stageCount, captureSupported: data[PF.LIVE_CAPTURE_SUPPORTED] === 1 };
 }
 
+const virtualInputControls: readonly IdentifiedInputControl[] = [...CONTROL_IDS, 'mushroom', 'knob', 'tempo', 'cueButton'];
+const identifiedInputEdges = ['press', 'release', 'rotate'] as const;
 export function decodeNativeEvent(event: Float64Array, runId: string, message: (code: number) => string): PracticeEvent {
-      const type = event[PF.EVENT_TYPE] === PF.BEAT ? 'beat' : event[PF.EVENT_TYPE] === PF.CONTROL ? 'control' : event[PF.EVENT_TYPE] === PF.FAULT ? 'fault' : event[PF.EVENT_TYPE] === PF.TEMPO_HIT ? 'tempo-hit' : 'state';
-      const state = decodeNativeState(event.subarray(PF.EVENT_STATE, PF.EVENT_CHANNELS), event.subarray(PF.EVENT_CHANNELS), runId, message);
+      const type = event[PF.EVENT_TYPE] === PF.BEAT ? 'beat' : event[PF.EVENT_TYPE] === PF.CONTROL ? 'control' : event[PF.EVENT_TYPE] === PF.FAULT ? 'fault' : event[PF.EVENT_TYPE] === PF.TEMPO_HIT ? 'tempo-hit'
+        : event[PF.EVENT_TYPE] === PF.BEAT_PREDICTION ? 'beat-prediction' : event[PF.EVENT_TYPE] === PF.IDENTIFIED_INPUT ? 'identified-input'
+        : event[PF.EVENT_TYPE] === PF.CUE_ENTER ? 'cue' : 'state';
+      const state = decodeNativeState(event.subarray(PF.EVENT_STATE, PF.EVENT_CHANNELS), event.subarray(PF.EVENT_CHANNELS, PF.EVENT_CUE), runId, message);
       const result: PracticeEvent = { v: 1, runId: runId, seq: event[PF.EVENT_SEQUENCE], type, state };
       if (event[PF.EVENT_FRAME] >= 0) { result.frame = event[PF.EVENT_FRAME]; result.sampleRate = event[PF.EVENT_RATE]; }
       if (event[PF.EVENT_ERROR]) result.error = message(event[PF.EVENT_ERROR]);
@@ -94,6 +98,29 @@ export function decodeNativeEvent(event: Float64Array, runId: string, message: (
       }
       if (type === 'tempo-hit') result.tempoHit = { beatHint: event[PF.EVENT_VALUE] === 1 ? 1 : null,
         source: event[PF.EVENT_CONTROL] === 1 ? 'chart' : 'pedal', estimated: event[PF.EVENT_APPLIED] === 1 };
+      if (type === 'beat' || type === 'beat-prediction') {
+        const frame = event[PF.EVENT_NEXT_BEAT_FRAME], id = event[PF.EVENT_NEXT_BEAT_ID];
+        result.timing = { clockEpoch: event[PF.EVENT_CLOCK_EPOCH], clockRevision: event[PF.EVENT_CLOCK_REVISION],
+          nextBeat: id < 0 ? null : { id, frame } };
+      }
+      if (type === 'identified-input') {
+        const kind = INPUT_PRODUCER_KINDS[event[PF.EVENT_INPUT_KIND]];
+        const edge = identifiedInputEdges[event[PF.EVENT_INPUT_EDGE] - 1];
+        const inputIndex = event[PF.EVENT_CONTROL];
+        const controlId = kind === 'physical'
+          ? inputIndex === 6 || inputIndex === 7 ? 'knob' : PHYSICAL_SWITCH_IDS[inputIndex]
+          : virtualInputControls[inputIndex];
+        if (!kind || !edge || !controlId) throw new Error('Invalid native identified input');
+        result.identifiedInput = { producer: event[PF.EVENT_INPUT_SLOT], session: event[PF.EVENT_INPUT_SESSION],
+          bindingGeneration: event[PF.EVENT_INPUT_GENERATION], sequence: event[PF.EVENT_INPUT_SEQUENCE],
+          kind, inputIndex, controlId, edge, value: event[PF.EVENT_VALUE] };
+      }
+      if (type === 'cue') {
+        const row = CONTROL_IDS[event[PF.EVENT_CONTROL]];
+        if (!row) throw new Error('Invalid native cue row');
+        result.cueRow = row;
+        result.cueFrame = event[PF.EVENT_VALUE];
+      }
       if (event[PF.EVENT_CUE] >= 0) result.cueIndex = event[PF.EVENT_CUE];
       return result;
 }

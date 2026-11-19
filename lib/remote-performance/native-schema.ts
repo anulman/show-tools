@@ -3,7 +3,7 @@ import { Schema } from 'effect';
 import { PF as LIGHT } from '../performance/light-abi.js';
 import { ChartSchema, CompiledSongSchema } from '../performance/compiled-song.js';
 import { SongSourceSchema } from '../performance/song-source.js';
-import { InputRoutingStateSchema } from '../performance/input-bindings.js';
+import { InputRoutingStateSchema, InputProducerKindSchema, InputAttachSchema, InputEventSchema } from '../performance/input-bindings.js';
 
 const finite = Schema.Number.check(Schema.isFinite());
 const frameCoordinate = finite.check(Schema.isGreaterThanOrEqualTo(0));
@@ -56,9 +56,32 @@ const song = Schema.Struct({ id, chart: ChartSchema, program: Schema.Struct({ le
     if (value.compiled && (value.compiled.parts.length > 6 || value.compiled.voices.length > 4 || value.compiled.takes.length > 32 || value.compiled.cues.length > 4096 || value.compiled.playback.length > 4096 || value.compiled.selections.length > 4096 || value.compiled.diagnostics.length > 4096)) return 'Invalid compiled song size';
     if (value.source && (value.source.values.length > 4096 || value.source.values.some(row => row.length > 4096))) return 'Invalid source size';
   }));
-const event = Schema.Struct({ v: Schema.Literal(1), runId: id, seq: count, type: Schema.Literals(['state', 'beat', 'control', 'fault', 'tempo-hit']), state,
+const timing = Schema.Struct({ clockEpoch: count, clockRevision: count,
+  nextBeat: Schema.NullOr(Schema.Struct({ id: count, frame: frameCoordinate })) });
+const identifiedInput = Schema.Struct({
+  producer: InputAttachSchema.fields.producer, session: InputAttachSchema.fields.session,
+  bindingGeneration: InputEventSchema.fields.bindingGeneration, sequence: InputEventSchema.fields.sequence,
+  kind: InputProducerKindSchema, inputIndex: InputEventSchema.fields.input,
+  controlId: Schema.Literals(['blue', 'yellow', 'red', 'green', 'pedal', 'mushroom', 'L1', 'L2', 'R1', 'R2', 'knob', 'tempo', 'cueButton']),
+  edge: Schema.Literals(['press', 'release', 'rotate']), value: InputEventSchema.fields.value,
+}).check(Schema.makeFilter(input => (input.controlId === 'knob' && input.edge === 'rotate')
+  || (input.controlId !== 'knob' && (input.edge === 'press' && input.value === 1 || input.edge === 'release' && input.value === 0))
+  || 'Invalid identified input edge or value'));
+const event = Schema.Struct({ v: Schema.Literal(1), runId: id, seq: count,
+  type: Schema.Literals(['state', 'beat', 'beat-prediction', 'control', 'fault', 'tempo-hit', 'identified-input', 'cue']), state,
   frame: Schema.optionalKey(frameCoordinate), sampleRate: Schema.optionalKey(finite), control: Schema.optionalKey(control), commandId: Schema.optionalKey(text),
-  applied: Schema.optionalKey(Schema.Boolean), physicalPanic: Schema.optionalKey(Schema.Literal(true)), error: Schema.optionalKey(text), tempoHit: Schema.optionalKey(tempo), cueIndex: Schema.optionalKey(count) });
+  applied: Schema.optionalKey(Schema.Boolean), physicalPanic: Schema.optionalKey(Schema.Literal(true)), error: Schema.optionalKey(text),
+  tempoHit: Schema.optionalKey(tempo), cueIndex: Schema.optionalKey(count), cueRow: Schema.optionalKey(channel),
+  cueFrame: Schema.optionalKey(frameCoordinate), timing: Schema.optionalKey(timing), identifiedInput: Schema.optionalKey(identifiedInput),
+}).check(Schema.makeFilter(value => {
+  if (value.type === 'beat-prediction' && !value.timing) return 'Missing native beat forecast';
+  if (value.type === 'cue' && (value.cueIndex === undefined || value.cueRow === undefined || value.cueFrame === undefined)) return 'Missing native cue data';
+  if (value.type === 'identified-input' && !value.identifiedInput) return 'Missing native input identity';
+  if ((value.timing || value.type === 'cue' || value.type === 'identified-input') &&
+    (value.frame === undefined || value.sampleRate === undefined || value.sampleRate <= 0)) return 'Missing native audio coordinates';
+  if (value.timing?.nextBeat && value.frame !== undefined && value.timing.nextBeat.frame <= value.frame) return 'Beat forecast must follow its observation';
+  return true;
+}));
 export const LightPublicationSchema = Schema.mutable(Schema.Array(finite)
   .check(Schema.isMinLength(LIGHT.LIGHT_FIELDS)).check(Schema.isMaxLength(LIGHT.LIGHT_FIELDS))
   .check(Schema.makeFilter(image => {

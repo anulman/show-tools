@@ -140,8 +140,8 @@ process.on('exit', code => record({ type: 'exit', code }));
     const expected = [
       ...(!disabled ? [{ command: 'configureJiggle', args: { minimumTravel: 4, minimumReversal: 2 } }] : []),
       { command: 'inputAttach', args: { ...source, kind: 'physical', releasedMask: 1, heldMask: 0 } },
-      ...(!disabled ? [{ command: 'inputEvent', args: { ...source, sequence: 1, input: 6, value: 8 } },
-        { command: 'inputEvent', args: { ...source, sequence: 2, input: 6, value: -5 } }] : []),
+      { command: 'inputEvent', args: { ...source, sequence: 1, input: disabled ? 7 : 6, value: 8 } },
+      { command: 'inputEvent', args: { ...source, sequence: 2, input: disabled ? 7 : 6, value: -5 } },
       { command: 'inputEvent', args: { ...source, sequence: 3, input: 0, value: 1 } },
     ];
     assert.deepEqual(commands, expected, 'physical identities retain ordered observations while the gateway assigns the lease');

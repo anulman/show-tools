@@ -76,7 +76,7 @@ struct Program::Cue {
   int button = 0, voice = 0, bar = 0, kind = PF_NONE, timing = 0, take = -1, commit = -1, selection = -1;
   double cue = -1, execute = 0, occurred_frame = std::numeric_limits<double>::quiet_NaN();
   int tempo_hint = 0, launch = PF_AUTOPLAY, mode = PF_LOOP_MODE, bar_offset = 0, group = -1;
-  bool used = false, replacement_capture = false;
+  bool used = false, replacement_capture = false, announced = false;
 };
 struct Program::Member { int selection = 0, take = 0; double gain = 1; };
 struct Program::PlaybackCue { int bar = 1, voice = 0, selection = 0; };
@@ -442,7 +442,7 @@ void Program::start(int start_bar, int count_in_beats, double frame, double bpm)
   for (int id = 0; id < note_count_; ++id) notes_[id].played = false; start_ = start_bar; phase_ = count_in_beats ? PF_COUNT_IN : PF_PLAYING; bar_ = count_in_beats ? 0 : start_bar;
   anchor_frame_ = frame; anchor_position_ = (start_bar - 1) * beats_ - count_in_beats - 1;
   query_position_ = anchor_position_; query_frame_ = frame;
-  for (int id = 0; id < cue_count_; ++id) { cues_[id].used = false; cues_[id].occurred_frame = std::numeric_limits<double>::quiet_NaN(); }
+  for (int id = 0; id < cue_count_; ++id) { cues_[id].used = false; cues_[id].announced = false; cues_[id].occurred_frame = std::numeric_limits<double>::quiet_NaN(); }
   std::fill(suppressed_, suppressed_ + PF_VOICE_PROFILES, false);
   for (int voice = 0; voice < PF_CHANNELS; ++voice) { gated_[voice] = held_[voice] = -1; button_down_[voice] = false; input_owner_[voice] = 0; }
 
@@ -555,19 +555,27 @@ int Program::available_bank(int id) const noexcept {
   for (int bank = 0; bank < 2; ++bank) if (bank != take.latest && !(active_capture_.take == id && active_capture_.bank == bank) && take.cache[bank] && take.cache[bank]->revision() == prepared_revision_[take.profile] && take.playback[bank] && take.playback[bank]->state() == patches::PlaybackState::idle) return bank;
   return -1;
 }
+bool Program::cue_visible(const Cue& cue, int end_bar) const noexcept {
+  if (cue.used || cue.bar > end_bar) return false;
+  if (cue.cue < 0) return cue.bar == bar_ && (cue.bar == 0 || cue.bar >= start_);
+  const double at = (cue.bar - 1) * beats_ + cue.cue;
+  return cue.bar >= start_ && query_position_ >= at - 2 && query_position_ <= at;
+}
 bool Program::cue_warning(int end_bar, uint32_t rows) const noexcept {
   if (phase_ != PF_COUNT_IN && phase_ != PF_PLAYING) return false;
-  for (int id = 0; id < cue_count_; ++id) {
-    const Cue& cue = cues_[id];
-    if (!(rows & (1u << cue.button)) || cue.used || cue.bar > end_bar) continue;
-    if (cue.cue < 0) {
-      if (cue.bar == bar_ && (cue.bar == 0 || cue.bar >= start_)) return true;
-    } else if (cue.bar >= start_) {
-      double at = (cue.bar - 1) * beats_ + cue.cue;
-      if (query_position_ >= at - 2 && query_position_ <= at) return true;
-    }
-  }
+  for (int id = 0; id < cue_count_; ++id)
+    if ((rows & (1u << cues_[id].button)) && cue_visible(cues_[id], end_bar)) return true;
   return false;
+}
+void Program::publish_cue_entries(int end_bar) noexcept {
+  if (!cue_entry_ || (phase_ != PF_COUNT_IN && phase_ != PF_PLAYING)) return;
+  for (int id = 0; id < cue_count_; ++id) {
+    Cue& cue = cues_[id];
+    if (cue.announced || !cue_visible(cue, end_bar)) continue;
+    cue.announced = true;
+    const double target_frame = cue.cue < 0 ? query_frame_ : cue_frame(cue, bpm_);
+    cue_entry_(cue_context_, query_frame_, target_frame, cue.button, id);
+  }
 }
 bool Program::has_capture() const noexcept {
   if (active_capture_.take >= 0) return true;
@@ -1264,7 +1272,7 @@ void Program::beat(int phase, int bar, int beat, int count_remaining, double fra
       if (outcome_) outcome_(outcome_context_, std::ceil(frame), cues_[cue].button, cue, PF_LOOP_MISMATCH);
     }
     for (int id = 0; id < cue_count_; ++id) pending_[id] = {};
-    for (int id = 0; id < cue_count_; ++id) { cues_[id].used = false; cues_[id].occurred_frame = std::numeric_limits<double>::quiet_NaN(); }
+    for (int id = 0; id < cue_count_; ++id) { cues_[id].used = false; cues_[id].announced = false; cues_[id].occurred_frame = std::numeric_limits<double>::quiet_NaN(); }
   }
   phase_ = phase; bar_ = phase == PF_COUNT_IN ? 0 : bar;
   bpm_ = bpm; anchor_frame_ = frame; anchor_position_ = phase == PF_COUNT_IN ? (start_ - 1) * beats_ - count_remaining : (bar - 1) * beats_ + beat - 1;

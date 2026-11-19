@@ -13,7 +13,7 @@ const event = seq => ({ v: 1, runId: 'test-run', seq, state: { phase: 'playing',
 for (const hostname of ['127.0.0.1', 'practice.example']) {
   test(`Sheets follow from ${hostname} respects local defaults and hosted opt-in`, async () => {
     const requests = [];
-    const context = { location: { hostname, origin: `http://${hostname}` }, window: { postMessage() {} },
+    const context = { remote: false, location: { hostname, origin: `http://${hostname}` }, window: { postMessage() {} },
       elements: { 'sheet-status': { textContent: '' } },
       createChartFollower: options => createChartFollower({ ...options, fetch: async (_url, request) => {
         const input = JSON.parse(request.body);
@@ -37,3 +37,11 @@ for (const hostname of ['127.0.0.1', 'practice.example']) {
     context.follow(stopped);
   });
 }
+
+test('Hardware mode publishes no browser Sheets messages or loopback requests', () => {
+  const context = { remote: true, window: { postMessage() { assert.fail('Hardware mode must use the server event stream'); } },
+    createChartFollower: () => assert.fail('Hardware mode must not dial a client helper') };
+  vm.createContext(context);
+  vm.runInContext(`${dispatch}\nglobalThis.follow = postPerformanceEvent;`, context);
+  context.follow(event(1));
+});

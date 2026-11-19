@@ -20,6 +20,8 @@ class Program {
   double rotation_remaining() const noexcept;
   int profile_activity(int profile) const noexcept;
   void observe(void* context, void (*notify)(void*, double)) noexcept { observer_context_ = context; observer_ = notify; }
+  void cue_entries(void* context, void (*notify)(void*, double, double, int, int)) noexcept { cue_context_ = context; cue_entry_ = notify; }
+  void publish_cue_entries(int end_bar) noexcept;
   void outcomes(void* context, void (*notify)(void*, double, int, int, int)) noexcept { outcome_context_ = context; outcome_ = notify; }
   void tempo_handler(void* context, int (*hit)(void*, int)) noexcept { tempo_context_ = context; tempo_hit_ = hit; }
   void tempo_changed(double frame, double old_bpm, double new_bpm) noexcept;
@@ -124,6 +126,7 @@ class Program {
   void remember_cues(double frame, double bpm) noexcept;
   double loop_phase(const Take& take, int bank) const noexcept;
   bool follows_changed_tempo(const Take& take, int bank, double bpm) const noexcept;
+  bool cue_visible(const Cue& cue, int end_bar) const noexcept;
   bool commit_period(int take, uint32_t& period) const noexcept;
   std::unique_ptr<double[]> table_;
   uint32_t fields_ = 0, prepared_revision_[PF_VOICE_PROFILES]{};
@@ -160,6 +163,8 @@ class Program {
   ActiveCapture active_capture_;
   int live_route_ = -1, error_ = PF_OK;
   double last_motion_frame_ = -1, motion_velocity_ = 0, bend_baseline_[PF_CHANNELS]{}, bend_velocity_per_semitone_ = 24, bend_stale_ms_ = 100;
+  void* cue_context_ = nullptr;
+  void (*cue_entry_)(void*, double, double, int, int) = nullptr;
   void* outcome_context_ = nullptr;
   void (*outcome_)(void*, double, int, int, int) = nullptr;
   void* tempo_context_ = nullptr;

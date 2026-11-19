@@ -71,11 +71,11 @@ Native same-host activation requires that explicit client policy when operator c
 
 ## Implemented ABI and host slots
 
-The integration source uses PF ABI 12. These changes are not a deployment or physical acceptance receipt. Existing `pf_control` IDs are unchanged, including 16–79 for external samples; host operation 15 remains WAV preparation.
+The integration source uses PF ABI 13. These changes are not a deployment or physical acceptance receipt. Existing `pf_control` IDs are unchanged, including 16–79 for external samples; host operation 15 remains WAV preparation.
 
 | Surface | Implemented boundary |
 | --- | --- |
-| Native/WASM handshake | `PF_ABI_VERSION = 12` |
+| Native/WASM handshake | `PF_ABI_VERSION = 13` |
 | Binding storage | Optional compiled-packet-7 extension `PFI1` (`0x50464931`), bounded by six physical switches |
 | Native API | `pf_input_attach`, `pf_input_event`, `pf_input_revoke`, `pf_input_info`, `pf_input_is_panic`, `pf_input_inherit` |
 | Host operation 14 | Attach producer: slot, monotonic session, binding generation, producer kind, released mask, held mask |
@@ -87,7 +87,7 @@ The integration source uses PF ABI 12. These changes are not a deployment or phy
 
 Native host preparation verifies a separate candidate engine. Before the atomic swap, `pf_input_inherit(candidate, previous)` advances the previous binding generation and carries its session high-water mark. It transfers no producer records. Invalid candidates or precision exhaustion leave the previous engine unchanged. Events queued against the old generation fail even if a slot number is reused.
 
-The producer table is preallocated with 32 slots. Physical producers use switch IDs 0–5 and knob ID 6; logical keyboard/pointer producers use existing logical control IDs. The host assigns slots and monotonic sessions from authenticated producer identity; a client cannot adopt another client's slot. A full table rejects admission rather than evicting an owner. The audio thread allocates nothing for attach, input or revoke.
+The producer table is preallocated with 32 slots. Physical producers use switch IDs 0–5, musical knob ID 6, and observation-only knob ID 7. A mapped knob with musical jiggle disabled uses ID 7 so signed rotation can still reach event subscribers. Logical keyboard and pointer producers keep their existing control IDs. The host assigns slots and monotonic sessions from authenticated producer identity; a client cannot adopt another client's slot. A full table rejects admission rather than evicting an owner. The audio thread allocates nothing for attach, input or revoke. The native event queue records each admitted physical or logical edge with its source lease and engine frame. It publishes an unassigned press or a telemetry-only rotation even when that edge causes no song action. Stale and duplicate edges are omitted.
 
 Attach, input and revoke are one engine-thread path in browser/WASM and native hosting. Existing raw producers, keyboard and pointer callers migrate to that path; low-level legacy control callers have a distinct reserved source, not global release authority. Explicit UI Panic remains the reserved global utility through control 4, including immediate local recording and microphone cleanup when backend acknowledgement fails. The DOM policy runs before Escape, and physical Panic readback also performs that UI cleanup without a second Panic action. This utility has no held-sample release ownership. A bound physical Panic input must enter the existing reserved Stop/Panic lane after checking its current binding generation; do not trust a client-supplied priority claim.
 

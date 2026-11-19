@@ -15,7 +15,7 @@ import { createHardwareAuth } from './hardware-auth.js';
 import type { RemoteConnection } from './remote-session.js';
 import type { DeskView } from '../../lib/remote-performance/session-schema.js';
 import type { MonitoringRelationship } from './audio.js';
-import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
+import { CONTROLS, playableBars, rangeForBar } from '../../lib/performance/chart.js';
 import { CONTROL_IDS } from '../../lib/performance/model.js';
 import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import { SONGS, loadSong } from '../../songs/index.js';
@@ -923,6 +923,14 @@ elements['sheet-link'].addEventListener('click', () => act(async () => {
   const currentChart = chart;
   const currentBar = state.bar || Number(elements['start-section'].value) || 1;
   const phase = state.phase === 'count-in' ? 'count-in' : 'playing';
+  if (remote) {
+    const url = new URL(`https://docs.google.com/spreadsheets/d/${currentChart.spreadsheetId}/edit`);
+    const anchor = new URLSearchParams({ gid: String(currentChart.sheetId), range: rangeForBar(currentChart, currentBar, phase) });
+    url.searchParams.set('gid', String(currentChart.sheetId));
+    url.hash = anchor.toString();
+    window.open(url, '_blank', 'noopener');
+    return;
+  }
   elements['sheet-link'].disabled = true;
   elements['sheet-status'].textContent = 'Selecting column…';
   try {
@@ -1034,6 +1042,7 @@ window.addEventListener('keyup', event => {
 });
 
 function postPerformanceEvent(event: PracticeEvent): void {
+  if (remote) return;
   window.postMessage({ kind: 'show-tools-performance', event }, location.origin);
   if (!chartFollowOptIn && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) return;
   if (event.state.phase !== 'playing' && event.state.phase !== 'count-in') { chartFollower?.stop(); return; }
