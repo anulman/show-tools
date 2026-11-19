@@ -196,22 +196,23 @@ export async function openChart(address: string, input: unknown, connect: ((addr
       }
       if (!correctSheet) throw new Error('Google Sheets did not open the requested song sheet');
     }
-    const selectRange = async (range: string) => {
+    const selectRange = async (range: string, lockHorizontal: boolean) => {
       const focus = `(() => { const box = document.querySelector('#t-name-box'); if (!box) return false;
         const grid = document.getElementById('${selection.sheetId}-grid-container');
         const scrollbar = grid?.querySelector('.native-scrollbar-x');
         if (!scrollbar || !grid.clientWidth || !grid.clientHeight || !scrollbar.clientWidth) return false;
         window.__showToolsReleaseViewport?.();
+        const lockHorizontal = ${lockHorizontal};
         const vertical = grid.querySelector('.native-scrollbar-y');
         const left = scrollbar.scrollLeft;
         const top = vertical?.scrollTop;
         const preserve = () => {
-          if (scrollbar.scrollLeft !== left) scrollbar.scrollLeft = left;
+          if (lockHorizontal && scrollbar.scrollLeft !== left) scrollbar.scrollLeft = left;
           if (vertical && vertical.scrollTop !== top) vertical.scrollTop = top;
         };
         const timeout = setTimeout(() => window.__showToolsReleaseViewport?.(), 5000);
         window.__showToolsReleaseViewport = () => { clearTimeout(timeout); scrollbar.removeEventListener('scroll', preserve); vertical?.removeEventListener('scroll', preserve); delete window.__showToolsReleaseViewport; };
-        scrollbar.addEventListener('scroll', preserve);
+        if (lockHorizontal) scrollbar.addEventListener('scroll', preserve);
         vertical?.addEventListener('scroll', preserve);
         box.focus({preventScroll:true});
         box.select();
@@ -239,22 +240,30 @@ export async function openChart(address: string, input: unknown, connect: ((addr
       const value = await evaluate(viewportExpression(selection.sheetId, scrollLeft));
       return parseViewport(typeof value === 'string' ? JSON.parse(value) : value);
     };
-    const waitForViewport = async () => {
-      for (let attempt = 0; attempt < 20; attempt++) {
+    const findViewport = async (attempts: number) => {
+      for (let attempt = 0; attempt < attempts; attempt++) {
+        if (attempt) await sleep(125);
         signal?.throwIfAborted();
         const visible = await viewport();
         if (visible) return visible;
-        await sleep(125);
       }
-      throw new Error('Google Sheets did not render the selected column');
+      return null;
+    };
+    const waitForViewport = async () => {
+      const visible = await findViewport(20);
+      if (!visible) throw new Error('Google Sheets did not render the selected column');
+      return visible;
     };
     const letters = selection.range.split(':')[0];
     const column = Array.from(letters).reduce((index, letter) => index * 26 + letter.charCodeAt(0) - 64, 0);
-    await selectRange(selection.range);
-    // Sheets resets horizontal scroll even for a visible Name box selection.
-    // Preserve it through that event, then move once to the intended context.
+    await selectRange(selection.range, true);
     await sleep(50);
-    const measured = await waitForViewport();
+    let measured = await findViewport(3);
+    if (!measured) {
+      // Sheets needs to scroll an offscreen column into view before it renders its selection.
+      await selectRange(selection.range, false);
+      measured = await waitForViewport();
+    }
     const cacheKey = `${address}/${targetId}/${selection.sheetId}`;
     let offsets = columnOffsets.get(cacheKey);
     if (!offsets) {
