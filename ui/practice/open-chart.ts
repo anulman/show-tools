@@ -1,6 +1,4 @@
 import { Schema } from 'effect';
-import type { Chart } from '../../lib/performance/model.js';
-import { rangeForBar } from '../../lib/performance/chart.js';
 import { selectionFromEvent, type ChartSelection } from './sheets-extension/selection.js';
 
 const Result = Schema.Struct({ ok: Schema.Literal(true), selectedRange: Schema.String, url: Schema.String });
@@ -23,10 +21,6 @@ async function selectChart(selection: { spreadsheetId: string; sheetId: number; 
     throw new Error(parsed._tag === 'Some' ? parsed.value.error : 'The chart helper could not select this bar');
   }
   return parseResult(result);
-}
-
-export function openCurrentChart(chart: Chart, bar: number, phase = 'playing', helper = 'http://127.0.0.1:9223') {
-  return selectChart({ spreadsheetId: chart.spreadsheetId, sheetId: chart.sheetId, range: rangeForBar(chart, bar, phase) }, helper);
 }
 
 export function createChartFollower({ onStatus = () => {}, helper = 'http://127.0.0.1:9223', fetch: request = fetch }:

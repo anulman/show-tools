@@ -11,7 +11,7 @@ const event = seq => ({ v: 1, runId: 'test-run', seq, state: { phase: 'playing',
   chart: { spreadsheetId: '1234567890123456789012345', sheetId: 101, columns: [3, 4], leadInColumn: 2 } } });
 
 for (const hostname of ['127.0.0.1', 'practice.example']) {
-  test(`Sheets follow from ${hostname} respects local defaults and hosted opt-in`, async () => {
+  test(`Sheets follow from ${hostname} uses the loopback helper only on localhost`, async () => {
     const requests = [];
     const context = { remote: false, location: { hostname, origin: `http://${hostname}` }, window: { postMessage() {} },
       elements: { 'sheet-status': { textContent: '' } },
@@ -22,16 +22,17 @@ for (const hostname of ['127.0.0.1', 'practice.example']) {
       } }),
     };
     vm.createContext(context);
-    vm.runInContext(`let chartFollowOptIn = false; let chartFollower; ${dispatch}\nglobalThis.follow = postPerformanceEvent; globalThis.optIn = () => { chartFollowOptIn = true; };`, context);
+    vm.runInContext(`let chartFollower; ${dispatch}\nglobalThis.follow = postPerformanceEvent;`, context);
     context.follow(event(1));
     await new Promise(resolve => setImmediate(resolve));
     assert.equal(requests.length, hostname === '127.0.0.1' ? 1 : 0);
-    context.optIn();
     context.follow(event(2));
     await new Promise(resolve => setImmediate(resolve));
-    assert.equal(requests.length, 1);
-    assert.equal(requests[0].range, 'C:C');
-    assert.equal(requests[0].activate, false);
+    if (hostname === '127.0.0.1') {
+      assert.equal(requests.length, 1);
+      assert.equal(requests[0].range, 'C:C');
+      assert.equal(requests[0].activate, false);
+    } else assert.deepEqual(requests, []);
     const stopped = event(3);
     stopped.state.phase = 'idle';
     context.follow(stopped);

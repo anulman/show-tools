@@ -15,12 +15,12 @@ import { createHardwareAuth } from './hardware-auth.js';
 import type { RemoteConnection } from './remote-session.js';
 import type { DeskView } from '../../lib/remote-performance/session-schema.js';
 import type { MonitoringRelationship } from './audio.js';
-import { CONTROLS, playableBars, rangeForBar } from '../../lib/performance/chart.js';
+import { CONTROLS, playableBars } from '../../lib/performance/chart.js';
 import { CONTROL_IDS } from '../../lib/performance/model.js';
 import type { ChannelId, Chart, PracticeState, PracticeEvent, SongScript, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import { SONGS, loadSong } from '../../songs/index.js';
 import { parseControlCue } from '../../lib/performance/chart-controls.js';
-import { createChartFollower, openCurrentChart } from './open-chart.js';
+import { createChartFollower } from './open-chart.js';
 import { createSampleDownloads } from './sample-downloads.js';
 import { recordingToMp3 } from './recording-export.js';
 import { installChartPanel } from './chart-panel.js';
@@ -45,7 +45,6 @@ const elements = {
   'musical-input-select': requiredElement('#musical-input-select', HTMLSelectElement),
   'practice-desk': requiredElement('#practice-desk', HTMLElement),
   'song-select': requiredElement('#song-select', HTMLSelectElement),
-  'sheet-link': requiredElement('#sheet-link', HTMLButtonElement),
   'sheet-status': requiredElement('#sheet-status', HTMLSpanElement),
   'error': requiredElement('#error', HTMLDivElement),
   'phase-label': requiredElement('#phase-label', HTMLSpanElement),
@@ -166,7 +165,6 @@ const sampleDownloads = createSampleDownloads(requiredElement('#recording-contro
 let recorder: MediaRecorder | undefined;
 let recordingURL: string | undefined;
 let chartFollower: ReturnType<typeof createChartFollower> | undefined;
-let chartFollowOptIn = false;
 const voiceCatalog = installVoiceCatalog(requiredElement('#voice-library-root', HTMLElement), {
   drafts: voiceEffects,
   remote,
@@ -743,7 +741,6 @@ function render(next: Partial<PracticeState>) {
   startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start';
   elements.stop.disabled = !starting && !running && !recording;
   for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting;
-  elements['sheet-link'].setAttribute('aria-label', `Open ${inCountIn ? 'lead-in' : `bar ${chartBarLabel(chart, displayBar)}`} in Google Sheets`);
   const bindings = remoteDesk?.snapshot().song.compiled?.inputBindings;
   for (const control of CONTROLS) {
     const pad = pads.get(control.id);
@@ -918,31 +915,6 @@ elements.start.addEventListener('click', () => act(async () => {
   if (remote && !audio && remoteDesk?.snapshot().audio.kind === 'off') { await remoteDesk.enableAudio(); return; }
   await startPractice();
 }));
-elements['sheet-link'].addEventListener('click', () => act(async () => {
-  if (!chart) throw new Error('Choose a song first');
-  const currentChart = chart;
-  const currentBar = state.bar || Number(elements['start-section'].value) || 1;
-  const phase = state.phase === 'count-in' ? 'count-in' : 'playing';
-  if (remote) {
-    const url = new URL(`https://docs.google.com/spreadsheets/d/${currentChart.spreadsheetId}/edit`);
-    const anchor = new URLSearchParams({ gid: String(currentChart.sheetId), range: rangeForBar(currentChart, currentBar, phase) });
-    url.searchParams.set('gid', String(currentChart.sheetId));
-    url.hash = anchor.toString();
-    window.open(url, '_blank', 'noopener');
-    return;
-  }
-  elements['sheet-link'].disabled = true;
-  elements['sheet-status'].textContent = 'Selecting column…';
-  try {
-    const result = await openCurrentChart(currentChart, currentBar, phase);
-    chartFollowOptIn = true;
-    elements['sheet-status'].textContent = `Selected ${result.selectedRange}`;
-  } catch (error) {
-    elements['sheet-status'].textContent = '';
-    throw error;
-  }
-  finally { elements['sheet-link'].disabled = false; }
-}));
 elements['song-select'].addEventListener('change', () => act(async () => {
   const select = elements['song-select'];
   const next = select.value;
@@ -1044,7 +1016,7 @@ window.addEventListener('keyup', event => {
 function postPerformanceEvent(event: PracticeEvent): void {
   if (remote) return;
   window.postMessage({ kind: 'show-tools-performance', event }, location.origin);
-  if (!chartFollowOptIn && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) return;
+  if (!['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) return;
   if (event.state.phase !== 'playing' && event.state.phase !== 'count-in') { chartFollower?.stop(); return; }
   chartFollower ??= createChartFollower({ onStatus: status => { elements['sheet-status'].textContent = status; } });
   chartFollower.receive(event);

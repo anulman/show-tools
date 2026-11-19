@@ -91,7 +91,7 @@ The command subscribes directly to the hardware desk over HTTPS and drives the l
 
 ### Local browser practice
 
-On localhost, the Performance Desk sends changed bar columns to the Mac helper while the sequencer counts. **Open current bar in Sheets** makes a one-time jump. Stop, Panic, and song changes end the current following session. Sheet updates stay in the background and retain only the newest pending column if Sheets is slow.
+On localhost, the Performance Desk sends changed bar columns to the Mac helper while the sequencer counts. Stop, Panic, and song changes end the current following session. Sheet updates stay in the background and retain only the newest pending column if Sheets is slow.
 
 Practice audio runs independently of Chrome and Sheets.
 
