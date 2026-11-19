@@ -2,7 +2,7 @@
 
 Use this procedure on the EliteDesk as `anulman`. It covers Dance Yrself Clean, Drunk Girls, and Tribulations with two through six physical buttons and the dial.
 
-The web service keeps the desk available. The peripheral service reads the I-PAC and lights held buttons, including when audio is off. **Enable audio** opens the Scarlett and lets you hear the selected song’s default microphone voice. **Start** starts the count-in and song. These are separate actions.
+The web service keeps the desk available. The peripheral service reads the I-PAC and lights held buttons, including when audio is off. The header switch’s **Live** setting opens the Scarlett and lets you hear the selected song’s default microphone voice. **Start** starts the count-in and song. These are separate actions.
 
 ## Find the installed commands
 
@@ -189,8 +189,8 @@ Start with Dance Yrself Clean:
 
 1. Select the song with audio off. Check the song’s practice range and the desk’s global button assignments.
 2. Set the Scarlett monitor level before enabling audio.
-3. Click **Enable audio**. Wait for the ready state and check that you hear the processed microphone while transport is stopped.
-4. Click **Start**. During the count-in, check the click and processed microphone sound. Perform the first written recording cue with its assigned physical button. If routing or levels are wrong, use **Panic** or **Terminate audio** to silence the output before continuing.
+3. Switch from **Standby** to **Live** in the header. Wait for audio to come on and check that you hear the processed microphone while transport is stopped.
+4. Click **Start**. During the count-in, check the click and processed microphone sound. Perform the first written recording cue with its assigned physical button. If routing or levels are wrong, use **Panic** or switch to **Standby** to silence the output before continuing.
 5. Check that the recording button pulses with the beat. Hold it briefly to check that full brightness overrides the pulse.
 6. Release it. Check that the recording pulse resumes. After commit, check playback. The LED becomes steady when its assigned rows are playing and none are recording; a continuing recording keeps the pulse.
 7. Click **Stop**. Check that the takes remain available.
@@ -276,7 +276,7 @@ This backup contains global button assignments and any archived per-song records
 | Capture works, but an LED stays dark | Check the saved output association, LED supply, wiring, and peripheral journal. Do not infer an enable-mask or firmware change. |
 | A held LED works, but no cue runs | Check audio readiness, the desk’s global row assignments, and the current chart cell. Idle presses are not replayed when audio starts. |
 | A button stays at full brightness after release | Stop the peripheral service. Check for a missing release or device error before restarting it. |
-| Song selection or assignments are disabled | Click **Stop** before selecting a song. Use **Terminate audio** before changing button assignments. |
+| Song selection or assignments are disabled | Click **Stop** before selecting a song. Switch to **Standby** before changing button assignments. |
 | Audio fails to enable | Read the web journal. Check the configured interface and its direct-monitor setting. Do not choose a floating default device. |
 | The browser disconnects | Reconnect to the same desk. A disconnected browser does not stop native audio. Check status before starting or restarting anything. |
 
