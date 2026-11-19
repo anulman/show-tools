@@ -53,7 +53,7 @@ export class PersistentDesk implements DeskController {
   constructor(private readonly profile: SessionProfile, private installed: InstalledPackage,
     private readonly songs?: { catalog: InstalledSongCatalog; bindings: SongBindingAuthority }) {
     this.view = { serverEpoch: Schema.decodeUnknownSync(ServerEpochSchema)(randomUUID()), revision: revision('0'),
-      song: Schema.decodeUnknownSync(SongSchema)(installed.song), audio: { kind: 'off' } };
+      song: Schema.decodeUnknownSync(SongSchema)(installed.song), defaultVoiceEffects: installed.defaultVoiceEffects, audio: { kind: 'off' } };
     this.eventChart = chartMetadata(this.view.song.chart);
     this.demoPath = join(profile.runtimeRoot, 'demo-latest.wav');
   }
@@ -102,7 +102,7 @@ export class PersistentDesk implements DeskController {
       }
       candidate.commit();
       this.installed = candidate.installed;
-      this.view = { ...this.view, song };
+      this.view = { ...this.view, song, defaultVoiceEffects: candidate.installed.defaultVoiceEffects };
       this.eventChart = chartMetadata(song.chart);
       this.update(nextAudio);
       return { outcome: 'accepted', view: this.view };

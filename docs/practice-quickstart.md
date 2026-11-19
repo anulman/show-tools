@@ -2,7 +2,7 @@
 
 Use this procedure on the EliteDesk as `anulman`. It covers Dance Yrself Clean, Drunk Girls, and Tribulations with two through six physical buttons and the dial.
 
-The web service keeps the desk available. The peripheral service reads the I-PAC and lights held buttons, including when audio is off. The header switch’s **Live** setting opens the Scarlett and lets you hear the selected song’s default microphone voice. **Start** starts the count-in and song. These are separate actions.
+The web service keeps the desk available. The peripheral service reads the I-PAC and lights held buttons, including when audio is off. The header switch’s **Live** setting opens the Scarlett and lets you hear the selected song’s default microphone voice. **Start** starts the count-in and song. In **Standby**, you can switch songs and inspect their voices and installed effect settings.
 
 ## Find the installed commands
 

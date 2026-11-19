@@ -7,6 +7,7 @@ import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { DEFAULT_BUTTON_BINDINGS, decodeInputBindings } from '../../performance/input-bindings.js';
+import type { LiveEffectDefinition, VoiceEffectConfiguration } from '../../performance/model.js';
 import { decodeSessionProfile } from '../session-profile.js';
 import { serveProfile } from '../server.js';
 import { decodeDeskBootstrap, decodeDeskPublication } from '../session-schema.js';
@@ -41,6 +42,7 @@ test('profile server starts off without native executable and SSE bootstraps the
     const bootstrap = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
     assert.equal(bootstrap.view.audio.kind, 'off');
     assert.equal(bootstrap.view.song.id, 'dance-yrself-clean');
+    assert.deepEqual(bootstrap.view.defaultVoiceEffects, installedPackage().configurations);
     await assert.rejects(stat(profile.runtimeRoot));
     await symlink(profile.tokenFile, join(profile.staticRoot, 'secret.txt'));
     assert.equal((await fetch(`${profile.origin}/secret.txt`)).status, 404);
@@ -168,9 +170,17 @@ test('installed catalog switches all three songs while stopped without replacing
   const { directory, profile, headers } = await fixture();
   const [{ default: drunkGirls }, { default: tribulations }] = await Promise.all([import('../../../songs/drunk-girls.js'), import('../../../songs/tribulations.js')]);
   const entries = [profile.catalog.entries[0]];
-  for (const song of [drunkGirls, tribulations]) {
+  const dry = installedPackage().configurations;
+  const defaults = new Map<string, readonly VoiceEffectConfiguration[]>([['dance-yrself-clean', dry]]);
+  const songs = [
+    [drunkGirls, { kind: 'chorus', rateHz: 1.2, depthMs: 4.5, baseDelayMs: 28, wet: 0.6 }],
+    [tribulations, { kind: 'slapback', delayMs: 121, feedback: 0.15, wet: 0.2 }],
+  ] satisfies readonly [typeof drunkGirls | typeof tribulations, LiveEffectDefinition][];
+  for (const [song, effect] of songs) {
     const path = join(directory, song.id); await mkdir(path);
-    const files = installedPackage(song.compiled);
+    const configurations = dry.map(configuration => configuration.profile === 4 ? { ...configuration, effects: [effect] } : configuration);
+    defaults.set(song.id, configurations);
+    const files = installedPackage(song.compiled, configurations);
     await writeFile(join(path, 'manifest.json'), files.manifest);
     await writeFile(join(path, 'song.pfp'), files.packet);
     await writeFile(join(path, 'effects.json'), JSON.stringify(files.configurations));
@@ -191,7 +201,9 @@ test('installed catalog switches all three songs while stopped without replacing
       const selected = await post('/api/song', { songId, expectedRevision: app.controller.snapshot().revision });
       assert.equal(selected.outcome, 'accepted'); assert.equal(selected.view.song.id, songId); assert.equal(selected.view.audio.kind, 'off');
       assert.deepEqual(selected.view.song.compiled.inputBindings, DEFAULT_BUTTON_BINDINGS);
+      assert.deepEqual(selected.view.defaultVoiceEffects, defaults.get(songId), 'Standby publishes the newly selected package defaults');
     }
+    await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
     const before = app.controller.snapshot();
     const unknown = await post('/api/song', { songId: 'not-installed', expectedRevision: before.revision });
     assert.equal(unknown.outcome, 'rejected'); assert.equal(app.controller.snapshot(), before);
@@ -217,6 +229,9 @@ test('installed catalog switches all three songs while stopped without replacing
       assert.equal(selected.view.audio.attempt, target.attempt);
       assert.equal(selected.view.audio.performance.hostEpoch, target.hostEpoch);
       assert.equal(selected.view.audio.performance.state.phase, 'idle');
+      const expected = defaults.get(songId);
+      assert.deepEqual(selected.view.defaultVoiceEffects, expected);
+      assert.deepEqual(selected.view.audio.performance.state.voiceEffects.map(({ profile, effects }: VoiceEffectConfiguration) => ({ profile, effects })), expected);
       assert.notEqual(selected.view.audio.performance.state.runId, previous.audio.kind === 'ready' && previous.audio.performance.state.runId);
       const staleSelection = await post('/api/song', { songId, expectedRevision: previous.revision });
       assert.equal(staleSelection.outcome, 'rejected');

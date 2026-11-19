@@ -1,7 +1,7 @@
 import { Schema } from 'effect';
 import { InputAttachSchema, InputProducerKindSchema, InputRevokeSchema } from '../performance/input-bindings.js';
 import { TunerStateSchema } from '../tuner/schema.js';
-import { NativeEventSchema, NativeStateSchema, SongSchema, LightPublicationSchema } from './native-schema.js';
+import { NativeEventSchema, NativeStateSchema, SongSchema, LightPublicationSchema, VoiceEffectConfigurationsSchema } from './native-schema.js';
 
 const id = Schema.NonEmptyString.check(Schema.isMaxLength(256));
 const revision = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/));
@@ -35,6 +35,7 @@ export const DeskViewSchema = Schema.Struct({
   serverEpoch: ServerEpochSchema,
   revision: DeskRevisionSchema,
   song: SongSchema,
+  defaultVoiceEffects: Schema.optionalKey(VoiceEffectConfigurationsSchema),
   audio: AudioStateSchema,
 });
 export const DeskPublicationSchema = Schema.Union([
