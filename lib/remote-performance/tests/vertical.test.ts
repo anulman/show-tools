@@ -10,6 +10,8 @@ import { PersistentDesk } from '../controller.js';
 import { installedPackage, sessionProfile, until } from './session-fixture.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
 import { decodeDeskPublication } from '../session-schema.js';
+import { followDeskCharts } from '../../../scripts/desk-chart-follower.js';
+import { rangeForBar } from '../../performance/chart.js';
 
 test('gateway commands reach the native engine and attachment does not stop it', async () => {
   const binary = resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host');
@@ -17,6 +19,8 @@ test('gateway commands reach the native engine and attachment does not stop it',
   const directory = await mkdtemp(join(tmpdir(), 'remote-vertical-'));
   const controller = new PersistentDesk(sessionProfile(directory), installedPackage().installed);
   let server: ReturnType<typeof createGateway> | undefined;
+  const followerAbort = new AbortController();
+  let follower: Promise<void> | undefined;
   try {
     assert.equal(controller.snapshot().audio.kind, 'off');
     assert.equal(controller.setAudio('on').outcome, 'accepted');
@@ -62,11 +66,15 @@ test('gateway commands reach the native engine and attachment does not stop it',
     assert.deepEqual(updated.state.voiceEffects[0].effects, slapback);
     assert.deepEqual(updated.state.voiceEffects[1].effects, slapback);
     assert.equal((await edit(bootstrap.sessionId, 4, 0, 1, [])).outcome, 'rejected');
-    const stream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': bootstrap.sessionId } });
+    const observer = await (await fetch(`${base}/api/session`, { headers })).json();
+    const stream = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': observer.sessionId } });
     assert.ok(stream.body);
     const reader = stream.body.pipeThrough(new TextDecoderStream()).getReader();
-    const fractionalBeat = (async () => {
+    const nativeEvents = (async () => {
       let pending = '';
+      let beatFrame: number | undefined;
+      let prediction = false;
+      const inputs: string[] = [];
       while (true) {
         const chunk = await reader.read();
         if (chunk.done) throw new Error('Event stream ended before a fractional beat');
@@ -76,21 +84,68 @@ test('gateway commands reach the native engine and attachment does not stop it',
         for (const message of messages) {
           if (!message.startsWith('data: ')) continue;
           const decoded = decodeDeskPublication(JSON.parse(message.slice(6)));
-          if (decoded.type === 'event' && decoded.event.type === 'beat' && decoded.event.frame !== undefined && !Number.isInteger(decoded.event.frame)) return decoded.event.frame;
+          if (decoded.type !== 'event') continue;
+          const event = decoded.event;
+          assert.equal(event.state.chart?.sheetId, song.chart.sheetId);
+          if (event.type === 'identified-input' && event.identifiedInput) {
+            inputs.push(`${event.identifiedInput.controlId}/${event.identifiedInput.edge}/${event.identifiedInput.value}`);
+          }
+          if (event.type === 'beat-prediction' && event.timing?.nextBeat) prediction = true;
+          if (event.type === 'beat' && event.frame !== undefined && !Number.isInteger(event.frame)) {
+            assert.ok(event.timing?.nextBeat && event.timing.nextBeat.frame > event.frame);
+            beatFrame = event.frame;
+          }
+          if (prediction && beatFrame !== undefined && inputs.length >= 3) return { beatFrame, inputs };
         }
       }
     })();
-    const started = await command(5, 'start', { bpm: 134, startBar: 1, endBar: 10, countInBars: 1 });
+    const selected: string[] = [];
+    let followerReady = false;
+    let followerError: unknown;
+    follower = followDeskCharts({ origin: 'https://desk.test', token: token.toString(), cdp: 'fixture', signal: followerAbort.signal,
+      log: line => { if (line.startsWith('Desk      following')) followerReady = true; },
+      request: (url, init) => {
+        const headers = new Headers(init?.headers);
+        headers.set('Origin', origin);
+        return fetch(new URL(new URL(String(url)).pathname, base), { ...init, headers });
+      },
+      select: async (_cdp, input) => {
+        assert.ok(typeof input === 'object' && input !== null && 'spreadsheetId' in input && 'sheetId' in input
+          && 'range' in input && typeof input.range === 'string');
+        assert.equal(input.spreadsheetId, song.chart.spreadsheetId);
+        assert.equal(input.sheetId, song.chart.sheetId);
+        selected.push(input.range);
+        return { ok: true, selectedRange: input.range, url: 'https://docs.google.com/' };
+      },
+    }).catch(error => { followerError = error; });
+    await until(() => {
+      if (followerError) throw followerError;
+      return followerReady ? true : undefined;
+    });
+    const bindingGeneration = audio.performance.state.inputRouting?.bindingGeneration;
+    assert.ok(bindingGeneration);
+    assert.equal((await command(5, 'inputAttach', { intentId: 'vertical-board', kind: 'physical', bindingGeneration, releasedMask: 1, heldMask: 0 })).outcome, 'applied');
+    for (const [sequence, input, value] of [[1, 0, 1], [2, 0, 0], [3, 7, -8]]) {
+      assert.equal((await command(sequence + 5, 'inputEvent', { kind: 'physical', bindingGeneration, sequence, input, value })).outcome, 'applied');
+    }
+    const started = await command(9, 'start', { bpm: 134, startBar: 1, endBar: 10, countInBars: 1 });
     assert.equal(started.outcome, 'applied');
     assert.notEqual(started.state.runId, bootstrap.view.audio.performance.state.runId);
-    const frame = await Promise.race([fractionalBeat, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('No fractional beat arrived')), 5000).unref())]);
-    assert.ok(frame > 0);
+    const events = await Promise.race([nativeEvents, new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Native timing or inputs did not arrive')), 5000).unref())]);
+    assert.ok(events.beatFrame > 0);
+    assert.deepEqual(events.inputs, ['blue/press/1', 'blue/release/0', 'knob/rotate/-8']);
     const again = await (await fetch(`${base}/api/session`, { headers })).json();
     assert.equal(again.view.audio.performance.state.runId, started.state.runId);
-    const stopped = await command(6, 'stop', {});
+    const leadIn = rangeForBar(song.chart, null, 'count-in');
+    const openingBar = rangeForBar(song.chart, 1);
+    await until(() => selected.includes(openingBar) ? true : undefined, 'Direct Mac subscriber did not reach the first song bar');
+    assert.deepEqual(selected.slice(0, 2), [leadIn, openingBar]);
+    const stopped = await command(10, 'stop', {});
     assert.equal(stopped.outcome, 'applied');
     await reader.cancel();
   } finally {
+    followerAbort.abort();
+    await follower;
     await controller.close();
     server?.close();
     await rm(directory, { recursive: true, force: true });

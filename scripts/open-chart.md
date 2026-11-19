@@ -1,12 +1,12 @@
 # Follow the current chart in Sheets
 
-Start the combined browser and Sheets helper from the repository root:
+Start Sheets following from the repository root:
 
 ```sh
 ./show-tools sheets 1
 ```
 
-The command reuses Chromium at the configured CDP port, or launches a dedicated browser if none is listening. It starts the local helper and opens the selected song's lead-in column. Leave the command running while you practice. The Performance Desk sends changed bar columns as the sequencer counts.
+The command reuses Chromium at the configured CDP port, or launches a dedicated browser if none is listening. It opens the selected song’s lead-in column. Leave the command running while you practice. Hardware mode reads the EliteDesk event stream directly. Browser mode uses the Mac’s local helper.
 
 Use a song slug or a 1-indexed set-list number:
 
@@ -24,7 +24,7 @@ An explicit startup song selects its chart only. Choose the matching song separa
 
 The CLI starts no audio or practice web server. Microphone capture still starts through **Start** in the page. Startup chart opening activates the chart tab once. Automatic bar following stays in the background and does not move keyboard focus away from the practice controls.
 
-Press **Ctrl+C** to stop the helper and any browser this invocation launched. A reused browser stays running. The startup output reports whether it launched or reused Chromium. An occupied helper port or incompatible CDP service produces an error without stopping another process. Browser profiles and recordings are never deleted.
+Press **Ctrl+C** to stop following and close any browser this invocation launched. A reused browser stays running. The startup output reports whether it launched or reused Chromium. An occupied helper port or incompatible CDP service produces an error without stopping another process. Browser profiles and recordings are never deleted.
 
 ## Use the command outside the checkout
 
@@ -66,22 +66,34 @@ export SHOW_TOOLS_CHROMIUM_APP="/Applications/Google Chrome.app"
 | `SHOW_TOOLS_CHROMIUM_APP` | Discovered browser | Chromium-compatible macOS app bundle or executable path. |
 | `SHOW_TOOLS_CDP_PORT` | `9222` | Debugging port shared by the launcher and helper. |
 | `SHOW_TOOLS_CDP_PROFILE` | `show-tools-sheets-cdp` under `${TMPDIR:-/tmp}` | Dedicated browser profile directory. |
-| `SHOW_TOOLS_PRACTICE_ORIGIN` | `http://127.0.0.1:8082` | Additional practice origin allowed by the helper. |
+| `SHOW_TOOLS_PRACTICE_ORIGIN` | `http://127.0.0.1:8082` | Additional browser practice origin allowed by the local helper. |
+| `SHOW_TOOLS_DESK_ORIGIN` | Unset | Exact hardware desk HTTPS origin for direct following. |
+| `SHOW_TOOLS_DESK_TOKEN_FILE` | `~/.config/show-tools/desk-token` | Owner-only file containing the hardware desk token. |
 | `SHOW_TOOLS_SET_LIST_URL` | The bundled set-list spreadsheet URL | Spreadsheet opened when no song is supplied. Include `#gid=...` to select a specific sheet. |
 
 A reused browser needs no configured executable. Its CDP connection is checked through HTTP, a WebSocket connection, browser identity, and target enumeration. A missing listener permits launching unless `--no-cdp` was supplied. Other connection failures report a conflict. Browser startup has a 15-second readiness deadline.
 
-The helper listens only on `127.0.0.1:9223`. Its default allowed origins include both `127.0.0.1` and `localhost` on ports 8082 and 8084, plus `SHOW_TOOLS_PRACTICE_ORIGIN`. Port 8084 matches the development guide. Keep that environment override to an HTTP or HTTPS origin without a path.
+In local browser practice, the helper listens only on `127.0.0.1:9223`. Its default allowed origins include both `127.0.0.1` and `localhost` on ports 8082 and 8084, plus `SHOW_TOOLS_PRACTICE_ORIGIN`. Port 8084 matches the development guide. Keep that environment override to an HTTP or HTTPS origin without a path.
 
 The dedicated profile is separate from your normal browser profile. If Sheets requires authentication, sign in there first. A failed initial chart selection stops the command's owned resources and reports an error. Use `--skip-open` to start without waiting for an initial chart selection. The helper changes selection only; it never writes cell values.
 
 ## Follow during practice
 
-The Performance Desk's **Open current bar in Sheets** button sends a spreadsheet ID, sheet ID, and column range to the loopback helper. The helper opens or reuses that spreadsheet, switches to the correct sheet, selects the column, and confirms the Name box before acknowledging.
+### Hardware desk
 
-Practice audio runs independently. The helper is optional and runs on the desktop controlling Sheets. It is unnecessary for mobile audio practice.
+Save your existing hardware desk token as plain text in `~/.config/show-tools/desk-token` and give the file mode `600`. Keep the file outside the checkout. Set `SHOW_TOOLS_DESK_TOKEN_FILE` if you save it elsewhere. Run the command on the Mac you want to use for Sheets:
 
-Practice pages on localhost automatically send changed bar columns while the sequencer counts, including the lead-in column. Updates remain in the background and retain only the newest pending column if Sheets is slow. Stop, Panic, and song changes stop the current following session. For a hosted practice page, press **Open current bar in Sheets** to opt into following for that session and configure its allowed origin. Hosted mobile practice sends no automatic helper requests by default.
+```sh
+SHOW_TOOLS_DESK_ORIGIN=https://your-elitedesk-host:8443 ./show-tools sheets
+```
+
+The command subscribes directly to the hardware desk over HTTPS and drives the local Chrome tab. It starts following as soon as the desk runs a song, even if no web page is open. The terminal reports the subscription and selected columns. To skip the initial set-list tab, add `--skip-open`. Use the same trusted HTTPS hostname as the desk.
+
+### Local browser practice
+
+On localhost, the Performance Desk sends changed bar columns to the Mac helper while the sequencer counts. **Open current bar in Sheets** makes a one-time jump. Stop, Panic, and song changes end the current following session. Sheet updates stay in the background and retain only the newest pending column if Sheets is slow.
+
+Practice audio runs independently of Chrome and Sheets.
 
 The viewport keeps two preceding columns to the left of the active column, with the remaining space showing upcoming bars. The helper remembers column positions, so two previously visited columns provide exact context even when widths differ. An initial jump estimates preceding space from the active column's width. Scrolling clamps to available columns. If three unusually wide columns cannot fit, the active column takes priority. Frozen chart labels remain in place.
 

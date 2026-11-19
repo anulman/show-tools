@@ -272,6 +272,66 @@ void exhaustive_held_image_checks() {
     ok(engine, pf_input_revoke(engine, 1, second_session));
   }
 }
+void identified_input_events() {
+  Engine engine;
+  load(engine, empty_program());
+  attach(engine, 3, 10, PF_INPUT_PHYSICAL, 1);
+  const double binding_generation = generation(engine);
+  std::array<double, PF_EVENT_FIELDS * PF_EVENT_CAPACITY> events{};
+  pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+  event(engine, 3, 10, 1, 0, 1);
+  event(engine, 3, 10, 2, 0, 1);
+  require(pf_input_event(engine, 3, 10, binding_generation, 1, 0, 0) < 0, "stale edge rejected");
+  event(engine, 3, 10, 3, 0, 0);
+  event(engine, 3, 10, 4, 7, -24);
+  event(engine, 3, 10, 5, 7, 0);
+  const auto count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+  const std::array<int, 3> sequences{1, 3, 4}, edges{1, 2, 3}, controls{0, 0, 7}, values{1, 0, -24};
+  unsigned index = 0;
+  for (uint32_t n = 0; n < count; ++n) {
+    const auto* row = events.data() + n * PF_EVENT_FIELDS;
+    require(row[PF_EVENT_TYPE] != PF_CONTROL, "observation-only knob motion does not trigger a musical control");
+    if (row[PF_EVENT_TYPE] != PF_IDENTIFIED_INPUT) continue;
+    require(index < sequences.size(), "repeat or stale input must not become a new identified edge");
+    require(row[PF_EVENT_INPUT_SLOT] == 3 && row[PF_EVENT_INPUT_SESSION] == 10 &&
+            row[PF_EVENT_INPUT_KIND] == PF_INPUT_PHYSICAL && row[PF_EVENT_INPUT_GENERATION] == binding_generation,
+            "exact source lease retained");
+    require(row[PF_EVENT_INPUT_SEQUENCE] == sequences[index] && row[PF_EVENT_INPUT_EDGE] == edges[index] &&
+            row[PF_EVENT_CONTROL] == controls[index] && row[PF_EVENT_VALUE] == values[index] &&
+            row[PF_EVENT_FRAME] == 0 && row[PF_EVENT_RATE] == 8000 && row[PF_EVENT_ERROR] == PF_OK,
+            "native timestamp and admitted unassigned button/knob edge retained");
+    ++index;
+  }
+  require(index == sequences.size(), "press, release, and signed rotation are independently observed");
+}
+void announced_cue_events() {
+  Engine engine;
+  auto data = held_program(false);
+  const int timed_index = 2;
+  const auto offset = PF_COMPILED_HEADER_FIELDS + 2 * PF_COMPILED_TAKE_FIELDS + timed_index * PF_COMPILED_CUE_FIELDS;
+  data[offset + 3] = 0;
+  load(engine, data);
+  start(engine);
+  until(engine, 3, 2);
+  std::array<double, PF_EVENT_FIELDS * PF_EVENT_CAPACITY> events{};
+  const auto count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+  int lead_in = 0, timed = 0;
+  for (uint32_t n = 0; n < count; ++n) {
+    const auto* row = events.data() + n * PF_EVENT_FIELDS;
+    if (row[PF_EVENT_TYPE] != PF_CUE_ENTER) continue;
+    if (row[PF_EVENT_CUE] == 0) {
+      require(row[PF_EVENT_CONTROL] == 0 && row[PF_EVENT_FRAME] == row[PF_EVENT_VALUE],
+              "whole-bar cue opens on its native frame");
+      ++lead_in;
+    } else if (row[PF_EVENT_CUE] == timed_index) {
+      const double warning = row[PF_EVENT_VALUE] - row[PF_EVENT_FRAME];
+      require(row[PF_EVENT_CONTROL] == 0 && warning >= 7967 && warning <= 8001,
+              "timed cue opens two beats before its native target, within one rendered block");
+      ++timed;
+    }
+  }
+  require(lead_in == 1 && timed == 1, "cue entries publish once per native warning window");
+}
 void protocol_checks() {
   Engine engine;
   load(engine, empty_program({0, PF_INPUT_CUES, 1, 1, PF_INPUT_CUES, 2, 5, PF_INPUT_PANIC, 0}));
@@ -515,6 +575,8 @@ int main() {
   unbound_light_checks();
   sequenced_baseline_while_held();
   exhaustive_held_image_checks();
+  identified_input_events();
+  announced_cue_events();
   protocol_checks();
   ownership_checks(false);
   ownership_checks(true);

@@ -100,6 +100,10 @@ export async function* boundedLines(input: Readable, maximum: number) {
 	if (pending.length) throw new Error('Peripheral stream ended with an incomplete line');
 }
 
+const MUSICAL_KNOB = 6;
+const OBSERVED_KNOB = 7;
+type KnobInput = typeof MUSICAL_KNOB | typeof OBSERVED_KNOB;
+
 export interface PhysicalInputEvent { readonly sequence: number; readonly input: number; readonly value: number }
 export class PeripheralRelay {
 	private ready = false;
@@ -110,7 +114,7 @@ export class PeripheralRelay {
 	private closed = false;
 	private idle: Promise<void> = Promise.resolve();
 	private enabled = false;
-	constructor(private readonly session: number, private readonly send: (event: PhysicalInputEvent) => Promise<void>, private readonly failed: (error: unknown) => void, private readonly knobEnabled = true) {}
+	constructor(private readonly session: number, private readonly send: (event: PhysicalInputEvent) => Promise<void>, private readonly failed: (error: unknown) => void, private readonly knobInput: KnobInput | null = MUSICAL_KNOB) {}
 	input(value: unknown) {
 		if (this.closed) return;
 		const input = decodeInput(value);
@@ -124,13 +128,13 @@ export class PeripheralRelay {
 		}
 		if (!this.ready || input.sequence <= this.lastSequence) throw new Error('Peripheral input sequence is stale');
 		this.lastSequence = input.sequence;
-		if (input.type === 'motion' && (input.deltaY === 0 || !this.knobEnabled)) return;
 		if (input.type === 'button' && !this.switches.has(input.controlId)) throw new Error('Unconfigured physical switch');
-		const control: PhysicalInputEvent = { sequence: input.sequence,
-			input: input.type === 'button' ? PHYSICAL_SWITCH_IDS.indexOf(input.controlId) : 6,
+		const inputId = input.type === 'button' ? PHYSICAL_SWITCH_IDS.indexOf(input.controlId) : this.knobInput;
+		if (inputId === null || (input.type === 'motion' && input.deltaY === 0)) return;
+		const control: PhysicalInputEvent = { sequence: input.sequence, input: inputId,
 			value: input.type === 'button' ? Number(input.down) : input.deltaY };
 		const previous = this.pending.at(-1);
-		if (control.input === 6 && previous?.input === 6 && Math.sign(control.value) === Math.sign(previous.value)) {
+		if (input.type === 'motion' && previous?.input === inputId && Math.sign(control.value) === Math.sign(previous.value)) {
 			const distance = previous.value + control.value;
 			if (Math.abs(distance) > 1_000_000) throw new Error('Peripheral motion backlog overflow');
 			this.pending[this.pending.length - 1] = { ...control, value: distance };
@@ -332,12 +336,13 @@ async function attachNativeSession(config: PeripheralBridgeConfig, signal: Abort
 		}));
 		if (result.outcome !== 'applied') {
 			if (result.outcome === 'unknown') throw new PeripheralRetry('Peripheral control outcome unknown; this input will not be replayed');
-			if (event.input !== 6 && event.value === 0) throw new PeripheralRetry('Native button release rejected; reconnect the physical source');
+			if (event.input < PHYSICAL_SWITCH_IDS.length && event.value === 0) throw new PeripheralRetry('Native button release rejected; reconnect the physical source');
 			process.stderr.write(`${JSON.stringify({ type: 'input-rejected', event, error: result.error })}\n`); return;
 		}
 		if (result.hostEpoch !== target.hostEpoch) throw new PeripheralRetry('Native engine changed');
 	};
-	const relay = new PeripheralRelay(device.session, send, fail, config.jiggle !== null);
+	const knobInput = !config.inputMap.axis ? null : config.jiggle ? MUSICAL_KNOB : OBSERVED_KNOB;
+	const relay = new PeripheralRelay(device.session, send, fail, knobInput);
 	relay.input(initial);
 	const unsubscribe = device.subscribe(value => { try { if (value.type !== 'ready') relay.input(value); } catch (error) { fail(error); } }, fail);
 	const exactRetirement = (status: InputIntentStatus): boolean => {

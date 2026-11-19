@@ -169,6 +169,44 @@ void state_events_are_immutable_and_bounded() {
   }
   require(count_in == 4 && song == 4, "event snapshots retain position from each crossing");
 }
+void native_beat_forecast_revises_without_polling_noise() {
+  Engine engine;
+  configure(engine, 4);
+  const auto collect = [&](int type) {
+    std::vector<std::array<double, PF_EVENT_FIELDS>> observed;
+    std::array<double, PF_EVENT_FIELDS> event{};
+    while (pf_drain_events(engine, event.data(), 1)) if (event[PF_EVENT_TYPE] == type) observed.push_back(event);
+    return observed;
+  };
+  ok(engine, pf_start(engine, 120, 1, 1, 4, 0, 0));
+  pf_flush(engine);
+  auto predictions = collect(PF_BEAT_PREDICTION);
+  require(predictions.size() == 1 && predictions[0][PF_EVENT_NEXT_BEAT_ID] == 1
+    && predictions[0][PF_EVENT_NEXT_BEAT_FRAME] == 4000, "start forecasts the first count-in beat");
+  process(engine, 1000);
+  require(collect(PF_BEAT_PREDICTION).empty(), "unchanged forecast does not repeat during count-in");
+  ok(engine, control(engine, 6, 0, nullptr));
+  pf_flush(engine);
+  require(collect(PF_BEAT_PREDICTION).empty(), "first pedal tap establishes reference without shifting the forecast");
+  process(engine, 5000);
+  const auto beats = collect(PF_BEAT);
+  require(beats.size() == 1 && std::abs(beats[0][PF_EVENT_FRAME] - 4000) < 1e-6
+    && beats[0][PF_EVENT_NEXT_BEAT_ID] == 2 && std::abs(beats[0][PF_EVENT_NEXT_BEAT_FRAME] - 8000) < 1e-6,
+    "count-in crossing carries the next count on the native clock");
+  ok(engine, control(engine, 6, 0, nullptr));
+  pf_flush(engine);
+  predictions = collect(PF_BEAT_PREDICTION);
+  require(predictions.size() == 1 && predictions[0][PF_EVENT_FRAME] == 6000 && predictions[0][PF_EVENT_NEXT_BEAT_ID] == 2
+    && std::abs(predictions[0][PF_EVENT_NEXT_BEAT_FRAME] - 8500) < 1e-6
+    && predictions[0][PF_EVENT_CLOCK_EPOCH] == beats[0][PF_EVENT_CLOCK_EPOCH]
+    && predictions[0][PF_EVENT_CLOCK_REVISION] > beats[0][PF_EVENT_CLOCK_REVISION],
+    "second pedal tap revises the same upcoming count without a beat crossing");
+  pf_stop(engine);
+  pf_flush(engine);
+  predictions = collect(PF_BEAT_PREDICTION);
+  require(predictions.size() == 1 && predictions[0][PF_EVENT_NEXT_BEAT_ID] == -1 && predictions[0][PF_EVENT_NEXT_BEAT_FRAME] == -1,
+    "stop invalidates the previously published prediction");
+}
 void commands_and_configuration_are_atomic() {
   Engine engine;
   auto arm = cue(0, 2, PF_ARM);
@@ -401,7 +439,7 @@ void live_processing_has_no_heap_work() {
 }
 int main() {
   owned_clock_capture_and_commit(); mandatory_click_and_song_preference(); count_in_range_and_faults();
-  whole_bar_variants_and_suppression(); state_events_are_immutable_and_bounded(); commands_and_configuration_are_atomic(); bounded_events_and_invalid_programs(); utf16_command_identity(); generic_click_and_clock_retries();
+  whole_bar_variants_and_suppression(); state_events_are_immutable_and_bounded(); native_beat_forecast_revises_without_polling_noise(); commands_and_configuration_are_atomic(); bounded_events_and_invalid_programs(); utf16_command_identity(); generic_click_and_clock_retries();
   live_preparation_and_revisions(); live_stereo_and_legacy_parity(); live_null_outputs_alias_and_nonfinite();
   live_lifecycle_and_capture_rejection(); live_end_boundary_and_identity_capture(); live_processing_has_no_heap_work();
   std::puts("Native performance tests passed.");

@@ -87,7 +87,7 @@ test('binding requires a complete explicit map and never translates legacy keys 
 
 test('disabled motion is validated and consumes sequence before discard; button edges remain musical', async () => {
 	const sent: PhysicalInputEvent[] = [];
-	const relay = new PeripheralRelay(1, async control => { sent.push(control); }, error => { throw error; }, false);
+	const relay = new PeripheralRelay(1, async control => { sent.push(control); }, error => { throw error; }, null);
 	assert.throws(() => relay.input({ type: 'motion', session: 1, sequence: 1, deltaY: 3 }), /stale/);
 	relay.input({ type: 'ready', version: 2, session: 1, switches: [{ controlId: 'blue', state: 'released' }] });
 	relay.start();

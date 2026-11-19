@@ -24,7 +24,7 @@ function render(native: NativePerformance, frames: number, frequency = 0) {
 for (const rate of [44100, 48000]) test(`shared tuner analyzes raw PCM and renders finite reference at ${rate} Hz`, () => {
   const native = engine(rate);
   try {
-    assert.equal(PF.ABI_VERSION, 12);
+    assert.equal(PF.ABI_VERSION, 13);
     let state = native.tunerState();
     assert.equal(state.root, 48);
     assert.deepEqual(state.targets.map(note => note.midi), [48, 50, 52, 53, 55, 57, 59, 60]);

@@ -6,6 +6,7 @@ import { SONGS, loadSong } from '../songs/index.js';
 import { rangeForBar } from '../lib/performance/chart.js';
 import { chartSettings, LOCAL_PRACTICE_ORIGINS } from './chart-settings.js';
 import { createChartHelper, inspectCDP, openChart, openSetList } from './open-chart.js';
+import { configureDeskChartSource, followDeskCharts } from './desk-chart-follower.js';
 import { spawnCDP } from './start-cdp.js';
 import { chiefHandoff, commandFailureExitCode, formatCommandFailure, parseCommandFailure } from './lib/command-diagnostics.js';
 
@@ -38,6 +39,9 @@ Examples:
 Chromium is reused at SHOW_TOOLS_CDP_PORT (default 9222), or launched if absent.
 Use SHOW_TOOLS_CHROMIUM_APP, SHOW_TOOLS_CDP_PROFILE, and
 SHOW_TOOLS_PRACTICE_ORIGIN for overrides in your ignored .envrc.
+Set SHOW_TOOLS_DESK_ORIGIN to an exact HTTPS origin to follow the hardware desk directly.
+Set SHOW_TOOLS_DESK_TOKEN_FILE to your private token file if it lives outside
+~/.config/show-tools/desk-token.
 SHOW_TOOLS_SET_LIST_URL selects the spreadsheet opened when no song is given.
 Ctrl+C stops this helper and any browser it launched. Reused browsers stay open.
 `;
@@ -81,23 +85,26 @@ async function stopBrowser(child: ChildProcess, exited: Promise<Error>) {
 export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
   env = process.env, signal = new AbortController().signal, port = 9223,
   log = (message: string) => process.stdout.write(message + '\n'),
-  inspect = inspectCDP, launch = spawnCDP, select = openChart, openList = openSetList,
+  inspect = inspectCDP, launch = spawnCDP, select = openChart, openList = openSetList, request = fetch,
 }: { env?: NodeJS.ProcessEnv; signal?: AbortSignal; port?: number; log?: (message: string) => void;
-  inspect?: typeof inspectCDP; launch?: typeof spawnCDP; select?: typeof openChart; openList?: typeof openSetList } = {}) {
+  inspect?: typeof inspectCDP; launch?: typeof spawnCDP; select?: typeof openChart; openList?: typeof openSetList; request?: typeof fetch } = {}) {
   const settings = chartSettings(env);
   const song = command.songId ? await loadSong(command.songId) : undefined;
-  const helper = createChartHelper({ cdp: settings.cdp, origins: [...LOCAL_PRACTICE_ORIGINS, settings.practiceOrigin], select });
+  const desk = await configureDeskChartSource(env);
+  const helper = desk ? undefined : createChartHelper({ cdp: settings.cdp, origins: [...LOCAL_PRACTICE_ORIGINS, settings.practiceOrigin], select });
   let browser: { child: ChildProcess; exited: Promise<Error> } | undefined;
   const lifetime = new AbortController();
   const cancelled = AbortSignal.any([signal, lifetime.signal]);
   let bound = false;
   try {
     cancelled.throwIfAborted();
-    await new Promise<void>((ready, reject) => {
-      helper.once('error', reject);
-      helper.listen(port, '127.0.0.1', () => { helper.removeListener('error', reject); bound = true; ready(); });
-    });
-    helper.on('error', error => lifetime.abort(error));
+    if (helper) {
+      await new Promise<void>((ready, reject) => {
+        helper.once('error', reject);
+        helper.listen(port, '127.0.0.1', () => { helper.removeListener('error', reject); bound = true; ready(); });
+      });
+      helper.on('error', error => lifetime.abort(error));
+    }
     let product: string;
     try { product = await inspect(settings.cdp, cancelled); }
     catch (error) {
@@ -126,8 +133,10 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
     }
     cancelled.throwIfAborted();
     log(`Browser   ${browser ? 'launched' : 'reused'} ${product} · ${settings.cdp}`);
-    const address = helper.address();
-    log(`Helper    listening http://127.0.0.1:${address && typeof address === 'object' ? address.port : port}`);
+    if (helper) {
+      const address = helper.address();
+      log(`Helper    listening http://127.0.0.1:${address && typeof address === 'object' ? address.port : port}`);
+    }
     if (song && command.open) {
       const result = await select(settings.cdp, { spreadsheetId: song.chart.spreadsheetId, sheetId: song.chart.sheetId,
         range: rangeForBar(song.chart, song.practice.startBar, 'count-in'), activate: true }, undefined, cancelled);
@@ -137,8 +146,9 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
       log(`Set list  ${settings.setListURL}`);
     }
     cancelled.throwIfAborted();
-    log(`Waiting for practice events. Ctrl+C stops the helper${browser ? ' and the browser launched here.' : '; the reused browser stays open.'}`);
-    await new Promise<void>(done => {
+    log(`Waiting for practice events. Ctrl+C stops the ${desk ? 'follower' : 'helper'}${browser ? ' and the browser launched here.' : '; the reused browser stays open.'}`);
+    if (desk) await followDeskCharts({ ...desk, cdp: settings.cdp, select, signal: cancelled, log, request });
+    else await new Promise<void>(done => {
       if (cancelled.aborted) done();
       else cancelled.addEventListener('abort', () => done(), { once: true });
     });
@@ -147,8 +157,8 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
     if (!signal.aborted) { lifetime.signal.throwIfAborted(); throw error; }
   } finally {
     lifetime.abort();
-    helper.closeAllConnections();
-    if (bound) await new Promise<void>(done => helper.close(() => done()));
+    helper?.closeAllConnections();
+    if (helper && bound) await new Promise<void>(done => helper.close(() => done()));
     if (browser) await stopBrowser(browser.child, browser.exited);
   }
 }

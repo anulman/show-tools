@@ -138,11 +138,28 @@ export interface StartOptions {
   automatic?: boolean;
   runId?: string;
 }
+export interface BeatTiming {
+  clockEpoch: number;
+  clockRevision: number;
+  nextBeat: { id: number; frame: number } | null;
+}
+export type IdentifiedInputControl = ControlId | PhysicalSwitchId;
+export interface IdentifiedPerformanceInput {
+  producer: number;
+  session: number;
+  bindingGeneration: number;
+  sequence: number;
+  kind: typeof INPUT_PRODUCER_KINDS[number];
+  inputIndex: number;
+  controlId: IdentifiedInputControl;
+  edge: 'press' | 'release' | 'rotate';
+  value: number;
+}
 export interface PracticeEvent {
   v: 1;
   runId: string;
   seq: number;
-  type: 'state' | 'beat' | 'control' | 'fault' | 'tempo-hit';
+  type: 'state' | 'beat' | 'beat-prediction' | 'control' | 'fault' | 'tempo-hit' | 'identified-input' | 'cue';
   state: PracticeState;
   frame?: number;
   sampleRate?: number;
@@ -153,6 +170,10 @@ export interface PracticeEvent {
   error?: string;
   tempoHit?: TempoHitObservation;
   cueIndex?: number;
+  cueRow?: ChannelId;
+  cueFrame?: number;
+  timing?: BeatTiming;
+  identifiedInput?: IdentifiedPerformanceInput;
 }
 export interface ControlMessage { commandId: string; control: Control }
 export interface ProgramEvent { atBeat: number; sampleId: ChannelId; gain?: number }

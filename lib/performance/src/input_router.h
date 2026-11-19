@@ -9,6 +9,10 @@
 
 namespace performance_input {
 constexpr double maximum_identity = 9007199254740991.;
+constexpr uint32_t knob = 6, knob_observation = 7;
+inline bool is_axis(uint32_t kind, uint32_t input) {
+  return kind == PF_INPUT_PHYSICAL ? input == knob || input == knob_observation : input == 5;
+}
 inline bool identity(double value) {
   return std::isfinite(value) && value >= 1 && value <= maximum_identity && std::floor(value) == value;
 }
@@ -76,10 +80,8 @@ class Router {
       return PF_INVALID_INPUT;
     if (!item->active || item->session != session || generation != generation_ || sequence <= item->sequence)
       return PF_STALE_INPUT;
-    const bool physical = item->kind == PF_INPUT_PHYSICAL;
-    if (input > (physical ? 6u : 7u)) return PF_INVALID_INPUT;
-    const bool axis = input == (physical ? 6u : 5u);
-    if (axis) return std::abs(value) <= maximum_identity ? PF_OK : PF_INVALID_INPUT;
+    if (input > 7) return PF_INVALID_INPUT;
+    if (is_axis(item->kind, input)) return std::abs(value) <= maximum_identity ? PF_OK : PF_INVALID_INPUT;
     return value == 0 || value == 1 ? PF_OK : PF_INVALID_INPUT;
   }
   int attach(uint32_t slot, double session, double generation, uint32_t kind, uint32_t released, uint32_t held) {
@@ -101,7 +103,7 @@ class Router {
   }
   int observe(uint32_t slot, double session, double sequence, uint32_t input, double value) {
     auto& item = producers_[slot];
-    const bool axis = input == (item.kind == PF_INPUT_PHYSICAL ? 6u : 5u);
+    const bool axis = is_axis(item.kind, input);
     const int result = axis ? pp_rotate(item.latch, session, sequence, value)
                             : pp_key(item.latch, session, sequence, input, int(value));
     if (result < 0) return result;

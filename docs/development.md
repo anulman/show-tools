@@ -72,7 +72,7 @@ Assign one owner to a shared contract change before editing it. The likely overl
 
 For native hosting, follow the [EliteDesk inventory procedure](operations/elitedesk-inventory.md) and [practice quickstart](practice-quickstart.md). Hardware - EliteDesk owns the existing native ALSA host and peripheral adapters. Performance Engine owns shared musical and clock contracts. The persistent gateway serves the desk while audio stays on the native host. Native fixtures establish PCM and lifecycle behavior; installed device readiness and physical behavior require target evidence. Follow the [handoff guide](implementation/lean-handoff.md) to keep source evidence separate from host capability and readiness.
 
-Treat the Sheets helper and its Chrome profile as shared state too. Use one owner for a live chart-follow test so different practice sessions do not compete to select columns.
+Treat the Sheets helper and its Chrome profile as shared state too. Use one owner for a live chart-follow test so different practice sessions do not compete to select columns. For the hardware path, verify that the Mac command follows an authenticated server event stream with no desk tab, then open the desk and check that hardware events cause no requests to the browser’s loopback address.
 
 ## Build a browser checkout
 
