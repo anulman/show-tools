@@ -18,7 +18,7 @@ constexpr int telemetry_capacity = 512;
 constexpr int dedup_capacity = 256;
 static_assert(PF_EVENT_CHANNELS == PF_EVENT_STATE + PF_FIELDS);
 static_assert(PF_EVENT_CUE == PF_EVENT_CHANNELS + PF_CHANNELS * PF_CHANNEL_FIELDS);
-static_assert(PF_EVENT_FIELDS == PF_EVENT_CUE + 1);
+static_assert(PF_EVENT_FIELDS == PF_EVENT_INPUT_EDGE + 1);
 static_assert(PF_CUE_FIELDS == PF_CUE_POSITIONS + ST_HITS);
 static_assert(sizeof(double) == 8 && std::numeric_limits<double>::is_iec559);
 static_assert(sizeof(pf_effect_definition) == PF_EFFECT_BYTES);
@@ -60,6 +60,9 @@ struct EffectProfile {
   pf_effect_definition definitions[PF_MAX_LIVE_EFFECTS]{};
   uint32_t count = 0, revision = 0;
 };
+struct BeatForecast {
+  double beat_id = -1, target_frame = -1, observed_frame = 0, clock_epoch = 0, clock_revision = 0;
+};
 struct pf_engine {
   performance_input::Router inputs;
   std::unique_ptr<tuner::Engine> tuning;
@@ -75,6 +78,7 @@ struct pf_engine {
   double light_run = 0, light_sequence = 0;
   int jiggle_travel = 4, jiggle_reversal = 2;
   double light_image[PF_LIGHT_FIELDS]{};
+  BeatForecast published_beat_forecast;
   double rate = 0, processed = 0, bpm = 120, epoch = 1, clock_beat = 0, clock_frame = 0, click_origin = 0, max_seconds = 30;
   int mode = PF_TRACKER, phase = PF_IDLE, start = 1, end = 1, selected = 2, beats_per_bar = 4;
   int bar = -1, beat = -1, count_beats = 0, count_elapsed = 0, count_remaining = 0, position = -1;
@@ -184,7 +188,26 @@ double next_bar(const pf_engine* engine) {
   if (engine->phase == PF_COUNT_IN) return engine->last_beat + engine->count_remaining;
   return engine->last_beat + 4 - std::max(1, engine->beat) + 1;
 }
-void emit(pf_engine* engine, int type, double when = -1, int applied = -1, int control = -1, double value = 0, int cue = -1) {
+BeatForecast beat_forecast(const pf_engine* engine) {
+  double clock[BT_S_COUNT]; bt_snapshot(engine->tracker, clock);
+  const bool active = running(engine) && clock[BT_S_STARTED];
+  return {active ? clock[BT_S_BEAT_ID] + 1 : -1, active ? clock[BT_S_NEXT_BEAT_FRAME] : -1,
+    clock[BT_S_FRAME], clock[BT_S_EPOCH], clock[BT_S_REVISION]};
+}
+void write_beat_prediction(pf_engine* engine, double* event) {
+  const int type = int(event[PF_EVENT_TYPE]);
+  if (type != PF_BEAT && type != PF_BEAT_PREDICTION) return;
+  auto forecast = beat_forecast(engine);
+  if (type == PF_BEAT && (forecast.beat_id <= engine->clock_beat || forecast.target_frame <= event[PF_EVENT_FRAME])) {
+    forecast.beat_id = forecast.target_frame = -1;
+  }
+  engine->published_beat_forecast = forecast;
+  event[PF_EVENT_NEXT_BEAT_FRAME] = forecast.target_frame;
+  event[PF_EVENT_NEXT_BEAT_ID] = forecast.beat_id;
+  event[PF_EVENT_CLOCK_EPOCH] = forecast.clock_epoch;
+  event[PF_EVENT_CLOCK_REVISION] = forecast.clock_revision;
+}
+double* emit(pf_engine* engine, int type, double when = -1, int applied = -1, int control = -1, double value = 0, int cue = -1) {
   if (engine->event_count == PF_EVENT_CAPACITY) {
     engine->event_head = (engine->event_head + 1) % PF_EVENT_CAPACITY;
     --engine->event_count; ++engine->event_drops;
@@ -199,8 +222,20 @@ void emit(pf_engine* engine, int type, double when = -1, int applied = -1, int c
   event[PF_EVENT_APPLIED] = applied;
   event[PF_EVENT_CONTROL] = control;
   event[PF_EVENT_VALUE] = value; event[PF_EVENT_CUE] = cue;
+  write_beat_prediction(engine, event);
   pf_snapshot(engine, event + PF_EVENT_STATE);
   for (int id = 0; id < PF_CHANNELS; ++id) pf_channel_info(engine, id, event + PF_EVENT_CHANNELS + id * PF_CHANNEL_FIELDS);
+  return event;
+}
+void publish_beat_prediction_if_changed(pf_engine* engine) {
+  const auto forecast = beat_forecast(engine);
+  const auto& published = engine->published_beat_forecast;
+  if (forecast.beat_id == -1 && published.beat_id == -1) return;
+  // Suppress numerical roundoff in the prediction for a constant-rate clock.
+  constexpr double subframe_tolerance = 1e-4;
+  if (forecast.beat_id == published.beat_id && forecast.clock_epoch == published.clock_epoch &&
+      std::abs(forecast.target_frame - published.target_frame) < subframe_tolerance) return;
+  emit(engine, PF_BEAT_PREDICTION, forecast.observed_frame);
 }
 void silence(pf_engine* engine, int reason = 3) {
   engine->restart_at_end = false;
@@ -335,6 +370,7 @@ void render_segment(pf_engine* engine, const float* input, float* left, float* r
   if (!count) return;
   if (engine->compiled && engine->profiles[PF_DEFAULT_PROFILE].rack) {
     engine->compiled->render(input, left, right, live_left, live_right, count, start, engine->bpm, live_active(engine), *engine->profiles[PF_DEFAULT_PROFILE].rack, *engine->profiles[PF_BACKUP_PROFILE].rack);
+    engine->compiled->publish_cue_entries(engine->end);
     if (engine->compiled->error() != PF_OK) {
       int error = engine->compiled->error(); engine->compiled->clear_error();
       if (error != PF_LOOP_MISMATCH) { engine->phase = PF_IDLE; engine->count_remaining = 0; clear_live(engine); }
@@ -538,6 +574,10 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
     auto* owner = static_cast<pf_engine*>(context);
     owner->processed = std::max(owner->processed, when);
     emit(owner, PF_STATE, when);
+  });
+  engine->compiled->cue_entries(engine, [](void* context, double observed_frame, double cue_frame, int button, int cue) {
+    auto* owner = static_cast<pf_engine*>(context);
+    emit(owner, PF_CUE_ENTER, observed_frame, -1, button, cue_frame, cue)[PF_EVENT_ERROR] = PF_OK;
   });
   engine->compiled->outcomes(engine, [](void* context, double when, int button, int cue, int error) {
     auto* owner = static_cast<pf_engine*>(context);
@@ -946,10 +986,23 @@ int pf_input_event(pf_engine* engine, uint32_t slot, double session, double gene
   auto* producer = engine->inputs.producer(slot);
   const int edge = engine->inputs.observe(slot, session, sequence, input, value);
   if (edge < 0) return fail(engine, edge == PP_STALE ? PF_STALE_INPUT : PF_INVALID_INPUT);
+  if (edge != PP_IGNORED) {
+    double* event = emit(engine, PF_IDENTIFIED_INPUT, engine->processed, -1, input, value);
+    event[PF_EVENT_ERROR] = PF_OK;
+    event[PF_EVENT_INPUT_SLOT] = slot;
+    event[PF_EVENT_INPUT_SESSION] = session;
+    event[PF_EVENT_INPUT_GENERATION] = generation;
+    event[PF_EVENT_INPUT_SEQUENCE] = sequence;
+    event[PF_EVENT_INPUT_KIND] = producer->kind;
+    event[PF_EVENT_INPUT_EDGE] = edge;
+  }
   if (edge == PP_RELEASE) {
     if (engine->compiled) engine->compiled->release_owner(producer->ownership[input]);
     producer->ownership[input] = 0;
-  } else if (edge == PP_MOVEMENT) return pf_control(engine, 5, value, nullptr, 0);
+  } else if (edge == PP_MOVEMENT) {
+    if (producer->kind == PF_INPUT_PHYSICAL && input == performance_input::knob_observation) return accepted(engine);
+    return pf_control(engine, 5, value, nullptr, 0);
+  }
   else if (edge == PP_PRESS) {
     auto target = producer->kind == PF_INPUT_PHYSICAL ? engine->inputs.binding(input)
       : performance_input::Binding{input < 4 || input == 7 ? PF_INPUT_CUES : input == 4 ? PF_INPUT_PANIC : PF_INPUT_TEMPO,
@@ -1084,6 +1137,7 @@ int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
     engine->click_accent = engine->mode == PF_PRACTICE ? downbeat : std::fmod(id - engine->click_origin - 1, 4) == 0;
   } else engine->click_start = -infinity;
   if (running) emit(engine, engine->error_code && engine->error_code != PF_CAPTURE_EFFECTS_UNAVAILABLE ? PF_FAULT : PF_BEAT, when);
+  if (engine->compiled && running && !stopped) engine->compiled->publish_cue_entries(engine->end);
   return stopped && engine->error_code ? -1 : running ? 1 : 0;
 }
 void pf_flush(pf_engine* engine) {
@@ -1100,6 +1154,7 @@ void pf_flush(pf_engine* engine) {
       queue_tracker(engine, event);
     }
   } while (count == 64);
+  publish_beat_prediction_if_changed(engine);
 }
 static int process_stems(pf_engine* engine, const float* input, float* left, float* right, float* live_left, float* live_right, uint32_t frames, uint32_t& song_offset, uint32_t& song_frames) {
   if (!engine || !frame(engine->processed) || engine->processed < 0 || engine->processed + frames > safe_frame) return fail(engine, PF_ACTION_FAILED, "Invalid audio block");
@@ -1143,6 +1198,7 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
       }
     } while (count == 64);
     render(length);
+    publish_beat_prediction_if_changed(engine);
     offset += length;
   }
   return 0;

@@ -15,6 +15,7 @@ import type { SessionProfile } from './session-profile.js';
 import type { InstalledSongCatalog } from './song-catalog.js';
 import { prepareSongBindings, type SongBindingAuthority } from './song-bindings.js';
 import { decodeInputBindings } from '../performance/input-bindings.js';
+import { chartMetadata } from '../performance/chart.js';
 import { requireLegacyMonitorInactive } from './legacy-monitor.js';
 import { MAX_DEMO_BYTES, AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
   type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome, type NativeEngineRetirementProof } from './session-schema.js';
@@ -24,6 +25,7 @@ const outcome = Schema.decodeUnknownSync(NativeOutcomeSchema);
 const nativeEvent = Schema.decodeUnknownSync(NativeEventSchema);
 const revision = Schema.decodeUnknownSync(DeskRevisionSchema);
 const MAX_RETIRED_TARGETS = 128;
+const nativeRunNumber = (runId: string) => BigInt(runId.slice(runId.lastIndexOf(':') + 1));
 const errorText = (error: unknown) => (error instanceof Error ? error.message : 'Native audio failed').slice(0, 8192);
 type InstalledPackage = ReturnType<typeof validateInstalledPackage>;
 const diagnosticMessage = (attempt: Attempt, message: string) => {
@@ -32,10 +34,11 @@ const diagnosticMessage = (attempt: Attempt, message: string) => {
   return tail ? `${prefix}\n${tail.slice(-(8192 - prefix.length - 1))}` : prefix;
 };
 type ChildOwnership = { kind: 'not-requested' } | { kind: 'pending' } | { kind: 'known'; handle: ChildProcessSpawner.ChildProcessHandle };
-type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Promise<void>; finish: 'off' | 'fault'; stderr: Buffer; readyTarget?: NativeTarget; instrument?: NativeInstrument; child: ChildOwnership };
+type Attempt = { id: typeof AttemptSchema.Type; abort: AbortController; done: Promise<void>; finish: 'off' | 'fault'; stderr: Buffer; chartRunFloor?: bigint; readyTarget?: NativeTarget; instrument?: NativeInstrument; child: ChildOwnership };
 
 export class PersistentDesk implements DeskController {
   private view: DeskView;
+  private eventChart: ReturnType<typeof chartMetadata>;
   private readonly demoPath: string;
   private readonly listeners = new Set<(value: DeskPublication) => void>();
   private attempt: Attempt | undefined;
@@ -51,6 +54,7 @@ export class PersistentDesk implements DeskController {
     private readonly songs?: { catalog: InstalledSongCatalog; bindings: SongBindingAuthority }) {
     this.view = { serverEpoch: Schema.decodeUnknownSync(ServerEpochSchema)(randomUUID()), revision: revision('0'),
       song: Schema.decodeUnknownSync(SongSchema)(installed.song), audio: { kind: 'off' } };
+    this.eventChart = chartMetadata(this.view.song.chart);
     this.demoPath = join(profile.runtimeRoot, 'demo-latest.wav');
   }
   songChoices() {
@@ -89,6 +93,7 @@ export class PersistentDesk implements DeskController {
           if (attempt !== this.attempt || attempt.abort.signal.aborted) return rejected('Hardware audio changed while loading the song');
           const next = performance(snapshot);
           if (next.hostEpoch !== audio.performance.hostEpoch || next.state.phase !== 'idle') throw new Error('Native stopped song readback mismatch');
+          attempt.chartRunFloor = nativeRunNumber(next.state.runId);
           nextAudio = { ...audio, performance: next };
         } catch (error) {
           this.failAttempt(attempt, errorText(error));
@@ -98,6 +103,7 @@ export class PersistentDesk implements DeskController {
       candidate.commit();
       this.installed = candidate.installed;
       this.view = { ...this.view, song };
+      this.eventChart = chartMetadata(song.chart);
       this.update(nextAudio);
       return { outcome: 'accepted', view: this.view };
     } catch (error) { return rejected(errorText(error)); }
@@ -160,11 +166,13 @@ export class PersistentDesk implements DeskController {
       return;
     }
     if (value.type === 'event') {
-      const event = nativeEvent(value.event);
+      const native = nativeEvent(value.event);
+      const oldChart = attempt.chartRunFloor !== undefined && nativeRunNumber(native.runId) < attempt.chartRunFloor;
+      const event = oldChart ? native : { ...native, state: { ...native.state, chart: this.eventChart } };
       if (event.type === 'control' && event.control?.id === 'mushroom' && event.applied && event.physicalPanic) {
         this.publish({ type: 'event', attempt: attempt.id, event });
         this.stop(attempt);
-      } else if (this.configuration.kind === 'idle') this.publish({ type: 'event', attempt: attempt.id, event });
+      } else if (!oldChart && this.configuration.kind === 'idle') this.publish({ type: 'event', attempt: attempt.id, event });
       return;
     }
     if (this.configuration.kind !== 'idle') return;

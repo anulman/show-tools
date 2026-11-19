@@ -146,7 +146,7 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
       log(`Set list  ${settings.setListURL}`);
     }
     cancelled.throwIfAborted();
-    log(`Waiting for practice events. Ctrl+C stops the helper${browser ? ' and the browser launched here.' : '; the reused browser stays open.'}`);
+    log(`Waiting for practice events. Ctrl+C stops the ${desk ? 'follower' : 'helper'}${browser ? ' and the browser launched here.' : '; the reused browser stays open.'}`);
     if (desk) await followDeskCharts({ ...desk, cdp: settings.cdp, select, signal: cancelled, log, request });
     else await new Promise<void>(done => {
       if (cancelled.aborted) done();

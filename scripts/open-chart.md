@@ -1,12 +1,12 @@
 # Follow the current chart in Sheets
 
-Start the combined browser and Sheets helper from the repository root:
+Start Sheets following from the repository root:
 
 ```sh
 ./show-tools sheets 1
 ```
 
-The command reuses Chromium at the configured CDP port, or launches a dedicated browser if none is listening. It starts the local helper and opens the selected song's lead-in column. Leave the command running while you practice. The Performance Desk sends changed bar columns as the sequencer counts.
+The command reuses Chromium at the configured CDP port, or launches a dedicated browser if none is listening. It opens the selected song’s lead-in column. Leave the command running while you practice. Hardware mode reads the EliteDesk event stream directly. Browser mode uses the Mac’s local helper.
 
 Use a song slug or a 1-indexed set-list number:
 
@@ -24,7 +24,7 @@ An explicit startup song selects its chart only. Choose the matching song separa
 
 The CLI starts no audio or practice web server. Microphone capture still starts through **Start** in the page. Startup chart opening activates the chart tab once. Automatic bar following stays in the background and does not move keyboard focus away from the practice controls.
 
-Press **Ctrl+C** to stop the helper and any browser this invocation launched. A reused browser stays running. The startup output reports whether it launched or reused Chromium. An occupied helper port or incompatible CDP service produces an error without stopping another process. Browser profiles and recordings are never deleted.
+Press **Ctrl+C** to stop following and close any browser this invocation launched. A reused browser stays running. The startup output reports whether it launched or reused Chromium. An occupied helper port or incompatible CDP service produces an error without stopping another process. Browser profiles and recordings are never deleted.
 
 ## Use the command outside the checkout
 

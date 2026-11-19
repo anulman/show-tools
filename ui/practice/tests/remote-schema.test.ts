@@ -10,6 +10,10 @@ function beat(frame: number) {
   data[PF.EVENT_FRAME] = frame;
   data[PF.EVENT_RATE] = 8000;
   data[PF.EVENT_CUE] = -1;
+  data[PF.EVENT_NEXT_BEAT_ID] = 2;
+  data[PF.EVENT_NEXT_BEAT_FRAME] = frame + 4000;
+  data[PF.EVENT_CLOCK_EPOCH] = 1;
+  data[PF.EVENT_CLOCK_REVISION] = 3;
   return decodeNativeEvent(data, 'run', () => 'error');
 }
 
@@ -19,6 +23,8 @@ test('remote publications preserve native fractional frame coordinates', () => {
   assert.equal(decoded.type, 'event');
   if (decoded.type !== 'event') throw new Error('Expected an event');
   assert.equal(decoded.event.frame, event.frame);
+  assert.deepEqual(decoded.event.timing, { clockEpoch: 1, clockRevision: 3,
+    nextBeat: { id: 2, frame: 8000 * 60 / 134 + 4000 } });
   event.state.tempoHits = { count: 1, latest: { frame: 123.5, bpm: 134, beatHint: 1, source: 'chart', estimated: false } };
   const withTempo = decodeDeskPublication({ type: 'event', attempt: 'attempt', event });
   assert.equal(withTempo.type, 'event');
@@ -44,4 +50,27 @@ test('remote publications reject invalid coordinates and fractional sample count
     assert.throws(() => decodeDeskPublication({ type: 'event', attempt: 'attempt', event: { ...event, state: { ...event.state,
       compiledTakes: [{ ...take, [field]: 1.5 }] } } }));
   }
+});
+
+test('remote publications require event-specific cue and identified input fields', () => {
+  const state = beat(1).state;
+  const data = new Float64Array(PF.EVENT_FIELDS);
+  data[PF.EVENT_TYPE] = PF.IDENTIFIED_INPUT;
+  data[PF.EVENT_FRAME] = 300.25;
+  data[PF.EVENT_RATE] = 8000;
+  data[PF.EVENT_CUE] = -1;
+  data[PF.EVENT_INPUT_SLOT] = 3;
+  data[PF.EVENT_INPUT_SESSION] = 700;
+  data[PF.EVENT_INPUT_GENERATION] = 9;
+  data[PF.EVENT_INPUT_SEQUENCE] = 4;
+  data[PF.EVENT_INPUT_EDGE] = 3;
+  data[PF.EVENT_CONTROL] = 7;
+  data[PF.EVENT_VALUE] = -2;
+  const rotation = decodeNativeEvent(data, 'run', () => 'error');
+  assert.deepEqual(rotation.identifiedInput, { producer: 3, session: 700, bindingGeneration: 9,
+    sequence: 4, kind: 'physical', inputIndex: 7, controlId: 'knob', edge: 'rotate', value: -2 });
+  assert.doesNotThrow(() => decodeDeskPublication({ type: 'event', attempt: 'attempt', event: rotation }));
+  for (const type of ['beat-prediction', 'cue', 'identified-input']) assert.throws(() => decodeDeskPublication({
+    type: 'event', attempt: 'attempt', event: { type, state, v: 1, runId: 'run', seq: 1 },
+  }));
 });
