@@ -18,8 +18,12 @@
     <a class="brand" href="./">Performance Desk</a><span class="brand-divider" aria-hidden="true">/</span>
     <select id="song-select" aria-label="Song"></select>
     <div class="desk-tools">
+      <button id="audio-switch" type="button" role="switch" aria-label="Hardware audio" aria-checked="false" aria-describedby="audio-switch-status" hidden disabled>
+        <span class="audio-switch-standby" aria-hidden="true">Standby</span><span class="audio-switch-track" aria-hidden="true"></span><span class="audio-switch-live" aria-hidden="true">Live</span>
+      </button>
+      <span id="audio-switch-status" role="status" class="audio-switch-status"></span>
       <button id="open-tuner" type="button" class="secondary">Tuner</button>
-      <button id="open-settings" type="button" class="secondary" aria-haspopup="dialog"><span id="desk-signal" hidden aria-hidden="true"></span>Settings</button>
+      <button id="open-settings" type="button" class="secondary" aria-haspopup="dialog">Settings</button>
     </div>
   </header>
   <div id="error" class="error" role="alert" hidden></div>
@@ -70,9 +74,9 @@
   </div>
   <section id="hardware-audio" class="hardware-audio" aria-label="Hardware audio engine" hidden>
     <span id="hardware-audio-status" role="status">Connecting to desk…</span>
-    <div class="hardware-audio-actions"><button id="enable-audio" type="button" class="primary" disabled>Enable audio</button><button id="terminate-audio" type="button" class="secondary" disabled>Terminate audio</button><button id="hardware-key" type="button" class="secondary">Enter key</button></div>
+    <div class="hardware-audio-actions"><button id="reset-audio-fault" type="button" class="secondary" hidden>Clear fault</button><button id="hardware-key" type="button" class="secondary">Enter key</button></div>
     <span id="hardware-key-status" role="status"></span>
-    <p>Enable audio to monitor your mic. Terminate audio releases the interface and discards captured loops.</p>
+    <p>Live enables microphone monitoring. Standby stops audio, releases the interface, and clears captured loops.</p>
   </section>
   <div class="settings-options">
     <div class="transport-switches"><label class="switch"><input id="loop" type="checkbox" checked><span>Loop range</span></label><label class="switch"><input id="click" type="checkbox"><span>Song click</span></label></div>

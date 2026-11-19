@@ -692,6 +692,7 @@ function render(next: Partial<PracticeState>) {
   applyPendingPracticeUpdate();
   elements['audio-mode-select'].disabled = changingAudioMode;
   if (remote) {
+    renderHardwareAudio();
     renderButtonBindings();
     renderRemoteDemo();
   }
@@ -915,7 +916,7 @@ async function toggleOutputRecording() {
 }
 
 elements.start.addEventListener('click', () => act(async () => {
-  if (remote && !audio && remoteDesk?.snapshot().audio.kind === 'off') { await remoteDesk.enableAudio(); return; }
+  if (remote && !audio && remoteDesk?.snapshot().audio.kind === 'off') { await changeHardwareAudio(remoteDesk, true); return; }
   await startPractice();
 }));
 elements['sheet-link'].addEventListener('click', () => act(async () => {
@@ -1177,9 +1178,48 @@ function syncRemoteTransport(current: PracticeState) {
 
 const hardwareCard = requiredElement('#hardware-audio', HTMLElement);
 const hardwareStatus = requiredElement('#hardware-audio-status', HTMLSpanElement);
-const deskSignal = requiredElement('#desk-signal', HTMLSpanElement);
-const enableAudio = requiredElement('#enable-audio', HTMLButtonElement);
-const terminateAudio = requiredElement('#terminate-audio', HTMLButtonElement);
+const audioSwitch = requiredElement('#audio-switch', HTMLButtonElement);
+const audioSwitchStatus = requiredElement('#audio-switch-status', HTMLSpanElement);
+const resetAudioFault = requiredElement('#reset-audio-fault', HTMLButtonElement);
+let audioSwitchPending = false;
+
+function renderHardwareAudio() {
+  const connection = remoteDesk?.connection.kind ?? 'connecting';
+  const status = remoteDesk?.snapshot().audio;
+  const kind = status?.kind ?? 'off';
+  const connected = connection === 'connected';
+  const live = kind === 'starting' || kind === 'ready';
+  const description = connection === 'disconnected' ? 'Connection lost. Hardware audio may still be running.'
+    : !connected ? 'Connecting to desk…'
+    : kind === 'off' ? 'Standby · audio off'
+    : kind === 'ready' ? 'Live · audio on'
+    : kind === 'fault' ? 'Hardware audio fault. Switch to Live to retry.'
+    : kind === 'starting' ? 'Starting hardware audio…' : 'Stopping hardware audio…';
+  hardwareCard.dataset.connection = connection;
+  hardwareCard.dataset.audio = connected ? kind : '';
+  const detail = connected && status?.kind === 'fault' ? `Audio fault · ${status.error}`
+    : connected && status?.kind === 'stopping' && status.error ? status.error : description;
+  if (hardwareStatus.textContent !== detail) hardwareStatus.textContent = detail;
+  if (audioSwitchStatus.textContent !== description) audioSwitchStatus.textContent = description;
+  audioSwitch.dataset.state = connected ? kind : connection;
+  audioSwitch.setAttribute('aria-checked', String(live));
+  audioSwitch.disabled = audioSwitchPending || !connected || kind === 'stopping' || (!live && switching);
+  audioSwitch.title = live ? 'Switch to Standby to stop audio and clear captured loops' : 'Switch to Live to enable hardware audio';
+  resetAudioFault.hidden = !connected || kind !== 'fault';
+  resetAudioFault.disabled = audioSwitchPending;
+}
+
+async function changeHardwareAudio(desk: RemoteDesk, live: boolean) {
+  if (audioSwitchPending) return;
+  audioSwitchPending = true;
+  renderHardwareAudio();
+  try {
+    await (live ? desk.enableAudio() : desk.terminateAudio());
+  } finally {
+    audioSwitchPending = false;
+    renderHardwareAudio();
+  }
+}
 
 async function replaceHardwareDesk(desk: RemoteDesk) {
   try {
@@ -1200,6 +1240,7 @@ async function replaceHardwareDesk(desk: RemoteDesk) {
 }
 
 function renderHardwareUnavailable() {
+  renderHardwareAudio();
   renderButtonBindings();
   renderRemoteDemo();
   if (chart) elements['range-label'].textContent = `BARS ${chartBarLabel(chart, Number(elements['start-section'].value))}–${elements['end-bar'].value}`;
@@ -1225,15 +1266,22 @@ if (remote) {
   const hardwareKeyStatus = requiredElement('#hardware-key-status', HTMLSpanElement);
   const hardwareAuth = createHardwareAuth({ endpoint: new URL('/api/session', location.href).href });
   hardwareCard.hidden = false;
-  deskSignal.hidden = false;
-  deskSignal.dataset.state = 'off';
+  audioSwitch.hidden = false;
   elements['monitor-relationship'].closest('label')?.setAttribute('hidden', '');
   elements['monitor-hint'].hidden = true;
   elements['offline-status'].textContent = 'Audio runs on the remote host.';
   chartSource.hidden = true;
   renderHardwareUnavailable();
-  enableAudio.addEventListener('click', () => { void act(async () => { await remoteDesk?.enableAudio(); }); });
-  terminateAudio.addEventListener('click', () => { void act(async () => { await remoteDesk?.terminateAudio(); }); });
+  audioSwitch.addEventListener('click', () => {
+    const desk = remoteDesk;
+    if (!desk || audioSwitch.disabled) return;
+    const kind = desk.snapshot().audio.kind;
+    void act(() => changeHardwareAudio(desk, kind === 'off' || kind === 'fault'));
+  });
+  resetAudioFault.addEventListener('click', () => {
+    const desk = remoteDesk;
+    if (desk?.snapshot().audio.kind === 'fault') void act(() => changeHardwareAudio(desk, false));
+  });
   const connectHardware = async () => {
     hardwareKey.disabled = true;
     try {
@@ -1249,19 +1297,8 @@ if (remote) {
         if (mountedHardwareSong !== remoteKey && mountingHardwareSong?.key !== remoteKey) void act(() => mountHardwareSong(view));
         renderButtonBindings();
         const status = view.audio;
-        const connection = desk.connection;
-        const connected = connection.kind === 'connected';
-        hardwareCard.dataset.connection = connection.kind;
-        hardwareCard.dataset.audio = connected ? status.kind : '';
-        deskSignal.dataset.state = connected ? status.kind : connection.kind;
-        const settings = requiredElement('#open-settings', HTMLButtonElement);
-        settings.setAttribute('aria-label', `Settings · ${connected && status.kind === 'ready' ? 'hardware audio on' : connected ? 'hardware audio ' + status.kind : 'hardware ' + connection.kind}`);
-        hardwareStatus.textContent = connection.kind === 'disconnected' ? 'Connection lost; audio may still be running. Reconnect to the desk.'
-          : connection.kind === 'connecting' ? 'Connecting to desk…'
-          : status.kind === 'fault' ? `Audio fault · ${status.error}`
-          : status.kind === 'ready' ? 'Audio on' : `Audio ${status.kind}`;
-        enableAudio.disabled = !connected || switching || (status.kind !== 'off' && status.kind !== 'fault');
-        terminateAudio.disabled = !connected || status.kind === 'off' || status.kind === 'stopping';
+        const connected = desk.connection.kind === 'connected';
+        renderHardwareAudio();
         if (!connected || status.kind !== 'ready') {
           audio = undefined;
           syncTunerSession();

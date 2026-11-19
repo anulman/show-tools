@@ -74,10 +74,16 @@
 
 .desk-tools{margin-left:auto;display:flex;gap:6px;align-items:center}
 .desk-tools button{min-height:40px;white-space:nowrap}
-#desk-signal{width:7px;height:7px;border-radius:50%;background:#8a9382;flex:none}
-#desk-signal[data-state=ready]{background:#538548;box-shadow:0 0 0 3px #53854822}
-#desk-signal:is([data-state=starting],[data-state=stopping],[data-state=connecting]){background:#b58b39}
-#desk-signal:is([data-state=fault],[data-state=disconnected]){background:#ac5645}
+#audio-switch:not([hidden]){display:inline-flex;align-items:center;gap:6px;padding:4px 9px;border-radius:999px;background:var(--paper);font-size:12px}
+.audio-switch-track{position:relative;flex:none;width:28px;height:16px;border:1px solid #6e7b65;border-radius:999px;background:#dce3d5}
+.audio-switch-track::after{content:"";position:absolute;top:2px;left:2px;width:10px;height:10px;border-radius:50%;background:#56684e;transition:transform .14s ease}
+#audio-switch[aria-checked=true] .audio-switch-track{background:#43693b;border-color:#43693b}
+#audio-switch[aria-checked=true] .audio-switch-track::after{background:white;transform:translateX(12px)}
+#audio-switch[aria-checked=false] .audio-switch-standby,#audio-switch[aria-checked=true] .audio-switch-live{font-weight:750}
+#audio-switch:is([data-state=starting],[data-state=stopping]) .audio-switch-track{outline:2px solid #b58b39;outline-offset:2px}
+#audio-switch[data-state=fault] .audio-switch-track{outline:2px solid #ac5645;outline-offset:2px}
+.audio-switch-status{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+@media(prefers-reduced-motion:reduce){.audio-switch-track::after{transition:none}}
 .desk-dialog{color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:12px;width:min(650px,calc(100% - 28px));max-height:calc(100% - 30px);padding:18px 22px;overflow:auto}
 .desk-dialog::backdrop{background:#24322162}
 .dialog-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px}
@@ -112,10 +118,12 @@
 .pad-volume .fx-empty{flex:none;min-height:30px;margin-left:1px}
 .sample-downloads{border-color:var(--line);margin:0;padding:12px 0;border-width:0 0 1px;border-radius:0}
 @media(max-width:700px){
-  .topline{gap:6px 12px;min-height:62px;height:auto;flex-wrap:wrap;padding:8px 0}
+  .topline{gap:6px 8px;min-height:62px;height:auto;flex-wrap:wrap;padding:8px 0}
   .topline .brand-divider{display:none}
   .topline #song-select{flex:1 1 100%;order:2;padding:4px 0}
-  .desk-tools button{min-height:36px;padding:5px 8px;font-size:11px}
+  .desk-tools button{min-height:36px;padding:5px 6px;font-size:11px}
+  #audio-switch:not([hidden]){font-size:11px;padding-inline:7px}
+  .desk-tools{gap:4px;flex-wrap:wrap;justify-content:flex-end}
   .desk-dialog{padding:12px 14px}
   .fx-knobs,.pad-shell .fx-knobs{grid-template-columns:repeat(min(2,var(--knob-count)),minmax(0,92px))}
   .voice-main h2{font-size:14px}
