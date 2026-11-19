@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
-import { encodeInitialProfiles } from './commands.js';
+import { prepareInitialProfiles } from './commands.js';
 import { HostConnection, HostUnavailable } from './host-connection.js';
 import { decodeExternalSampleWav } from '../performance/external-assets.js';
 import { PF } from '../performance/wasm-abi.js';
@@ -10,7 +10,7 @@ export function validateInstalledPackage(manifest: Buffer, packet: Buffer, confi
 	if (manifest.length > 1024 * 1024) throw new Error('Package manifest exceeds the native host 1 MiB limit');
 	const digest = createHash('sha256').update(manifest).digest();
 	const metadata = parseManifestProgram(manifest, digest);
-	const effects = encodeInitialProfiles(configurations);
+	const { bytes: effects, configurations: defaultVoiceEffects } = prepareInitialProfiles(configurations);
 	const hash = (value: Buffer) => createHash('sha256').update(value).digest('hex');
 	if (hash(packet) !== metadata.packetSha256 || hash(effects) !== metadata.profilesSha256) throw new Error('Package digest mismatch');
 	if (!metadata.song.compiled || !packet.equals(Buffer.from(metadata.packet)) || packet.length < PF.COMPILED_HEADER_FIELDS * 8 || packet.readDoubleLE(0) !== PF.COMPILED_MAGIC || (packet.readDoubleLE(8) !== PF.COMPILED_LEGACY_VERSION && packet.readDoubleLE(8) !== PF.COMPILED_VERSION)
@@ -34,7 +34,7 @@ export function validateInstalledPackage(manifest: Buffer, packet: Buffer, confi
 	});
 	const bundle = Buffer.concat([operation, ...assets]);
 	if (bundle.length + 32 > 8 * 1024 * 1024) throw new Error('Bundle with external WAVs exceeds host frame limit');
-	return { song: metadata.song, operation: bundle, digest: digest.toString('hex') };
+	return { song: metadata.song, defaultVoiceEffects, operation: bundle, digest: digest.toString('hex') };
 }
 
 export async function prepareInstalledPackage(socket: string, installed: ReturnType<typeof validateInstalledPackage>, signal?: AbortSignal) {

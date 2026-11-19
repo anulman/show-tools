@@ -146,3 +146,6 @@
   .live-voices .fx-stage[data-effect=slapback] .fx-knob{grid-template-columns:minmax(0,max-content) 34px}
   .live-voices .fx-stage[data-effect=slapback] :is(.fx-knob-control,.fx-knob-input){width:34px;height:34px}
 }
+
+.pad-shell[data-sample-status=standby] .pad:disabled,.voice-effects .fx-title:disabled{opacity:1}
+.pad-shell[data-sample-status=standby] kbd{visibility:hidden}

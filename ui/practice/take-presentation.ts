@@ -54,7 +54,7 @@ function plan(takes: readonly CompiledTake[], chart: CompiledSong['chart'], sele
   return text;
 }
 
-export function takePresentation(song: CompiledSong | undefined, channelId: ChannelId, state: DisplayState): { plan: string; summary: string | null } {
+export function takePresentation(song: CompiledSong | undefined, channelId: ChannelId, state?: DisplayState): { plan: string; summary: string | null } {
   const voice = song?.voices.find(voice => voice.buttonId === channelId);
   if (!song || !voice) return { plan: '', summary: null };
   const takes = song.takes.flatMap((take, index) => take.voiceId === voice.id ? [{ take, index }] : []);
@@ -62,8 +62,8 @@ export function takePresentation(song: CompiledSong | undefined, channelId: Chan
   const selections = song.selections.filter(selection => selection.voiceId === voice.id);
   const views = barViewCount(selections, song.chart.beatsPerBar);
   const annotation = plan(descriptions, song.chart, selections);
-  const takeStates = state.compiledTakes;
-  if (!takes.length || !takeStates) return { plan: annotation, summary: null };
+  const takeStates = state?.compiledTakes;
+  if (!takes.length || !state || !takeStates) return { plan: annotation, summary: null };
   const readings = takes.map(({ index, take }) => ({ take, state: takeStates.find(reading => reading.index === index) }));
   if (readings.some(reading => !reading.state)) return { plan: annotation, summary: null };
   const saved = readings.filter(reading => reading.state?.ready).length;

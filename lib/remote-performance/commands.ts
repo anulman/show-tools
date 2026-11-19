@@ -4,6 +4,7 @@ import { TunerCommandSchema } from '../tuner/schema.js';
 import { tunerCommandValues } from '../tuner/observation.js';
 import { CONTROL_IDS, type PracticeState, type VoiceEffectsState } from '../performance/model.js';
 import { PF } from '../performance/wasm-abi.js';
+import { VoiceEffectDefinitionSchema } from './native-schema.js';
 import { InputAttachSchema, InputEventSchema, InputProducerKindSchema, InputRevokeSchema } from '../performance/input-bindings.js';
 
 const InputClientCommandSchema = Schema.Union([
@@ -19,10 +20,7 @@ export type ClientInputCommand = typeof InputClientCommandSchema.Type;
 
 const Finite = Schema.Number.check(Schema.isFinite());
 const Channel = Schema.Literals(['L1', 'L2', 'R1', 'R2']);
-const Effect = Schema.Union([
-	Schema.Struct({ kind: Schema.Literal('slapback'), delayMs: Finite, feedback: Finite, wet: Finite }),
-	Schema.Struct({ kind: Schema.Literal('chorus'), rateHz: Finite, depthMs: Finite, baseDelayMs: Finite, wet: Finite }),
-]);
+const Effect = VoiceEffectDefinitionSchema;
 const Commands = Schema.Union([
 	Schema.Struct({ command: Schema.Literal('inputAttach'), args: InputAttachSchema }),
 	Schema.Struct({ command: Schema.Literal('inputEvent'), args: InputEventSchema }),
@@ -99,11 +97,15 @@ function profiles(configurations: readonly { readonly profile: number; readonly 
 	return bytes;
 }
 
-export function encodeInitialProfiles(configurations: unknown) {
-	const command = decode({ command: 'configureVoiceEffects', args: { configurations } });
+export function prepareInitialProfiles(input: unknown) {
+	const command = decode({ command: 'configureVoiceEffects', args: { configurations: input } });
 	if (command.command !== 'configureVoiceEffects') throw new Error('Invalid voice profiles');
+	const configurations = [...command.args.configurations].sort((left, right) => left.profile - right.profile);
 	const voices: VoiceEffectsState[] = Array.from({ length: PF.VOICE_PROFILES }, (_, profile) => ({ profile, effects: [], prepared: false, revision: 0, activity: 'standby', rotationEligible: false, rotationRemainingBeats: 0 }));
-	return profiles(command.args.configurations, voices);
+	return { configurations, bytes: profiles(configurations, voices) };
+}
+export function encodeInitialProfiles(configurations: unknown) {
+	return prepareInitialProfiles(configurations).bytes;
 }
 
 export function encodeCommand(input: unknown, state: PracticeState) {

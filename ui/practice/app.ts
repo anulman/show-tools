@@ -189,7 +189,9 @@ async function act(action: () => unknown | Promise<unknown>): Promise<void> {
   catch (error) { showError(error); }
 }
 
-function isRunning() { return state.phase === 'playing' || state.phase === 'count-in'; }
+function isRunning() {
+  return (!remote || remoteDesk?.snapshot().audio.kind === 'ready') && (state.phase === 'playing' || state.phase === 'count-in');
+}
 
 function beatName(position: number): string {
   const whole = Math.floor(position) + 1;
@@ -569,7 +571,7 @@ function makePads() {
 }
 
 function mountVoiceRows() {
-  voiceEffects.reset(song?.compiled ? 'compiled' : 'dry'); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0;
+  voiceEffects.reset(!remote && song?.compiled ? 'compiled' : 'dry'); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0;
   for (const pad of pads.values()) {
     const avatar = requiredElement('.performance-avatar', HTMLElement, pad.button);
     avatar.hidden = true; delete avatar.dataset.avatar;
@@ -689,12 +691,12 @@ function render(next: Partial<PracticeState>) {
   }
   applyPendingPracticeUpdate();
   elements['audio-mode-select'].disabled = changingAudioMode;
+  if (remote && !audio) { renderHardwareUnavailable(); return; }
   if (remote) {
     renderHardwareAudio();
     renderButtonBindings();
     renderRemoteDemo();
   }
-  if (remote && !audio) { renderHardwareUnavailable(); return; }
   if (!chart) return;
   if (remote && state.click !== undefined && document.activeElement !== elements.click) elements.click.checked = state.click;
   const running = isRunning();
@@ -715,23 +717,7 @@ function render(next: Partial<PracticeState>) {
   elements['song-select'].disabled = remote && remoteDesk?.connection.kind !== 'connected' || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
   if (!remote) elements['record-demo'].disabled = voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
   const effectsLocked = running || starting || switching || Boolean(preparing) || (effectsApplying && !auditionApplying) || outputCapture !== 'idle';
-  const preview = remoteDesk?.auditionProfile();
-  for (const { button, profile } of auditionButtons) {
-    button.hidden = preview === undefined;
-    button.disabled = effectsLocked || effectsApplying;
-    button.textContent = preview === profile ? 'End audition' : 'Audition';
-    button.setAttribute('aria-pressed', String(preview === profile));
-  }
-  voiceEffects.render(state.voiceEffects, effectsLocked);
-  voiceCatalog.update({ bar: state.bar, voiceEffects: state.voiceEffects });
-  for (const [profile, avatar] of voiceAvatars) renderVoiceAvatar(avatar.root, voiceCatalog.voiceForProfile(profile), avatar.name);
-  for (const [profile, label] of liveVoiceStates) {
-    const applied = state.voiceEffects?.find(voice => voice.profile === profile);
-    label.textContent = preview === profile ? 'AUDITIONING' : applied?.activity === 'live' ? 'LIVE' : applied?.activity === 'tail' ? 'RELEASING' : applied?.activity === 'capture' ? 'RECORDING' : 'STANDBY';
-    label.dataset.activity = preview === profile ? 'live' : applied?.activity || 'standby';
-    if (applied?.rotationEligible) label.textContent += applied.rotationRemainingBeats > 0 ? ` · ${applied.rotationRemainingBeats.toFixed(2)} BEAT` : ' · KNOB CUE';
-  }
-  for (const button of rotationControls) button.disabled = !running || !audio || !state.voiceEffects?.some(voice => voice.rotationEligible);
+  renderSongVoices(state, effectsLocked);
   elements['monitor-relationship'].disabled = remote || !audio?.microphone || starting;
   elements['monitor-relationship'].value = audio?.monitoringRelationship || 'unknown';
   elements['monitor-hint'].textContent = remote ? 'Audio, monitoring, and demo recording run on the EliteDesk.' : audio?.monitoringRelationship === 'different-devices' || audio?.monitoringRelationship === 'same-usb-interface'
@@ -742,22 +728,54 @@ function render(next: Partial<PracticeState>) {
   startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start';
   elements.stop.disabled = !starting && !running && !recording;
   for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting;
+  renderPads(displayBar, state);
+  if (state.error) showError(new Error(state.error));
+}
+
+function renderSongVoices(observed: DisplayState | undefined, effectsLocked: boolean) {
+  const preview = observed ? remoteDesk?.auditionProfile() : undefined;
+  document.getElementById('phone-motion-controls')?.toggleAttribute('hidden', !observed);
+  for (const { button, profile } of auditionButtons) {
+    button.hidden = preview === undefined;
+    button.disabled = effectsLocked || effectsApplying;
+    button.textContent = preview === profile ? 'End audition' : 'Audition';
+    button.setAttribute('aria-pressed', String(preview === profile));
+  }
+  voiceEffects.render(observed?.voiceEffects, effectsLocked, observed ? undefined : remoteDesk?.snapshot().defaultVoiceEffects ?? []);
+  voiceCatalog.update({ bar: observed?.bar ?? null, voiceEffects: observed?.voiceEffects });
+  for (const [profile, avatar] of voiceAvatars) renderVoiceAvatar(avatar.root, voiceCatalog.voiceForProfile(profile), avatar.name);
+  for (const [profile, label] of liveVoiceStates) {
+    const applied = observed?.voiceEffects?.find(voice => voice.profile === profile);
+    label.textContent = preview === profile ? 'AUDITIONING' : applied?.activity === 'live' ? 'LIVE' : applied?.activity === 'tail' ? 'RELEASING' : applied?.activity === 'capture' ? 'RECORDING' : 'STANDBY';
+    label.dataset.activity = preview === profile ? 'live' : applied?.activity || 'standby';
+    if (applied?.rotationEligible) label.textContent += applied.rotationRemainingBeats > 0 ? ` · ${applied.rotationRemainingBeats.toFixed(2)} BEAT` : ' · KNOB CUE';
+  }
+  const canRotate = audio && isRunning() && observed?.voiceEffects?.some(voice => voice.rotationEligible);
+  for (const button of rotationControls) button.disabled = !canRotate;
+}
+function renderPads(displayBar: number, observed?: DisplayState) {
+  const inCountIn = observed?.phase === 'count-in';
+  const currentBar = chart?.bars[displayBar - 1];
   const bindings = remoteDesk?.snapshot().song.compiled?.inputBindings;
   for (const control of CONTROLS) {
     const pad = pads.get(control.id);
     if (!pad) continue;
-    const channel = state.channels?.find(channel => channel.id === control.id);
-    const looping = channel?.looping || state.looping?.includes(control.id);
-    const cue = (inCountIn ? chart.leadInCues : currentBar?.cues)?.[control.id] || '';
+    const channel = observed?.channels?.find(channel => channel.id === control.id);
+    const looping = channel?.looping || observed?.looping?.includes(control.id);
+    const cue = (inCountIn ? chart?.leadInCues : currentBar?.cues)?.[control.id] || '';
     const compiledCue = (inCountIn ? song?.program.controls?.leadIn : song?.program.controls?.bars[displayBar - 1])?.[control.id];
     const capture = compiledCue && (compiledCue.kind === 'arm' || compiledCue.kind === 'commit-arm') ? compiledCue.capture : undefined;
     const replay = song?.program.barPlayback?.some(entry => entry.bar === displayBar && entry.channelId === control.id);
     const action = (replay && compiledCue?.kind === 'none' ? 'Auto · recorded bar' : cueLabel(cue))
       + (capture?.kind === 'sparse' ? ` · Extract ${capture.beats.map(beatName).join(' + ')}` : capture?.kind === 'bar' ? ' · Full-bar take' : '');
     const sampleStatus = channel?.status || 'empty';
-    pad.shell.classList.toggle('selected', control.id === state.selectedChannel);
+    pad.shell.classList.toggle('selected', control.id === observed?.selectedChannel);
     pad.shell.classList.toggle('muted', Boolean(channel?.muted));
-    pad.shell.dataset.sampleStatus = sampleStatus;
+    pad.shell.dataset.sampleStatus = observed ? sampleStatus : 'standby';
+    pad.button.disabled = !observed;
+    pad.volume.disabled = !observed;
+    pad.volume.closest('label')?.toggleAttribute('hidden', !observed);
+    pad.sampleStatus.hidden = !observed;
     const light = channel?.light || { kind: 'off' };
     if (pad.shell.dataset.light !== light.kind) {
       if (light.kind === 'releasing') pad.shell.style.setProperty('--pad-release-ms', `${light.remainingMs}ms`);
@@ -787,15 +805,15 @@ function render(next: Partial<PracticeState>) {
     pad.sampleStatus.textContent = sampleStatus === 'empty' ? 'Empty slot' : sampleStatus === 'ready' ? 'Sample ready' :
       sampleStatus === 'armed' ? 'Capture armed' : sampleStatus === 'stopping' ? stoppingLabel :
       sampleStatus === 'recording' ? 'Recording microphone' : 'Loop playing';
-    const take = takePresentation(song?.compiled, control.id, state);
+    const take = takePresentation(song?.compiled, control.id, observed);
     if (take.summary) pad.sampleStatus.textContent = take.summary;
     pad.takePlan.textContent = take.plan;
     pad.takePlan.hidden = !take.plan;
     pad.cue.textContent = cue || '·';
     pad.cue.title = 'Original chart notation';
   }
-  if (state.error) showError(new Error(state.error));
 }
+
 
 function beginOutputRecording(phase: PracticeState['phase']) {
   if (outputCapture !== 'waiting' || phase !== 'playing' || !recorder) return;
@@ -986,7 +1004,7 @@ window.addEventListener('keydown', event => {
     if ((event.code === 'Space' || event.code === 'Enter') && target?.closest('#start,#stop,#mushroom,#pads button,.rotation-controls button')) event.preventDefault();
     return;
   }
-  if (event.repeat || heldKeys.has(event.code) || document.querySelector('dialog[open]')) return;
+  if (event.repeat || heldKeys.has(event.code) || document.querySelector('dialog[open]') || (remote && !audio)) return;
   if (event.code === 'Escape') {
     event.preventDefault(); heldKeys.add(event.code); flash('mushroom', true);
     act(panic); return;
@@ -1215,7 +1233,8 @@ function renderHardwareUnavailable() {
   renderHardwareAudio();
   renderButtonBindings();
   renderRemoteDemo();
-  if (chart) elements['range-label'].textContent = `BARS ${chartBarLabel(chart, Number(elements['start-section'].value))}–${elements['end-bar'].value}`;
+  const displayBar = Number(elements['start-section'].value) || 1;
+  if (chart) elements['range-label'].textContent = `BARS ${chartBarLabel(chart, displayBar)}–${elements['end-bar'].value}`;
   for (const control of [elements.start, elements.stop, elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop, elements.click, elements.mushroom, elements['record-demo'], elements['song-select'], elements['monitor-relationship']]) control.disabled = true;
   const canEnable = remoteDesk?.connection.kind === 'connected' && remoteDesk.snapshot().audio.kind === 'off';
   if (canEnable) elements.start.disabled = false;
@@ -1225,12 +1244,13 @@ function renderHardwareUnavailable() {
   elements['bar-number'].textContent = '··';
   elements['beat-number'].textContent = '·';
   elements['beat-dots'].querySelectorAll('i').forEach(dot => dot.classList.remove('active'));
-  elements['pads'].hidden = true;
-  elements['live-voices'].hidden = true;
+  elements['pads'].hidden = !chart;
+  elements['live-voices'].hidden = !liveVoiceStates.size;
   elements['practice-desk'].dataset.phase = '';
   elements['practice-desk'].dataset.bar = '';
   elements['practice-desk'].dataset.beat = '';
-  voiceEffects.render(undefined, true);
+  renderSongVoices(undefined, true);
+  if (chart) renderPads(displayBar);
 }
 
 if (remote) {

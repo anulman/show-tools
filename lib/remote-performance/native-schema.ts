@@ -3,6 +3,7 @@ import { Schema } from 'effect';
 import { PF as LIGHT } from '../performance/light-abi.js';
 import { ChartSchema, CompiledSongSchema } from '../performance/compiled-song.js';
 import { SongSourceSchema } from '../performance/song-source.js';
+import { VOICE_PROFILE_COUNT } from '../performance/model.js';
 import { InputRoutingStateSchema, InputProducerKindSchema, InputAttachSchema, InputEventSchema } from '../performance/input-bindings.js';
 
 const finite = Schema.Number.check(Schema.isFinite());
@@ -14,13 +15,20 @@ const revision = Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/))
 const channel = Schema.Literals(['L1', 'L2', 'R1', 'R2']);
 const list = <S extends Schema.Constraint>(item: S, maximum: number) => Schema.mutable(Schema.Array(item).check(Schema.isMaxLength(maximum)));
 const control = Schema.Union([Schema.Struct({ id: Schema.Literals(['L1', 'L2', 'R1', 'R2']), edge: Schema.optionalKey(Schema.Literal('release')) }), Schema.Struct({ id: Schema.Literals(['mushroom', 'tempo']) }), Schema.Struct({ id: Schema.Literal('knob'), value: finite }), Schema.Struct({ id: Schema.Literal('cueButton'), value: Schema.Literals([0, 1]) }), Schema.Struct({ id: Schema.Literal('external'), slot: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 63 })) })]);
-const effect = Schema.Union([
+export const VoiceEffectDefinitionSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('slapback'), delayMs: finite, feedback: finite, wet: finite }),
   Schema.Struct({ kind: Schema.Literal('chorus'), rateHz: finite, depthMs: finite, baseDelayMs: finite, wet: finite }),
 ]);
 const light = Schema.Union([Schema.Struct({ kind: Schema.Literals(['off', 'cue', 'steady']) }), Schema.Struct({ kind: Schema.Literal('releasing'), remainingMs: finite })]);
-const profile = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 }));
-const voice = Schema.Struct({ profile, effects: list(effect, 64), prepared: Schema.Boolean, revision: count,
+const voiceEffectConfiguration = {
+  profile: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: VOICE_PROFILE_COUNT - 1 })),
+  effects: Schema.Array(VoiceEffectDefinitionSchema).check(Schema.isMaxLength(64)),
+};
+const voiceProfiles = <S extends Schema.Constraint & { Type: { profile: number } }>(item: S) =>
+  list(item, VOICE_PROFILE_COUNT).check(Schema.isMinLength(VOICE_PROFILE_COUNT)).check(
+    Schema.makeFilter(value => new Set(value.map(item => item.profile)).size === VOICE_PROFILE_COUNT || 'Duplicate voice profile'));
+export const VoiceEffectConfigurationsSchema = voiceProfiles(Schema.Struct(voiceEffectConfiguration));
+const voice = Schema.Struct({ ...voiceEffectConfiguration, prepared: Schema.Boolean, revision: count,
   activity: Schema.Literals(['standby', 'live', 'tail', 'capture']), rotationEligible: Schema.Boolean, rotationRemainingBeats: finite });
 const tempo = Schema.Struct({ beatHint: Schema.NullOr(Schema.Literal(1)), source: Schema.Literals(['pedal', 'chart']), estimated: Schema.Boolean });
 const state = Schema.Struct({ phase: Schema.Literals(['idle', 'count-in', 'playing', 'ended']), bar: Schema.NullOr(finite), beat: Schema.NullOr(finite),
@@ -33,7 +41,7 @@ const state = Schema.Struct({ phase: Schema.Literals(['idle', 'count-in', 'playi
   inputRouting: Schema.optionalKey(InputRoutingStateSchema),
   chart: Schema.optionalKey(Schema.Struct({ spreadsheetId: text, sheetId: count, columns: list(count, 4096), leadInColumn: count })),
   liveEffects: Schema.optionalKey(Schema.Struct({ prepared: Schema.Boolean, active: Schema.Boolean, revision: count, stageCount: count, captureSupported: Schema.Boolean })),
-  voiceEffects: Schema.optionalKey(list(voice, 6).check(Schema.isMinLength(6)).check(Schema.makeFilter(value => new Set(value.map(item => item.profile)).size === 6 || 'Duplicate voice profile'))),
+  voiceEffects: Schema.optionalKey(voiceProfiles(voice)),
   tempoHits: Schema.optionalKey(Schema.Struct({ count, latest: Schema.NullOr(Schema.Struct({ ...tempo.fields, frame: frameCoordinate, bpm: finite })) })),
   compiledTakes: Schema.optionalKey(list(Schema.Struct({ index: count, ready: Schema.Boolean, frames: count, period: count,
     playback: Schema.Literals(['idle', 'playing', 'releasing']), sourceEndFrames: Schema.NullOr(count), selectionIndex: Schema.NullOr(count) }), 32)),
