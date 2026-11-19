@@ -278,7 +278,7 @@ This backup contains global button assignments and any archived per-song records
 | A button stays at full brightness after release | Stop the peripheral service. Check for a missing release or device error before restarting it. |
 | Song selection or assignments are disabled | Click **Stop** before selecting a song. Switch to **Standby** before changing button assignments. |
 | Audio fails to enable | Read the web journal. Check the configured interface and its direct-monitor setting. Do not choose a floating default device. |
-| The browser disconnects | Reconnect to the same desk. A disconnected browser does not stop native audio. Check status before starting or restarting anything. |
+| The browser disconnects | Click **Reconnect** in the header. A disconnected browser does not stop native audio. Check status before starting or restarting anything. |
 
 Physical readiness requires observed button pairs, visible held and released LEDs, dial capture, microphone capture, and audible playback on the EliteDesk. Synthetic tests alone do not establish those results.
 
