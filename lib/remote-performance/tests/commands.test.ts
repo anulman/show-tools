@@ -477,3 +477,16 @@ test('empty reconnect churn preserves unknown and settled original-owner readbac
     assert.equal(host.calls.length, 4, 'readback and empty churn cannot dispatch native work');
   } finally { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
 });
+
+test('Tambourine audition encodes only integer commands for Tribulations', () => {
+  const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'test', String);
+  const input = (velocity: unknown) => ({ command: 'auditionTambourine', args: { velocity } });
+  for (const velocity of [-1, 0, 1, 127]) {
+    const bytes = encodeCommand(input(velocity), state, 'tribulations');
+    assert.equal(bytes.readUInt16LE(0), 23);
+    assert.equal(bytes.readDoubleLE(2), velocity);
+  }
+  for (const velocity of [-2, 128, .5, '127', Infinity, NaN])
+    assert.throws(() => encodeCommand(input(velocity), state, 'tribulations'));
+  assert.throws(() => encodeCommand(input(0), state, 'dance-yrself-clean'), /Tribulations/);
+});

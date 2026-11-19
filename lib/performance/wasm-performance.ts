@@ -385,6 +385,10 @@ export class NativePerformance {
   }
   tunerState() { return decodeTunerState(this.query('pf_tuner_info')); }
   tunerCommand(command: TunerCommand) { this.call('pf_tuner_command_apply', this.handle, ...tunerCommandValues(command)); return this.tunerState(); }
+  auditionTambourine(velocity: number) {
+    if (!Number.isInteger(velocity) || velocity < -1 || velocity > 127) throw new Error('Invalid Tambourine audition command');
+    this.call('pf_audition_tambourine', this.handle, velocity);
+  }
   setJiggleThresholds(minimumTravel: number, minimumReversal: number) {
     this.call('pf_set_jiggle_thresholds', this.handle, minimumTravel, minimumReversal);
   }

@@ -150,7 +150,7 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   const serviceWorker = { controller: controlled ? {} : null, ready: Promise.resolve(), async register(url, options) { assert.equal(url, './sw.js'); assert.equal(options.updateViaCache, 'none'); return registration; }, addEventListener(type, callback) { events.set(type, callback); } };
   const context = {
     URLSearchParams, remote: false, mode: 'browser', changingAudioMode: false,
-    tunerPanel: undefined, tunerSession: undefined, audio: undefined,
+    tunerPanel: undefined, tunerSession: undefined, audio: undefined, phoneMotionAbort: undefined,
     browserModeBusy: () => false, canChangeAudioMode: () => true, navigator: { serviceWorker },
     voiceCatalog: { busy: false }, sampleDownloads: { busy: false, render() {} },
     document: { querySelector() { return editorOpen ? {} : null; }, addEventListener(type, callback) { documentEvents.set(type, callback); } },

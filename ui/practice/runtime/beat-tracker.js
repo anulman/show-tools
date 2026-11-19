@@ -4,15 +4,14 @@ const RESULTS = ['OK', 'Invalid value', 'Duplicate command', 'Old timeline', 'Co
   'Clock already started', 'Out-of-order command'];
 
 export class BeatTracker {
-  static async create({ audioContext, startingBpm = null,
+  static async create({ audioContext, ownsAudioContext = !audioContext, startingBpm = null,
     wasmUrl = new URL('../../../lib/beat-tracker/dist/beat-tracker.wasm', import.meta.url),
     workletUrl = new URL('./beat-worklet.js', import.meta.url),
     processorName = 'beat-tracker', processorOptions = {}, outputChannels = 1, outputChannelCounts = [outputChannels] } = {}) {
-    const ownsContext = !audioContext;
     const context = audioContext || new AudioContext({ latencyHint: 'interactive' });
     const resume = context.resume();
     resume.catch(() => {});
-    const tracker = new BeatTracker(context, ownsContext);
+    const tracker = new BeatTracker(context, ownsAudioContext);
     try {
       const response = await fetch(wasmUrl);
       if (!response.ok) throw new Error(`WASM unavailable (${response.status}). Run scripts/build-wasm.sh.`);

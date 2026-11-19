@@ -161,6 +161,47 @@ void verify_idle_monitor() {
   require(instrument.audio_needed() && instrument.idle_monitor_only());
 }
 
+void verify_tambourine_audition() {
+  native_host::Instrument instrument({48000, 32, 30, 128, true, true});
+  native_host::AlsaRun run;
+  StatefulDevice device;
+  const auto packet = compiled_packet();
+  native_host::Profiles dry{}; dry.revisions.fill(1);
+  require(instrument.prepare(packet.data(), uint32_t(packet.size()), dry));
+  require(instrument.idle_monitor_only() && run.utility(instrument, device) == 0);
+  require(instrument.audition_tambourine(127) < 0);
+  require(instrument.audition_tambourine(0) == 0 && instrument.audition_tambourine(127) == 0);
+  require(instrument.has_tambourine_output() && !instrument.idle_monitor_only());
+
+  std::array<float, 128> input{}; input.fill(.25f);
+  require(instrument.render(input.data(), input.size()) == 0 && instrument.mix()->song_frames() == 0);
+  Sink mix{{}, 17};
+  while (instrument.pending()) require(instrument.write(write_short, &mix) > 0);
+  require(mix.samples.size() == input.size() * 2 && mix.samples[0] != .25f && mix.samples[1] != .25f);
+
+  require(instrument.render(input.data(), input.size()) == 0 && instrument.pending() == input.size());
+  device.read();
+  require(instrument.write(StatefulDevice::write, &device) == 17 && instrument.pending() == input.size() - 17);
+  require(run.start(instrument, device, {120, 0, 1, 4, 0, 0}) == 0);
+  require(instrument.pending() == 0 && device.drops == 1 && device.prepares == 2);
+  require(!instrument.has_tambourine_output() && instrument.audition_tambourine(0) < 0);
+  instrument.stop();
+
+  require(instrument.audition_tambourine(0) == 0 && instrument.audition_tambourine(127) == 0);
+  require(instrument.render(input.data(), input.size()) == 0 && instrument.pending() == input.size());
+  require(instrument.audition_tambourine(-1) == 0 && instrument.pending() == 0);
+  require(!instrument.has_tambourine_output() && instrument.audition_tambourine(127) < 0);
+  require(instrument.render(input.data(), input.size()) == 0);
+  mix.samples.clear();
+  while (instrument.pending()) require(instrument.write(write_short, &mix) > 0);
+  require(std::all_of(mix.samples.begin(), mix.samples.end(), [](float sample) { return sample == .25f; }));
+
+  require(instrument.audition_tambourine(0) == 0 && instrument.audition_tambourine(127) == 0);
+  require(instrument.render(input.data(), input.size()) == 0);
+  require(instrument.prepare(packet.data(), uint32_t(packet.size()), dry));
+  require(instrument.pending() == 0 && instrument.audition_tambourine(127) < 0);
+}
+
 struct Engine {
   pf_engine* value = pf_create(8000, PF_PRACTICE, 32, 30, 4);
   Engine() {
@@ -178,6 +219,7 @@ struct Engine {
 }
 int main() {
   verify_idle_monitor();
+  verify_tambourine_audition();
   native_host::Instrument instrument({8000, 32, 30, 509, true});
   native_host::Profiles profiles{}; profiles.revisions.fill(1);
   auto packet = compiled_packet();

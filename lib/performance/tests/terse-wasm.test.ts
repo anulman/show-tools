@@ -5,15 +5,16 @@ import { terseCaptureFixture } from './fixtures/terse-capture.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
+import tribulations from '../../../songs/tribulations.js';
 
 const module = await WebAssembly.compile(await readFile(new URL('../../../ui/practice/wasm/manual-clock.wasm', import.meta.url)));
-function engine(program: readonly number[], profiles?: Parameters<NativePerformance['prepareVoiceEffects']>[0]) {
+function engine(program: readonly number[], profiles?: Parameters<NativePerformance['prepareVoiceEffects']>[0], sampleRate = 8000) {
   let memory: WebAssembly.Memory;
   const instance = new WebAssembly.Instance(module, { env: { abort() { throw new Error('WASM aborted'); }, emscripten_notify_memory_growth() {} },
     wasi_snapshot_preview1: { fd_write(_fd: number, _vectors: number, _count: number, written: number) { new DataView(memory.buffer).setUint32(written, 0, true); return 0; }, fd_close: () => 0, fd_seek: () => 0, proc_exit(code: number) { throw new Error(`WASM exited ${code}`); } } });
   assert(instance.exports.memory instanceof WebAssembly.Memory); memory = instance.exports.memory;
   if (typeof instance.exports._initialize === 'function') instance.exports._initialize();
-  return new NativePerformance({ api: instance.exports, sampleRate: 8000, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0, initialVoiceEffects: profiles });
+  return new NativePerformance({ api: instance.exports, sampleRate, mode: PF.PRACTICE, compiledProgram: program, clickGain: 0, initialVoiceEffects: profiles });
 }
 function render(native: NativePerformance, frames: number, input = .25) {
   const out = [new Float32Array(frames), new Float32Array(frames)];
@@ -423,5 +424,31 @@ test('canonical Drunk Girls pickup loop restarts at Pickup8 phase and crosses nu
     until(native, 9, 3); render(native, 1668, 0);
     assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'captured source begins again at Pickup8 3&');
     until(native, 10); assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'numbered one keeps the ongoing eight-bar loop');
+  } finally { native.dispose(); }
+});
+
+test('Tribulations Tambourine renders on the browser playback bus only during audition', () => {
+  assert(tribulations.compiled);
+  const native = engine(Array.from(encodeCompiledProgram(tribulations.compiled)), undefined, 48000);
+  try {
+    const playback = [new Float32Array(128), new Float32Array(128)];
+    const monitor = [new Float32Array(128), new Float32Array(128)];
+    const process = () => native.process(null, playback, 128, monitor);
+    assert.throws(() => native.auditionTambourine(100));
+    native.auditionTambourine(0);
+    process();
+    assert(playback.every(channel => channel.every(value => value === 0)), 'arming is silent');
+    native.auditionTambourine(100);
+    process();
+    assert(playback.every(channel => channel.some(value => Math.abs(value) > .001)), 'audible stereo hit');
+    assert(monitor.every(channel => channel.every(value => value === 0)), 'no microphone monitor needed');
+    assert.equal(native.state().phase, 'idle');
+    native.auditionTambourine(-1);
+    process();
+    assert(playback.every(channel => channel.every(value => value === 0)), 'ending audition clears tails');
+    native.auditionTambourine(0);
+    native.auditionTambourine(100);
+    native.stop();
+    assert.throws(() => native.auditionTambourine(100), 'Stop disarms audition');
   } finally { native.dispose(); }
 });

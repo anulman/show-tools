@@ -130,6 +130,8 @@ Process live voice first and cache the processed result before destination gains
 
 Use rendered PCM, native/WASM comparisons, allocation checks, and a browser take once the actual route is integrated. Keep hardware callback deadlines, physical microphone quality, and output device classification separate from fixture claims. Record remaining sparse-hit, resampling, parameter automation, route switching, and loop-seam work explicitly. Commit every verified milestone.
 
+Verify phone Tambourine audition with `ui/practice/tests/phone-motion.test.ts` and `phone-ui.test.ts`. After building WASM, run `lib/performance/tests/terse-wasm.test.ts` for stopped PCM and `lib/remote-performance/tests/tambourine-audition.test.ts` with a fresh `NATIVE_FAKE_HOST` for the authenticated command route. Synthetic browser readings cover sensor admission and teardown. Test comfort and sensitivity on the physical iPhone.
+
 ## Start the UI workstream
 
 Begin with `ui/practice/index.html`, `style.css`, and the render and input code in `app.ts`. Use `PracticeAudio` commands and subscriptions for instrument behavior. Keep song-specific names and actions in the chart snapshot and song module.

@@ -235,7 +235,7 @@ const decodeTakeAudioRequest = Schema.decodeUnknownSync(Schema.Struct({
 }), { onExcessProperty: 'error' });
 const requestFields = { sessionId: Schema.NonEmptyString, sequence: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: Number.MAX_SAFE_INTEGER })) };
 const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,
-  command: Schema.Literals(['start', 'stop', 'recordDemo', 'audition', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
+  command: Schema.Literals(['start', 'stop', 'recordDemo', 'audition', 'auditionTambourine', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
   args: Schema.Record(Schema.String, Schema.Unknown), target: NativeTargetSchema,
 }));
 const decodeAudio = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields, goal: AudioGoalSchema }));

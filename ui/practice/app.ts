@@ -156,6 +156,7 @@ async function mountHardwareSong(view: DeskView) {
 let preparing: Promise<PerformanceSession> | null = null;
 let preparationAbort: AbortController | undefined;
 let phoneMotionAbort: AbortController | undefined;
+let phoneAuditionTransition = Promise.resolve();
 let starting = false;
 let offlineUpdate: { kind: 'current' } | { kind: 'waiting'; worker: ServiceWorker } | { kind: 'pending' } | { kind: 'reloading' } = { kind: 'current' };
 let transportGeneration = 0;
@@ -222,8 +223,11 @@ function cueLabel(cue: string): string {
   return cue ? labels[cue] || `Chart cue ${cue}` : 'No action in this column';
 }
 
-async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[]) {
-  if (audio) return audio;
+async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[], unlock = false) {
+  if (audio) {
+    if (unlock && !(audio instanceof RemoteSession)) await audio.tracker.resume();
+    return audio;
+  }
   if (remote) throw new Error('Hardware audio is unavailable. Enable audio and wait for ready.');
   if (!song || switching) throw new Error('The song script is still loading. Try again in a moment.');
   if (!window.isSecureContext) throw new Error('Audio needs HTTPS on your phone, or localhost on this computer. See Setup & notes.');
@@ -232,8 +236,10 @@ async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[])
   startLabel.textContent = 'Preparing audio…';
   const generation = songGeneration;
   const currentSong = song;
+  const audioContext = unlock ? new AudioContext({ latencyHint: 'interactive' }) : undefined;
+  if (audioContext) void audioContext.resume().catch(() => {});
   const cancellation = new AbortController(); preparationAbort = cancellation;
-  preparing = import('./audio.js').then(({ PracticeAudio }) => PracticeAudio.create({ chart: currentSong.chart, program: currentSong.program, compiled: currentSong.compiled, signal: cancellation.signal, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() })).then(async instance => {
+  preparing = import('./audio.js').then(({ PracticeAudio }) => PracticeAudio.create({ chart: currentSong.chart, program: currentSong.program, compiled: currentSong.compiled, signal: cancellation.signal, audioContext, initialVoiceEffects: initialEffects ?? voiceCatalog.savedConfigurations() })).then(async instance => {
     if (generation !== songGeneration) {
       await instance.dispose();
       throw new Error('The song changed while audio was preparing.');
@@ -247,6 +253,9 @@ async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[])
       }
     });
     return instance;
+  }).catch(async error => {
+    if (audioContext && audioContext.state !== 'closed') await audioContext.close().catch(() => {});
+    throw error;
   }).finally(() => { if (preparationAbort === cancellation) preparationAbort = undefined; preparing = null; render(state); });
   return preparing;
 }
@@ -426,6 +435,7 @@ async function startPractice() {
   const endBar = chart ? chartBarOrdinal(chart, elements['end-bar'].value) : NaN;
   if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Choose a tempo between 40 and 240 BPM.');
   if (!Number.isInteger(endBar) || endBar < startBar || endBar > playableBars(chart)) throw new Error(`Choose an end bar from ${startBar} to ${playableBars(chart)}. Partial bars are not sequenced yet.`);
+  phoneMotionAbort?.abort();
   if (remote) {
     const instance = remoteDesk?.performance();
     if (!instance) throw new Error('Enable hardware audio first.');
@@ -623,38 +633,107 @@ function mountPhoneMotion() {
   document.getElementById('phone-motion-controls')?.remove();
   const sources = song?.compiled?.externalSamples?.filter(sample => sample.asset) ?? [];
   if (!sources.length) return;
-  const group = document.createElement('section'); group.id = 'phone-motion-controls'; group.className = 'voice-row';
+  const group = document.createElement('section');
+  group.id = 'phone-motion-controls';
+  group.className = 'voice-row';
   const seen = new Set<number>();
   for (const source of sources) {
     if (seen.has(source.slot)) continue;
     seen.add(source.slot);
-    const button = document.createElement('button'); button.type = 'button';
-    const label = `Enable shake · ${source.voiceId}`; button.textContent = label;
-    let enabled = false;
+    const tambourine = song?.id === 'tribulations' && source.voiceId === 'tambourine' && source.slot === 0;
+    const name = tambourine ? 'Tambourine' : source.voiceId;
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'secondary';
+    if (tambourine) button.dataset.tambourine = '';
+    const inactiveLabel = () => tambourine && !isRunning() ? 'Audition Tambourine' : `Enable shake · ${name}`;
+    button.textContent = inactiveLabel();
+    let control: AbortController | undefined;
     button.addEventListener('click', () => { void act(async () => {
-      if (enabled) { phoneMotionAbort?.abort(); return; }
+      if (control) { control.abort(); return; }
+      const running = isRunning();
+      if (starting || switching || (remote && !audio) || (!running && !tambourine)) return;
       phoneMotionAbort?.abort();
-      const cancel = new AbortController(); phoneMotionAbort = cancel;
-      const generation = songGeneration, session = crypto.randomUUID(); let sequence = 0;
+      const cancel = new AbortController();
+      phoneMotionAbort = control = cancel;
+      const generation = songGeneration;
+      const session = crypto.randomUUID();
+      const current = () => !cancel.signal.aborted && generation === songGeneration && !switching && !starting && isRunning() === running;
+      let sequence = 0;
+      let audition: PerformanceSession | undefined;
+      let hitPending: Promise<unknown> | undefined;
+      let ready = false;
       button.disabled = true;
-      try {
-        await enablePhoneMotion({ signal: cancel.signal, current: () => generation === songGeneration && !switching,
-          hit: () => {
-            const instance = audio;
-            if (!instance || !isRunning() || generation !== songGeneration || cancel.signal.aborted) return;
-            const commandId = `phone-motion/${session}/${++sequence}`;
-            void instance.control({ id: 'external', slot: source.slot }, { commandId }).catch(error => {
-              if (generation === songGeneration && audio === instance && !cancel.signal.aborted) showError(error);
-            });
-          },
-          stopped: () => { enabled = false; button.textContent = label; button.disabled = false; },
+      button.dataset.motion = 'pending';
+      button.textContent = running ? 'Enabling shake…' : 'Opening Tambourine audition…';
+      cancel.signal.addEventListener('abort', () => {
+        control = undefined;
+        if (phoneMotionAbort === cancel) phoneMotionAbort = undefined;
+        delete button.dataset.motion;
+        button.textContent = inactiveLabel();
+        button.disabled = false;
+        if (!running) queuePhoneAudition(async () => {
+          await hitPending;
+          if (audition) await audition.auditionTambourine(-1);
+        }).catch(error => {
+          if (generation === songGeneration && audio === audition && !switching && !starting && !isRunning()) showError(error);
         });
-        enabled = true; button.textContent = `Disable shake · ${source.voiceId}`;
-      } finally { button.disabled = false; }
+      }, { once: true });
+      try {
+        const motion = enablePhoneMotion({
+          sensor: running ? 'acceleration' : 'gyroscope',
+          signal: cancel.signal,
+          current,
+          hit: velocity => {
+            if (!ready || !current()) return;
+            const instance = running ? audio : audition;
+            if (!instance || instance !== audio) return;
+            if (running) {
+              const commandId = `phone-motion/${session}/${++sequence}`;
+              void instance.control({ id: 'external', slot: source.slot }, { commandId }).catch(error => {
+                if (current() && audio === instance) showError(error);
+              });
+            } else if (!hitPending) {
+              hitPending = instance.auditionTambourine(velocity).catch(error => {
+                if (current() && audio === instance) showError(error);
+                cancel.abort();
+              }).finally(() => { hitPending = undefined; });
+            }
+          },
+          stopped: () => cancel.abort(),
+        });
+        // Safari requires permission and audio unlock to begin in the click handler.
+        const unlocked = running ? undefined : ensureAudio(undefined, !remote);
+        void unlocked?.catch(() => {});
+        await motion;
+        if (unlocked) {
+          const instance = await unlocked;
+          await queuePhoneAudition(async () => {
+            if (!current() || instance !== audio) return;
+            audition = instance;
+            await audition.auditionTambourine(0);
+          });
+        }
+        if (!current()) { cancel.abort(); return; }
+        ready = true;
+        button.dataset.motion = 'active';
+        button.textContent = running ? `Disable shake · ${name}` : 'End Tambourine audition';
+        button.disabled = false;
+      } catch (error) {
+        if (cancel.signal.aborted && error instanceof DOMException && error.name === 'AbortError') return;
+        cancel.abort();
+        throw error;
+      }
     }); });
     group.append(button);
   }
   elements['live-voices'].insertAdjacentElement('afterend', group);
+}
+
+function queuePhoneAudition(command: () => Promise<void>) {
+  const next = phoneAuditionTransition.then(command);
+  phoneAuditionTransition = next.catch(() => {});
+  return next;
 }
 
 function browserModeBusy(): boolean {
@@ -671,10 +750,15 @@ elements['audio-mode-select'].addEventListener('change', () => {
   const warning = remote && isRunning() ? 'The EliteDesk will keep performing after you leave Hardware mode. Switch audio mode?'
     : !remote && browserModeBusy() ? 'Switching audio mode ends browser audio and discards any take you have not downloaded. Switch audio mode?' : '';
   if (warning && !window.confirm(warning)) { select.value = mode; return; }
+  phoneMotionAbort?.abort();
   changingAudioMode = true;
   select.disabled = true;
   void changeAudioMode({ current: mode, next, browserBusy: false, url: deskURL, fallback: defaultMode,
-    dispose: async () => { if (remote) await remoteDesk?.dispose(); else await audio?.dispose(); }, navigate: url => location.assign(url.href) })
+    dispose: async () => {
+      await phoneAuditionTransition;
+      if (remote) await remoteDesk?.dispose();
+      else await audio?.dispose();
+    }, navigate: url => location.assign(url.href) })
     .then(changed => { if (!changed) { changingAudioMode = false; select.value = mode; select.disabled = false; } })
     .catch(error => { changingAudioMode = false; select.value = mode; select.disabled = false; showError(error); });
 });
@@ -682,6 +766,8 @@ elements['audio-mode-select'].addEventListener('change', () => {
 function render(next: Partial<PracticeState>) {
   syncTunerSession();
   const ended = next.phase === 'ended' && state.phase !== 'ended';
+  const newPhase = next.phase ?? state.phase;
+  if ((newPhase === 'playing' || newPhase === 'count-in') !== (state.phase === 'playing' || state.phase === 'count-in')) phoneMotionAbort?.abort();
   state = { ...state, ...next };
   sampleDownloads.render();
   beginOutputRecording(state.phase);
@@ -734,7 +820,10 @@ function render(next: Partial<PracticeState>) {
 
 function renderSongVoices(observed: DisplayState | undefined, effectsLocked: boolean) {
   const preview = observed ? remoteDesk?.auditionProfile() : undefined;
-  document.getElementById('phone-motion-controls')?.toggleAttribute('hidden', !observed);
+  const motionControls = document.getElementById('phone-motion-controls');
+  motionControls?.toggleAttribute('hidden', !observed);
+  const tambourine = motionControls?.querySelector<HTMLButtonElement>('[data-tambourine]:not([data-motion])');
+  if (tambourine) tambourine.textContent = isRunning() ? 'Enable shake · Tambourine' : 'Audition Tambourine';
   for (const { button, profile } of auditionButtons) {
     button.hidden = preview === undefined;
     button.disabled = effectsLocked || effectsApplying;
@@ -1053,7 +1142,11 @@ window.addEventListener('message', event => {
 });
 
 window.addEventListener('blur', releasePresses);
-document.addEventListener('visibilitychange', () => { if (document.hidden) releasePresses(); });
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden) return;
+  releasePresses();
+  phoneMotionAbort?.abort();
+});
 window.addEventListener('beforeunload', event => {
   if (isRunning() && !changingAudioMode) { event.preventDefault(); event.returnValue = ''; }
 });
@@ -1070,6 +1163,7 @@ elements.start.disabled = true;
 async function switchSong(id: string, imported?: CompiledSong, source?: SongSource, options: { remoteSong?: SongScript; voiceMetadata?: CatalogDocument } = {}): Promise<void> {
   const { remoteSong, voiceMetadata } = options;
   if (remote && !remoteSong) {
+    phoneMotionAbort?.abort();
     if (!remoteDesk) throw new Error('Connect to the hardware desk before choosing a song');
     const desk = remoteDesk;
     try {
@@ -1210,6 +1304,7 @@ function renderHardwareAudio() {
 
 async function changeHardwareAudio(desk: RemoteDesk, live: boolean) {
   if (audioSwitchPending) return;
+  if (!live) phoneMotionAbort?.abort();
   audioSwitchPending = true;
   renderHardwareAudio();
   try {
@@ -1306,6 +1401,7 @@ if (remote) {
         renderHardwareAudio();
         if (!connected || status.kind !== 'ready') {
           audio = undefined;
+          phoneMotionAbort?.abort();
           syncTunerSession();
           transportGeneration++;
           starting = false;

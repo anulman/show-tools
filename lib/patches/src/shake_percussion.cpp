@@ -145,6 +145,10 @@ Stereo ShakePercussion::next() noexcept {
   return output;
 }
 
+bool ShakePercussion::active() const noexcept {
+  return std::any_of(voices_.begin(), voices_.end(), [](const Voice& voice) { return voice.remaining != 0; });
+}
+
 void ShakePercussion::reset() noexcept {
   voices_ = {};
   next_variation_ = {};

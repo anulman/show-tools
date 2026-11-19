@@ -16,6 +16,7 @@ class ShakePercussion final {
   ShakePercussion(const ShakePercussion&) = delete;
   ShakePercussion& operator=(const ShakePercussion&) = delete;
   bool note_on(int note, int velocity) noexcept;
+  bool active() const noexcept;
   Stereo next() noexcept;
   void reset() noexcept;
 

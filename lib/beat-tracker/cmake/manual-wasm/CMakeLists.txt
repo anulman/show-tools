@@ -17,6 +17,7 @@ add_executable(manual-clock
   "${repo_dir}/lib/performance/src/compiled_program.cpp"
   "${repo_dir}/lib/peripherals/src/peripheral_controls.cpp"
   "${repo_dir}/lib/patches/src/patch_engine.cpp"
+  "${repo_dir}/lib/patches/src/shake_percussion.cpp"
   "${repo_dir}/lib/tuner/src/tuner.cpp")
 set_target_properties(manual-clock PROPERTIES SUFFIX ".wasm" CXX_STANDARD 17 CXX_STANDARD_REQUIRED YES CXX_EXTENSIONS NO)
 target_compile_definitions(manual-clock PRIVATE BT_MANUAL_ONLY)

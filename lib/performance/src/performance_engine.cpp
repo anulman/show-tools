@@ -2,6 +2,7 @@
 #include "patch_engine.h"
 #include "compiled_program.h"
 #include "input_router.h"
+#include "shake_percussion.h"
 #include "tuner.h"
 #include <cstddef>
 #include <limits>
@@ -66,6 +67,8 @@ struct BeatForecast {
 struct pf_engine {
   performance_input::Router inputs;
   std::unique_ptr<tuner::Engine> tuning;
+  std::unique_ptr<patches::ShakePercussion> percussion;
+  bool tambourine_armed = false;
   bt_tracker* tracker = nullptr;
   st_engine* sampler = nullptr;
   sq_engine* sequencer = nullptr;
@@ -237,11 +240,16 @@ void publish_beat_prediction_if_changed(pf_engine* engine) {
       std::abs(forecast.target_frame - published.target_frame) < subframe_tolerance) return;
   emit(engine, PF_BEAT_PREDICTION, forecast.observed_frame);
 }
+void reset_tambourine(pf_engine* engine) {
+  engine->tambourine_armed = false;
+  if (engine->percussion) engine->percussion->reset();
+}
 void silence(pf_engine* engine, int reason = 3) {
   bt_cancel_pedal_tempo(engine->tracker);
   engine->pedal_tempo_beat = -1;
   engine->restart_at_end = false;
   if (engine->tuning) engine->tuning->close();
+  reset_tambourine(engine);
   engine->cue_button_held = false;
   if (engine->compiled) engine->compiled->stop();
   clear_live(engine);
@@ -420,6 +428,13 @@ void render_segment(pf_engine* engine, const float* input, float* left, float* r
     }
   }
   if (engine->mode != PF_TRACKER) st_render(engine->sampler, left, right, count, start);
+  if (engine->tambourine_armed && engine->percussion->active()) {
+    for (unsigned index = 0; index < count; ++index) {
+      const auto sample = engine->percussion->next();
+      if (left) left[index] += sample.left;
+      if (right) right[index] += sample.right;
+    }
+  }
   engine->processed = std::max(engine->processed, start + count);
 }
 int clock_command(pf_engine* engine, int type, double value, double when, double sequence, double epoch) {
@@ -556,6 +571,7 @@ int pf_configure(pf_engine* engine, double bpm, int beats, int bars, int end, in
     cue.kind = int(item[PF_CUE_KIND]); cue.timing = int(item[PF_CUE_TIMING]); cue.capture = int(item[PF_CUE_CAPTURE]); cue.variant = int(item[PF_CUE_VARIANT]); cue.hits = int(item[PF_CUE_HITS]); cue.radius = item[PF_CUE_RADIUS];
     std::copy(item + PF_CUE_POSITIONS, item + PF_CUE_POSITIONS + cue.hits, cue.positions);
   }
+  reset_tambourine(engine);
   engine->compiled.reset();
   performance_input::Binding unbound[PF_INPUT_SWITCHES]; engine->inputs.replace(unbound);
   delete engine->song; engine->song = song; engine->bpm = bpm; engine->end = end; engine->beats_per_bar = beats;
@@ -764,10 +780,27 @@ int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected, in
   engine->error_code = PF_OK; engine->error = "";
   return 0;
 }
+int pf_audition_tambourine(pf_engine* engine, int32_t velocity) {
+  if (!engine || velocity < -1 || velocity > 127) return -1;
+  if (velocity == -1) {
+    reset_tambourine(engine);
+    return 0;
+  }
+  if (!engine->compiled || running(engine)) return -1;
+  if (velocity > 0) {
+    return engine->tambourine_armed && engine->percussion->note_on(patches::tambourine_note, velocity) ? 0 : -1;
+  }
+  if (!engine->percussion) {
+    engine->percussion = patches::ShakePercussion::create(engine->rate);
+    if (!engine->percussion) return -1;
+  }
+  engine->tambourine_armed = true;
+  return 0;
+}
 int pf_audio_needed(const pf_engine* engine) {
   if (!engine || !engine->tuning) return 0;
   const auto state = engine->tuning->snapshot();
-  return running(engine) || state.listening || state.previewKind != tuner::PreviewKind::Silent;
+  return running(engine) || engine->tambourine_armed || state.listening || state.previewKind != tuner::PreviewKind::Silent;
 }
 void pf_tuner_info(const pf_engine* engine, double* out) {
   if (!out) return;

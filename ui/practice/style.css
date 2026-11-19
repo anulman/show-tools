@@ -149,3 +149,11 @@
 
 .pad-shell[data-sample-status=standby] .pad:disabled,.voice-effects .fx-title:disabled{opacity:1}
 .pad-shell[data-sample-status=standby] kbd{visibility:hidden}
+
+#phone-motion-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px;
+  margin-bottom: 12px;
+}

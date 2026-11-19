@@ -25,7 +25,7 @@ enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_A
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
   PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
   PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24, PF_INVALID_INPUT = 25, PF_STALE_INPUT = 26 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 13, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 14, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
 enum pf_input_kind { PF_INPUT_PHYSICAL = 0, PF_INPUT_KEYBOARD = 1, PF_INPUT_POINTER = 2 };
 enum pf_input_target { PF_INPUT_CUES = 0, PF_INPUT_TEMPO = 1, PF_INPUT_PANIC = 2 };
 enum pf_input_limits { PF_INPUT_PRODUCERS = 32, PF_INPUT_SWITCHES = 6, PF_INPUT_MAGIC = 0x50464931,
@@ -127,6 +127,10 @@ void pf_stop(pf_engine* engine);
    not advance it. Close/Start/Stop/Panic invalidate earlier tuner controls. */
 int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected_revision, int value, int scale);
 void pf_tuner_info(const pf_engine* engine, double* out);
+/* A stopped compiled practice song can arm an audition with 0 and end it with -1.
+   Once armed, 1..127 submits a Tambourine hit for the next rendered frame.
+   Start, Stop, Panic and song replacement disarm it and clear its audio. */
+int pf_audition_tambourine(pf_engine* engine, int32_t velocity);
 int pf_audio_needed(const pf_engine* engine);
 /* IDs preserve JavaScript UTF-16 code-unit identity, including embedded NULs.
    Null pointer with zero length means no ID. Other IDs contain 1..200 units. */

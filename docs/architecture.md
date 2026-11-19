@@ -75,6 +75,8 @@ Input clients record an attach intent before sending it. The gateway retains its
 
 Each browser explicitly chooses keyboard shortcuts or native controls. An unselected browser still supports pointer/touch, with musical DOM keys and wheel disabled. The choice is local to that browser session. Policy changes and blur revoke only keyboard ownership; physical reconnect waits for its own cleanup acknowledgement. Explicit UI Panic remains a global utility with immediate recorder/microphone cleanup. A physically bound Panic stays identified and enters the reserved native priority lane after generation and ownership checks.
 
+Tribulations exposes a stopped Tambourine audition from the phone's rotation-rate events. The browser turns each qualifying stroke into a bounded velocity. Hardware mode sends that event to the authenticated native owner. Browser mode sends it to the local worklet. The same C++ instrument adds the sound to the playback bus in both modes. Ending audition, starting or stopping transport, Panic, and song replacement clear its tails. The authored Tambourine sample follows its existing chart window during performance.
+
 ## A chart supplies actions, and a press performs them
 
 Each song is a loadable module under [songs](../songs/README.md), beside its canonical MusicXML document. `SongScript` supplies a parsed chart, a `Program`, and a practice range. The registry loads the selected module on demand.

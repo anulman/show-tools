@@ -52,7 +52,7 @@ export class NativeInstrument implements Instrument {
 		const connection = this.connection;
 		if (!current || !connection) return { outcome: 'rejected', error: 'Host unavailable' };
 		let operation: Buffer;
-		try { operation = encodeCommand(input, current.state); }
+		try { operation = encodeCommand(input, current.state, current.song.id); }
 		catch (error) { return { outcome: 'rejected', error: error instanceof Error ? error.message : 'Invalid command' }; }
 		const result = await connection.command(operation, isPriorityCommand(input, current.state));
 		if (result.length !== 16) throw new Error('Invalid host result');
