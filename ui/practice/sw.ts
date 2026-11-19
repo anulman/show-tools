@@ -8,14 +8,24 @@ const MODULE_FILES = '__BUILD_MODULE_FILES__';
 const FILES: string[] = Array.isArray(MODULE_FILES) ? MODULE_FILES : [];
 const ASSET_URLS = new Set(FILES.map(path => new URL(path.replace(/^\/ui\/practice\//, './'), self.location.href).href));
 
+async function cacheBuild() {
+  const existing = (await caches.keys()).includes(CACHE);
+  const cache = await caches.open(CACHE);
+  try {
+    for (const path of ASSET_URLS) {
+      const pinned = new URL(path);
+      pinned.searchParams.set('__show_tools_build', BUILD);
+      const response = await fetch(new Request(pinned, { cache: 'reload' }));
+      if (!response.ok) throw new Error('This build could not be cached');
+      await cache.put(path, response);
+    }
+  } catch (error) {
+    if (!existing) await caches.delete(CACHE);
+    throw error;
+  }
+}
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => Promise.all([...ASSET_URLS].map(async path => {
-    const pinned = new URL(path);
-    pinned.searchParams.set('__show_tools_build', BUILD);
-    const response = await fetch(new Request(pinned, { cache: 'reload' }));
-    if (!response.ok) throw new Error('This build could not be cached');
-    return { path, response };
-  })).then(assets => Promise.all(assets.map(({ path, response }) => cache.put(path, response))))));
+  event.waitUntil(cacheBuild());
 });
 self.addEventListener('message', event => {
   const data: unknown = event.data;

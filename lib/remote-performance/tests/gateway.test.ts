@@ -103,11 +103,15 @@ for (const priority of [
 });
 
 
-test('rejects malformed request targets and serves practice directory indexes', async () => {
+test('keeps Hardware Desk assets current and verifies offline Browser build pins', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'gateway-static-'));
   await mkdir(join(directory, 'ui/practice'), { recursive: true });
   await writeFile(join(directory, 'index.html'), '<a href="/ui/practice/">Practice</a>');
   await writeFile(join(directory, 'ui/practice/index.html'), '<title>Practice</title>');
+  await writeFile(join(directory, 'ui/practice/app.js'), 'export const release = 2;');
+  await writeFile(join(directory, 'ui/practice/sw.js'), 'offline worker');
+  const cacheId = 'a'.repeat(64);
+  await writeFile(join(directory, 'ui/practice/offline-manifest.json'), JSON.stringify({ cacheId, files: ['/ui/practice/index.html', '/ui/practice/app.js'] }));
   const instrument = deskFixture();
   const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: directory }, instrument);
   server.listen(0, '127.0.0.1');
@@ -125,10 +129,46 @@ test('rejects malformed request targets and serves practice directory indexes', 
     assert.match(reply, /^HTTP\/1.1 400/);
     const base = `http://127.0.0.1:${address.port}`;
     assert.match(await (await fetch(`${base}/`)).text(), /ui\/practice\//);
+    for (const path of ['/ui/practice', '/ui/practice/', '/ui/practice/index.html']) {
+      const launch = await fetch(`${base}${path}?remote&browser&song=one`, { redirect: 'manual' });
+      assert.equal(launch.status, 302);
+      assert.equal(launch.headers.get('location'), '/ui/live/?remote&browser&song=one');
+      assert.equal(launch.headers.get('cache-control'), 'no-store');
+    }
     const practice = await fetch(`${base}/ui/practice/`);
     assert.equal(practice.status, 200);
+    assert.equal(new URL(practice.url).pathname, '/ui/live/');
     assert.match(await practice.text(), /<title>Practice<\/title>/);
-    assert.equal((await fetch(`${base}/api/session`)).status, 401);
+    assert.equal(practice.headers.get('cache-control'), 'no-store');
+
+    const browser = await fetch(`${base}/ui/live/?browser`);
+    assert.equal(browser.status, 200);
+    assert.equal(new URL(browser.url).pathname, '/ui/browser/');
+    const script = await fetch(`${base}/ui/live/app.js`);
+    assert.equal(await script.text(), 'export const release = 2;');
+    assert.equal(script.headers.get('cache-control'), 'no-store');
+    for (const path of ['/ui/live/sw.js', '/ui/live/%2fsw.js', '/ui/live/a%2f..%2fsw.js']) {
+      assert.equal((await fetch(`${base}${path}`)).status, 404);
+    }
+    assert.equal((await fetch(`${base}/ui/live/app.js`, { headers: { 'service-worker': 'script' } })).status, 404);
+    for (const path of ['/ui/browser/sw.js', '/ui/practice/sw.js']) {
+      const worker = await fetch(`${base}${path}`);
+      assert.equal(worker.status, 200);
+      assert.equal(worker.headers.get('cache-control'), 'no-store');
+      assert.equal(await worker.text(), 'offline worker');
+    }
+    assert.equal(new URL((await fetch(`${base}/ui/practice/?browser`)).url).pathname, '/ui/browser/');
+    assert.equal(new URL((await fetch(`${base}/ui/browser/?remote`)).url).pathname, '/ui/live/');
+
+    const pinned = await fetch(`${base}/ui/practice/index.html?__show_tools_build=${cacheId}`, { redirect: 'manual' });
+    assert.equal(pinned.status, 200);
+    assert.match(await pinned.text(), /<title>Practice<\/title>/);
+    assert.equal((await fetch(`${base}/ui/practice/app.js?__show_tools_build=${'b'.repeat(64)}`)).status, 409);
+    assert.equal((await fetch(`${base}/ui/practice/app.js?__show_tools_build=`)).status, 400);
+    assert.equal((await fetch(`${base}/ui/practice/app.js?__show_tools_build=${cacheId}&__show_tools_build=${cacheId}`)).status, 400);
+    assert.equal((await fetch(`${base}/api/session?__show_tools_build=${cacheId}`)).status, 401);
+    await rm(join(directory, 'ui/practice/offline-manifest.json'));
+    assert.equal((await fetch(`${base}/ui/practice/app.js?__show_tools_build=${cacheId}`)).status, 409);
   } finally {
     server.closeAllConnections();
     await new Promise<void>(done => server.close(() => done()));

@@ -166,7 +166,7 @@ Expect `Dial: configured`. Direction here labels your capture motion. The tool d
 
 ## Assign buttons for all songs
 
-Open [the EliteDesk Performance Desk](https://proxmox.tail54fc55.ts.net:8443/ui/practice/?remote) on your laptop or phone. Keep **Hardware mode (EliteDesk)** selected. If requested, use **Enter key** with the existing private session key. The browser can remember the key on that origin. Do not paste the key into a URL or this document.
+Open [the EliteDesk Performance Desk](https://proxmox.tail54fc55.ts.net:8443/ui/live/) on your laptop or phone. Keep **Hardware mode (EliteDesk)** selected. If requested, use **Enter key** with the existing private session key. The browser can remember the key on that origin. The live URL loads directly from the EliteDesk. Use it if an older bookmark opens a cached copy. Do not paste the key into a URL or this document.
 
 The default layout is L1 yellow, R1 green, L2 blue, and R2 red. To change the layout:
 

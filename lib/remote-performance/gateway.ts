@@ -1,8 +1,9 @@
 import { DESK_HEARTBEAT_MS } from './event-liveness.js';
+import { BROWSER_DESK_PATH, HARDWARE_DESK_PATH, PRACTICE_ASSET_PATH, isDeskEntry } from './desk-paths.js';
 import type { TunerState } from '../tuner/model.js';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
-import { realpath, stat } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
 import { extname, resolve, sep } from 'node:path';
@@ -310,11 +311,12 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 		return supplied.length === config.token.length && timingSafeEqual(supplied, config.token);
 	};
 	const handler = async (request: IncomingMessage, response: ServerResponse) => {
-		let path: string;
+		let url: URL;
 		try {
 			if (!request.url || request.url.length > 8192) throw new Error('Invalid request target');
-			path = new URL(request.url, config.origin).pathname;
+			url = new URL(request.url, config.origin);
 		} catch { return json(response, 400, { error: 'Invalid request target' }); }
+    const path = url.pathname;
     if (request.method === 'GET' && path === '/api/desk-mode') {
       response.writeHead(200, { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' });
       return response.end('hardware');
@@ -419,14 +421,47 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 		if (request.method !== 'GET' && request.method !== 'HEAD') return json(response, 405, { error: 'Method not allowed' });
 		let relative: string;
 		try { relative = decodeURIComponent(path); } catch { return json(response, 400, { error: 'Invalid path' }); }
+    const pins = url.searchParams.getAll('__show_tools_build');
+    const pin = pins[0];
+    if (pins.length > 1 || (pin !== undefined && !/^[a-f0-9]{64}$/.test(pin)))
+      return json(response, 400, { error: 'Invalid build identity' });
+    const browserEntry = isDeskEntry(relative, BROWSER_DESK_PATH);
+    const selectedBrowser = !url.searchParams.has('remote') && (browserEntry || url.searchParams.has('browser'));
+    if (pin === undefined && (browserEntry || isDeskEntry(relative, HARDWARE_DESK_PATH) || isDeskEntry(relative, PRACTICE_ASSET_PATH))) {
+      const destination = selectedBrowser ? BROWSER_DESK_PATH : HARDWARE_DESK_PATH;
+      if (relative !== destination && relative !== destination + 'index.html') {
+        response.writeHead(302, { location: destination + url.search, 'cache-control': 'no-store' });
+        return response.end();
+      }
+    }
+    const live = relative.startsWith(HARDWARE_DESK_PATH);
+    const alias = live ? HARDWARE_DESK_PATH : relative.startsWith(BROWSER_DESK_PATH) ? BROWSER_DESK_PATH : undefined;
+    if (alias) {
+      const asset = relative.slice(alias.length);
+      if (asset.includes('\\') || asset.split('/').includes('..') || (live && request.headers['service-worker'] === 'script'))
+        return json(response, 404, { error: 'Not found' });
+      relative = PRACTICE_ASSET_PATH + asset;
+    }
 		const root = await realpath(config.staticRoot);
+    if (pin !== undefined) {
+      try {
+        const manifest = await realpath(resolve(root, '.' + PRACTICE_ASSET_PATH + 'offline-manifest.json'));
+        if (!manifest.startsWith(root + sep)) return json(response, 409, { error: 'Requested build is unavailable' });
+        const value: unknown = JSON.parse(await readFile(manifest, 'utf8'));
+        if (!value || typeof value !== 'object' || !('cacheId' in value) || value.cacheId !== pin)
+          return json(response, 409, { error: 'Requested build is unavailable' });
+      } catch { return json(response, 409, { error: 'Requested build is unavailable' }); }
+    }
+
 		const file = resolve(root, `.${relative.endsWith('/') ? `${relative}index.html` : relative}`);
 		if (!file.startsWith(root + sep)) return json(response, 404, { error: 'Not found' });
 		try {
-			if (!(await realpath(file)).startsWith(root + sep) || !(await stat(file)).isFile()) return json(response, 404, { error: 'Not found' });
-			response.writeHead(200, { 'content-type': contentTypes[extname(file)] ?? 'application/octet-stream', 'x-content-type-options': 'nosniff' });
+      const actual = await realpath(file);
+      if (!actual.startsWith(root + sep) || (live && actual === resolve(root, '.' + PRACTICE_ASSET_PATH + 'sw.js')) || !(await stat(actual)).isFile())
+        return json(response, 404, { error: 'Not found' });
+			response.writeHead(200, { 'content-type': contentTypes[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
 			if (request.method === 'HEAD') return response.end();
-			createReadStream(file).on('error', () => response.destroy()).pipe(response);
+			createReadStream(actual).on('error', () => response.destroy()).pipe(response);
 		} catch { json(response, 404, { error: 'Not found' }); }
 	};
 	const safeHandler = (request: IncomingMessage, response: ServerResponse) => {
