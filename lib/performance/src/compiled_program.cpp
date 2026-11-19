@@ -484,7 +484,7 @@ void Program::remember_cues(double frame, double bpm) noexcept {
   double now = position(frame, bpm);
   for (int id = 0; id < cue_count_; ++id) {
     Cue& cue = cues_[id]; double at = (cue.bar - 1) * beats_ + cue.cue;
-    if (cue.cue >= 0 && cue.bar == bar_ && at <= now && !std::isfinite(cue.occurred_frame)) cue.occurred_frame = cue_frame(cue, bpm);
+    if (cue.cue >= 0 && cue_on_current_bar(cue) && at <= now && !std::isfinite(cue.occurred_frame)) cue.occurred_frame = cue_frame(cue, bpm);
   }
 }
 void Program::tempo_changed(double frame, double old_bpm, double new_bpm) noexcept {
@@ -555,9 +555,12 @@ int Program::available_bank(int id) const noexcept {
   for (int bank = 0; bank < 2; ++bank) if (bank != take.latest && !(active_capture_.take == id && active_capture_.bank == bank) && take.cache[bank] && take.cache[bank]->revision() == prepared_revision_[take.profile] && take.playback[bank] && take.playback[bank]->state() == patches::PlaybackState::idle) return bank;
   return -1;
 }
+bool Program::cue_on_current_bar(const Cue& cue) const noexcept {
+  return cue.bar == bar_ && (cue.bar == 0 ? start_ == 1 : cue.bar >= start_);
+}
 bool Program::cue_visible(const Cue& cue, int end_bar) const noexcept {
   if (cue.used || cue.bar > end_bar) return false;
-  if (cue.cue < 0) return cue.bar == bar_ && (cue.bar == 0 || cue.bar >= start_);
+  if (cue.cue < 0) return cue_on_current_bar(cue);
   const double at = (cue.bar - 1) * beats_ + cue.cue;
   return cue.bar >= start_ && query_position_ >= at - 2 && query_position_ <= at;
 }
@@ -688,7 +691,7 @@ int Program::resolve(int button, double frame, double bpm) noexcept {
   for (int id = 0; id < cue_count_; ++id) {
     const Cue& cue = cues_[id]; if (cue.button != button) continue;
     double at = cue_frame(cue, bpm), delta = frame - at;
-    bool applicable = cue.cue < 0 ? cue.bar == bar_ : phase_ == PF_PLAYING && delta >= -early_ * rate_ / 1000 - epsilon && delta <= late_ * rate_ / 1000 + epsilon;
+    bool applicable = cue.cue < 0 ? cue_on_current_bar(cue) : phase_ == PF_PLAYING && delta >= -early_ * rate_ / 1000 - epsilon && delta <= late_ * rate_ / 1000 + epsilon;
     if (!applicable) continue;
     double distance = cue.cue < 0 ? 0 : std::abs(delta);
     if (distance < best - epsilon) { found = id; best = distance; tied = false; }
@@ -713,7 +716,7 @@ int Program::press(int button, double frame, double bpm, bool microphone) noexce
       }
       int note_result = play_note(button);
       if (note_result != PF_OK) return note_result;
-      for (int id = 0; id < cue_count_; ++id) if (cues_[id].button == button && cues_[id].bar == bar_) return PF_CUE_LATE;
+      for (int id = 0; id < cue_count_; ++id) if (cues_[id].button == button && cue_on_current_bar(cues_[id])) return PF_CUE_LATE;
       return PF_OK;
     }
     return -selected;
@@ -818,7 +821,7 @@ int Program::press_selected(int found, double frame, double bpm, bool microphone
   if (cue.kind == PF_COMMIT && active_capture_.take != cue.commit) return PF_NO_RECORDING;
   if (cue.kind == PF_PLAY && cue.selection >= 0 && !selection_ready(cue.selection, cue.voice) && cue.group < 0) return PF_NO_SAMPLE;
   double target = now;
-  if (cue.timing == 1) target = phase_ == PF_COUNT_IN ? (start_ - 1) * beats_ : cue.bar * beats_;
+  if (cue.timing == 1) target = cue.bar * beats_;
   if (cue.timing == 2) target = (cue.bar - 1 + cue.bar_offset) * beats_ + cue.execute;
   if (cue.kind == PF_PLAY && cue.mode == PF_LOOP_MODE && cue.timing == 0 && cue.selection >= 0) {
     for (int member = 0; member < member_count_; ++member) if (members_[member].selection == cue.selection) {
@@ -1518,7 +1521,7 @@ VoiceInfo Program::channel_info(int button, double bpm) const noexcept {
     const Cue& cue = cues_[id];
     if (cue.button != button || cue.used) continue;
     double delta = query_frame_ - cue_frame(cue, bpm);
-    if ((cue.cue < 0 && cue.bar == bar_) || (cue.cue >= 0 && delta >= -early_ * rate_ / 1000 && delta <= late_ * rate_ / 1000)) { info.light = PF_CUE; break; }
+    if ((cue.cue < 0 && cue_on_current_bar(cue)) || (cue.cue >= 0 && delta >= -early_ * rate_ / 1000 && delta <= late_ * rate_ / 1000)) { info.light = PF_CUE; break; }
   }
   return info;
 }

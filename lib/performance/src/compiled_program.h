@@ -126,6 +126,7 @@ class Program {
   void remember_cues(double frame, double bpm) noexcept;
   double loop_phase(const Take& take, int bank) const noexcept;
   bool follows_changed_tempo(const Take& take, int bank, double bpm) const noexcept;
+  bool cue_on_current_bar(const Cue& cue) const noexcept;
   bool cue_visible(const Cue& cue, int end_bar) const noexcept;
   bool commit_period(int take, uint32_t& period) const noexcept;
   std::unique_ptr<double[]> table_;

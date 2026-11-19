@@ -756,14 +756,17 @@ function renderSongVoices(observed: DisplayState | undefined, effectsLocked: boo
 function renderPads(displayBar: number, observed?: DisplayState) {
   const inCountIn = observed?.phase === 'count-in';
   const currentBar = chart?.bars[displayBar - 1];
+  const songLeadIn = inCountIn && (!song?.compiled || (observed.startBar ?? displayBar) === 1);
+  const shownCues = inCountIn ? songLeadIn ? chart?.leadInCues : undefined : currentBar?.cues;
+  const shownActions = inCountIn ? songLeadIn ? song?.program.controls?.leadIn : undefined : song?.program.controls?.bars[displayBar - 1];
   const bindings = remoteDesk?.snapshot().song.compiled?.inputBindings;
   for (const control of CONTROLS) {
     const pad = pads.get(control.id);
     if (!pad) continue;
     const channel = observed?.channels?.find(channel => channel.id === control.id);
     const looping = channel?.looping || observed?.looping?.includes(control.id);
-    const cue = (inCountIn ? chart?.leadInCues : currentBar?.cues)?.[control.id] || '';
-    const compiledCue = (inCountIn ? song?.program.controls?.leadIn : song?.program.controls?.bars[displayBar - 1])?.[control.id];
+    const cue = shownCues?.[control.id] ?? '';
+    const compiledCue = shownActions?.[control.id];
     const capture = compiledCue && (compiledCue.kind === 'arm' || compiledCue.kind === 'commit-arm') ? compiledCue.capture : undefined;
     const replay = song?.program.barPlayback?.some(entry => entry.bar === displayBar && entry.channelId === control.id);
     const action = (replay && compiledCue?.kind === 'none' ? 'Auto · recorded bar' : cueLabel(cue))
