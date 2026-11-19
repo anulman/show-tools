@@ -756,14 +756,17 @@ function renderSongVoices(observed: DisplayState | undefined, effectsLocked: boo
 function renderPads(displayBar: number, observed?: DisplayState) {
   const inCountIn = observed?.phase === 'count-in';
   const currentBar = chart?.bars[displayBar - 1];
+  const songLeadIn = inCountIn && (!song?.compiled || (observed.startBar ?? displayBar) === 1);
+  const shownCues = inCountIn ? songLeadIn ? chart?.leadInCues : undefined : currentBar?.cues;
+  const shownActions = inCountIn ? songLeadIn ? song?.program.controls?.leadIn : undefined : song?.program.controls?.bars[displayBar - 1];
   const bindings = remoteDesk?.snapshot().song.compiled?.inputBindings;
   for (const control of CONTROLS) {
     const pad = pads.get(control.id);
     if (!pad) continue;
     const channel = observed?.channels?.find(channel => channel.id === control.id);
     const looping = channel?.looping || observed?.looping?.includes(control.id);
-    const cue = (inCountIn ? chart?.leadInCues : currentBar?.cues)?.[control.id] || '';
-    const compiledCue = (inCountIn ? song?.program.controls?.leadIn : song?.program.controls?.bars[displayBar - 1])?.[control.id];
+    const cue = shownCues?.[control.id] ?? '';
+    const compiledCue = shownActions?.[control.id];
     const capture = compiledCue && (compiledCue.kind === 'arm' || compiledCue.kind === 'commit-arm') ? compiledCue.capture : undefined;
     const replay = song?.program.barPlayback?.some(entry => entry.bar === displayBar && entry.channelId === control.id);
     const action = (replay && compiledCue?.kind === 'none' ? 'Auto · recorded bar' : cueLabel(cue))
@@ -1170,17 +1173,20 @@ const hardwareCard = requiredElement('#hardware-audio', HTMLElement);
 const hardwareStatus = requiredElement('#hardware-audio-status', HTMLSpanElement);
 const audioSwitch = requiredElement('#audio-switch', HTMLButtonElement);
 const audioSwitchStatus = requiredElement('#audio-switch-status', HTMLSpanElement);
+const hardwareReconnect = requiredElement('#hardware-reconnect', HTMLButtonElement);
 const resetAudioFault = requiredElement('#reset-audio-fault', HTMLButtonElement);
 let audioSwitchPending = false;
+let hardwareConnecting = false;
 
 function renderHardwareAudio() {
-  const connection = remoteDesk?.connection.kind ?? 'connecting';
+  const connection = remoteDesk?.connection.kind ?? (hardwareConnecting ? 'connecting' : 'disconnected');
   const status = remoteDesk?.snapshot().audio;
   const kind = status?.kind ?? 'off';
   const connected = connection === 'connected';
+  const disconnected = connection === 'disconnected';
   const live = kind === 'starting' || kind === 'ready';
-  const description = connection === 'disconnected' ? 'Connection lost. Hardware audio may still be running.'
-    : !connected ? 'Connecting to desk…'
+  const description = hardwareConnecting || connection === 'connecting' ? 'Connecting to desk…'
+    : disconnected ? 'Hardware desk disconnected. Audio may still be running.'
     : kind === 'off' ? 'Standby · audio off'
     : kind === 'ready' ? 'Live · audio on'
     : kind === 'fault' ? 'Hardware audio fault. Switch to Live to retry.'
@@ -1191,10 +1197,13 @@ function renderHardwareAudio() {
     : connected && status?.kind === 'stopping' && status.error ? status.error : description;
   if (hardwareStatus.textContent !== detail) hardwareStatus.textContent = detail;
   if (audioSwitchStatus.textContent !== description) audioSwitchStatus.textContent = description;
+  audioSwitch.hidden = disconnected;
   audioSwitch.dataset.state = connected ? kind : connection;
   audioSwitch.setAttribute('aria-checked', String(live));
-  audioSwitch.disabled = audioSwitchPending || !connected || kind === 'stopping' || (!live && switching);
+  audioSwitch.disabled = audioSwitchPending || hardwareConnecting || !connected || kind === 'stopping' || (!live && switching);
   audioSwitch.title = live ? 'Switch to Standby to stop audio and clear captured loops' : 'Switch to Live to enable hardware audio';
+  hardwareReconnect.hidden = !disconnected;
+  hardwareReconnect.disabled = hardwareConnecting;
   resetAudioFault.hidden = !connected || kind !== 'fault';
   resetAudioFault.disabled = audioSwitchPending;
 }
@@ -1258,7 +1267,6 @@ if (remote) {
   const hardwareKeyStatus = requiredElement('#hardware-key-status', HTMLSpanElement);
   const hardwareAuth = createHardwareAuth({ endpoint: new URL('/api/session', location.href).href });
   hardwareCard.hidden = false;
-  audioSwitch.hidden = false;
   elements['monitor-relationship'].closest('label')?.setAttribute('hidden', '');
   elements['monitor-hint'].hidden = true;
   elements['offline-status'].textContent = 'Audio runs on the remote host.';
@@ -1275,12 +1283,17 @@ if (remote) {
     if (desk?.snapshot().audio.kind === 'fault') void act(() => changeHardwareAudio(desk, false));
   });
   const connectHardware = async () => {
+    if (hardwareConnecting) return;
+    hardwareConnecting = true;
     hardwareKey.disabled = true;
+    renderHardwareAudio();
+    let replacement: RemoteDesk | undefined;
     try {
       const desk = await hardwareAuth.connect(key => RemoteDesk.connect(key), reason => window.prompt(reason === 'rejected'
         ? 'Saved key was rejected. Enter the hardware session key' : 'Enter the hardware session key. This browser will remember it.'));
       hardwareKeyStatus.textContent = hardwareAuth.remembered() ? 'Key remembered in this browser.' : 'Key kept for this page only. Browser storage is unavailable.';
       await replaceHardwareDesk(desk);
+      replacement = desk;
       const choices = await desk.songs();
       elements['song-select'].replaceChildren(...choices.map(choice => { const option = document.createElement('option'); option.value = choice.id; option.textContent = choice.title; return option; }));
       await mountHardwareSong(desk.snapshot());
@@ -1318,11 +1331,21 @@ if (remote) {
       });
       void desk.listen();
       renderRemoteDemo();
+    } catch (error) {
+      if (replacement) {
+        await replacement.dispose();
+        remoteDesk = undefined;
+        renderHardwareUnavailable();
+      }
+      throw error;
     } finally {
+      hardwareConnecting = false;
       hardwareKey.disabled = false;
       hardwareKey.textContent = hardwareAuth.hasKey() ? 'Forget key' : 'Enter key';
+      renderHardwareAudio();
     }
   };
+  hardwareReconnect.addEventListener('click', () => { void act(connectHardware); });
   hardwareKey.addEventListener('click', () => {
     if (hardwareAuth.hasKey()) {
       const cleared = hardwareAuth.forget();
