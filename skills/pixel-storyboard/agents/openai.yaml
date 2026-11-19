@@ -1,4 +1,4 @@
 interface:
   display_name: "Pixel storyboard"
-  short_description: "Direct pixel scenes and actions through staged tweening"
-  default_prompt: "Use $pixel-storyboard to develop this scene and character action from start and end poses through targeted tween studies in Figma."
+  short_description: "Build editable pixel stages and direct character actions"
+  default_prompt: "Use $pixel-storyboard to build an operator-editable Figma stage or develop this character action from endpoints through targeted tween studies."

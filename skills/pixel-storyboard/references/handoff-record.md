@@ -12,6 +12,13 @@ sources:
   model: approved edition and Figma node
   poses: current component IDs and drawing hashes
   registration: common canvas, scale, floor and per-pose offsets
+workspace:
+  owner: operator after manual-stage delivery
+  figma: current file, page, workframe and duplicated endpoint IDs
+  observed_at: time of the current read, not the original delivery
+  layout_evidence: actor IDs, source editions, pose properties, transforms, visibility, layer order and camera
+  agent_write_policy: read for reference; edit only the explicitly requested scope
+  production_frame: separate frame ID for subsequent animation or finishing
 decisions:
   pose_and_action:
     operator: approved
@@ -38,6 +45,8 @@ next_decision: identify which pose pair needs an interim
 ```
 
 Store exact IDs and hashes in the actual record. The values above demonstrate the shape. Do not copy them as approvals for another action.
+
+Include `workspace` for a delivered [manual stage](manual-staging.md). Discover its current state and any new endpoint copies before writing the record. Keep the operator's working frame intact when producing a separate animation pass. Workspace ownership does not replace the source-art and scene owners or approve musical timing and runtime use.
 
 A handoff message needs the current task, owner, permitted change, immutable items, artifact path and next judgment. Link the record rather than resending every old report. Report a concrete blocker when work cannot proceed. Progress messages should state a new finding, completed decision or changed plan.
 
