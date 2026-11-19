@@ -696,6 +696,37 @@ void cue_warning_reads_preserve_state_without_heap_work() {
   ok(engine, pf_control(engine, 7, 0, nullptr, 0));
   require(level(engine) == 0, "observing warning does not consume the count-in arm cue");
 }
+void song_lead_in_cue_belongs_to_bar_one() {
+  auto song = table();
+  const auto timed = PF_COMPILED_HEADER_FIELDS + 3 * PF_COMPILED_TAKE_FIELDS + 4 * PF_COMPILED_LEGACY_CUE_FIELDS;
+  song[timed + 3] = 0;
+  song[timed + 6] = .25;
+  for (int start : {1, 3}) {
+    Engine engine; prepare(engine, song);
+    ok(engine, pf_start(engine, 120, 1, start, 4, 0, 0));
+    render(engine, 1);
+    require(channel(engine, 0)[PF_CHANNEL_LIGHT] == (start == 1 ? PF_CUE : PF_OFF),
+      "the song intro only lights the pad when counting in from bar one");
+    ok(engine, press(engine, 0));
+    ok(engine, pf_control(engine, 7, 1, nullptr, 0));
+    ok(engine, pf_control(engine, 7, 0, nullptr, 0));
+    until(engine, start);
+    require(channel(engine, 0)[PF_CHANNEL_STATUS] == (start == 1 ? PF_RECORDING : PF_EMPTY),
+      "intro presses arm bar one and leave later range starts empty");
+    std::array<double, PF_EVENT_CAPACITY * PF_EVENT_FIELDS> events{};
+    const auto count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+    bool intro_warning = false, timed_warning = false;
+    for (uint32_t index = 0; index < count; ++index) {
+      const auto* event = events.data() + index * PF_EVENT_FIELDS;
+      if (event[PF_EVENT_TYPE] != PF_CUE_ENTER) continue;
+      intro_warning |= event[PF_EVENT_CUE] == 0;
+      timed_warning |= event[PF_EVENT_CUE] == 4;
+    }
+    require(intro_warning == (start == 1), "cue entry announces only the actual song intro");
+    require(timed_warning == (start == 3), "the selected range's beat-one cue still warns during count-in");
+    if (start == 3) ok(engine, press(engine, 0));
+  }
+}
 void unified_button_and_light_priority() {
   for (bool swapped : {false, true}) {
     auto song = disjoint_handoff_table();
@@ -1410,4 +1441,4 @@ void prefix_capture_maps_and_selection() {
 }
 
 }
-int main() { committed_sample_exports_are_bounded_and_owned(); jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); pedal_bar_boundary_preserves_capture_at_device_rate(); tempo_change_preserves_layered_capture(); layer_can_join_after_returning_to_capture_tempo(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); tempo_change_preserves_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }
+int main() { committed_sample_exports_are_bounded_and_owned(); jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); song_lead_in_cue_belongs_to_bar_one(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); pedal_bar_boundary_preserves_capture_at_device_rate(); tempo_change_preserves_layered_capture(); layer_can_join_after_returning_to_capture_tempo(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); tempo_change_preserves_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }
