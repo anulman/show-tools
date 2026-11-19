@@ -20,6 +20,33 @@ constexpr unsigned event_capacity = 512;
 constexpr unsigned command_capacity = 64;
 constexpr unsigned history_capacity = 262144;
 struct Command { int type; double value; double frame; double sequence; };
+struct TempoTaps {
+    std::optional<double> previous;
+    std::array<double, 6> intervals{};
+    unsigned count = 0;
+    unsigned cursor = 0;
+
+    int observe(double event_frame, double sample_rate, double& bpm) {
+        bpm = 0;
+        if (previous && event_frame <= *previous) return BT_OUT_OF_ORDER;
+        const double interval = previous ? (event_frame - *previous) / sample_rate : 0;
+        if (interval > 0 && interval < 60 / max_bpm) return BT_INVALID;
+        if (interval > 60 / min_bpm || !previous) {
+            count = cursor = 0;
+        } else {
+            intervals[cursor++ % intervals.size()] = interval;
+            count = std::min(count + 1, unsigned(intervals.size()));
+            auto sorted = intervals;
+            std::sort(sorted.begin(), sorted.begin() + count);
+            const double median = count % 2 ? sorted[count / 2]
+                : (sorted[count / 2 - 1] + sorted[count / 2]) * 0.5;
+            bpm = 60 / median;
+        }
+        previous = event_frame;
+        return BT_OK;
+    }
+};
+struct ScheduledTempo { unsigned long long beat; double bpm; };
 }
 
 struct bt_tracker {
@@ -37,10 +64,9 @@ struct bt_tracker {
     int mode = BT_FOLLOW;
     int status = BT_LISTENING;
     double last_sequence = 0;
-    std::optional<double> last_tap;
-    std::array<double, 6> tap_intervals{};
-    unsigned tap_count = 0;
-    unsigned tap_cursor = 0;
+    TempoTaps manual_taps;
+    TempoTaps pedal_taps;
+    std::optional<ScheduledTempo> scheduled_tempo;
     std::array<Command, command_capacity> commands{};
     unsigned command_count = 0;
     std::array<std::array<double, BT_E_COUNT>, event_capacity> events{};
@@ -95,25 +121,13 @@ struct bt_tracker {
     }
 
     int tap(double event_frame, bool rephase, int* estimated = nullptr) {
-        if (last_tap && event_frame <= *last_tap) return BT_OUT_OF_ORDER;
-        const double interval = !last_tap ? 0 : (event_frame - *last_tap) / clock.sample_rate;
-        if (interval > 0 && interval < 60 / max_bpm) return BT_INVALID;
+        double bpm = 0;
+        const int result = manual_taps.observe(event_frame, clock.sample_rate, bpm);
+        if (result != BT_OK) return result;
         mode = BT_MANUAL;
         fresh();
-        if (interval > 60 / min_bpm || !last_tap) {
-            tap_count = 0;
-            tap_cursor = 0;
-        } else {
-            tap_intervals[tap_cursor++ % tap_intervals.size()] = interval;
-            tap_count = std::min(tap_count + 1, unsigned(tap_intervals.size()));
-            auto sorted = tap_intervals;
-            std::sort(sorted.begin(), sorted.begin() + tap_count);
-            const double median = tap_count % 2 ? sorted[tap_count / 2]
-                : (sorted[tap_count / 2 - 1] + sorted[tap_count / 2]) * 0.5;
-            clock.bpm = 60 / median;
-        }
-        last_tap = event_frame;
-        if (estimated) *estimated = tap_count > 0;
+        if (bpm) clock.bpm = bpm;
+        if (estimated) *estimated = bpm > 0;
         if (rephase && clock.running()) clock.start(clock.bpm, event_frame, double(frame));
         ++revision;
         return BT_OK;
@@ -130,7 +144,9 @@ struct bt_tracker {
         case BT_APPLY_BPM:
             mode = BT_MANUAL;
             clock.start(command.value, command.frame, double(frame));
-            last_tap.reset();
+            manual_taps = {};
+            pedal_taps = {};
+            scheduled_tempo.reset();
             fresh();
             ++revision;
             break;
@@ -141,8 +157,9 @@ struct bt_tracker {
         case BT_RESET:
             clock.bpm = 0;
             clock.phase = 0;
-            last_tap.reset();
-            tap_count = tap_cursor = 0;
+            manual_taps = {};
+            pedal_taps = {};
+            scheduled_tempo.reset();
             event_head = event_count = 0;
             ++epoch;
             ++revision;

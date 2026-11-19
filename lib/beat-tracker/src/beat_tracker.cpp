@@ -68,6 +68,13 @@ void bt_process(bt_tracker* t, const float* mono, uint32_t frames) {
         t->history[t->frame % history_capacity] = t->clock.running() ? t->clock.phase : -1;
         const double crossing = t->clock.step();
         if (crossing >= 0) {
+            if (t->scheduled_tempo && t->scheduled_tempo->beat == t->clock.serial) {
+                t->clock.bpm = t->scheduled_tempo->bpm;
+                // The fractional sample after the crossing already belongs to the new tempo.
+                t->clock.phase = (1 - crossing) * t->clock.bpm / (60 * t->clock.sample_rate);
+                t->scheduled_tempo.reset();
+                ++t->revision;
+            }
             t->emit(BT_CLOCK, double(t->frame) + crossing, t->clock.bpm);
             if (t->mode == BT_FOLLOW && t->status == BT_FOLLOWING) {
                 t->clock.follow(t->target_bpm);
@@ -91,6 +98,23 @@ int bt_tempo_hit(bt_tracker* t, double event_frame, int* estimated) {
     if (!t || !std::isfinite(event_frame) || event_frame != double(t->frame)) return BT_INVALID;
     return t->tap(event_frame, false, estimated);
 }
+int bt_pedal_tempo_hit(bt_tracker* t, double event_frame, double beat, double* estimate) {
+    if (!t || !estimate || event_frame != double(t->frame) || t->mode != BT_MANUAL || !t->clock.running()
+        || !std::isfinite(beat) || std::floor(beat) != beat || beat < 1 || beat > 9007199254740991.0
+        || beat <= double(t->clock.serial)) return BT_INVALID;
+    const int result = t->pedal_taps.observe(event_frame, t->clock.sample_rate, *estimate);
+    if (result != BT_OK) *estimate = -1;
+    else if (*estimate > 0)
+        t->scheduled_tempo = ScheduledTempo{static_cast<unsigned long long>(beat), *estimate};
+    return BT_OK;
+}
+
+void bt_cancel_pedal_tempo(bt_tracker* t) {
+    if (!t) return;
+    t->pedal_taps = {};
+    t->scheduled_tempo.reset();
+}
+
 void bt_snapshot(const bt_tracker* t, double* out) {
     if (!t || !out) return;
     std::fill(out, out + BT_S_COUNT, 0.0);

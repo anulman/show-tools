@@ -64,6 +64,10 @@ int bt_command(bt_tracker* tracker, int type, double value, double event_frame,
                double sequence, double epoch);
 /* Immediate tempo evidence at the current frame; preserves phase, serial and epoch. */
 int bt_tempo_hit(bt_tracker* tracker, double frame, int* estimated);
+/* Dedicated pedal estimator. A positive estimate takes effect at the specified
+   future beat. Zero awaits an interval; a negative estimate is a duplicate or bounce. */
+int bt_pedal_tempo_hit(bt_tracker* tracker, double frame, double beat, double* estimate);
+void bt_cancel_pedal_tempo(bt_tracker* tracker);
 void bt_snapshot(const bt_tracker* tracker, double* out);
 /* Returns record count. On overflow oldest events are dropped and counted. */
 uint32_t bt_drain_events(bt_tracker* tracker, double* out, uint32_t capacity);

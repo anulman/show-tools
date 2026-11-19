@@ -119,6 +119,7 @@ class Playback {
   void stop() noexcept;
   void reset() noexcept;
   Stereo next() noexcept;
+  Stereo next_warped(double source_phase, uint32_t grain_frames) noexcept;
   bool render(float* left, float* right, uint32_t frames) noexcept;
   PlaybackState state() const noexcept { return state_; }
   uint32_t phase() const noexcept { return uint32_t(phase_); }
@@ -136,6 +137,12 @@ class Playback {
   void finish() noexcept;
   bool loop_ = false;
   bool printed_history_valid_ = true;
+  struct Grains {
+    double outgoing = 0, incoming = 0, last_phase = 0;
+    uint32_t hop = 0, elapsed = 0;
+  } grains_;
+  Stereo grain_sample(double phase) const noexcept;
+  double grain_start(double desired, double outgoing, uint32_t hop) const noexcept;
 };
 }
 #endif

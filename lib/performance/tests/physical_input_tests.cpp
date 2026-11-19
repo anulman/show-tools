@@ -151,6 +151,63 @@ void dedicated_pedal_checks() {
   pf_tempo_info(engine, tempo);
   require(tempo[PF_TEMPO_COUNT] == 1 && tempo[PF_TEMPO_SOURCE] == 0, "pedal taps tempo once per fresh press regardless of song bindings");
 }
+void pedal_tempo_waits_for_the_next_downbeat(int count_in, bool cancel) {
+  Engine engine;
+  load(engine, empty_program());
+  attach(engine, 0, 1, PF_INPUT_PHYSICAL, 63);
+  ok(engine, pf_start(engine, 98, count_in, 1, 6, 0, 0));
+  auto advance = [&](uint32_t frames) {
+    while (frames) {
+      const auto size = std::min(frames, 128u);
+      render(engine, size);
+      frames -= size;
+    }
+  };
+  std::array<double, PF_FIELDS> state{};
+  std::array<double, PF_TEMPO_FIELDS> tempo{};
+  std::array<double, BT_S_COUNT> clock{};
+  advance(5000);
+  ok(engine, pf_control(engine, 6, 0, nullptr, 0));
+  advance(1000);
+  event(engine, 0, 1, 1, 4, 1);
+  event(engine, 0, 1, 2, 4, 0);
+  pf_tempo_info(engine, tempo.data());
+  require(tempo[PF_TEMPO_ESTIMATED] == 0, "pedal intervals exclude prior nonphysical tempo evidence");
+  advance(5000);
+  event(engine, 0, 1, 3, 4, 1);
+  event(engine, 0, 1, 4, 4, 0);
+  pf_tempo_info(engine, tempo.data());
+  require(tempo[PF_TEMPO_ESTIMATED] == 1 && tempo[PF_TEMPO_BPM] == 96, "second kick observes the pending tempo");
+  advance(128);
+  event(engine, 0, 1, 5, 4, 1);
+  event(engine, 0, 1, 6, 4, 0);
+  pf_tempo_info(engine, tempo.data());
+  require(tempo[PF_TEMPO_COUNT] == 3 && tempo[PF_TEMPO_BPM] == 96, "bounce leaves the queued estimate intact");
+  if (cancel) {
+    pf_stop(engine);
+    ok(engine, pf_start(engine, 98, 1, 1, 6, 0, 0));
+    advance(30000);
+    pf_snapshot(engine, state.data());
+    require(state[PF_BPM] == 98, "stop retires the pending tempo");
+    return;
+  }
+
+  const double downbeat = 5 * 8000.0 * 60 / 98;
+  advance(uint32_t(std::floor(downbeat)) - 11128);
+  pf_snapshot(engine, state.data());
+  bt_snapshot(pf_tracker(engine), clock.data());
+  require(state[PF_BEAT_NUMBER] == 4 && state[PF_BPM] == 98 && clock[BT_S_BPM] == 98,
+          "the last frame of the current bar keeps the old tempo");
+  advance(1);
+  pf_snapshot(engine, state.data());
+  bt_snapshot(pf_tracker(engine), clock.data());
+  require(state[PF_BEAT_NUMBER] == 1 && state[PF_BPM] == 96 && clock[BT_S_BPM] == 96,
+          "the following bar uses the pedal estimate immediately");
+  require(state[PF_PHASE] == (count_in == 2 ? PF_COUNT_IN : PF_PLAYING), "the tempo transition preserves transport");
+  if (count_in == 0) require(state[PF_BAR_NUMBER] == 2, "the pedal takes effect on the next song bar");
+  require(std::abs(clock[BT_S_NEXT_BEAT_FRAME] - (downbeat + 5000)) < 1e-7,
+          "the fractional sample after the downbeat uses the new interval");
+}
 void mushroom_capture_checks(bool pending, bool second_press) {
   Engine engine;
   load(engine, held_program(false));
@@ -509,6 +566,10 @@ void ordered_batch_checks() {
 }  // namespace
 int main() {
   dedicated_pedal_checks();
+  pedal_tempo_waits_for_the_next_downbeat(0, false);
+  pedal_tempo_waits_for_the_next_downbeat(1, false);
+  pedal_tempo_waits_for_the_next_downbeat(2, false);
+  pedal_tempo_waits_for_the_next_downbeat(1, true);
   mushroom_capture_checks(true, false);
   mushroom_capture_checks(false, false);
   mushroom_capture_checks(false, true);

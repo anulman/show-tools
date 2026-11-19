@@ -17,10 +17,56 @@ double cue_boundary(int bar, double cue, int timing, double execute, int beats) 
   return (std::max(1, bar) - 1) * beats + (timing == 2 ? execute : std::max(0.0, cue));
 }
 }
+namespace {
+struct CaptureGrid {
+  struct Point { double count = 0, frame = 0; };
+  std::unique_ptr<Point[]> points;
+  uint32_t size = 0, capacity = 0;
+  double initial_bpm = 0;
+  bool tempo_changed = false;
+
+  void add(double count, double frame) noexcept {
+    if (size && (count <= points[size - 1].count + epsilon || frame <= points[size - 1].frame)) return;
+    if (size < capacity) points[size++] = {count, frame};
+  }
+
+  void begin(double count, double bpm) noexcept {
+    size = 0; initial_bpm = bpm; tempo_changed = false;
+    add(count, 0);
+  }
+
+  double interpolate(double value, bool inverse, double fallback) const noexcept {
+    const auto from = [=](const Point& point) { return inverse ? point.frame : point.count; };
+    const auto to = [=](const Point& point) { return inverse ? point.count : point.frame; };
+    if (!size) return value * fallback;
+    const Point* begin = points.get();
+    const Point* end = begin + size;
+    const Point* next = std::upper_bound(begin, end, value, [&](double key, const Point& point) { return key < from(point); });
+    if (next == begin) return to(*next) + (value - from(*next)) * fallback;
+    const Point& previous = next[-1];
+    const double ratio = next == end ? fallback : (to(*next) - to(previous)) / (from(*next) - from(previous));
+    return to(previous) + (value - from(previous)) * ratio;
+  }
+};
+
+struct LoopClock {
+  double first_count = 0, counts = 0, phase = 0;
+  uint32_t first_frame = 0, frames = 0;
+  bool warped = false;
+
+  double wrap(double position) const noexcept {
+    double result = std::fmod(position, counts);
+    if (result < 0) result += counts;
+    return result + epsilon >= counts ? 0 : result;
+  }
+};
+}
 struct Program::Take {
   int voice = 0, profile = 0, active_selection = -1, latest = -1, anchor = -1, commit_cue = -1;
   double begin = 0, end = 0, loop_end = 0, gain = 1;
   double capture_start_phase = 0;
+  CaptureGrid grid[2];
+  LoopClock clock[2];
   uint32_t capacity = 0;
   double playback_gain[2]{1, 1};
   std::unique_ptr<patches::ProcessedTake> cache[2];
@@ -162,6 +208,12 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     double capacity = std::ceil((take.end - take.begin) * rate * 60 / minimum_bpm);
     if (capacity < 1 || capacity > std::numeric_limits<uint32_t>::max()) return nullptr;
     take.capacity = uint32_t(capacity); pcm_bytes += uint64_t(take.capacity) * (sizeof(patches::Stereo) + sizeof(float)) * 2;
+    for (auto& grid : take.grid) {
+      grid.capacity = uint32_t(std::ceil(take.end - take.begin + 2)) * 8 + 2;
+      grid.points.reset(new (std::nothrow) CaptureGrid::Point[grid.capacity]);
+      if (!grid.points) return nullptr;
+      pcm_bytes += uint64_t(grid.capacity) * sizeof(CaptureGrid::Point);
+    }
   }
   bool profile_assigned[PF_COMPILED_MAX_TAKES]{};
   for (int id = 0; id < profile_count; ++id) {
@@ -400,8 +452,11 @@ void Program::stop() noexcept {
   if (active_capture_.take >= 0) {
     Take& take = takes_[active_capture_.take];
     uint32_t period = 0;
-    if (commit_period(active_capture_.take, period) && take.cache[active_capture_.bank]->commit(period)) take.latest = active_capture_.bank;
-    else take.cache[active_capture_.bank]->reset_for_capture();
+    if (commit_period(active_capture_.take, period) && take.cache[active_capture_.bank]->commit(period)) {
+      take.grid[active_capture_.bank].add(take.end, take.cache[active_capture_.bank]->length());
+      take.grid[active_capture_.bank].add(take.loop_end, period);
+      take.latest = active_capture_.bank;
+    } else take.cache[active_capture_.bank]->reset_for_capture();
   }
   for (auto& voice : external_playback_) voice = {};
   active_capture_ = {}; live_route_ = -1; monitor_route_ = default_route; rotation_deadline_frame_ = -1; clear_gesture(); phase_ = PF_IDLE;
@@ -433,6 +488,12 @@ void Program::remember_cues(double frame, double bpm) noexcept {
   }
 }
 void Program::tempo_changed(double frame, double old_bpm, double new_bpm) noexcept {
+  if (active_capture_.take >= 0 && std::abs(old_bpm - new_bpm) > epsilon) {
+    auto& take = takes_[active_capture_.take];
+    auto& grid = take.grid[active_capture_.bank];
+    grid.add(position(frame, old_bpm), take.cache[active_capture_.bank]->length());
+    grid.tempo_changed = true;
+  }
   remember_cues(frame, old_bpm);
   if (rotation_deadline_frame_ > frame) rotation_deadline_frame_ = frame + (rotation_deadline_frame_ - frame) * old_bpm / new_bpm;
   anchor_position_ = position(frame, old_bpm); anchor_frame_ = frame;
@@ -440,22 +501,50 @@ void Program::tempo_changed(double frame, double old_bpm, double new_bpm) noexce
   if (rotation_deadline_frame_ > frame && gesture_window_ >= 0)
     rotation_deadline_frame_ = std::min(rotation_deadline_frame_, frame_at(rotation_windows_[gesture_window_].end));
 }
+double Program::loop_phase(const Take& take, int bank) const noexcept {
+  const auto& clock = take.clock[bank];
+  if (clock.warped) return clock.phase;
+  if (!clock.frames || !clock.counts) return 0;
+  const auto& grid = take.grid[bank];
+  const double phase = take.playback[bank]->phase() % clock.frames;
+  return clock.wrap(grid.interpolate(clock.first_frame + phase, true, grid.initial_bpm / (rate_ * 60)) - clock.first_count);
+}
+
+bool Program::follows_changed_tempo(const Take& take, int bank, double bpm) const noexcept {
+  const auto& grid = take.grid[bank];
+  return take.clock[bank].counts > 0 &&
+    (take.clock[bank].warped || grid.tempo_changed || std::abs(grid.initial_bpm - bpm) > epsilon);
+}
+
 bool Program::commit_period(int id, uint32_t& period) const noexcept {
-  const Take& take = takes_[id]; const auto& cache = take.cache[active_capture_.bank];
-  double expected = std::ceil((take.loop_end - take.begin) * rate_ * 60 / capture_bpm_);
+  const Take& take = takes_[id];
+  const auto& cache = take.cache[active_capture_.bank];
+  const auto& grid = take.grid[active_capture_.bank];
+  const double counts = take.loop_end - take.begin;
+  const bool warped = grid.tempo_changed;
+  if (warped && (query_position_ + bpm_ / (rate_ * 60) < take.end || !cache->length())) return false;
+  const double expected = warped ? cache->length() + std::ceil((take.loop_end - take.end) * rate_ * 60 / bpm_)
+    : std::ceil(counts * rate_ * 60 / grid.initial_bpm);
   if (expected < 1 || expected > std::numeric_limits<uint32_t>::max()) return false;
   period = uint32_t(expected);
   if (take.anchor != id) {
     const Take& anchor = takes_[take.anchor];
     if (anchor.latest < 0 || anchor.playback[anchor.latest]->state() != patches::PlaybackState::playing) return false;
-    period = anchor.cache[anchor.latest]->period();
-    if (std::abs(double(period) - expected) > 1 || std::min(take.capture_start_phase, double(period) - take.capture_start_phase) > 1) return false;
-    double actual = anchor.playback[anchor.latest]->phase() % period, joined = cache->length() % period;
-    double delta = std::abs(actual - joined);
-    if (std::min(delta, double(period) - delta) > 1) return false;
+    const auto& anchor_grid = anchor.grid[anchor.latest];
+    if (warped || anchor_grid.tempo_changed || std::abs(anchor_grid.initial_bpm - grid.initial_bpm) > epsilon) {
+      const double recorded = std::fmod(take.end - take.begin, counts);
+      const double delta = std::abs(loop_phase(anchor, anchor.latest) - recorded);
+      if (std::min(delta, counts - delta) > 2 * bpm_ / (rate_ * 60)) return false;
+    } else {
+      period = anchor.cache[anchor.latest]->period();
+      if (std::abs(double(period) - expected) > 1 || std::min(take.capture_start_phase, double(period) - take.capture_start_phase) > 1) return false;
+      double actual = anchor.playback[anchor.latest]->phase() % period, joined = cache->length() % period;
+      double delta = std::abs(actual - joined);
+      if (std::min(delta, double(period) - delta) > 1) return false;
+    }
   }
-  double expected_capture = (take.end - take.begin) * rate_ * 60 / capture_bpm_;
-  return cache->length() <= period && std::abs(double(cache->length()) - expected_capture) <= 1;
+  const double expected_capture = (take.end - take.begin) * rate_ * 60 / grid.initial_bpm;
+  return cache->length() <= period && (warped || std::abs(double(cache->length()) - expected_capture) <= 1);
 }
 double Program::position(double frame, double bpm) const noexcept { return anchor_position_ + (frame - anchor_frame_) * bpm / (rate_ * 60); }
 double Program::frame_at(double position) const noexcept { return anchor_frame_ + (position - anchor_position_) * rate_ * 60 / bpm_; }
@@ -741,8 +830,14 @@ int Program::press_selected(int found, double frame, double bpm, bool microphone
       if (anchor.latest < 0 || anchor.playback[anchor.latest]->state() != patches::PlaybackState::playing) return PF_LOOP_MISMATCH;
       double period = anchor.cache[anchor.latest]->period();
       double advance = std::max(0.0, std::ceil(anchor_frame_ + (target - anchor_position_) * rate_ * 60 / bpm) - frame);
-      double phase = std::fmod(anchor.playback[anchor.latest]->phase() + advance, period);
-      if (std::min(phase, period - phase) > 1) return PF_LOOP_MISMATCH;
+      if (follows_changed_tempo(anchor, anchor.latest, bpm)) {
+        const auto& clock = anchor.clock[anchor.latest];
+        const double phase = clock.wrap(loop_phase(anchor, anchor.latest) + advance * bpm / (rate_ * 60));
+        if (std::min(phase, clock.counts - phase) > 2 * bpm / (rate_ * 60)) return PF_LOOP_MISMATCH;
+      } else {
+        double phase = std::fmod(anchor.playback[anchor.latest]->phase() + advance, period);
+        if (std::min(phase, period - phase) > 1) return PF_LOOP_MISMATCH;
+      }
     }
   }
   if (cue.kind == PF_COMMIT_ARM && target <= now + epsilon) {
@@ -790,6 +885,7 @@ bool Program::selection_ready(int selection, int voice) const noexcept {
 bool Program::play_take(int id, double gain) noexcept {
   Take& take = takes_[id];
   if (take.latest < 0 || !take.playback[take.latest]->start(true)) return false;
+  take.clock[take.latest] = {take.begin, take.loop_end - take.begin, 0, 0, take.cache[take.latest]->period(), false};
   take.playback_gain[take.latest] = take.gain * gain;
   return true;
 }
@@ -812,6 +908,13 @@ bool Program::select(int voice, int selection, bool automatic, int mode, bool re
   for (int member = 0; member < member_count_; ++member) if (members_[member].selection == selection) {
     Take& take = takes_[members_[member].take];
     auto& player = take.playback[take.latest];
+    auto& clock = take.clock[take.latest];
+    const bool continuing = !retrigger && player->state() == patches::PlaybackState::playing;
+    const bool continue_warp = continuing && clock.warped;
+    const double prior_phase = continue_warp ? clock.phase : 0;
+    const bool follow_grid = mode == PF_LOOP_MODE && !(automatic && continuing && clock.counts == 0);
+    double first_count = take.begin, duration = take.loop_end - take.begin;
+    uint32_t first_frame = 0, period = take.cache[take.latest]->period();
     SelectionWindow* view = nullptr;
     for (int window = 0; window < window_count_; ++window) if (selection_windows_[window].selection == selection) view = &selection_windows_[window];
     if (view) {
@@ -819,7 +922,10 @@ bool Program::select(int voice, int selection, bool automatic, int mode, bool re
       if (view->start[bank] < 0 || view->cut[bank] < view->start[bank]) return false;
       bool parent_period = view->begin == 0 && view->period == take.loop_end - take.begin;
       if (!parent_period && view->finish[bank] <= view->start[bank]) return false;
-      uint32_t period = parent_period ? take.cache[bank]->period()
+      first_count = take.begin + view->begin;
+      duration = view->period;
+      first_frame = uint32_t(view->start[bank]);
+      period = parent_period ? take.cache[bank]->period()
         : uint32_t(view->finish[bank] - view->start[bank]);
       if (!retrigger && player->state() == patches::PlaybackState::playing) {
         if (!player->set_window(uint32_t(view->start[bank]), uint32_t(view->cut[bank]), period)) return false;
@@ -829,11 +935,18 @@ bool Program::select(int voice, int selection, bool automatic, int mode, bool re
       player->set_window(0, take.cache[take.latest]->length(), take.cache[take.latest]->period());
       player->clear_source_end();
     }
-    if (retrigger && mode == PF_LOOP_MODE) {
-      double counts = query_position_ - take.begin;
-      double phase = std::fmod(counts * take.cache[take.latest]->period() / (take.loop_end - take.begin), double(take.cache[take.latest]->period()));
-      if (phase < 0) phase += take.cache[take.latest]->period();
-      player->seek_phase(uint32_t(std::floor(phase)));
+    clock = follow_grid ? LoopClock{first_count, duration, 0, first_frame, period, continue_warp} : LoopClock{};
+    if (continue_warp && follow_grid) clock.phase = clock.wrap(prior_phase);
+    if (retrigger && follow_grid) {
+      const double counts = query_position_ - take.begin;
+      if (follows_changed_tempo(take, take.latest, bpm_)) {
+        clock.phase = clock.wrap(counts);
+        clock.warped = true;
+      } else {
+        double phase = std::fmod(counts * take.cache[take.latest]->period() / (take.loop_end - take.begin), double(take.cache[take.latest]->period()));
+        if (phase < 0) phase += take.cache[take.latest]->period();
+        player->seek_phase(uint32_t(std::floor(phase)));
+      }
     }
     take.active_selection = selection;
     take.playback_gain[take.latest] = take.gain * members_[member].gain;
@@ -849,10 +962,20 @@ int Program::preflight_commit(const Cue& cue, CommitPlan& plan) const noexcept {
   for (int id = 0; id < member_count_; ++id) if (members_[id].selection == cue.selection && members_[id].take != cue.commit) {
     const Take& member = takes_[members_[id].take];
     if (member.latest < 0 || member.cache[member.latest]->state() != patches::TakeState::committed) return PF_NO_SAMPLE;
-    if (member.cache[member.latest]->period() != plan.period) return PF_LOOP_MISMATCH;
-    double phase = member.playback[member.latest]->state() == patches::PlaybackState::playing ? member.playback[member.latest]->phase() % plan.period : 0;
-    double delta = std::abs(phase - joined_phase);
-    if (std::min(delta, double(plan.period) - delta) > 1) return PF_LOOP_MISMATCH;
+    if (draft.grid[active_capture_.bank].tempo_changed ||
+        std::abs(draft.grid[active_capture_.bank].initial_bpm - member.grid[member.latest].initial_bpm) > epsilon ||
+        follows_changed_tempo(member, member.latest, bpm_)) {
+      const double counts = draft.loop_end - draft.begin;
+      const double expected = std::fmod(draft.end - draft.begin, counts);
+      const double actual = member.playback[member.latest]->state() == patches::PlaybackState::playing ? loop_phase(member, member.latest) : 0;
+      const double delta = std::abs(actual - expected);
+      if (std::min(delta, counts - delta) > 2 * bpm_ / (rate_ * 60)) return PF_LOOP_MISMATCH;
+    } else {
+      if (member.cache[member.latest]->period() != plan.period) return PF_LOOP_MISMATCH;
+      double phase = member.playback[member.latest]->state() == patches::PlaybackState::playing ? member.playback[member.latest]->phase() % plan.period : 0;
+      double delta = std::abs(phase - joined_phase);
+      if (std::min(delta, double(plan.period) - delta) > 1) return PF_LOOP_MISMATCH;
+    }
   }
   return PF_OK;
 }
@@ -870,7 +993,14 @@ int Program::preflight_start(const Cue& cue, const Cue* staged_commit, uint32_t 
   } else {
     if (anchor.latest < 0 || anchor.playback[anchor.latest]->state() != patches::PlaybackState::playing) return PF_LOOP_MISMATCH;
     period = anchor.cache[anchor.latest]->period(); phase = anchor.playback[anchor.latest]->phase() % period;
+    if (follows_changed_tempo(anchor, anchor.latest, bpm_)) {
+      const auto& clock = anchor.clock[anchor.latest];
+      const double count = loop_phase(anchor, anchor.latest);
+      return std::min(count, clock.counts - count) <= 2 * bpm_ / (rate_ * 60) ? PF_OK : PF_LOOP_MISMATCH;
+    }
   }
+  if (staged_commit && take.anchor == staged_commit->commit && anchor.grid[active_capture_.bank].tempo_changed)
+    return anchor.end == anchor.loop_end ? PF_OK : PF_LOOP_MISMATCH;
   double expected = std::ceil((take.loop_end - take.begin) * rate_ * 60 / bpm_);
   if (std::abs(double(period) - expected) > 1 || std::min(phase, double(period) - phase) > 1) return PF_LOOP_MISMATCH;
   return PF_OK;
@@ -882,10 +1012,12 @@ void Program::discard_invalid_draft(const Cue& cue) noexcept {
 }
 int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept {
   Take& take = takes_[active_capture_.take];
+  take.grid[active_capture_.bank].add(take.end, take.cache[active_capture_.bank]->length());
+  take.grid[active_capture_.bank].add(take.loop_end, plan.period);
   if (!take.cache[active_capture_.bank]->commit(plan.period)) return error_ = PF_ACTION_FAILED;
   if (cue.launch == PF_AUTOPLAY && take.latest >= 0) take.playback[take.latest]->stop();
   uint64_t completed_generation = active_capture_.generation;
-  take.latest = active_capture_.bank; active_capture_ = {};
+  take.latest = active_capture_.bank; take.clock[take.latest] = {}; active_capture_ = {};
   SelectionWindow* committed_view = nullptr;
   for (int window = 0; window < window_count_; ++window) if (selection_windows_[window].selection == cue.selection) committed_view = &selection_windows_[window];
   if (cue.launch == PF_AUTOPLAY && committed_view) {
@@ -897,6 +1029,10 @@ int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_
   } else if (cue.launch == PF_AUTOPLAY) {
     bool started = cue.mode == PF_ONESHOT_MODE ? take.playback[take.latest]->start(false) : take.playback[take.latest]->start_at_capture_end(true);
     if (!started) return error_ = PF_ACTION_FAILED;
+  }
+  if (cue.launch == PF_AUTOPLAY && cue.mode == PF_LOOP_MODE) {
+    const int bank = take.latest;
+    take.clock[bank] = {take.begin, take.loop_end - take.begin, 0, 0, take.cache[bank]->period(), false};
   }
   // END playback owns this source epoch. Related monitor clones retire, while
   // other voices and unrelated detached histories keep their own tails.
@@ -929,7 +1065,7 @@ int Program::execute(int id, double frame) noexcept {
     if (cue.replacement_capture) for (int previous = 0; previous < take_count_; ++previous)
       if (takes_[previous].profile == take.profile && previous != cue.commit) for (auto& playback : takes_[previous].playback) playback->stop();
     if (!take.cache[bank]->reset_for_capture() || !take.cache[bank]->begin(*voices_[take.profile])) return error_ = PF_ACTION_FAILED;
-    capture_bpm_ = bpm_;
+    take.grid[bank].begin(take.begin, bpm_);
     const Take& anchor = takes_[take.anchor];
     take.capture_start_phase = take.anchor != cue.take && anchor.latest >= 0 ? anchor.playback[anchor.latest]->phase() % anchor.cache[anchor.latest]->period() : 0;
     uint64_t generation = ++capture_generation_;
@@ -1132,6 +1268,10 @@ void Program::beat(int phase, int bar, int beat, int count_remaining, double fra
   phase_ = phase; bar_ = phase == PF_COUNT_IN ? 0 : bar;
   bpm_ = bpm; anchor_frame_ = frame; anchor_position_ = phase == PF_COUNT_IN ? (start_ - 1) * beats_ - count_remaining : (bar - 1) * beats_ + beat - 1;
   query_position_ = anchor_position_;
+  if (active_capture_.take >= 0) {
+    auto& take = takes_[active_capture_.take];
+    take.grid[active_capture_.bank].add(anchor_position_, take.cache[active_capture_.bank]->length());
+  }
   apply_pending(std::ceil(frame), bpm);
   if (phase == PF_PLAYING && beat == 1) for (int id = 0; id < playback_count_; ++id) if (playback_[id].bar == bar) select(playback_[id].voice, playback_[id].selection, true);
 }
@@ -1183,9 +1323,24 @@ void Program::render(const float* input, float* left, float* right, float* live_
     if (live_left) live_left[offset] += monitor.left;
     if (live_right) live_right[offset] += monitor.right;
     for (int id = 0; id < take_count_; ++id) for (int bank = 0; bank < 2; ++bank) {
-      if (takes_[id].playback[bank]->state() == patches::PlaybackState::idle) continue;
-      patches::Stereo value = takes_[id].playback[bank]->next(); int voice = takes_[id].voice;
-      double gain = takes_[id].playback_gain[bank] * (muted_[voice] ? 0 : gain_[voice]);
+      auto& take = takes_[id];
+      auto& player = *take.playback[bank];
+      if (player.state() == patches::PlaybackState::idle) continue;
+      auto& clock = take.clock[bank];
+      patches::Stereo value;
+      if (player.state() == patches::PlaybackState::playing && follows_changed_tempo(take, bank, bpm)) {
+        if (!clock.warped) {
+          clock.phase = loop_phase(take, bank);
+          clock.warped = true;
+        }
+        const auto& grid = take.grid[bank];
+        const double phase = grid.interpolate(clock.first_count + clock.phase, false, rate_ * 60 / grid.initial_bpm) - clock.first_frame;
+        value = player.next_warped(std::clamp(phase, 0.0, std::nextafter(double(clock.frames), 0.0)), uint32_t(std::ceil(rate_ * .024)));
+        clock.phase += bpm / (rate_ * 60);
+        if (clock.phase + epsilon >= clock.counts) clock.phase = clock.wrap(clock.phase);
+      } else value = player.next();
+      const int voice = take.voice;
+      double gain = take.playback_gain[bank] * (muted_[voice] ? 0 : gain_[voice]);
       if (left) left[offset] += float(value.left * gain);
       if (right) right[offset] += float(value.right * gain);
     }
