@@ -1,7 +1,7 @@
 import { dismissOnBackdrop } from './dialog.js';
 import { chartBarLabel, chartBarOrdinal } from '../../lib/performance/chart-position.js';
 import { enablePhoneMotion } from './phone-motion.js';
-import { audioMode, defaultAudioMode, changeAudioMode } from './audio-mode.js';
+import { audioMode, audioModeURL, defaultAudioMode, changeAudioMode } from './audio-mode.js';
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
 import { exportMusicXmlWithVoices } from '../../lib/performance/musicxml-authoring.js';
 import { musicXmlSourceView } from '../../lib/performance/musicxml-source-view.js';
@@ -1353,7 +1353,9 @@ if (remote) {
       hardwareKeyStatus.textContent = cleared ? 'Key forgotten. Current audio is unchanged.' : 'Browser storage could not be cleared. Clear this site\'s data to remove its saved key.';
     } else void act(connectHardware);
   });
-  await act(connectHardware);
+  const entry = audioModeURL(deskURL, 'hardware', defaultMode);
+  if (entry.pathname !== deskURL.pathname) location.replace(entry);
+  else await act(connectHardware);
 } else await act(() => switchSong('dance-yrself-clean'));
 
 if (new URLSearchParams(location.search).has('test')) {
@@ -1384,7 +1386,7 @@ if (!remote && 'serviceWorker' in navigator && window.isSecureContext && !new UR
     }
     hadController = true;
   });
-  navigator.serviceWorker.register('./sw.js', { type: 'module' }).then(async registration => {
+  navigator.serviceWorker.register('./sw.js', { type: 'module', updateViaCache: 'none' }).then(async registration => {
     const noticeWaiting = () => {
       if (registration.waiting) {
         offlineUpdate = { kind: 'waiting', worker: registration.waiting };
@@ -1394,7 +1396,12 @@ if (!remote && 'serviceWorker' in navigator && window.isSecureContext && !new UR
     registration.addEventListener('updatefound', () => {
       registration.installing?.addEventListener('statechange', noticeWaiting);
     });
-    window.addEventListener('focus', noticeWaiting);
+    const checkForUpdate = () => {
+      noticeWaiting();
+      void registration.update().catch(() => {});
+    };
+    window.addEventListener('focus', checkForUpdate);
+    window.addEventListener('online', checkForUpdate);
     noticeWaiting();
     await navigator.serviceWorker.ready;
     if (registration.active && offlineUpdate.kind === 'current') elements['offline-status'].textContent = 'Practice files cached for offline use.';

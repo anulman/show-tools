@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { audioMode, audioModeURL, canChangeAudioMode, changeAudioMode } from '../audio-mode.js';
+import { audioMode, audioModeURL, canChangeAudioMode, changeAudioMode, defaultAudioMode } from '../audio-mode.js';
 
 test('browser is the default and mode URLs preserve other state', () => {
   const url = new URL('https://example.test/practice/?song=one&test#cue');
@@ -15,6 +15,16 @@ test('browser is the default and mode URLs preserve other state', () => {
   assert.equal(browser.searchParams.get('song'), 'one');
   assert.equal(browser.searchParams.has('test'), true);
   assert.equal(browser.hash, '#cue');
+});
+
+test('gateway mode changes use different paths so the Browser worker cannot control Hardware', async () => {
+  const browser = new URL('https://desk.test/ui/practice/?browser&song=tribulations#pads');
+  const live = audioModeURL(browser, 'hardware', 'hardware');
+  assert.equal(live.href, 'https://desk.test/ui/live/?song=tribulations#pads');
+  assert.equal(await defaultAudioMode(live), 'hardware');
+  const nextBrowser = audioModeURL(live, 'browser', 'hardware');
+  assert.equal(nextBrowser.href, 'https://desk.test/ui/browser/?song=tribulations#pads');
+  assert.equal(audioMode(nextBrowser, await defaultAudioMode(nextBrowser)), 'browser');
 });
 
 test('busy browser blocks a mode change', async () => {

@@ -1,12 +1,15 @@
+import { BROWSER_DESK_PATH, HARDWARE_DESK_PATH, isDeskEntry } from '../../lib/remote-performance/desk-paths.js';
+
 export type AudioMode = 'browser' | 'hardware';
 
 export function audioMode(url: URL, fallback: AudioMode = 'browser'): AudioMode {
   if (url.searchParams.has('remote')) return 'hardware';
-  if (url.searchParams.has('browser')) return 'browser';
+  if (url.searchParams.has('browser') || isDeskEntry(url.pathname, BROWSER_DESK_PATH)) return 'browser';
   return fallback;
 }
 
 export async function defaultAudioMode(url: URL): Promise<AudioMode> {
+  if (isDeskEntry(url.pathname, HARDWARE_DESK_PATH) || isDeskEntry(url.pathname, BROWSER_DESK_PATH)) return 'hardware';
   try {
     const response = await fetch(new URL('/api/desk-mode', url), { cache: 'no-store', signal: AbortSignal.timeout(1800) });
     if (response.ok && await response.text() === 'hardware') return 'hardware';
@@ -18,8 +21,9 @@ export function audioModeURL(url: URL, mode: AudioMode, fallback: AudioMode = 'b
   const next = new URL(url);
   next.searchParams.delete('remote');
   next.searchParams.delete('browser');
-  if (mode === 'hardware') next.searchParams.set('remote', '');
-  else if (fallback === 'hardware') next.searchParams.set('browser', '');
+  if (fallback === 'hardware') {
+    next.pathname = mode === 'hardware' ? HARDWARE_DESK_PATH : BROWSER_DESK_PATH;
+  } else if (mode === 'hardware') next.searchParams.set('remote', '');
   return next;
 }
 

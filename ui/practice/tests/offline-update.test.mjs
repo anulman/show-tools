@@ -12,13 +12,17 @@ function workerHarness() {
   const storage = new Map();
   let version = 'abi3';
   let failure;
+  let unconsumed = false;
   let clients = [{ id: 'desk', url: scope }];
   const caches = {
     async open(key) {
       if (!storage.has(key)) storage.set(key, new Map());
       const entries = storage.get(key);
       return {
-        async put(url, response) { entries.set(url, response); },
+        async put(url, response) {
+          entries.set(url, new Response(await response.text()));
+          unconsumed = false;
+        },
         async match(url) { return entries.get(url)?.clone(); },
       };
     },
@@ -39,9 +43,11 @@ function workerHarness() {
       },
       async fetch(request) {
         assert.equal(request.cache, 'reload');
+        assert.equal(unconsumed, false, 'consume the preceding response before starting the next fetch');
         const url = new URL(request.url);
         assert.equal(url.searchParams.get('__show_tools_build'), buildId);
         if (failure && url.pathname.endsWith(failure)) throw new Error('Deployment interrupted');
+        unconsumed = true;
         return new Response(`${version}:${url.pathname}`);
       },
     };
@@ -95,7 +101,7 @@ test('failed installation preserves the usable old build without activation', as
   const next = h.load('v4');
   await assert.rejects(next.dispatch('install'), /Deployment interrupted/);
   assert.deepEqual(next.lifecycle, []);
-  assert.equal(h.storage.get(`show-tools-practice-${scope}:v4`).size, 0);
+  assert.equal(h.storage.has(`show-tools-practice-${scope}:v4`), false);
   assert.match(await old.asset('app.js'), /^abi3:/);
   assert.match(await old.asset('wasm/manual-clock.wasm'), /^abi3:/);
 });
@@ -132,7 +138,7 @@ const tunerSyncSource = appSource.slice(appSource.indexOf('function syncTunerSes
 const renderSource = appSource.slice(appSource.indexOf('function render('), appSource.indexOf('function beginOutputRecording('));
 
 async function updateHarness({ controlled = true, waiting = true } = {}) {
-  let reloads = 0;
+  let reloads = 0, updateChecks = 0;
   const messages = [];
   const events = new Map();
   const documentEvents = new Map();
@@ -140,8 +146,8 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   const registrationEvents = new Map();
   const windowEvents = new Map();
   const worker = { postMessage(message) { messages.push(message.type); } };
-  const registration = { waiting: waiting ? worker : null, active: {}, addEventListener(type, callback) { registrationEvents.set(type, callback); } };
-  const serviceWorker = { controller: controlled ? {} : null, ready: Promise.resolve(), async register() { return registration; }, addEventListener(type, callback) { events.set(type, callback); } };
+  const registration = { waiting: waiting ? worker : null, active: {}, async update() { updateChecks++; }, addEventListener(type, callback) { registrationEvents.set(type, callback); } };
+  const serviceWorker = { controller: controlled ? {} : null, ready: Promise.resolve(), async register(url, options) { assert.equal(url, './sw.js'); assert.equal(options.updateViaCache, 'none'); return registration; }, addEventListener(type, callback) { events.set(type, callback); } };
   const context = {
     URLSearchParams, remote: false, mode: 'browser', changingAudioMode: false,
     tunerPanel: undefined, tunerSession: undefined, audio: undefined,
@@ -161,6 +167,7 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   await new Promise(resolve => setImmediate(resolve));
   return { context, messages, registration, registrationEvents, windowEvents, worker,
     get reloads() { return reloads; },
+    get updateChecks() { return updateChecks; },
     openEditor() { editorOpen = true; },
     closeEditor() { editorOpen = false; documentEvents.get('close')(); },
     render(next = {}) { context.render(next); },
@@ -222,6 +229,14 @@ test('a newly installed waiting worker and a focus retry use the same idle gate'
   h.context.state.phase = 'idle';
   h.windowEvents.get('focus')();
   assert.deepEqual(h.messages, ['activate-when-idle']);
+  assert.equal(h.updateChecks, 1);
+});
+
+test('restoring connectivity checks for a Browser update', async () => {
+  const h = await updateHarness({ waiting: false });
+  h.windowEvents.get('online')();
+  assert.equal(h.updateChecks, 1);
+  assert.equal(h.reloads, 0);
 });
 
 for (const operation of ['save', 'import']) {

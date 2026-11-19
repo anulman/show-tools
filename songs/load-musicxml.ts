@@ -13,7 +13,7 @@ export async function readBundledMusicXml(id: string): Promise<string> {
     const module: unknown = await import(moduleName);
     return Schema.decodeUnknownSync(NodeFiles)(module).readFile(source, 'utf8');
   }
-  const response = await fetch(new URL(`/ui/practice/songs/${id}.musicxml`, source));
+  const response = await fetch(new URL(`./songs/${id}.musicxml`, document.baseURI));
   if (!response.ok) throw new Error(`Cannot load ${id} MusicXML (${response.status}).`);
   return response.text();
 }
