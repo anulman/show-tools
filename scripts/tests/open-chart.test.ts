@@ -14,7 +14,7 @@ const parseExpression = Schema.decodeUnknownSync(Schema.Struct({ expression: Sch
 const parseText = Schema.decodeUnknownSync(Schema.Struct({ text: Schema.String }));
 
 let fixtureSerial = 0;
-function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false,
+function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false, pendingViewport = 0, pendingSelection = 0, lostSelections = 0,
   widths = [150], viewportWidth = 600, maxScroll = 100000 } = {}) {
   const calls: { method: string; params: object; sessionId?: string }[] = [];
   const targetId = `chart-${++fixtureSerial}`;
@@ -45,8 +45,13 @@ function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false,
         case 'Target.activateTarget': return {};
         case 'Runtime.evaluate': {
           const { expression } = parseExpression(params);
-          if (expression.includes('box.focus(')) { preserved = true; return { result: { value: true } }; }
+          if (expression.includes('box.focus(')) {
+            if (pendingViewport > 0) { pendingViewport--; return { result: { value: false } }; }
+            preserved = true;
+            return { result: { value: true } };
+          }
           if (expression.includes('native-scrollbar-x')) {
+            if (pendingSelection > 0) { pendingSelection--; return { result: { value: null } }; }
             const assigned = /scrollbar.scrollLeft = ([\d.]+);/.exec(expression);
             if (assigned) { scrollLeft = Math.min(maxScroll, Math.max(0, Number(assigned[1]))); scrolls.push(scrollLeft); }
             const selected = selectedPosition();
@@ -59,8 +64,11 @@ function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false,
           if (delayedSheet && range === 'D:D') activeSheetId = sheetId;
           return { result: { value: JSON.stringify(state) } };
         }
-        case 'Input.insertText': text = parseText(params).text; return {};
-        case 'Input.dispatchKeyEvent': range = text; if (!preserved) { scrollLeft = 0; scrolls.push(0); } return {};
+        case 'Input.insertText':
+          text = lostSelections > 0 ? '' : parseText(params).text;
+          if (lostSelections > 0) lostSelections--;
+          return {};
+        case 'Input.dispatchKeyEvent': if (text) range = text; if (!preserved) { scrollLeft = 0; scrolls.push(0); } return {};
         default: throw new Error(`Unexpected CDP command ${method}`);
       }
     },
@@ -89,11 +97,12 @@ test('new charts load first and trusted keyboard input selects only the requeste
   assert(fixture.isClosed());
 });
 
-test('song changes navigate to the requested visible sheet before selecting its range', async () => {
-  const fixture = chromeFixture({ sheetId: 102, delayedSheet: true });
+test('song changes wait for the new sheet and its viewport before selecting its range', async () => {
+  const fixture = chromeFixture({ sheetId: 102, delayedSheet: true, pendingViewport: 2, pendingSelection: 2, lostSelections: 1 });
   const result = await openChart('http://127.0.0.1:9222', { ...selection, sheetId: 102 }, async () => fixture.connection);
   assert.equal(result.selectedRange, 'D:D');
   assert(fixture.calls.some(call => call.method === 'Page.navigate'), 'changed the actual song instead of only its URL fragment');
+  assert.equal(fixture.calls.filter(call => call.method === 'Input.insertText').length, 2, 'one ignored selection is retried');
 });
 
 test('following preserves scrolling and uses cached unequal column widths without intermediate selections', async () => {
