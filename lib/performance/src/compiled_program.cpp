@@ -1253,7 +1253,7 @@ void Program::apply_pending(double frame, double bpm) noexcept {
 void Program::beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm) noexcept {
   remember_cues(frame, bpm);
   double next_position = (bar - 1) * beats_ + beat - 1;
-  bool wrap = phase == PF_PLAYING && phase_ == PF_PLAYING && next_position < anchor_position_;
+  bool wrap = phase == PF_PLAYING && phase_ == PF_PLAYING && next_position + epsilon < anchor_position_;
   if (wrap) {
     for (int id = 0; id < note_count_; ++id) notes_[id].played = false;
     rotation_deadline_frame_ = -1;

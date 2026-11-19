@@ -495,6 +495,24 @@ void tempo_intent_proximity_and_ties() {
   require(press(empty, 0) < 0 && state(empty)[PF_ERROR] == PF_NO_SAMPLE && tempo(empty)[PF_TEMPO_COUNT] == 0, "star preflights playback before applying any tempo effect");
 }
 
+void pedal_bar_boundary_preserves_capture_at_device_rate() {
+  Engine engine(48000); prepare(engine, joined_table());
+  std::array<double, PF_INPUT_INFO_FIELDS> routing{}; pf_input_info(engine, routing.data());
+  const double generation = routing[PF_INPUT_GENERATION];
+  ok(engine, pf_input_attach(engine, 0, 1, generation, PF_INPUT_PHYSICAL, 1u << 4, 0));
+  ok(engine, pf_start(engine, 98, 1, 1, 6, 0, 0));
+  render(engine, 6); ok(engine, press(engine, 0));
+  render(engine, 168000 - 6); ok(engine, pf_input_event(engine, 0, 1, generation, 1, 4, 1));
+  render(engine, 960); ok(engine, pf_input_event(engine, 0, 1, generation, 2, 4, 0));
+  render(engine, 198636 - 168960); ok(engine, pf_input_event(engine, 0, 1, generation, 3, 4, 1));
+  require(state(engine)[PF_BPM] == 98 && channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING,
+    "physical estimate queues while the original bar is still recording");
+  until(engine, 3);
+  const auto captured = take(engine, 0);
+  require(std::abs(state(engine)[PF_BPM] - 2880000.0 / 30636) < 1e-9 && captured[PF_TAKE_READY]
+    && std::abs(captured[PF_TAKE_LENGTH] - 240095) <= 1 && channel(engine, 0)[PF_CHANNEL_LOOPING],
+    "a downbeat shared by the old and new tempo preserves capture and finishes the two-bar loop");
+}
 void tempo_change_preserves_layered_capture() {
   Engine engine; prepare(engine, joined_table());
   ok(engine, pf_start(engine, 120, 1, 1, 6, 0, 0)); ok(engine, press(engine, 0));
@@ -1392,4 +1410,4 @@ void prefix_capture_maps_and_selection() {
 }
 
 }
-int main() { committed_sample_exports_are_bounded_and_owned(); jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); tempo_change_preserves_layered_capture(); layer_can_join_after_returning_to_capture_tempo(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); tempo_change_preserves_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }
+int main() { committed_sample_exports_are_bounded_and_owned(); jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); pedal_bar_boundary_preserves_capture_at_device_rate(); tempo_change_preserves_layered_capture(); layer_can_join_after_returning_to_capture_tempo(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); tempo_change_preserves_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }
