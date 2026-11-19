@@ -15,7 +15,7 @@ const parseText = Schema.decodeUnknownSync(Schema.Struct({ text: Schema.String }
 
 let fixtureSerial = 0;
 function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false, pendingViewport = 0, pendingSelection = 0, lostSelections = 0,
-  widths = [150], viewportWidth = 600, maxScroll = 100000 } = {}) {
+  widths = [150], viewportWidth = 600, maxScroll = 100000, virtualized = false } = {}) {
   const calls: { method: string; params: object; sessionId?: string }[] = [];
   const targetId = `chart-${++fixtureSerial}`;
   let preserved = false;
@@ -47,7 +47,7 @@ function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false, p
           const { expression } = parseExpression(params);
           if (expression.includes('box.focus(')) {
             if (pendingViewport > 0) { pendingViewport--; return { result: { value: false } }; }
-            preserved = true;
+            preserved = !expression.includes('const lockHorizontal = false;');
             return { result: { value: true } };
           }
           if (expression.includes('native-scrollbar-x')) {
@@ -55,6 +55,8 @@ function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false, p
             const assigned = /scrollbar.scrollLeft = ([\d.]+);/.exec(expression);
             if (assigned) { scrollLeft = Math.min(maxScroll, Math.max(0, Number(assigned[1]))); scrolls.push(scrollLeft); }
             const selected = selectedPosition();
+            if (virtualized && selectedColumn() > 1 && (selected.left >= 200 + viewportWidth || selected.left + selected.width <= 200))
+              return { result: { value: null } };
             return { result: { value: JSON.stringify({ scrollLeft, left: 200, right: 200 + viewportWidth,
               selectedLeft: selected.left, selectedRight: selected.left + selected.width }) } };
           }
@@ -68,7 +70,14 @@ function chromeFixture({ existing = true, sheetId = 101, delayedSheet = false, p
           text = lostSelections > 0 ? '' : parseText(params).text;
           if (lostSelections > 0) lostSelections--;
           return {};
-        case 'Input.dispatchKeyEvent': if (text) range = text; if (!preserved) { scrollLeft = 0; scrolls.push(0); } return {};
+        case 'Input.dispatchKeyEvent': {
+          if (text) range = text;
+          if (!preserved) {
+            scrollLeft = virtualized ? Math.min(maxScroll, Math.max(0, scrollLeft + selectedPosition().left - 200)) : 0;
+            scrolls.push(scrollLeft);
+          }
+          return {};
+        }
         default: throw new Error(`Unexpected CDP command ${method}`);
       }
     },
@@ -117,6 +126,15 @@ test('following preserves scrolling and uses cached unequal column widths withou
   const positive = fixture.scrolls.findIndex(scroll => scroll > 0);
   assert(positive >= 0);
   assert(fixture.scrolls.slice(positive).every(scroll => scroll > 0), 'visible incremental selections never reset to zero');
+});
+
+test('a jump to a virtualized column allows Sheets to reveal the selection before placing its context', async () => {
+  const fixture = chromeFixture({ virtualized: true });
+  const result = await openChart('http://127.0.0.1:9222', { ...selection, range: 'AZ:AZ', activate: false }, async () => fixture.connection);
+  assert.equal(result.selectedRange, 'AZ:AZ');
+  assert.deepEqual(fixture.viewport(), { range: 'AZ:AZ', scrollLeft: 2880, left: 320, width: 60 });
+  assert.deepEqual(fixture.calls.filter(call => call.method === 'Input.insertText').map(call => parseText(call.params).text), ['AZ:AZ', 'AZ:AZ']);
+  assert(!fixture.calls.some(call => call.method === 'Target.activateTarget'));
 });
 
 test('early columns reset to the start and late columns retain their current selection', async () => {
