@@ -71,19 +71,19 @@ export async function createSessionClient(profile: SessionProfile) {
     } while (Date.now() < deadline);
     throw new Error(`Timed out waiting for audio ${goal}. Check session status and the named user service journal.`);
   }
-  async function configure(path: '/api/song' | '/api/song-bindings', songId: string, bindings?: InputBindings): Promise<DeskView> {
+  async function configure(change: { songId: string } | { bindings: InputBindings }): Promise<DeskView> {
     const bootstrap = decodeDeskBootstrap(await request('/api/session'));
     if (bootstrap.view.audio.kind !== 'off') throw new Error('Turn audio off before changing songs or button bindings.');
-    const decision = decodeAudioDecision(await request(path, { sessionId: bootstrap.sessionId, sequence: 1,
-      songId, expectedRevision: bootstrap.view.revision, ...(bindings === undefined ? {} : { bindings }) }));
+    const decision = decodeAudioDecision(await request('songId' in change ? '/api/song' : '/api/button-bindings', { sessionId: bootstrap.sessionId, sequence: 1,
+      expectedRevision: bootstrap.view.revision, ...change }));
     if (decision.outcome === 'rejected') throw new Error(`Configuration rejected: ${decision.error}`);
     return decision.view;
   }
   return {
     status,
     songs: async () => decodeSongChoices(await request('/api/songs')).songs,
-    selectSong: (songId: string) => configure('/api/song', songId),
-    configureSongBindings: (songId: string, bindings: unknown) => configure('/api/song-bindings', songId, decodeInputBindings(bindings)),
+    selectSong: (songId: string) => configure({ songId }),
+    configureButtonBindings: (bindings: unknown) => configure({ bindings: decodeInputBindings(bindings) }),
     audio: async (goal: AudioGoal) => {
       const bootstrap = decodeDeskBootstrap(await request('/api/session'));
       const decision = decodeAudioDecision(await request('/api/audio', { sessionId: bootstrap.sessionId, sequence: 1, goal }));

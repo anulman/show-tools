@@ -14,7 +14,7 @@ import { prepareInstalledPackage, type validateInstalledPackage } from './prepar
 import type { SessionProfile } from './session-profile.js';
 import type { InstalledSongCatalog } from './song-catalog.js';
 import { prepareSongBindings, type SongBindingAuthority } from './song-bindings.js';
-import { decodeInputBindings } from '../performance/input-bindings.js';
+import type { InputBindings } from '../performance/input-bindings.js';
 import { requireLegacyMonitorInactive } from './legacy-monitor.js';
 import { MAX_DEMO_BYTES, AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
   type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome, type NativeEngineRetirementProof } from './session-schema.js';
@@ -106,19 +106,18 @@ export class PersistentDesk implements DeskController {
   selectSong(songId: string, expectedRevision: string): Promise<AudioDecision> {
     return this.configure(expectedRevision, async () => {
       if (!this.songs) throw new Error('No installed song catalog is configured');
-      const entry = this.songs.catalog.get(songId), authored = this.songs.bindings.read(entry);
-      const installed = authored.revision ? (await prepareSongBindings(entry, authored.bindings)).installed : entry.installed;
+      const entry = this.songs.catalog.get(songId), authored = this.songs.bindings.read();
+      const installed = (await prepareSongBindings(entry, authored.bindings)).installed;
       return { installed, commit: () => {} };
     }, songId);
   }
-  configureSongBindings(songId: string, expectedRevision: string, input: unknown): Promise<AudioDecision> {
+  configureButtonBindings(expectedRevision: string, input: InputBindings): Promise<AudioDecision> {
     return this.configure(expectedRevision, async () => {
       const context = this.songs;
       if (!context) throw new Error('No installed song catalog is configured');
-      if (songId !== this.view.song.id) throw new Error('Song changed. Select the intended song before saving its buttons');
-      const entry = context.catalog.get(songId), current = context.bindings.read(entry);
-      const prepared = await prepareSongBindings(entry, decodeInputBindings(input));
-      return { installed: prepared.installed, commit: () => { context.bindings.save(prepared, current.revision); } };
+      const entry = context.catalog.get(this.view.song.id), current = context.bindings.read();
+      const prepared = await prepareSongBindings(entry, input);
+      return { installed: prepared.installed, commit: () => { context.bindings.save(prepared.bindings, current.revision); } };
     });
   }
   snapshot() { return this.view; }

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { Effect } from 'effect';
-import { decodeInputBindings } from '../../performance/input-bindings.js';
+import { DEFAULT_BUTTON_BINDINGS, decodeInputBindings } from '../../performance/input-bindings.js';
 import { compiledProgramBytes } from '../../performance/compiled-native.js';
 import { readMusicXmlSong, writeMusicXmlSong } from '../../performance/musicxml-song.js';
 import { importSheetMusicXml } from '../../performance/sheet-musicxml.js';
@@ -14,7 +14,7 @@ import { terseCaptureInput } from '../../performance/tests/fixtures/terse-captur
 import { externalWavFixture } from '../../performance/tests/fixtures/external-asset.js';
 import { encodeInitialProfiles } from '../commands.js';
 import { loadInstalledSongCatalog } from '../song-catalog.js';
-import { prepareSongBindings, SongBindingAuthority, restoreSongBindingBackup, verifySongBindingBackup } from '../song-bindings.js';
+import { backupSongBindings, prepareSongBindings, SongBindingAuthority, restoreSongBindingBackup, verifySongBindingBackup } from '../song-bindings.js';
 
 const hash = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
 const bindings = decodeInputBindings([{ controlId: 'blue', target: { kind: 'cue-rows', rows: ['R1', 'R2'] } },
@@ -73,22 +73,22 @@ test('real SQLite authority persists exact assignments and rejects a stale concu
   const path = join(root, 'authoring.sqlite');
   const first = SongBindingAuthority.open(path), second = SongBindingAuthority.open(path);
   try {
-    assert.deepEqual(first.read(entry).bindings, []);
-    assert.equal(first.read(entry).revision, 0);
+    assert.deepEqual(first.read().bindings, DEFAULT_BUTTON_BINDINGS);
+    assert.equal(first.read().revision, 0);
     const candidate = await prepareSongBindings(entry, bindings);
-    const saved = first.save(candidate, 0);
+    const saved = first.save(candidate.bindings, 0);
     assert.equal(saved.revision, 1);
-    assert.deepEqual(second.read(entry), saved);
-    assert.throws(() => second.save(candidate, 0), /changed; reload/);
-    assert.equal(second.read(entry).revision, 1);
+    assert.deepEqual(second.read(), saved);
+    assert.throws(() => second.save(candidate.bindings, 0), /changed; reload/);
+    assert.equal(second.read().revision, 1);
     const changed = await prepareSongBindings(entry, [{ controlId: 'yellow', target: { kind: 'cue-rows', rows: ['L1'] } }]);
-    assert.equal(second.save(changed, 1).revision, 2);
-    assert.deepEqual(first.read(entry).bindings, changed.bindings);
-    assert.throws(() => first.save(changed, -1));
-    assert.equal(first.read(entry).revision, 2);
+    assert.equal(second.save(changed.bindings, 1).revision, 2);
+    assert.deepEqual(first.read().bindings, changed.bindings);
+    assert.throws(() => first.save(changed.bindings, -1));
+    assert.equal(first.read().revision, 2);
   } finally { second.close(); first.close(); }
   const reopened = SongBindingAuthority.open(path);
-  try { assert.equal(reopened.read(entry).revision, 2); } finally { reopened.close(); }
+  try { assert.equal(reopened.read().revision, 2); } finally { reopened.close(); }
 });
 
 test('invalid or ambiguous assignments fail before any authored row changes', async t => {
@@ -103,10 +103,9 @@ test('invalid or ambiguous assignments fail before any authored row changes', as
       [{ controlId: 'blue', target: { kind: 'tempo' } }, { controlId: 'blue', target: { kind: 'panic' } }],
       [{ controlId: 'blue', target: { kind: 'tempo' }, inferred: true }],
     ]) await assert.rejects(prepareSongBindings(entry, input));
-    assert.equal(authority.read(entry).revision, 0);
-    const candidate = await prepareSongBindings(entry, bindings);
-    assert.throws(() => authority.save({ ...candidate, bindings: [{ controlId: 'blue', target: { kind: 'cue-rows', rows: ['R1', 'R1'] } }] }, 0));
-    assert.equal(authority.read(entry).revision, 0);
+    assert.equal(authority.read().revision, 0);
+    assert.throws(() => authority.save([{ controlId: 'blue', target: { kind: 'cue-rows', rows: ['R1', 'R1'] } }], 0));
+    assert.equal(authority.read().revision, 0);
   } finally { authority.close(); }
 });
 
@@ -122,37 +121,66 @@ test('missing, changed or mismatched package source never silently rebases an au
     await writeFile(join(fixture.path, 'source.musicxml'), fixture.xml);
     await writeFile(join(fixture.path, 'effects.json'), JSON.stringify([]));
     await assert.rejects(prepareSongBindings(fixture.entry, bindings), /effects changed/);
-    assert.equal(authority.read(fixture.entry).revision, 0);
+    assert.equal(authority.read().revision, 0);
     await writeFile(join(fixture.path, 'effects.json'), fixture.effects);
     const candidate = await prepareSongBindings(fixture.entry, bindings);
-    authority.save(candidate, 0);
-    const compiled = fixture.entry.installed.song.compiled;
-    assert(compiled);
-    const changedEntry = { ...fixture.entry, installed: { ...fixture.entry.installed, song: { ...fixture.entry.installed.song, compiled: { ...compiled, source: { ...compiled.source, digest: '0'.repeat(64) } } } } };
-    assert.throws(() => authority.read(changedEntry), /another chart revision/);
-    assert.throws(() => authority.save({ ...candidate, sourceDigest: '0'.repeat(64) }, 1), /another chart revision/);
-    assert.equal(authority.read(fixture.entry).revision, 1);
+    authority.save(candidate.bindings, 0);
+    assert.deepEqual(authority.read().bindings, bindings);
   } finally { authority.close(); }
+});
+
+test('v1 authoring promotes the saved DYC buttons once and preserves all per-song records', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'song-binding-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const path = join(root, 'authoring.sqlite');
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`PRAGMA application_id = 0x53544249;
+    CREATE TABLE song_binding_metadata (id INTEGER PRIMARY KEY CHECK(id = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 1)) STRICT;
+    CREATE TABLE song_input_bindings (song_id TEXT PRIMARY KEY NOT NULL, source_digest TEXT NOT NULL, revision INTEGER NOT NULL CHECK(revision >= 1), bindings_json TEXT NOT NULL) STRICT;
+    INSERT INTO song_binding_metadata VALUES (1, 1)`);
+  const insert = legacy.prepare('INSERT INTO song_input_bindings VALUES (?, ?, ?, ?)');
+  insert.run('dance-yrself-clean', '0'.repeat(64), 5, JSON.stringify(bindings));
+  insert.run('drunk-girls', '1'.repeat(64), 9, '[]');
+  legacy.close(); await chmod(path, 0o600);
+
+  assert.equal(verifySongBindingBackup(path).length, 2);
+  const oldFormat = await readFile(path);
+  const backup = backupSongBindings(path, join(root, 'preserved-v1.sqlite'));
+  assert.equal(backup.records.length, 2);
+  assert.deepEqual(await readFile(path), oldFormat, 'backing up a v1 authority leaves it unchanged');
+  const authority = SongBindingAuthority.open(path);
+  try {
+    assert.deepEqual(authority.read(), { revision: 5, bindings });
+    assert.equal(authority.save([], 5).revision, 6);
+  } finally { authority.close(); }
+  const reopened = SongBindingAuthority.open(path);
+  try { assert.deepEqual(reopened.read(), { revision: 6, bindings: [] }); }
+  finally { reopened.close(); }
+  const stored = new DatabaseSync(path, { readOnly: true });
+  try {
+    const legacyRows = stored.prepare('SELECT song_id, revision, bindings_json FROM song_input_bindings ORDER BY song_id').all();
+    assert.deepEqual(legacyRows.map(row => [row.song_id, row.revision, row.bindings_json]),
+      [['dance-yrself-clean', 5, JSON.stringify(bindings)], ['drunk-girls', 9, '[]']]);
+  } finally { stored.close(); }
 });
 
 test('consistent backup reopens independently and restore is create-only', async t => {
   const root = await mkdtemp(join(tmpdir(), 'song-binding-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const { entry } = await packageFixture(root);
-  const authority = SongBindingAuthority.open(join(root, 'authoring.sqlite'));
+  const path = join(root, 'authoring.sqlite');
+  const authority = SongBindingAuthority.open(path);
   try {
-    const original = authority.save(await prepareSongBindings(entry, bindings), 0);
+    const original = authority.save(bindings, 0);
     const filename = join(root, 'snapshot.sqlite');
-    assert.deepEqual(authority.backup(filename).records, [original]);
+    assert.deepEqual(backupSongBindings(path, filename).records, [original]);
     assert.deepEqual(verifySongBindingBackup(filename), [original]);
     const before = await readFile(filename);
-    assert.throws(() => authority.backup(filename), /EEXIST/);
+    assert.throws(() => backupSongBindings(path, filename), /EEXIST/);
     assert.deepEqual(await readFile(filename), before);
     const restored = join(root, 'restored.sqlite');
     assert.deepEqual(restoreSongBindingBackup(filename, restored), [original]);
     const copy = SongBindingAuthority.open(restored);
-    try { assert.deepEqual(copy.read(entry), original); } finally { copy.close(); }
+    try { assert.deepEqual(copy.read(), original); } finally { copy.close(); }
     assert.throws(() => restoreSongBindingBackup(filename, restored), /EEXIST/);
-    authority.save(await prepareSongBindings(entry, []), 1);
+    authority.save([], 1);
     assert.deepEqual(verifySongBindingBackup(filename), [original], 'later writes do not change a completed backup');
   } finally { authority.close(); }
 });
@@ -174,16 +202,15 @@ test('foreign schemas, unsafe files and corrupted authoring fail closed without 
 
 test('corrupt saved bindings prevent read and backup rather than publishing a partial snapshot', async t => {
   const root = await mkdtemp(join(tmpdir(), 'song-binding-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const { entry } = await packageFixture(root);
   const filename = join(root, 'authoring.sqlite'), authority = SongBindingAuthority.open(filename);
   try {
-    authority.save(await prepareSongBindings(entry, bindings), 0);
+    authority.save(bindings, 0);
     const editor = new DatabaseSync(filename);
-    try { editor.prepare('UPDATE song_input_bindings SET bindings_json = ?').run('[{"controlId":"not-a-control","target":{"kind":"tempo"}}]'); }
+    try { editor.prepare('UPDATE global_input_bindings SET bindings_json = ?').run('[{"controlId":"not-a-control","target":{"kind":"tempo"}}]'); }
     finally { editor.close(); }
-    assert.throws(() => authority.read(entry));
+    assert.throws(() => authority.read());
     const destination = join(root, 'invalid-snapshot.sqlite');
-    assert.throws(() => authority.backup(destination));
+    assert.throws(() => backupSongBindings(filename, destination));
     await assert.rejects(readFile(destination), /ENOENT/);
     assert.throws(() => verifySongBindingBackup(filename));
   } finally { authority.close(); }

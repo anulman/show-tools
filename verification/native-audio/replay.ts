@@ -188,7 +188,7 @@ async function fixture(options: ReplayOptions) {
   if (authority) authority.save = () => {
     if (options.configuration === 'failed-commit') throw Error('Synthetic compare-and-swap rejected');
     configurationCommitCalls++;
-    return { ...authority.read(entry), revision: 1 };
+    return { ...authority.read(), revision: 1 };
   };
   const controller = new PersistentDesk(sessionProfile(directory), song, authority ? { catalog, bindings: authority } : undefined);
   const publications: ReturnType<typeof controller.snapshot>[] = [];
@@ -474,7 +474,7 @@ export async function replayConfiguration(mutation: ConfigurationMutation, scena
   const f = await fixture({ mutation: 'none', configuration: 'blocked', configurationMutation: mutation,
     ...(scenario === 'config-during-fault' ? { runtimeRootFailure: true } : {}) });
   const configure = (expected = f.controller.snapshot().revision) =>
-    f.controller.configureSongBindings(f.controller.snapshot().song.id, expected, []);
+    f.controller.configureButtonBindings(expected, []);
   try {
     if (scenario === 'config-during-fault' || scenario === 'config-after-close') {
       if (scenario === 'config-during-fault') {
@@ -539,7 +539,7 @@ export async function replayConfigurationOutcomes(): Promise<void> {
     const f = await fixture({ mutation: 'none', configuration });
     try {
       const before = f.controller.snapshot();
-      const pending = f.controller.configureSongBindings(before.song.id, before.revision, []);
+      const pending = f.controller.configureButtonBindings(before.revision, []);
       assert.equal(f.configurationPrepareCalls, 1);
       f.configurationPrepared.resolve();
       const result = await pending;
@@ -554,7 +554,7 @@ export async function replayConfigurationOutcomes(): Promise<void> {
       }
       if (configuration === 'blocked') {
         const calls = f.configurationPrepareCalls;
-        const stale = await f.controller.configureSongBindings(before.song.id, before.revision, []);
+        const stale = await f.controller.configureButtonBindings(before.revision, []);
         assert.equal(stale.outcome, 'rejected', 'A prior successful configuration must invalidate its old desk revision');
         assert.equal(f.configurationPrepareCalls, calls);
       }
@@ -569,12 +569,12 @@ export async function replayConfigurationOwnershipStates(): Promise<void> {
   try {
     known.controller.setAudio('on');
     await ready(known.controller);
-    const rejected = await known.controller.configureSongBindings(known.controller.snapshot().song.id, known.controller.snapshot().revision, []);
+    const rejected = await known.controller.configureButtonBindings(known.controller.snapshot().revision, []);
     assert.equal(rejected.outcome, 'rejected', 'A Ready native attempt must block configuration');
     assert.equal(known.configurationPrepareCalls, 0);
     known.controller.setAudio('off');
     await until(() => known.controller.snapshot().audio.kind === 'off', 'owned child exit before configuration');
-    const pending = known.controller.configureSongBindings(known.controller.snapshot().song.id, known.controller.snapshot().revision, []);
+    const pending = known.controller.configureButtonBindings(known.controller.snapshot().revision, []);
     assert.equal(known.configurationPrepareCalls, 1);
     known.configurationPrepared.resolve();
     assert.equal((await pending).outcome, 'accepted', 'Confirmed ownership release must admit configuration');
@@ -585,7 +585,7 @@ export async function replayConfigurationOwnershipStates(): Promise<void> {
     await until(() => unknown.children.length === 1, 'acquired child before its handle returns');
     unknown.controller.setAudio('off');
     await until(() => stopped(unknown.controller), 'unknown ownership retained');
-    const rejected = await unknown.controller.configureSongBindings(unknown.controller.snapshot().song.id, unknown.controller.snapshot().revision, []);
+    const rejected = await unknown.controller.configureButtonBindings(unknown.controller.snapshot().revision, []);
     assert.equal(rejected.outcome, 'rejected', 'Unknown native ownership must block configuration');
     assert.equal(unknown.configurationPrepareCalls, 0);
   } finally { await unknown.dispose(); }

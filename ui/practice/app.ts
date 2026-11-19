@@ -118,26 +118,29 @@ let remoteDemoCheck = '';
 let remoteDemoAvailable = false;
 
 let bindingBaseRevision = '0';
-let bindingSongId = '';
+let bindingBaseValues = '';
 let mountedHardwareSong = '';
 let mountingHardwareSong: { key: string; done: Promise<void> } | undefined;
-const buttonBindingPanel = createInputBindingPanel({ onSave: async (bindings, songId) => {
+const buttonBindingPanel = createInputBindingPanel({ onSave: async (bindings) => {
   if (!remoteDesk) throw new Error('Connect to the hardware desk before saving assignments');
-  const acknowledged = await remoteDesk.configureSongBindings(songId, bindings, bindingBaseRevision);
-  if (remoteDesk.snapshot().song.id !== songId || remoteDesk.snapshot().revision !== acknowledged.revision)
+  const acknowledged = await remoteDesk.configureButtonBindings(bindings, bindingBaseRevision);
+  if (remoteDesk.snapshot().revision !== acknowledged.revision)
     throw new Error('Assignments changed again. Reload the desk before applying another edit');
   bindingBaseRevision = acknowledged.revision;
+  bindingBaseValues = JSON.stringify(acknowledged.bindings);
   return acknowledged.bindings;
 } });
 buttonBindingPanel.element.hidden = !remote;
 requiredElement('#hardware-audio', HTMLElement).after(buttonBindingPanel.element);
 function renderButtonBindings() {
   const view = remoteDesk?.snapshot();
-  if (!view) { buttonBindingPanel.update({ songId: '', title: 'Hardware desk', bindings: [], editable: false, reason: 'Connect to the hardware desk first.' }); return; }
-  if (bindingSongId !== view.song.id || !buttonBindingPanel.dirty && !buttonBindingPanel.pending) {
-    bindingBaseRevision = view.revision; bindingSongId = view.song.id;
+  if (!view) { buttonBindingPanel.update({ bindings: [], editable: false, reason: 'Connect to the hardware desk first.' }); return; }
+  const bindings = view.song.compiled?.inputBindings ?? [];
+  const values = JSON.stringify(bindings);
+  if (!buttonBindingPanel.pending && (!buttonBindingPanel.dirty || values === bindingBaseValues)) {
+    bindingBaseRevision = view.revision; bindingBaseValues = values;
   }
-  buttonBindingPanel.update({ songId: view.song.id, title: view.song.chart.title, bindings: view.song.compiled?.inputBindings ?? [],
+  buttonBindingPanel.update({ bindings,
     editable: remoteDesk?.connection.kind === 'connected' && view.audio.kind === 'off' && !switching,
     reason: switching ? 'Wait for the selected song to load.' : 'Turn hardware audio off before changing button assignments.' });
 }

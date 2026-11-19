@@ -9,7 +9,7 @@ import { decodeSessionProfile, migrateSessionProfileV1 } from './session-profile
 import { createSessionClient, DeskUnavailableError } from './session-client.js';
 import { createSessionService, sessionConfigDirectory } from './session-service.js';
 import { SongCatalogOptionsSchema } from './song-catalog.js';
-import { SongBindingAuthority, verifySongBindingBackup, restoreSongBindingBackup } from './song-bindings.js';
+import { backupSongBindings, verifySongBindingBackup, restoreSongBindingBackup } from './song-bindings.js';
 import type { DeskView } from './session-schema.js';
 
 class SessionCommandError extends Schema.TaggedError<SessionCommandError>()('SessionCommandError', { message: Schema.String }) {}
@@ -107,19 +107,17 @@ const selectSong = Command.make('select', { profile: profileFlag, song: songFlag
   const view = await (await createSessionClient(ctx.profile)).selectSong(song);
   return `Selected ${view.song.id}. ${summary(view)}.`;
 }));
-const bindSong = Command.make('bind', { profile: profileFlag, song: songFlag, bindings: Flag.String('bindings') }, ({ profile, song, bindings }) => perform(async () => {
+const bindButtons = Command.make('apply', { profile: profileFlag, bindings: Flag.String('bindings') }, ({ profile, bindings }) => perform(async () => {
   const ctx = await context(profile);
-  const view = await (await createSessionClient(ctx.profile)).configureSongBindings(song, JSON.parse(await readFile(bindings, 'utf8')));
-  return `Saved button bindings for ${view.song.id}. ${summary(view)}.`;
+  const view = await (await createSessionClient(ctx.profile)).configureButtonBindings(JSON.parse(await readFile(bindings, 'utf8')));
+  return `Saved global button assignments. ${summary(view)}.`;
 }));
-const songs = Command.make('songs').pipe(Command.withDescription('List installed songs, select while stopped, or assign bindings with audio off'), Command.withSubcommands([listSongs, selectSong, bindSong]));
-const bindingScope = 'Only per-song button bindings and chart source hashes; excludes charts, effects and recordings.';
+const songs = Command.make('songs').pipe(Command.withDescription('List installed songs or select while stopped'), Command.withSubcommands([listSongs, selectSong]));
+const bindingScope = 'Global button assignments. Backups preserve any previous per-song records. The database excludes charts, effects and recordings.';
 const backupBindings = Command.make('backup', { profile: profileFlag, output: outputFlag }, ({ profile, output }) => perform(async () => {
   const ctx = await context(profile);
-  await verifySongBindingBackup(ctx.profile.authoringDatabase);
-  const authority = SongBindingAuthority.open(ctx.profile.authoringDatabase);
-  try { const backup = authority.backup(resolve(output)); return `Backed up ${backup.records.length} binding records to ${backup.filename}. ${bindingScope}`; }
-  finally { authority.close(); }
+  const backup = backupSongBindings(ctx.profile.authoringDatabase, resolve(output));
+  return `Backed up ${backup.records.length} binding records to ${backup.filename}. ${bindingScope}`;
 }));
 const verifyBindings = Command.make('verify', { input: inputFlag }, ({ input }) => perform(async () => {
   const records = verifySongBindingBackup(resolve(input));
@@ -129,7 +127,7 @@ const restoreBindings = Command.make('restore', { input: inputFlag, output: outp
   const records = restoreSongBindingBackup(resolve(input), resolve(output));
   return `Restored ${records.length} binding records to new file ${resolve(output)}. ${bindingScope} No running profile was changed.`;
 }));
-const bindings = Command.make('bindings').pipe(Command.withDescription(bindingScope), Command.withSubcommands([backupBindings, verifyBindings, restoreBindings]));
+const bindings = Command.make('bindings').pipe(Command.withDescription(bindingScope), Command.withSubcommands([bindButtons, backupBindings, verifyBindings, restoreBindings]));
 const releaseCatalogSchema = Schema.Struct({ schemaVersion: Schema.Literal(1), initialSongId: Schema.NonEmptyString,
   entries: Schema.NonEmptyArray(Schema.Struct({ id: Schema.NonEmptyString, path: Schema.NonEmptyString,
     title: Schema.NonEmptyString, packageDigest: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
