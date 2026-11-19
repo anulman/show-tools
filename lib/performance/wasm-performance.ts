@@ -179,7 +179,7 @@ export class NativePerformance {
     } finally { for (const pointer of pointers) this.invoke('free', pointer); }
   }
 
-  start({ runId, bpm = this.state().bpm, countInBars = 1, startBar = 1, endBar = this.state().endBar, loop = true, automatic = false }: StartOptions & { runId: string }) {
+  start({ runId, bpm = this.state().bpm, countInBars = 1, startBar = 1, endBar = this.state().endBar, loop = false, automatic = false }: StartOptions & { runId: string }) {
     if (typeof runId !== 'string' || !runId.trim()) throw new Error('A run ID is required');
     if (!Number.isFinite(bpm) || !Number.isSafeInteger(countInBars) || !Number.isSafeInteger(startBar) || !Number.isSafeInteger(endBar)) throw new Error('Invalid start options');
     const barCount = this.query('pf_snapshot')[PF.BAR_COUNT];

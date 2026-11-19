@@ -17,7 +17,7 @@ const crossing = (performance, id, epoch) => performance.onBeat(id, id * 4000, e
 
 test('native count-in precedes the first song beat and looping preserves the chosen range', () => {
   const performance = engine({ barCount: 8, endBar: 8, program: { lengthBeats: 1, events: [{ atBeat: 0, sampleId: 'R1' }] } });
-  performance.start({ runId: 'first', startBar: 3, endBar: 3, automatic: true });
+  performance.start({ runId: 'first', startBar: 3, endBar: 3, loop: true, automatic: true });
   for (let id = 41; id < 45; id++) {
     crossing(performance, id, 2);
     assert.deepEqual(triggers(performance), []);
@@ -51,6 +51,7 @@ test('duplicate native crossings do nothing and gaps or changed epochs stop tran
 
 test('stopping cancels count-in and every native restart has a fresh event sequence', () => {
   const performance = engine({ barCount: 218, endBar: 76 });
+  assert.equal(performance.state().loop, false);
   performance.start({ runId: 'first' });
   assert.equal(performance.events().at(-1).seq, 1);
   crossing(performance, 10, 1);
@@ -58,7 +59,7 @@ test('stopping cancels count-in and every native restart has a fresh event seque
   performance.events();
   crossing(performance, 11, 1);
   assert.equal(performance.events().length, 0);
-  performance.start({ runId: 'second', countInBars: 0, startBar: 2, endBar: 2, loop: false });
+  performance.start({ runId: 'second', countInBars: 0, startBar: 2, endBar: 2 });
   assert.equal(performance.events().at(-1).seq, 1);
   for (let id = 12; id < 16; id++) crossing(performance, id, 1);
   crossing(performance, 16, 1);

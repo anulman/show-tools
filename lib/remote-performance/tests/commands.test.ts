@@ -26,6 +26,15 @@ test('encodes all profile counts, revisions, and effects in host wire order', ()
 	assert.throws(() => encodeInitialProfiles(configurations.map(config => config.profile === 2 ? { ...config, effects: [{ kind: 'slapback', delayMs: 1, feedback: 0, wet: 0 }] } : config)), /effect/);
 });
 
+test('hardware Start repeats the range only when explicitly enabled', () => {
+  const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'test', String);
+  const start = { bpm: 120, endBar: 4 };
+  for (const options of [start, { ...start, loop: false }, { ...start, loop: true }]) {
+    const bytes = encodeCommand({ command: 'start', args: options }, state);
+    assert.equal(bytes.readDoubleLE(2 + 4 * 8), Number('loop' in options && options.loop));
+  }
+});
+
 test('reserves priority only for validated Stop and Panic commands', () => {
 	assert.equal(isPriorityCommand({ command: 'stop', args: {} }), true);
 	assert.equal(isPriorityCommand({ command: 'control', args: { control: { id: 'mushroom' }, commandId: 'panic-1' } }), true);

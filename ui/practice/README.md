@@ -102,7 +102,7 @@ Choose **Song script** to load another song. Switching stops and disposes the pr
 
 Song scripts and chart snapshots live in the top-level [songs directory](../../songs/README.md). Drunk Girls and I Can Change currently have no filled pad-action rows. Their empty cells do not create playback actions or preload samples.
 
-Set **Tempo**, **Count-in**, **Start at**, and **End at bar** while stopped. Turn off **Loop range** to stop at the range end. Every Start begins a fresh count-in. A range loop wraps without another count-in. The final partial Dance Yrself Clean bar, 218, is excluded from playback.
+Set **Tempo**, **Count-in**, **Start at**, and **End at bar** while stopped. Playback stops at the end of the range by default. Turn on **Loop range** to repeat it. Physical controls are selected by default. Choose **Keyboard shortcuts** in Settings to enable them for this tab. Every Start begins a fresh count-in. A range loop wraps without another count-in. The final partial Dance Yrself Clean bar, 218, is excluded from playback.
 
 ## Open or follow the chart
 

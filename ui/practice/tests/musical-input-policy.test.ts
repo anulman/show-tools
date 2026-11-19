@@ -12,28 +12,29 @@ function storage(initial?: string) {
   return { getItem: () => value, setItem: (_key: string, next: string) => { value = next; } };
 }
 
-test('DOM musical input requires an explicit client selection and survives only that client session', () => {
+test('physical controls are the default and keyboard shortcuts are a per-tab choice', () => {
   const local = storage(), remote = storage();
   let changes = 0;
   const policy = createMusicalInputPolicy({ storage: local, changed: () => changes++ });
-  assert.equal(policy.selection(), 'unselected');
+  assert.equal(policy.selection(), 'native-controls');
   assert.equal(policy.allowsDomInput(), false);
   policy.select('native-controls');
   assert.equal(policy.allowsDomInput(), false);
   assert.equal(currentMusicalInputPolicy(local), 'native-controls');
-  assert.equal(currentMusicalInputPolicy(remote), 'unselected');
+  assert.equal(currentMusicalInputPolicy(remote), 'native-controls');
   policy.select('keyboard');
   assert.equal(policy.allowsDomInput(), true);
   assert.equal(createMusicalInputPolicy({ storage: local }).selection(), 'keyboard');
   policy.select('keyboard');
-  assert.equal(changes, 2);
+  assert.equal(changes, 1);
   assert.throws(() => policy.select('automatic'));
 });
 
 test('invalid or unavailable storage leaves touch controls available and shortcuts disabled', () => {
-  assert.equal(currentMusicalInputPolicy(storage('native')), 'unselected');
+  for (const invalid of ['native', 'unselected']) assert.equal(currentMusicalInputPolicy(storage(invalid)), 'native-controls');
   const unavailable = { getItem(): string | null { throw new Error('Storage disabled'); }, setItem() { throw new Error('Storage disabled'); } };
   const policy = createMusicalInputPolicy({ storage: unavailable });
+  assert.equal(policy.selection(), 'native-controls');
   assert.equal(policy.allowsDomInput(), false);
   policy.select('keyboard');
   assert.equal(policy.allowsDomInput(), true);

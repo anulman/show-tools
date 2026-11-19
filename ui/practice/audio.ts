@@ -130,7 +130,7 @@ export class PracticeAudio {
     this.chart = chart;
     this.sampler = new Sampler({ audioContext: tracker.context, endpoint });
     this.latest = { phase: 'idle', bar: null, beat: null, countInRemaining: 0, bpm: chart.bpm,
-      startBar: 1, endBar: chart.annotatedThroughBar || chart.bars.length, loop: true, automatic: true, click: false,
+      startBar: 1, endBar: chart.annotatedThroughBar || chart.bars.length, loop: false, automatic: true, click: false,
       selectedChannel: 'R1', runId: `${sessionId}-ready`, seq: 0, channels: CONTROL_IDS.map(id => ({ id, gain: 1, muted: false, looping: false, ready: false, status: 'empty', light: { kind: 'off' } })),
       looping: [], recording: null, microphone: false, error: null };
     this.sessionId = sessionId;
