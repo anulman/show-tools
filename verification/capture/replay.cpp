@@ -2,6 +2,51 @@
 #include "../../lib/performance/tests/compiled_program_tests.cpp"
 #undef main
 
+void invalid_outgoing_blocks_incoming() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_LEGACY_VERSION, 4, 6, 120, 6, 25, 25, 3, 6, 4, 0, 0, 1, 2, 3,
+    0, 1, 0, 3, 0, 1, 3, 0, 0,
+    0, 3, 0, 4, 2, 1, 5, 0, 0,
+    1, 4, 2, 6, 2, 1, 6, 2, 2,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0,
+    0, 0, 2, -1, PF_COMMIT_ARM, 1, 0, 1, 0, 0, 0,
+    0, 0, 4, 1, PF_COMMIT, 2, 2, -1, 1, 1, 0,
+    1, 1, 4, 1, PF_ARM, 2, 2, 2, -1, -1, 0,
+    1, 1, 6, 1, PF_COMMIT, 2, 2, -1, 2, 2, 0,
+    2, 0, 3, 1, PF_STOP, 0, 0, -1, -1, -1, 0,
+    0, 0, 1, 1, 0, 1, 1, 1, 1, 2, 2, 1
+  };
+  Engine engine; prepare(engine, song);
+  ok(engine, pf_start(engine, 120, 1, 1, 6, 0, 0));
+  until(engine, 3, 2);
+  require(take(engine, 0)[PF_TAKE_READY] && channel(engine, 0)[PF_CHANNEL_STATUS] == PF_RECORDING,
+    "fixture starts the layered draft over a committed anchor on the run's authored cues");
+  ok(engine, press(engine, 2)); // This authored stop interrupts the anchor, invalidating the layered commit.
+  until(engine, 4, 2);
+  ok(engine, press(engine, 1)); ok(engine, press(engine, 0));
+
+  std::array<double, PF_EVENT_CAPACITY * PF_EVENT_FIELDS> events{};
+  pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+  until(engine, 4, 3);
+  const auto count = pf_drain_events(engine, events.data(), PF_EVENT_CAPACITY);
+  int mismatches = 0, cancelled = 0;
+  for (uint32_t index = 0; index < count; ++index) {
+    const double* row = events.data() + index * PF_EVENT_FIELDS;
+    require(row[PF_EVENT_TYPE] != PF_FAULT, "invalid layered commit remains nonfatal");
+    if (row[PF_EVENT_TYPE] == PF_CONTROL && row[PF_EVENT_APPLIED] == 0) {
+      if (row[PF_EVENT_CUE] == 2 && row[PF_EVENT_ERROR] == PF_LOOP_MISMATCH) ++mismatches;
+      if (row[PF_EVENT_CUE] == 3 && row[PF_EVENT_ERROR] == PF_CAPTURE_BUSY) ++cancelled;
+    }
+  }
+  require(mismatches == 1 && cancelled == 1 &&
+    channel(engine, 1)[PF_CHANNEL_STATUS] != PF_ARMED && channel(engine, 1)[PF_CHANNEL_STATUS] != PF_RECORDING,
+    "period cleanup reports both source cues and clears the cancelled incoming reservation");
+  require(take(engine, 0)[PF_TAKE_READY] && take(engine, 0)[PF_TAKE_LENGTH] == 32000 &&
+    !take(engine, 1)[PF_TAKE_READY] && take(engine, 1)[PF_TAKE_LENGTH] == 0 &&
+    !take(engine, 2)[PF_TAKE_READY] && take(engine, 2)[PF_TAKE_LENGTH] == 0 && state(engine)[PF_PHASE] == PF_PLAYING,
+    "failed paired boundary retains the prior anchor PCM and running transport");
+}
+
 void complete_stop_retains_without_playback() {
   auto live = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
   const auto song = table();
@@ -170,7 +215,7 @@ int main(int argc, char** argv) {
   const char* scenario = argv[1];
   if (std::strcmp(scenario, "combined-admission") == 0) crb_unavailable_start_preserves_old_capture();
   else if (std::strcmp(scenario, "independent-admission") == 0) independent_unavailable_arm_does_not_rollback_commit();
-  else if (std::strcmp(scenario, "invalid-outgoing") == 0) failed_period_blocks_same_boundary_start();
+  else if (std::strcmp(scenario, "invalid-outgoing") == 0) invalid_outgoing_blocks_incoming();
   else if (std::strcmp(scenario, "retained-bank") == 0) stopped_partial_capture_preserves_latest();
   else if (std::strcmp(scenario, "autoplay") == 0) capture_layers_and_boundaries();
   else if (std::strcmp(scenario, "stop-complete") == 0) complete_stop_retains_without_playback();

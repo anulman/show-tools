@@ -146,12 +146,12 @@ int pf_input_attach(pf_engine* engine, uint32_t producer, double session, double
 int pf_input_event(pf_engine* engine, uint32_t producer, double session, double binding_generation,
   double sequence, uint32_t input, double value);
 int pf_input_revoke(pf_engine* engine, uint32_t producer, double session);
-/* Fixed PF_INPUT_INFO_FIELDS image. Records are compacted by slot; unused fields zero.
-   Generation advances only after successful song replacement. */
+/* Fixed PF_INPUT_INFO_FIELDS image. Records are compacted by slot; unused fields zero. */
 void pf_input_info(const pf_engine* engine, double* out);
-/* Stopped candidate swap preserves the prior engine's routing epoch and session
-   watermark. Both engine objects remain owned by the caller. */
-int pf_input_inherit(pf_engine* replacement, const pf_engine* previous);
+/* Move input leases and physical latch state on a stopped candidate swap with
+   the same bindings. Changed bindings advance the generation. Every swap
+   retains the session watermark and discards old musical ownership. */
+int pf_input_inherit(pf_engine* replacement, pf_engine* previous);
 /* Priority classification checks the active producer lease and current bindings.
    It does not consume sequence or mutate state. Return 1 only for bound Panic. */
 int pf_input_is_panic(const pf_engine* engine, uint32_t producer, double session,

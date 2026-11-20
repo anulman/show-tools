@@ -1,5 +1,13 @@
 # Capture source synchronization
 
+## Capture handoff after tempo warping and default arms
+
+The previous fence stopped at `a831cc6` and rejected changed source before running the model. The old native replay also used a fixture that treated tempo changes as invalid. The engine now retains and replays that capture at the updated tempo. The replacement witness stops the committed anchor while a layered take is recording. The layer fails to commit, the simultaneous incoming arm is rejected, and the prior source stays available.
+
+The model still treats frame arithmetic and readiness as inputs. Tempo mapping changes those inputs. Rounded full-loop playback begins on the commit frame. Neither operation changes capture publication or the protected-bank choice. Default arms use the existing begin transaction, including when an arm shares a boundary with a commit. The mushroom can discard the draft and reservations while preserving committed banks. Session reuse, exports, effect and tambourine auditions, demo recording, and timing events do not add capture writers.
+
+The pinned run checked 11,894 distinct main states, all six model mutants, twelve native scenarios and seven actual-source mutants. The old invalid-release mutant now admits an incoming recorder in the authored anchor-stop fixture and fails the cancellation assertion. The missed-endpoint mutant follows the current `boundary_frame` expression. Source timing and audio continuity have separate native PCM tests.
+
 ## Consolidated practice release at cd3ae7e
 
 Outcome: **updated** from `894915fd154c07529d08c79182cafe46cc9191ef` to `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. The unchanged command first rejected the changed `compiled_program.cpp` hash. This was source-fence drift, not a capture-policy counterexample.
@@ -146,7 +154,7 @@ Outcome: **updated** from `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4` to `dfd9c1f
 
 | Changed boundary | Classification and mapping |
 | --- | --- |
-| PFI1 binding trailer and stopped native routing preparation | New declarative input metadata. Successful song replacement changes routing generation after preparation; this does not change a capture transaction. Invalid configurations still fail before replacement. |
+| PFI1 binding trailer and stopped native routing preparation | New declarative input metadata. Native song replacement changes routing generation after preparation when the binding table differs. Routing continuity across an unchanged table does not change a capture transaction. Invalid configurations still fail before replacement. |
 | `press_current` delegates to selected-row `press_rows` | The selected batch resolves rows before execution and retains commit-before-arm ordering and per-row results. An unselected cue is simply an unissued command in the model. Capture admission continues through the same `press_selected`, preflight and `execute` boundaries. |
 | Held admission ownership, scoped release and queued owner checks | New producer/held-playback state. Pending-owner cancellation and supersession checks apply to held/gated `PF_PLAY` entries. Capture arm/commit pending entries keep their existing path, ordering, reservations and bank checks. No capture promise was changed. |
 | Gated-play preflight before releasing prior held playback | A rejected playback admission now preserves prior playback. The capture model abstracts incoming bank readiness; it does not model gate ownership or prove producer isolation. |

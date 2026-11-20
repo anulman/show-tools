@@ -40,6 +40,8 @@ try:
   assert len(arrays)==10 and len(arrays[-1])==196
   return arrays[-1]
  assert result(1)[0]==0
+ changed=bytearray(setup)
+ struct.pack_into('<d',changed,len(changed)-24,2)
  generation=inputs(snapshot())[0]; assert generation>=1
  profiles=struct.pack('<I6I6I',1,1,0,0,0,0,0,2,1,1,1,1,1)+struct.pack('<II4d',1,1,100,.2,.5,0)
  send(3,2,ident+struct.pack('<H',10)+profiles); assert result(2)[0]==0
@@ -63,19 +65,27 @@ try:
  print('reconnected while transport remained active')
  ident=hello2[:32]
  send(3,1,ident+struct.pack('<H',2)); assert result(1)[0]==0
- send(3,2,ident+struct.pack('<H',9)+setup); assert result(2)[0]==0
- replacement=inputs(snapshot()); assert replacement[0]==generation+1 and replacement[2]==5000000
- send(3,3,ident+struct.pack('<H6d',14,3,5000001,replacement[0],0,3,0)); assert result(3)[0]==0
+ send(3,2,ident+struct.pack('<H6d',14,3,5000001,generation,0,7,0)); assert result(2)[0]==0
  before=inputs(snapshot()); assert before[1]==1
+ send(3,3,ident+struct.pack('<H',9)+setup); assert result(3)[0]==0
+ assert inputs(snapshot())==before
  broken=bytearray(setup); broken[94:102]=struct.pack('<d',0)
  send(3,4,ident+struct.pack('<H',9)+broken); assert result(4)[0]!=0
- after=inputs(snapshot()); assert after==before
- send(3,5,ident+struct.pack('<H6d',16,3,5000001,generation,1,0,1)); assert result(5)[0]!=0
- send(3,6,ident+struct.pack('<H6d',1,120,1,1,4,0,0)); assert result(6)[0]==0
- send(3,7,ident+struct.pack('<H6d',16,3,5000001,replacement[0],200,1,1)); assert result(7)[0]==0
+ assert inputs(snapshot())==before
+ send(3,5,ident+struct.pack('<H',9)+changed); assert result(5)[0]==0
+ replacement=inputs(snapshot()); assert replacement[0]==generation+1 and replacement[1]==0 and replacement[2]==5000001
+ send(3,6,ident+struct.pack('<H6d',16,3,5000001,generation,1,0,1)); assert result(6)[0]!=0
+ send(3,7,ident+struct.pack('<H6d',14,3,5000002,replacement[0],0,7,0)); assert result(7)[0]==0
+ send(3,8,ident+struct.pack('<H',9)+changed); assert result(8)[0]==0
+ assert inputs(snapshot())[1]==1
+ send(3,9,ident+struct.pack('<H6d',1,120,1,1,4,0,0)); assert result(9)[0]==0
+ send(3,10,ident+struct.pack('<H6d',16,3,5000002,replacement[0],200,2,1)); assert result(10)[0]==0
  stopped=snapshot(); offset=20+struct.unpack_from('<I',stopped,16)[0]+32
  assert struct.unpack_from('<d',stopped,offset+4)[0]==0
  print('identified inputs retain watermarks, reject stale ownership, and preserve failed preparation')
+ s.close(); time.sleep(.1)
+ s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect(path); t,q,b=recv(); assert t==1; send(2,0)
+ assert inputs(snapshot())[1]==0, 'closing the native connection revokes its lease after same-binding replacement'
  s.close()
 finally:
  host.terminate(); host.wait(timeout=15); p.cleanup()
@@ -130,7 +140,7 @@ def fragmented_input_priority(invalidation, panic, saturated=False):
    count=256 if saturated else 17
    packets=[]
    if invalidation=='revoke': packets.append(command(first,17,[3,5000000]))
-   elif invalidation=='prepare': packets.append(command(first,9,raw=setup))
+   elif invalidation=='prepare': packets.append(command(first,9,raw=changed))
    for sequence in range(first+len(packets),first+count-1): packets.append(command(sequence,7,[0]))
    start=first+count-1
    packets.append(command(start,1,[120,1,1,4,0,0]))

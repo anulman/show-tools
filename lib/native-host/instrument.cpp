@@ -26,8 +26,8 @@ bool Instrument::prepare(const uint8_t* packet, uint32_t bytes, const Profiles& 
   for (const auto& wave : waves) {
     if (pf_prepare_external_wav(candidate.get(), wave.slot, wave.bytes.data(), uint32_t(wave.bytes.size())) < 0) return false;
   }
-  if (engine_ && pf_input_inherit(candidate.get(), engine_.get()) < 0) return false;
   auto pump = std::make_unique<AudioPump>(candidate.get(), config_.block_capacity);
+  if (engine_ && pf_input_inherit(candidate.get(), engine_.get()) < 0) return false;
   pump_ = std::move(pump); engine_ = std::move(candidate); lifecycle_ = Lifecycle::Prepared;
   output_ = Output::Performance;
   audition_profile_ = -1;

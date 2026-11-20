@@ -442,16 +442,28 @@ void protocol_checks() {
   require(generation(engine) == first + 1 && info(engine)[PF_INPUT_COUNT] == 0,
           "successful song replacement invalidates leases");
   require(pf_input_event(engine, 0, 100, first, 200, 0, 1) < 0, "old generation cannot cross song replacement");
-  Engine replacement;
-  load(replacement, empty_program());
-  ok(replacement, pf_input_inherit(replacement, engine));
-  require(
-      generation(replacement) == generation(engine) + 1 && info(replacement)[PF_INPUT_SESSION_HIGH_WATERMARK] == 131,
-      "candidate swap inherits epoch and watermark");
-  require(pf_input_attach(replacement, 0, 131, generation(replacement), PF_INPUT_POINTER, 223, 0) < 0,
+  attach(engine, 0, 132, PF_INPUT_PHYSICAL, 1);
+  event(engine, 0, 132, 5, 0, 1);
+  Engine same_bindings;
+  load(same_bindings, empty_program());
+  const auto held = info(engine);
+  ok(same_bindings, pf_input_inherit(same_bindings, engine));
+  require(info(same_bindings) == held && level(same_bindings, 257) == 1, "same bindings retain held readback and the source sequence");
+  require(pf_input_event(same_bindings, 0, 132, generation(same_bindings), 5, 0, 0) < 0,
+          "replayed sequence cannot release the retained button");
+  event(same_bindings, 0, 132, 6, 0, 0);
+  require(level(same_bindings, 257) == 0, "the original producer can release after replacement");
+  require(pf_input_inherit(same_bindings, engine) < 0, "active candidate cannot overwrite leases");
+
+  Engine changed_bindings;
+  load(changed_bindings, empty_program({0, PF_INPUT_PANIC, 0}));
+  ok(changed_bindings, pf_input_inherit(changed_bindings, same_bindings));
+  const auto changed = info(changed_bindings);
+  require(changed[PF_INPUT_GENERATION] == held[PF_INPUT_GENERATION] + 1 && changed[PF_INPUT_COUNT] == 0 &&
+              changed[PF_INPUT_SESSION_HIGH_WATERMARK] == 132,
+          "changed bindings retire the old generation and keep the allocator watermark");
+  require(pf_input_attach(changed_bindings, 0, 132, generation(changed_bindings), PF_INPUT_POINTER, 223, 0) < 0,
           "inherited session cannot be reused");
-  attach(replacement, 0, 132, PF_INPUT_POINTER, 223);
-  require(pf_input_inherit(replacement, engine) < 0, "active candidate cannot overwrite leases");
   Engine exhausted, candidate;
   ok(exhausted, pf_input_attach(exhausted, 0, 9007199254740991., generation(exhausted), PF_INPUT_POINTER, 223, 0));
   const auto before = info(candidate);

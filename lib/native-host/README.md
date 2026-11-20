@@ -17,7 +17,7 @@ Managed servers append `--owner-pid PID` to either executable. The host verifies
 
 The ABI 8 snapshot appends the complete `PF_LIGHT_FIELDS` engine light image after tempo readback. The native owner calls `pf_light_output()` at its existing observation cadence; network consumers relay those evaluated levels without advancing phase. The remote session schemas retain the image as required `NativePerformance.lights`, alongside state, host epoch and revision, including command results. Control 7 carries the unified cue button's physical edge value, 0 released or 1 held; cue selection and held-brightness precedence remain in PE.
 
-Managed ALSA hosts receive `--idle-monitor`. After the package is loaded, the host monitors the default song voice through the same open device handles used by transport. Stop resumes monitoring, while Panic silences it until Start or a new audio session. Stopped song replacement loads the new effects, program, and WAV assets together. It clears the previous song's takes and advances the input binding generation.
+Managed ALSA hosts receive `--idle-monitor`. After the package is loaded, the host monitors the default song voice through the same open device handles used by transport. Stop resumes monitoring, while Panic silences it until Start or a new audio session. Stopped song replacement loads the new effects, program, and WAV assets together. It clears the previous song's takes and retains connected controls and LED delivery. If the input bindings change, the host retires the previous input generation.
 
 Managed ALSA hosts also receive one complete option group:
 

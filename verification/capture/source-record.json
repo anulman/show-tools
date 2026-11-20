@@ -1,17 +1,17 @@
 {
-  "sourceCommit": "a831cc663baf3379e0d6faf6f1fb520dc98ebb13",
+  "sourceCommit": "39940cb5b18fd2e08c30d843687d2fec9f54d299",
   "files": {
-    "lib/performance/src/compiled_program.cpp": "4a4104ae0e23e1711e4f303c03433fa71766f5399029bc86e6253b62fbd2c7d9",
-    "lib/performance/src/compiled_program.h": "2ee7c56fc139585c23a043efbe9a05773c5b2c03592026d6f4e3d4993f3a0178",
-    "lib/performance/include/performance_engine.h": "1d795dcfe34b246e17baf9aac16d3ff782667a8d85f02c5836321161e3d0c08f",
-    "lib/performance/tests/compiled_program_tests.cpp": "7737e6deecdc051a5d7707aeb8ce884669191c7dd4c673e67d3a9ba65e93fbaf",
-    "lib/patches/src/patch_engine.cpp": "c6328aa5a0f620cef27727337af08098b3c94b96011226ecfdcac810ce10ebb6",
-    "lib/patches/include/patch_engine.h": "12eb9f1c44efc4ae8bc3d7059916692a3a071c240e55f5c68aabea7fab2a8a5a",
-    "lib/performance/src/performance_engine.cpp": "b70121c9858aad71bb8f25bf8b8cc4428253d48fdab98edff14cd369a7166a93",
+    "lib/performance/src/compiled_program.cpp": "51820e6dd7981abd6ae14fc47c04fcd9f25019dbb04b800aa4f22bc6952147bb",
+    "lib/performance/src/compiled_program.h": "da540bc2161f82b3dee5c8b8f3c5fd3c0efd4f6c2c27c83bd3c51dc272e0f393",
+    "lib/performance/include/performance_engine.h": "207947f53e0aa713b4851b16ab208a99fc4445897bb3e789da9d3d9556f476f4",
+    "lib/performance/tests/compiled_program_tests.cpp": "a2ed9757fc3b30184b329a874b78d4342c1008789703a8f7b646145058976e8e",
+    "lib/patches/src/patch_engine.cpp": "d468e36a7d7fda5514aed1a84bf4919ea3dc6b4201c53dbbd6783450fc182548",
+    "lib/patches/include/patch_engine.h": "a9d29fd673ec66e2cee0080a0688c9d98d5258a5df4e65bbd7fd67d06d362a80",
+    "lib/performance/src/performance_engine.cpp": "deff15bc341033cdcfab0e7989b76e6906b094fc9ec2f8390d5136ea14d92d8e",
     "lib/performance/include/performance_light_output.h": "a20d9ce3f3f6d5dc573765551793160628b6f8767a54ede7b478e38e63619d09",
     "lib/tuner/include/tuner.h": "568bb3da9355328b8b589b621a30d971388d1599f8fef33f9d52b932b145da98",
     "lib/tuner/src/tuner.cpp": "23341a5ca6d70105cc7f43571cca85767371d27d79f60a74bebcdb01dbdb32b2",
-    "lib/performance/src/input_router.h": "7357d56f107d386ea137d8f7d0ccd3d382b061a054d33c159e75109c11b12b80",
+    "lib/performance/src/input_router.h": "8c02d7145052f297e2f693cfe71046dbf6091ab4188b1e731a77a3248696e49d",
     "lib/peripherals/include/peripheral_controls.h": "96659635a0cc1ff63c178d1c47935c3f23ad3cc54f408098808df2abd03b4c8f",
     "lib/peripherals/src/peripheral_controls.cpp": "509a6d35fb4bf76d67269e8274da68ccb42363b0e9942dbc926973d979fee275"
   }

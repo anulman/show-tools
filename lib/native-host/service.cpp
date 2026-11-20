@@ -491,8 +491,16 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
   bool owns_tambourine=false;
   auto record_ownership=[&](const Request& result) {
     if(result.connection!=connection || result.status!=0)return;
-    if(result.op==9) owned_sessions.fill(0);
-    else if(result.op==audition_tambourine && result.args[0]<=0) owns_tambourine=result.args[0]==0;
+    if(result.op==9) {
+      const auto& inputs=result.observation.inputs;
+      std::array<double,PF_INPUT_PRODUCERS> retained{};
+      for(uint32_t index=0;index<uint32_t(inputs[PF_INPUT_COUNT]);++index) {
+        const auto* producer=inputs.data()+PF_INPUT_RECORDS+index*PF_INPUT_PRODUCER_FIELDS;
+        const auto slot=uint32_t(producer[PF_INPUT_SLOT]);
+        if(owned_sessions[slot]==producer[PF_INPUT_SESSION]) retained[slot]=owned_sessions[slot];
+      }
+      owned_sessions=retained;
+    } else if(result.op==audition_tambourine && result.args[0]<=0) owns_tambourine=result.args[0]==0;
     else if(result.op==14) owned_sessions[uint32_t(result.args[0])]=result.args[1];
     else if(result.op==17 && owned_sessions[uint32_t(result.args[0])]==result.args[1]) owned_sessions[uint32_t(result.args[0])]=0;
   };
