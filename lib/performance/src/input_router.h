@@ -50,13 +50,20 @@ class Router {
     for (const auto& item : producers_) watermark = std::max(watermark, item.session);
     return watermark;
   }
-  bool inherit(const Router& previous) {
+  bool inherit(Router& previous) {
     const double watermark = std::max(session_high_watermark(), previous.session_high_watermark());
-    if (!previous.replaceable() || watermark >= maximum_identity) return false;
+    const bool same_bindings = std::equal(std::begin(bindings_), std::end(bindings_), std::begin(previous.bindings_),
+      [](const Binding& a, const Binding& b) { return a.kind == b.kind && a.rows == b.rows; });
+    if ((!same_bindings && !previous.replaceable()) || watermark >= maximum_identity) return false;
     for (const auto& producer : producers_)
       if (producer.active) return false;
-    generation_ = previous.generation_ + 1;
+    generation_ = previous.generation_ + (same_bindings ? 0 : 1);
     inherited_watermark_ = watermark;
+    if (same_bindings) for (uint32_t slot = 0; slot < PF_INPUT_PRODUCERS; ++slot) {
+      auto& target = producers_[slot];
+      std::swap(target, previous.producers_[slot]);
+      std::fill(std::begin(target.ownership), std::end(target.ownership), 0);
+    }
     return true;
   }
   void replace(const Binding* bindings) {

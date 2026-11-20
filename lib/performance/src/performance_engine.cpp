@@ -1113,9 +1113,14 @@ void pf_input_info(const pf_engine* engine, double* out) {
   if (!out) return;
   if (engine) engine->inputs.info(out); else std::fill(out, out + PF_INPUT_INFO_FIELDS, 0);
 }
-int pf_input_inherit(pf_engine* replacement, const pf_engine* previous) {
-  if (!replacement || !previous || replacement == previous || running(replacement)
-    || !replacement->inputs.inherit(previous->inputs)) return fail(replacement, PF_INVALID_INPUT, "Cannot inherit input routing epoch");
+int pf_input_inherit(pf_engine* replacement, pf_engine* previous) {
+  if (!replacement || !previous || replacement == previous || running(replacement) || running(previous))
+    return fail(replacement, PF_INVALID_INPUT, "Cannot inherit input routing from a running or invalid engine");
+  if (pf_set_jiggle_thresholds(replacement, previous->jiggle_travel, previous->jiggle_reversal) < 0)
+    return -1;
+  if (!replacement->inputs.inherit(previous->inputs)) return fail(replacement, PF_INVALID_INPUT, "Cannot inherit input routing epoch");
+  replacement->light_sequence = previous->light_sequence;
+  std::copy(std::begin(previous->light_image), std::end(previous->light_image), std::begin(replacement->light_image));
   return accepted(replacement);
 }
 int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {

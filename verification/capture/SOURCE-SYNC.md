@@ -146,7 +146,7 @@ Outcome: **updated** from `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4` to `dfd9c1f
 
 | Changed boundary | Classification and mapping |
 | --- | --- |
-| PFI1 binding trailer and stopped native routing preparation | New declarative input metadata. Successful song replacement changes routing generation after preparation; this does not change a capture transaction. Invalid configurations still fail before replacement. |
+| PFI1 binding trailer and stopped native routing preparation | New declarative input metadata. Native song replacement changes routing generation after preparation when the binding table differs. Routing continuity across an unchanged table does not change a capture transaction. Invalid configurations still fail before replacement. |
 | `press_current` delegates to selected-row `press_rows` | The selected batch resolves rows before execution and retains commit-before-arm ordering and per-row results. An unselected cue is simply an unissued command in the model. Capture admission continues through the same `press_selected`, preflight and `execute` boundaries. |
 | Held admission ownership, scoped release and queued owner checks | New producer/held-playback state. Pending-owner cancellation and supersession checks apply to held/gated `PF_PLAY` entries. Capture arm/commit pending entries keep their existing path, ordering, reservations and bank checks. No capture promise was changed. |
 | Gated-play preflight before releasing prior held playback | A rejected playback admission now preserves prior playback. The capture model abstracts incoming bank readiness; it does not model gate ownership or prove producer isolation. |
