@@ -599,6 +599,8 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
   song->cues = new (std::nothrow) Cue[(song->bars + 1) * PF_CHANNELS];
   if (!song->cues) return fail(engine, PF_ALLOCATION_FAILED);
   silence(engine);
+  if (prepared->has_external_samples() && !engine->percussion)
+    engine->percussion = patches::ShakePercussion::create(engine->rate);
   if (identity) engine->profiles[PF_DEFAULT_PROFILE].rack = std::move(identity);
   if (backup) engine->profiles[PF_BACKUP_PROFILE].rack = std::move(backup);
   prepared->tempo_handler(engine, chart_tempo_hit);
@@ -786,11 +788,12 @@ int pf_audition_tambourine(pf_engine* engine, int32_t velocity) {
     reset_tambourine(engine);
     return 0;
   }
-  if (!engine->compiled || running(engine)) return -1;
+  if (!engine->compiled) return -1;
   if (velocity > 0) {
     return engine->tambourine_armed && engine->percussion->note_on(patches::tambourine_note, velocity) ? 0 : -1;
   }
   if (!engine->percussion) {
+    if (running(engine)) return -1;
     engine->percussion = patches::ShakePercussion::create(engine->rate);
     if (!engine->percussion) return -1;
   }

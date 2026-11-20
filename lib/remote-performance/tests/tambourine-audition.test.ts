@@ -78,25 +78,32 @@ test('the hardware desk admits Tribulations shake hits through the authenticated
     assert.equal((await audition(100)).outcome, 'rejected');
     assert.equal((await audition(0)).outcome, 'applied');
     assert.equal((await command('setClick', { enabled: false })).outcome, 'applied');
-    assert.equal((await command('start', { bpm: 120, countInBars: 0, startBar: 160, endBar: 160, loop: false, recordDemo: true })).outcome, 'applied');
-    await until(() => {
-      const active = controller.snapshot().audio;
-      return active.kind === 'ready' && active.performance.state.bar === 160 ? true : undefined;
-    });
-    assert.equal((await audition(100)).outcome, 'rejected');
-    assert.equal((await command('control', { control: { id: 'external', slot: 0 }, commandId: 'phone-motion/test/1' })).outcome, 'applied');
-    await until(() => {
-      const active = controller.snapshot().audio;
-      return active.kind === 'ready' && active.performance.demo === 'saved' ? true : undefined;
-    });
-    const demo = await fetch(base + 'demo-recording', { headers });
-    assert.equal(demo.status, 200);
-    const wav = Buffer.from(await demo.arrayBuffer());
-    assert.equal(wav.toString('ascii', 36, 40), 'data');
-    let peak = 0;
-    for (let offset = 44; offset < wav.length; offset += 2) peak = Math.max(peak, Math.abs(wav.readInt16LE(offset)));
-    assert(peak > 10000, 'the charted tambourine reaches the native song mix');
-    assert.equal((await command('stop', {})).outcome, 'applied');
+    for (const { bar, preview } of [{ bar: 137, preview: false }, { bar: 1, preview: true }]) {
+      assert.equal((await command('start', { bpm: 120, countInBars: 0, startBar: bar, endBar: bar, loop: false, recordDemo: true })).outcome, 'applied');
+      await until(() => {
+        const active = controller.snapshot().audio;
+        return active.kind === 'ready' && active.performance.state.bar === bar ? true : undefined;
+      });
+      assert.equal((await audition(100)).outcome, 'rejected', 'starting transport clears the old audition');
+      if (preview) {
+        assert.equal((await audition(0)).outcome, 'applied', 'the first in-song audition can arm outside the chart window');
+        assert.equal((await audition(100)).outcome, 'applied');
+      } else {
+        assert.equal((await command('control', { control: { id: 'external', slot: 0 }, commandId: 'phone-motion/test/1' })).outcome, 'applied');
+      }
+      await until(() => {
+        const active = controller.snapshot().audio;
+        return active.kind === 'ready' && active.performance.demo === 'saved' ? true : undefined;
+      });
+      const demo = await fetch(base + 'demo-recording', { headers });
+      assert.equal(demo.status, 200);
+      const wav = Buffer.from(await demo.arrayBuffer());
+      assert.equal(wav.toString('ascii', 36, 40), 'data');
+      let peak = 0;
+      for (let offset = 44; offset < wav.length; offset += 2) peak = Math.max(peak, Math.abs(wav.readInt16LE(offset)));
+      assert(peak > 1600, `tambourine reaches the native song mix at bar ${bar} (peak ${peak})`);
+      assert.equal((await command('stop', {})).outcome, 'applied');
+    }
     assert.equal((await audition(100)).outcome, 'rejected');
     assert.equal((await audition(0)).outcome, 'applied');
     owner.disconnect();

@@ -178,11 +178,11 @@ The static avatar library includes five pixel-final snapshots and 46 gallery pre
 
 ## Shake the iPhone to audition Tambourine
 
-Open the HTTPS desk in Safari, select **Tribulations**, and leave transport stopped. In Hardware mode, switch the desk to **Live** and wait for audio to be ready. For phone output, select **Browser** in **Settings** instead.
+Open the HTTPS desk in Safari and select **Tribulations**. In Hardware mode, switch the desk to **Live** and wait for audio to be ready. For phone output, select **Browser** in **Settings** instead.
 
-Tap **Audition Tambourine**, allow motion access, and flick your wrist. A harder flick plays a louder hit. Tap **End Tambourine audition** to finish. Leaving the page or starting practice also ends the audition.
+Tap **Audition Tambourine**, allow motion access, and flick your wrist. This works at any bar and while stopped. A harder flick plays a louder hit. Tap **End Tambourine audition** to finish. Leaving the page, starting or stopping transport, and Panic end the audition. During playback, the audition is part of the output mix, including a demo recording.
 
-During playback, tap **Enable shake** and shake or flick the phone in the bars shown beside the button. Tribulations plays the charted tambourine sample in bars 137–160.
+Tap **Enable shake** during playback to switch back to chart-controlled motion. Tribulations plays the charted tambourine sample in bars 137–160.
 
 ## Audio modes
 

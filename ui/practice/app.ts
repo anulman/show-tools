@@ -642,95 +642,103 @@ function mountPhoneMotion() {
     seen.add(source.slot);
     const tambourine = song?.id === 'tribulations' && source.voiceId === 'tambourine' && source.slot === 0;
     const name = tambourine ? 'Tambourine' : source.voiceId;
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'secondary';
-    if (tambourine) button.dataset.tambourine = '';
-    const inactiveLabel = () => tambourine && !isRunning() ? 'Audition Tambourine' : `Enable shake · ${name}`;
-    button.textContent = inactiveLabel();
-    let control: AbortController | undefined;
-    button.addEventListener('click', () => { void act(async () => {
-      if (control) { control.abort(); return; }
-      const running = isRunning();
-      if (starting || switching || (remote && !audio) || (!running && !tambourine)) return;
-      phoneMotionAbort?.abort();
-      const cancel = new AbortController();
-      phoneMotionAbort = control = cancel;
-      const generation = songGeneration;
-      const session = crypto.randomUUID();
-      const current = () => !cancel.signal.aborted && generation === songGeneration && !switching && !starting && isRunning() === running;
-      let sequence = 0;
-      let audition: PerformanceSession | undefined;
-      let hitPending: Promise<unknown> | undefined;
-      let ready = false;
-      button.disabled = true;
-      button.dataset.motion = 'pending';
-      button.textContent = running ? 'Enabling shake…' : 'Opening Tambourine audition…';
-      cancel.signal.addEventListener('abort', () => {
-        control = undefined;
-        if (phoneMotionAbort === cancel) phoneMotionAbort = undefined;
-        delete button.dataset.motion;
-        button.textContent = inactiveLabel();
-        button.disabled = false;
-        if (!running) queuePhoneAudition(async () => {
-          await hitPending;
-          if (audition) await audition.auditionTambourine(-1);
-        }).catch(error => {
-          if (generation === songGeneration && audio === audition && !switching && !starting && !isRunning()) showError(error);
-        });
-      }, { once: true });
-      try {
-        const motion = enablePhoneMotion({
-          sensor: running ? 'shake' : 'gyroscope',
-          signal: cancel.signal,
-          current,
-          hit: velocity => {
-            if (!ready || !current()) return;
-            const instance = running ? audio : audition;
-            if (!instance || instance !== audio) return;
-            if (running) {
-              const commandId = `phone-motion/${session}/${++sequence}`;
-              void instance.control({ id: 'external', slot: source.slot }, { commandId }).catch(error => {
-                if (current() && audio === instance) showError(error);
-              });
-            } else if (!hitPending) {
-              hitPending = instance.auditionTambourine(velocity).catch(error => {
-                if (current() && audio === instance) showError(error);
-                cancel.abort();
-              }).finally(() => { hitPending = undefined; });
-            }
-          },
-          stopped: () => cancel.abort(),
-        });
-        // Safari requires permission and audio unlock to begin in the click handler.
-        const unlocked = running ? undefined : ensureAudio(undefined, !remote);
-        void unlocked?.catch(() => {});
-        await motion;
-        if (unlocked) {
-          const instance = await unlocked;
-          await queuePhoneAudition(async () => {
-            if (!current() || instance !== audio) return;
-            audition = instance;
-            await audition.auditionTambourine(0);
+    const addMotionButton = (auditioning: boolean) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'secondary';
+      button.dataset.motionMode = auditioning ? 'audition' : 'chart';
+      const inactiveLabel = auditioning ? 'Audition Tambourine' : `Enable shake · ${name}`;
+      button.textContent = inactiveLabel;
+      button.setAttribute('aria-pressed', 'false');
+      let control: AbortController | undefined;
+      button.addEventListener('click', () => { void act(async () => {
+        if (control) { control.abort(); return; }
+        const running = isRunning();
+        if (starting || switching || (!running && !auditioning)) return;
+        if (auditioning && remote && !audio) throw new Error('Switch hardware audio to Live to audition Tambourine.');
+        phoneMotionAbort?.abort();
+        const cancel = new AbortController();
+        phoneMotionAbort = control = cancel;
+        const generation = songGeneration;
+        const session = crypto.randomUUID();
+        const current = () => !cancel.signal.aborted && generation === songGeneration && !switching && !starting && isRunning() === running;
+        let sequence = 0;
+        let audition: PerformanceSession | undefined;
+        let hitPending: Promise<unknown> | undefined;
+        let ready = false;
+        button.disabled = true;
+        button.dataset.motion = 'pending';
+        button.textContent = auditioning ? 'Opening Tambourine audition…' : 'Enabling shake…';
+        cancel.signal.addEventListener('abort', () => {
+          control = undefined;
+          if (phoneMotionAbort === cancel) phoneMotionAbort = undefined;
+          delete button.dataset.motion;
+          button.textContent = inactiveLabel;
+          button.setAttribute('aria-pressed', 'false');
+          button.disabled = false;
+          if (auditioning) queuePhoneAudition(async () => {
+            await hitPending;
+            if (audition) await audition.auditionTambourine(-1);
+          }).catch(error => {
+            if (generation === songGeneration && audio === audition && !switching && !starting && isRunning() === running) showError(error);
           });
+        }, { once: true });
+        try {
+          const motion = enablePhoneMotion({
+            sensor: auditioning ? 'gyroscope' : 'shake',
+            signal: cancel.signal,
+            current,
+            hit: velocity => {
+              if (!ready || !current()) return;
+              const instance = auditioning ? audition : audio;
+              if (!instance || instance !== audio) return;
+              if (!auditioning) {
+                const commandId = `phone-motion/${session}/${++sequence}`;
+                void instance.control({ id: 'external', slot: source.slot }, { commandId }).catch(error => {
+                  if (current() && audio === instance) showError(error);
+                });
+              } else if (!hitPending) {
+                hitPending = instance.auditionTambourine(velocity).catch(error => {
+                  if (current() && audio === instance) showError(error);
+                  cancel.abort();
+                }).finally(() => { hitPending = undefined; });
+              }
+            },
+            stopped: () => cancel.abort(),
+          });
+          // Safari requires permission and audio unlock to begin in the click handler.
+          const unlocked = auditioning ? ensureAudio(undefined, !remote) : undefined;
+          void unlocked?.catch(() => {});
+          await motion;
+          if (unlocked) {
+            const instance = await unlocked;
+            await queuePhoneAudition(async () => {
+              if (!current() || instance !== audio) return;
+              audition = instance;
+              await audition.auditionTambourine(0);
+            });
+          }
+          if (!current()) { cancel.abort(); return; }
+          ready = true;
+          button.dataset.motion = 'active';
+          button.textContent = auditioning ? 'End Tambourine audition' : `Disable shake · ${name}`;
+          button.setAttribute('aria-pressed', 'true');
+          button.disabled = false;
+        } catch (error) {
+          if (cancel.signal.aborted && error instanceof DOMException && error.name === 'AbortError') return;
+          cancel.abort();
+          throw error;
         }
-        if (!current()) { cancel.abort(); return; }
-        ready = true;
-        button.dataset.motion = 'active';
-        button.textContent = running ? `Disable shake · ${name}` : 'End Tambourine audition';
-        button.disabled = false;
-      } catch (error) {
-        if (cancel.signal.aborted && error instanceof DOMException && error.name === 'AbortError') return;
-        cancel.abort();
-        throw error;
-      }
-    }); });
-    group.append(button);
+      }); });
+      group.append(button);
+    };
+    addMotionButton(false);
+    if (tambourine) addMotionButton(true);
     if (song && source.begin.beat === 0 && source.end.beat === 0 && !sources.some(other => other !== source && other.slot === source.slot)) {
       const hint = document.createElement('small');
       const first = chartBarLabel(song.chart, source.begin.bar);
       const last = chartBarLabel(song.chart, source.end.bar - 1);
-      hint.textContent = first === last ? `Plays in bar ${first}` : `Plays in bars ${first}–${last}`;
+      hint.textContent = first === last ? `Chart shake plays in bar ${first}` : `Chart shake plays in bars ${first}–${last}`;
       group.append(hint);
     }
   }
@@ -829,8 +837,9 @@ function renderSongVoices(observed: DisplayState | undefined, effectsLocked: boo
   const preview = observed ? remoteDesk?.auditionProfile() : undefined;
   const motionControls = document.getElementById('phone-motion-controls');
   motionControls?.toggleAttribute('hidden', !observed);
-  const tambourine = motionControls?.querySelector<HTMLButtonElement>('[data-tambourine]:not([data-motion])');
-  if (tambourine) tambourine.textContent = isRunning() ? 'Enable shake · Tambourine' : 'Audition Tambourine';
+  motionControls?.querySelectorAll<HTMLButtonElement>('[data-motion-mode="chart"]').forEach(button => {
+    button.hidden = !isRunning();
+  });
   for (const { button, profile } of auditionButtons) {
     button.hidden = preview === undefined;
     button.disabled = effectsLocked || effectsApplying;

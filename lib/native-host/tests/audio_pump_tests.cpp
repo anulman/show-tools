@@ -185,7 +185,12 @@ void verify_tambourine_audition() {
   require(instrument.write(StatefulDevice::write, &device) == 17 && instrument.pending() == input.size() - 17);
   require(run.start(instrument, device, {120, 0, 1, 4, 0, 0}) == 0);
   require(instrument.pending() == 0 && device.drops == 1 && device.prepares == 2);
-  require(!instrument.has_tambourine_output() && instrument.audition_tambourine(0) < 0);
+  require(!instrument.has_tambourine_output() && instrument.audition_tambourine(127) < 0);
+  require(instrument.audition_tambourine(0) == 0 && instrument.audition_tambourine(127) == 0);
+  require(instrument.render(input.data(), input.size()) == 0 && instrument.mix()->song_frames() == input.size());
+  require(!instrument.has_tambourine_output() && instrument.pending() == input.size());
+  require(instrument.audition_tambourine(-1) == 0 && instrument.pending() == input.size());
+  require(run.active() && device.drops == 1 && device.prepares == 2);
   instrument.stop();
 
   require(instrument.audition_tambourine(0) == 0 && instrument.audition_tambourine(127) == 0);

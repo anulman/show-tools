@@ -127,7 +127,7 @@ void pf_stop(pf_engine* engine);
    not advance it. Close/Start/Stop/Panic invalidate earlier tuner controls. */
 int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected_revision, int value, int scale);
 void pf_tuner_info(const pf_engine* engine, double* out);
-/* A stopped compiled practice song can arm an audition with 0 and end it with -1.
+/* A compiled practice song can arm a prepared audition with 0 and end it with -1.
    Once armed, 1..127 submits a Tambourine hit for the next rendered frame.
    Start, Stop, Panic and song replacement disarm it and clear its audio. */
 int pf_audition_tambourine(pf_engine* engine, int32_t velocity);
