@@ -681,7 +681,7 @@ function mountPhoneMotion() {
       }, { once: true });
       try {
         const motion = enablePhoneMotion({
-          sensor: running ? 'acceleration' : 'gyroscope',
+          sensor: running ? 'shake' : 'gyroscope',
           signal: cancel.signal,
           current,
           hit: velocity => {
@@ -726,6 +726,13 @@ function mountPhoneMotion() {
       }
     }); });
     group.append(button);
+    if (song && source.begin.beat === 0 && source.end.beat === 0 && !sources.some(other => other !== source && other.slot === source.slot)) {
+      const hint = document.createElement('small');
+      const first = chartBarLabel(song.chart, source.begin.bar);
+      const last = chartBarLabel(song.chart, source.end.bar - 1);
+      hint.textContent = first === last ? `Plays in bar ${first}` : `Plays in bars ${first}–${last}`;
+      group.append(hint);
+    }
   }
   elements['live-voices'].insertAdjacentElement('afterend', group);
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { sourceForVM } from '../../../scripts/source-for-vm.js';
 import { enablePhoneMotion, type MotionReading, type MotionSurface } from '../phone-motion.js';
+import { chartBarLabel } from '../../../lib/performance/chart-position.js';
 import tribulations from '../../../songs/tribulations.js';
 
 class Node {
@@ -21,7 +22,7 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   const surface: MotionSurface = { secure: true, available: true, async permission() { return 'granted'; },
     listen(receive) { listener = receive; return () => { removed++; listener = undefined; }; }, hide() { return () => {}; } };
   const commands: unknown[] = [], errors: unknown[] = [];
-  const context = { song: tribulations, songGeneration: 1, switching: false, starting: false, remote: false, audio: undefined,
+  const context = { song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote: false, audio: undefined,
     phoneMotionAbort: undefined, phoneAuditionTransition: Promise.resolve(), crypto: { randomUUID: () => 'motion-fixture' }, AbortController, DOMException,
     document: { getElementById: () => null, createElement: () => new Node() },
     elements: { 'live-voices': { insertAdjacentElement(_position: string, element: Node) { group = element; } } },
@@ -34,10 +35,12 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   vm.runInContext(source.slice(source.indexOf('function mountPhoneMotion()'), source.indexOf('function browserModeBusy()')), context);
   vm.runInContext('mountPhoneMotion()', context);
   assert(group); const button = group.children[0]; assert(button.textContent.includes('Tambourine'));
+  assert.equal(group.children[1]?.textContent, 'Plays in bars 137–160');
   button.events.get('click')?.(); await pending;
   assert(button.textContent.startsWith('Disable shake')); assert.equal(context.audio, undefined);
   vm.runInContext('audio = { control: (control, options) => { captured.push({ control, options }); return Promise.resolve(); } }', Object.assign(context, { captured: commands }));
-  listener?.({ x: 12, y: 0, z: 0, time: 100, gravity: false });
+  listener?.({ x: null, y: null, z: null, rotation: { x: 500, y: 0, z: 0 }, time: 100, gravity: false });
+  listener?.({ x: 12, y: 0, z: 0, rotation: { x: 510, y: 0, z: 0 }, time: 200, gravity: false });
   assert.equal(commands.length, 1); assert.equal(JSON.stringify(commands[0]), JSON.stringify({ control: { id: 'external', slot: 0 }, options: { commandId: 'phone-motion/motion-fixture/1' } }));
   context.songGeneration++;
   listener?.({ x: 0, y: 0, z: 0, time: 250, gravity: false });
@@ -69,7 +72,7 @@ for (const remote of [true, false]) {
       control() { assert.fail('Stopped audition cannot issue a chart hit'); },
     };
     const context = {
-      song: tribulations, songGeneration: 1, switching: false, starting: false, remote, audio: remote ? audio : undefined,
+      song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote, audio: remote ? audio : undefined,
       phoneMotionAbort: undefined, phoneAuditionTransition: Promise.resolve(), crypto: { randomUUID: () => 'motion-fixture' }, AbortController, DOMException,
       document: { getElementById: () => null, createElement: () => new Node() },
       elements: { 'live-voices': { insertAdjacentElement(_position: string, element: Node) { group = element; } } },

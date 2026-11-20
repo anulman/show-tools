@@ -10,10 +10,10 @@ import { createGateway } from '../gateway.js';
 import { installedPackage, sessionProfile, until } from './session-fixture.js';
 
 test('the hardware desk admits Tribulations shake hits through the authenticated command route', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'tambourine-audition-'));
+  const directory = await mkdtemp(join(tmpdir(), 'trib-'));
   assert(tribulations.compiled);
   const fixture = sessionProfile(directory);
-  const controller = new PersistentDesk({ ...fixture, native: { ...fixture.native, sampleRate: 48000 } },
+  const controller = new PersistentDesk({ ...fixture, native: { ...fixture.native, sampleRate: 48000, driver: { kind: 'fake', inputLevel: 0 } } },
     installedPackage(tribulations.compiled).installed);
   const origin = 'http://127.0.0.1', key = '012345678901234567890123456789ab';
   const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(key), staticRoot: directory }, controller);
@@ -77,8 +77,25 @@ test('the hardware desk admits Tribulations shake hits through the authenticated
     assert.equal((await audition(-1)).outcome, 'applied');
     assert.equal((await audition(100)).outcome, 'rejected');
     assert.equal((await audition(0)).outcome, 'applied');
-    assert.equal((await command('start', { bpm: 120, countInBars: 0, startBar: 1, endBar: 2, loop: false })).outcome, 'applied');
+    assert.equal((await command('setClick', { enabled: false })).outcome, 'applied');
+    assert.equal((await command('start', { bpm: 120, countInBars: 0, startBar: 160, endBar: 160, loop: false, recordDemo: true })).outcome, 'applied');
+    await until(() => {
+      const active = controller.snapshot().audio;
+      return active.kind === 'ready' && active.performance.state.bar === 160 ? true : undefined;
+    });
     assert.equal((await audition(100)).outcome, 'rejected');
+    assert.equal((await command('control', { control: { id: 'external', slot: 0 }, commandId: 'phone-motion/test/1' })).outcome, 'applied');
+    await until(() => {
+      const active = controller.snapshot().audio;
+      return active.kind === 'ready' && active.performance.demo === 'saved' ? true : undefined;
+    });
+    const demo = await fetch(base + 'demo-recording', { headers });
+    assert.equal(demo.status, 200);
+    const wav = Buffer.from(await demo.arrayBuffer());
+    assert.equal(wav.toString('ascii', 36, 40), 'data');
+    let peak = 0;
+    for (let offset = 44; offset < wav.length; offset += 2) peak = Math.max(peak, Math.abs(wav.readInt16LE(offset)));
+    assert(peak > 10000, 'the charted tambourine reaches the native song mix');
     assert.equal((await command('stop', {})).outcome, 'applied');
     assert.equal((await audition(100)).outcome, 'rejected');
     assert.equal((await audition(0)).outcome, 'applied');
