@@ -9,6 +9,8 @@ import tribulations from '../../../songs/tribulations.js';
 class Node {
   children: Node[] = []; textContent = ''; disabled = false; type = ''; className = ''; id = ''; title = ''; hidden = false;
   dataset: Record<string, string> = {}; events = new Map<string, () => void>();
+  setAttribute(name: string, value: string) { this.attributes.set(name, value); }
+  attributes = new Map<string, string>();
   append(...nodes: Node[]) { this.children.push(...nodes); }
   replaceChildren(...nodes: Node[]) { this.children = nodes; }
   addEventListener(type: string, listener: () => void) { this.events.set(type, listener); }
@@ -35,7 +37,8 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   vm.runInContext(source.slice(source.indexOf('function mountPhoneMotion()'), source.indexOf('function browserModeBusy()')), context);
   vm.runInContext('mountPhoneMotion()', context);
   assert(group); const button = group.children[0]; assert(button.textContent.includes('Tambourine'));
-  assert.equal(group.children[1]?.textContent, 'Plays in bars 137–160');
+  assert.equal(group.children[1]?.textContent, 'Audition Tambourine');
+  assert.equal(group.children[2]?.textContent, 'Chart shake plays in bars 137–160');
   button.events.get('click')?.(); await pending;
   assert(button.textContent.startsWith('Disable shake')); assert.equal(context.audio, undefined);
   vm.runInContext('audio = { control: (control, options) => { captured.push({ control, options }); return Promise.resolve(); } }', Object.assign(context, { captured: commands }));
@@ -48,8 +51,8 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   assert.equal(commands.length, 1); assert.equal(removed, 1); assert.equal(errors.length, 0);
 });
 
-for (const remote of [true, false]) {
-  test(`stopped Tambourine audition uses ${remote ? 'hardware output' : 'local audio unlocked from the click'}`, async () => {
+for (const { remote, running } of [{ remote: false, running: false }, { remote: false, running: true }, { remote: true, running: true }]) {
+  test(`Tambourine audition routes to ${remote ? 'Hardware' : 'Browser'} audio when ${running ? 'playing' : 'stopped'}`, async () => {
     const source = await sourceForVM(new URL('../app.ts', import.meta.url));
     const commands: number[] = [], errors: unknown[] = [];
     let listener: ((reading: MotionReading) => void) | undefined;
@@ -69,10 +72,10 @@ for (const remote of [true, false]) {
         commands.push(velocity);
         if (velocity === 0) await holdArm;
       },
-      control() { assert.fail('Stopped audition cannot issue a chart hit'); },
+      control() { assert.fail('Audition cannot issue a chart hit'); },
     };
     const context = {
-      song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote, audio: remote ? audio : undefined,
+      song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote, audio: remote || running ? audio : undefined,
       phoneMotionAbort: undefined, phoneAuditionTransition: Promise.resolve(), crypto: { randomUUID: () => 'motion-fixture' }, AbortController, DOMException,
       document: { getElementById: () => null, createElement: () => new Node() },
       elements: { 'live-voices': { insertAdjacentElement(_position: string, element: Node) { group = element; } } },
@@ -80,7 +83,7 @@ for (const remote of [true, false]) {
         assert.equal(options.sensor, 'gyroscope');
         return enablePhoneMotion({ ...options, surface });
       },
-      isRunning: () => false, showError: (error: unknown) => errors.push(error),
+      isRunning: () => running, showError: (error: unknown) => errors.push(error),
       act(action: () => Promise<void>) { pending = action(); return pending; },
       ensureAudio(_effects: undefined, unlock: boolean) {
         assert.equal(unlock, !remote);
@@ -92,7 +95,7 @@ for (const remote of [true, false]) {
     vm.runInContext(source.slice(source.indexOf('function mountPhoneMotion()'), source.indexOf('function browserModeBusy()')), context);
     vm.runInContext('mountPhoneMotion()', context);
     assert(group);
-    const button = group.children[0];
+    const button = group.children[1];
     button.events.get('click')?.();
     assert.equal(context.audio, audio, 'browser playback unlock starts in the click');
     assert.deepEqual(commands, []);

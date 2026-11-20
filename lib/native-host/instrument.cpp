@@ -104,7 +104,7 @@ int Instrument::audition(int profile) {
 }
 int Instrument::audition_tambourine(int32_t velocity) {
   if (!engine_ || lifecycle_ == Lifecycle::Faulted ||
-      (velocity >= 0 && (lifecycle_ != Lifecycle::Prepared || (pending() && output_ == Output::Performance)))) return -1;
+      (velocity >= 0 && (lifecycle_ == Lifecycle::Prepared && pending() && output_ == Output::Performance))) return -1;
   const int result = pf_audition_tambourine(engine_.get(), velocity);
   if (result < 0) return result;
   if (velocity == -1 && has_tambourine_output()) {
