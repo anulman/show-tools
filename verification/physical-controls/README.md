@@ -54,8 +54,8 @@ cue warning behavior. They are witnesses, not exhaustive temporal models.
 
 ## Actual source correspondence
 
-`coverage.json` pins 47 build, header, implementation and native-fixture inputs at
-source sync `eb994928dab680d594860152b65b677dc47d71d0`. The runner rejects drift
+`coverage.json` pins the build, header, implementation and native-fixture inputs
+at the recorded source revision. The runner rejects drift
 before compilation. After building it reads compiler `.o.d` dependency records
 and rejects any project dependency absent from the source record. Operating
 system and compiler standard-library headers are identified by the recorded
