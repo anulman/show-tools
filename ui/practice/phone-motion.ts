@@ -1,5 +1,10 @@
-export interface MotionReading { readonly x: number | null; readonly y: number | null; readonly z: number | null; readonly time: number; readonly gravity: boolean }
-type MotionSensor = 'acceleration' | 'gyroscope';
+interface MotionAxes { readonly x: number | null; readonly y: number | null; readonly z: number | null }
+export interface MotionReading extends MotionAxes {
+  readonly time: number;
+  readonly gravity: boolean;
+  readonly rotation?: MotionAxes;
+}
+type MotionSensor = 'shake' | 'gyroscope';
 export interface MotionSurface {
   readonly secure: boolean;
   readonly available: boolean;
@@ -37,12 +42,23 @@ export function shakeDetector({ threshold = 8, release = 3, minimumIntervalMs = 
   const crosses = thresholdCrossing(threshold, release, minimumIntervalMs);
   let previous: { x: number; y: number; z: number } | undefined;
   return (reading: MotionReading): boolean => {
-    const { x, y, z, time, gravity } = reading;
-    if (x === null || y === null || z === null || ![x, y, z, time].every(Number.isFinite)) return false;
-    const magnitude = gravity
-      ? previous ? Math.hypot(x - previous.x, y - previous.y, z - previous.z) : 0
-      : Math.hypot(x, y, z);
-    previous = gravity ? { x, y, z } : undefined;
+    const { x, y, z, time, gravity, rotation } = reading;
+    if (!Number.isFinite(time)) return false;
+    let magnitude = 0;
+    const hasAcceleration = x !== null && y !== null && z !== null && [x, y, z].every(Number.isFinite);
+    if (hasAcceleration) {
+      magnitude = gravity
+        ? previous ? Math.hypot(x - previous.x, y - previous.y, z - previous.z) : 0
+        : Math.hypot(x, y, z);
+      previous = gravity ? { x, y, z } : undefined;
+    } else {
+      previous = undefined;
+    }
+    if (rotation && rotation.x !== null && rotation.y !== null && rotation.z !== null && [rotation.x, rotation.y, rotation.z].every(Number.isFinite)) {
+      const rotationMagnitude = Math.hypot(rotation.x, rotation.y, rotation.z);
+      // Compare both sensors on the shake threshold and keep one latch per gesture.
+      magnitude = Math.max(magnitude, rotationMagnitude * threshold / DEFAULT_GYROSCOPE.threshold);
+    } else if (!hasAcceleration) return false;
     return crosses(magnitude, time);
   };
 }
@@ -62,7 +78,7 @@ export function gyroscopeDetector({
   };
 }
 
-export function browserMotionSurface(sensor: MotionSensor = 'acceleration'): MotionSurface {
+export function browserMotionSurface(sensor: MotionSensor = 'shake'): MotionSurface {
   const motion = globalThis.DeviceMotionEvent;
   const request = motion && 'requestPermission' in motion ? motion.requestPermission : undefined;
   return {
@@ -70,15 +86,17 @@ export function browserMotionSurface(sensor: MotionSensor = 'acceleration'): Mot
     ...(typeof request === 'function' ? { permission: async () => { const result: unknown = request.call(motion); return result; } } : {}),
     listen(listener) {
       const receive = (event: DeviceMotionEvent) => {
+        const rate = event.rotationRate;
+        const rotation = rate ? { x: rate.alpha, y: rate.beta, z: rate.gamma } : undefined;
         if (sensor === 'gyroscope') {
-          const rotation = event.rotationRate;
-          if (rotation) listener({ x: rotation.alpha, y: rotation.beta, z: rotation.gamma, time: event.timeStamp, gravity: false });
+          if (rotation) listener({ ...rotation, time: event.timeStamp, gravity: false });
           return;
         }
         const linear = event.acceleration;
         const usable = linear !== null && [linear.x, linear.y, linear.z].every(value => typeof value === 'number' && Number.isFinite(value));
         const acceleration = usable ? linear : event.accelerationIncludingGravity;
-        if (acceleration) listener({ x: acceleration.x, y: acceleration.y, z: acceleration.z, time: event.timeStamp, gravity: !usable });
+        if (acceleration || rotation) listener({ x: acceleration?.x ?? null, y: acceleration?.y ?? null, z: acceleration?.z ?? null,
+          time: event.timeStamp, gravity: !usable, rotation });
       };
       window.addEventListener('devicemotion', receive);
       return () => window.removeEventListener('devicemotion', receive);
@@ -92,7 +110,7 @@ export function browserMotionSurface(sensor: MotionSensor = 'acceleration'): Mot
 }
 
 export async function enablePhoneMotion({
-  sensor = 'acceleration', surface = browserMotionSurface(sensor), signal, current, hit, stopped = () => {}, settings,
+  sensor = 'shake', surface = browserMotionSurface(sensor), signal, current, hit, stopped = () => {}, settings,
 }: {
   sensor?: MotionSensor; surface?: MotionSurface; signal: AbortSignal; current: () => boolean;
   hit: (velocity: number) => void; stopped?: () => void; settings?: GyroscopeSettings;

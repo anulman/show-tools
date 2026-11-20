@@ -57,6 +57,39 @@ test('browser ingress uses finite gravity data when linear acceleration axes are
 });
 
 
+test('browser shake ingress accepts a wrist flick without acceleration and gives one hit per gesture', async () => {
+  const saved = ['window', 'document', 'DeviceMotionEvent'].map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] satisfies [string, PropertyDescriptor | undefined]);
+  const window = Object.assign(new EventTarget(), { isSecureContext: true }), document = Object.assign(new EventTarget(), { hidden: false });
+  class Motion extends Event {
+    readonly rotationRate;
+    readonly acceleration;
+    constructor(angularSpeed: number, acceleration: number | null) {
+      super('devicemotion');
+      this.rotationRate = { alpha: angularSpeed, beta: 0, gamma: 0 };
+      this.acceleration = { x: acceleration, y: 0, z: 0 };
+    }
+  }
+  Object.defineProperty(globalThis, 'window', { value: window, configurable: true });
+  Object.defineProperty(globalThis, 'document', { value: document, configurable: true });
+  Object.defineProperty(globalThis, 'DeviceMotionEvent', { value: Motion, configurable: true });
+  try {
+    let hits = 0;
+    const connection = await enablePhoneMotion({ surface: browserMotionSurface(), signal: new AbortController().signal,
+      current: () => true, hit: () => hits++, settings: { minimumIntervalMs: 0 } });
+    window.dispatchEvent(new Motion(10, null));
+    assert.equal(hits, 0);
+    window.dispatchEvent(new Motion(400, null));
+    assert.equal(hits, 1);
+    window.dispatchEvent(new Motion(400, 14));
+    window.dispatchEvent(new Motion(0, 14));
+    assert.equal(hits, 1, 'sensors report the same excursion');
+    window.dispatchEvent(new Motion(0, 0));
+    window.dispatchEvent(new Motion(0, 14));
+    assert.equal(hits, 2, 'a separate linear shake still works');
+    connection.stop();
+  } finally { for (const [key, value] of saved) { if (value) Object.defineProperty(globalThis, key, value); else Reflect.deleteProperty(globalThis, key); } }
+});
+
 test('gyro threshold, release, cooldown and MIDI velocity follow angular speed', () => {
   const detect = gyroscopeDetector();
   const read = (x: number | null, time: number, gravity = false) => detect({ x, y: 0, z: 0, time, gravity });
