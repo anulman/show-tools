@@ -1,5 +1,13 @@
 # Capture source synchronization
 
+## Capture handoff after tempo warping and default arms
+
+The previous fence stopped at `a831cc6` and rejected changed source before running the model. The old native replay also used a fixture that treated tempo changes as invalid. The engine now retains and replays that capture at the updated tempo. The replacement witness stops the committed anchor while a layered take is recording. The layer fails to commit, the simultaneous incoming arm is rejected, and the prior source stays available.
+
+The model still treats frame arithmetic and readiness as inputs. Tempo mapping changes those inputs. Rounded full-loop playback begins on the commit frame. Neither operation changes capture publication or the protected-bank choice. Default arms use the existing begin transaction, including when an arm shares a boundary with a commit. The mushroom can discard the draft and reservations while preserving committed banks. Session reuse, exports, effect and tambourine auditions, demo recording, and timing events do not add capture writers.
+
+The pinned run checked 11,894 distinct main states, all six model mutants, twelve native scenarios and seven actual-source mutants. The old invalid-release mutant now admits an incoming recorder in the authored anchor-stop fixture and fails the cancellation assertion. The missed-endpoint mutant follows the current `boundary_frame` expression. Source timing and audio continuity have separate native PCM tests.
+
 ## Consolidated practice release at cd3ae7e
 
 Outcome: **updated** from `894915fd154c07529d08c79182cafe46cc9191ef` to `cd3ae7e08c7a852b3d14766ffd9c9a6a1827aaa4`. The unchanged command first rejected the changed `compiled_program.cpp` hash. This was source-fence drift, not a capture-policy counterexample.
