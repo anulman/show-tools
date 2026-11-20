@@ -156,3 +156,17 @@ behavior.
 Reviewed the additive read path at `a831cc6`. `pf_copy_take_audio()` reads the latest committed cache only while transport is stopped and copies at most 4096 stereo frames into caller storage. The native owner admits its read against the native run identity without changing it. The controller checks the native target before and after its await. None of these paths allocates or replaces a capture bank, changes input ownership, starts transport, or writes a light baseline. Existing model transitions, properties and bounds remain unchanged. The source fences now include this reviewed code.
 
 The existing formal models do not prove WAV/ZIP encoding or multi-chunk sample export. Actual C++ no-allocation/state-preservation checks, real WASM layered exports at 8/48 kHz and an authenticated native-host HTTP test cover those additions separately. These checks do not establish physical audio or LED acceptance.
+
+## Stopped song replacement
+
+The source record now includes the current dedicated pedal and mushroom
+routing, grouped compiled cues, and the percussion code linked into the engine
+build. Those changes made the prior source gate fail before compilation. The
+declared held-mask, baseline, and report-delivery domains are unchanged.
+
+The copied native input witness also swaps a stopped candidate with equal
+bindings while a control is held. It verifies that the original lease and
+sequence survive, a repeated sequence is rejected, and the original producer
+can release the control. Changing the binding table retires the old lease
+and preserves the allocator watermark. The separate authenticated server
+fixture verifies continuous LED image ordering through actual song changes.
