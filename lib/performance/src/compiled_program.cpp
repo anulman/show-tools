@@ -1062,7 +1062,14 @@ int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_
       || !take.playback[bank]->start_window_at_capture_end(true, uint32_t(committed_view->start[bank]), uint32_t(committed_view->cut[bank]),
         uint32_t(committed_view->finish[bank] - committed_view->start[bank]))) return error_ = PF_ACTION_FAILED;
   } else if (cue.launch == PF_AUTOPLAY) {
-    bool started = cue.mode == PF_ONESHOT_MODE ? take.playback[take.latest]->start(false) : take.playback[take.latest]->start_at_capture_end(true);
+    auto& player = *take.playback[take.latest];
+    const auto& recording = *take.cache[take.latest];
+    bool started;
+    if (cue.mode == PF_ONESHOT_MODE) started = player.start(false);
+    // A full capture reaches the musical loop boundary even if its rounded
+    // source length is one frame shorter than its rounded period.
+    else if (take.end == take.loop_end) started = player.start_window_at_capture_end(true, 0, recording.length(), recording.period());
+    else started = player.start_at_capture_end(true);
     if (!started) return error_ = PF_ACTION_FAILED;
   }
   if (cue.launch == PF_AUTOPLAY && cue.mode == PF_LOOP_MODE) {
