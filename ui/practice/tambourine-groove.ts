@@ -8,6 +8,8 @@ const TURN_MS = 24;
 const RETURN_PEAK_MS = 40;
 const WRIST_BRAKE_WINDOW_MS = 65;
 const WRIST_REVERSAL_SPEED = 120;
+const PAIRED_WRIST_SPEED = 60;
+const PAIRED_VELOCITY_DROP = .12;
 const WRIST_HIT_SPEED = 150;
 const WRIST_DROP = .4;
 
@@ -20,7 +22,7 @@ type ReturnMotion = {
 type Stroke =
   | { kind: 'ready' }
   | { kind: 'down'; magnitude: number; speed: number; turnAt?: number; recovery: ReturnMotion }
-  | { kind: 'up'; recovery: ReturnMotion };
+  | { kind: 'up'; recovery: ReturnMotion; paired?: { speedAtHit: number; reversedFrames: number; rested: boolean } };
 
 export function tambourineGrooveDetector(
   play: (slot: TambourineSlot) => void,
@@ -41,7 +43,11 @@ export function tambourineGrooveDetector(
     }
     const { time } = reading;
     const { angular, angularSpeed, downAcceleration, magnitude, velocity, verticalAcceleration, gravityMagnitude } = motion;
-    if (motion.reset || motion.settled) stroke = { kind: 'ready' };
+    if (motion.reset) stroke = { kind: 'ready' };
+    if (motion.settled) {
+      if (stroke.kind === 'up' && stroke.paired) stroke.paired.rested = true;
+      else stroke = { kind: 'ready' };
+    }
 
     const report = (
       decision: TambourineTrace['decision'],
@@ -49,11 +55,15 @@ export function tambourineGrooveDetector(
       slot?: TambourineSlot,
     ) => trace?.({ reading, magnitude, gravityMagnitude, verticalAcceleration, verticalVelocity: velocity,
       decision, gesture, slots: slot === undefined ? [] : [slot] });
-    const emit = (slot: TambourineSlot, gesture: NonNullable<TambourineTrace['gesture']>) => {
-      if (time - lastPlayed < tuning.minimumIntervalMs) { report('latched-or-gap', gesture); return; }
-      lastPlayed = time;
+    const emit = (slot: TambourineSlot, gesture: NonNullable<TambourineTrace['gesture']>, pairedReturn = false) => {
+      if (!pairedReturn && time - lastPlayed < tuning.minimumIntervalMs) {
+        report('latched-or-gap', gesture);
+        return false;
+      }
+      if (!pairedReturn) lastPlayed = time;
       play(slot);
       report(gesture === 'hit' ? 'hit' : 'shake', gesture, slot);
+      return true;
     };
 
     if (!motion.initialized) { report('waiting-for-stillness'); return; }
@@ -83,10 +93,10 @@ export function tambourineGrooveDetector(
     while (recovery.impulses[0] && time - recovery.impulses[0].time > RETURN_PEAK_MS) recovery.impulses.shift();
 
     const wrist = recovery.wrist;
-    if (angular && wrist && angularSpeed >= WRIST_REVERSAL_SPEED && wrist.speed >= WRIST_REVERSAL_SPEED) {
-      const alignment = angular[0] * wrist.axes[0] + angular[1] * wrist.axes[1] + angular[2] * wrist.axes[2];
-      if (alignment <= -.5 * angularSpeed * wrist.speed) recovery.reversed = true;
-    }
+    const reversedNow = angular && wrist && wrist.speed >= WRIST_REVERSAL_SPEED
+      && angular[0] * wrist.axes[0] + angular[1] * wrist.axes[1] + angular[2] * wrist.axes[2]
+        <= -.5 * angularSpeed * wrist.speed;
+    if (reversedNow && angularSpeed >= WRIST_REVERSAL_SPEED) recovery.reversed = true;
 
     if (stroke.kind === 'down') {
       const angularBrake = angular && wrist && wrist.speed >= WRIST_HIT_SPEED && time - wrist.time <= WRIST_BRAKE_WINDOW_MS &&
@@ -99,20 +109,34 @@ export function tambourineGrooveDetector(
       if (hit || (stroke.turnAt !== undefined && time - stroke.turnAt >= TURN_MS)) {
         const strength = stroke.magnitude;
         const hardHit = hit && (stroke.speed >= tuning.hardHitSpeed || wrist.speed >= tuning.hardHitAngularSpeed);
-        stroke = { kind: 'up', recovery };
-        if (hit) emit(hardHit ? 1 : 0, 'hit');
-        else emit(shakeSlot(strength), 'downshake');
+        if (hit && emit(hardHit ? 1 : 0, 'hit')) {
+          recovery.impulses.length = 0;
+          stroke = { kind: 'up', recovery, paired: { speedAtHit: velocity, reversedFrames: 0, rested: false } };
+        } else {
+          stroke = { kind: 'up', recovery };
+          if (!hit) emit(shakeSlot(strength), 'downshake');
+        }
         return;
       }
       report('waiting-for-turn');
       return;
     }
 
-    if (velocity <= UP_SPEED || (recovery.reversed && startsDown)) {
+    const paired = stroke.paired;
+    if (paired) {
+      paired.reversedFrames = reversedNow && angularSpeed >= PAIRED_WRIST_SPEED ? paired.reversedFrames + 1 : 0;
+    }
+    const pairedWristReturn = paired && paired.reversedFrames >= 2 && paired.speedAtHit - velocity >= PAIRED_VELOCITY_DROP;
+    if (velocity <= UP_SPEED || pairedWristReturn || (recovery.reversed && startsDown)) {
       const strength = Math.max(0, ...recovery.impulses.map(impulse => impulse.magnitude));
       stroke = startsDown ? startDown() : { kind: 'ready' };
-      if (strength >= tuning.shake) emit(shakeSlot(strength), 'upshake');
+      if (paired || strength >= tuning.shake) emit(shakeSlot(strength), 'upshake', !!paired);
       else report('return-stroke', 'upshake');
+      return;
+    }
+    if (paired?.rested && startsDown) {
+      stroke = startDown();
+      report('waiting-for-turn');
       return;
     }
     report('waiting-for-return');
