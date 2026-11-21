@@ -1,6 +1,6 @@
 import { createEffectKnob, steppedKnobValue } from './effect-knob.js';
 import { TAMBOURINE_DEFAULTS, type MotionReading, type TambourineTuning } from './phone-motion.js';
-import { captureDownstrokeAxis, normalizeDownstrokeAxis, type DownstrokeAxis } from './tambourine-direction.js';
+import { captureDownstrokeAxis, normalizeDownstrokeAxis, type DownstrokeAxis, type TambourineDirection } from './tambourine-direction.js';
 
 const DIRECTION_KEY = 'show-tools.tambourine-downstroke.v1';
 const STORAGE_KEY = 'show-tools.tambourine-tuning.v1';
@@ -38,12 +38,13 @@ export function createTambourineTuning() {
   catch { /* Private browsing and invalid saved JSON leave the defaults available. */ }
 
   let axis: DownstrokeAxis | undefined;
-  let downstrokesOnly = false;
+  let mode: 'all' | 'gravity' | 'wrist' = 'all';
   try {
     const saved: unknown = JSON.parse(localStorage.getItem(DIRECTION_KEY) ?? 'null');
-    if (typeof saved === 'object' && saved !== null && 'axis' in saved) {
-      axis = normalizeDownstrokeAxis(saved.axis);
-      downstrokesOnly = !!axis && 'enabled' in saved && saved.enabled === true;
+    if (typeof saved === 'object' && saved !== null) {
+      axis = 'axis' in saved ? normalizeDownstrokeAxis(saved.axis) : undefined;
+      if ('mode' in saved && saved.mode === 'gravity') mode = 'gravity';
+      else if (axis && 'enabled' in saved && saved.enabled === true) mode = 'wrist';
     }
   } catch { /* Motion settings are still available when storage is disabled. */ }
 
@@ -60,17 +61,23 @@ export function createTambourineTuning() {
   const directionControls = document.createElement('div');
   directionControls.className = 'tambourine-direction';
   const directionLabel = document.createElement('label');
-  directionLabel.className = 'switch';
-  const directionToggle = document.createElement('input');
-  directionToggle.type = 'checkbox';
-  directionLabel.append(directionToggle, document.createTextNode('Downstrokes only'));
+  directionLabel.className = 'field';
+  const directionSelect = document.createElement('select');
+  const wristOption = document.createElement('option');
+  for (const [value, title] of [['all', 'All strokes'], ['gravity', 'Downstrokes · Gravity'], ['wrist', 'Downstrokes · Calibrated wrist']]) {
+    const option = value === 'wrist' ? wristOption : document.createElement('option');
+    option.value = value;
+    option.textContent = title;
+    directionSelect.append(option);
+  }
+  directionLabel.append(document.createTextNode('Motion direction'), directionSelect);
   const calibrate = document.createElement('button');
   calibrate.type = 'button';
   calibrate.className = 'secondary';
   calibrate.textContent = 'Calibrate downstroke';
   const directionStatus = document.createElement('small');
   directionStatus.setAttribute('role', 'status');
-  directionControls.append(calibrate, directionLabel, directionStatus);
+  directionControls.append(directionLabel, calibrate, directionStatus);
   let auditionActive = false;
   let capture: ReturnType<typeof captureDownstrokeAxis> | undefined;
   let captureTimeout: ReturnType<typeof setTimeout> | undefined;
@@ -99,24 +106,27 @@ export function createTambourineTuning() {
     render();
   }
   function render() {
-    directionToggle.checked = downstrokesOnly;
-    directionToggle.disabled = !axis || !!capture;
+    directionSelect.value = mode;
+    directionSelect.disabled = !!capture;
+    wristOption.disabled = !axis;
     calibrate.disabled = !auditionActive;
     calibrate.textContent = capture ? 'Cancel calibration' : 'Calibrate downstroke';
-    hits.hidden = downstrokesOnly;
+    hits.hidden = mode !== 'all';
     hitsToggle.checked = tuning.hitsEnabled;
     for (const { key, dial, hit } of dials) {
-      dial.root.hidden = Boolean(hit && (downstrokesOnly || !tuning.hitsEnabled));
+      dial.root.hidden = Boolean(hit && (mode !== 'all' || !tuning.hitsEnabled));
       dial.setValue(tuning[key]);
     }
   }
   function describeDirection() {
-    directionStatus.textContent = downstrokesOnly ? 'Downstrokes play. Return strokes and hits are silent.'
-      : auditionActive ? 'Calibrate to play downstrokes only.' : 'Start Tambourine audition to calibrate.';
+    directionStatus.textContent = mode === 'gravity' ? 'Hold still briefly, then swing forward and down.'
+      : mode === 'wrist' ? 'Downstrokes play. Return strokes and hits are silent.'
+      : auditionActive ? '' : 'Start Tambourine audition to calibrate a wrist stroke.';
   }
-  function setDownstrokesOnly(enabled: boolean) {
-    downstrokesOnly = enabled;
-    try { localStorage.setItem(DIRECTION_KEY, JSON.stringify({ axis, enabled })); } catch { /* Still live for this page. */ }
+  function setDirection(value: typeof mode) {
+    mode = value;
+    try { localStorage.setItem(DIRECTION_KEY, JSON.stringify({ axis, mode, enabled: mode === 'wrist' })); }
+    catch { /* Still live for this page. */ }
     describeDirection();
     render();
   }
@@ -127,7 +137,10 @@ export function createTambourineTuning() {
     render();
   }
 
-  directionToggle.addEventListener('change', () => setDownstrokesOnly(directionToggle.checked));
+  directionSelect.addEventListener('change', () => {
+    const value = directionSelect.value;
+    if (value === 'gravity' || value === 'all' || (value === 'wrist' && axis)) setDirection(value);
+  });
   calibrate.addEventListener('click', () => {
     if (!auditionActive) return;
     if (capture) {
@@ -145,7 +158,7 @@ export function createTambourineTuning() {
   });
   defaults.addEventListener('click', () => {
     endCapture();
-    setDownstrokesOnly(false);
+    setDirection('all');
     update(TAMBOURINE_DEFAULTS);
   });
   root.append(summary, directionControls, hits, knobs, defaults, hint);
@@ -154,7 +167,7 @@ export function createTambourineTuning() {
   return {
     root,
     read: () => tuning,
-    direction: () => downstrokesOnly ? axis : undefined,
+    direction: (): TambourineDirection | undefined => mode === 'gravity' ? 'gravity' : mode === 'wrist' ? axis : undefined,
     setAuditionActive(active: boolean) {
       auditionActive = active;
       endCapture();
@@ -166,7 +179,7 @@ export function createTambourineTuning() {
       if (result.kind === 'calibrated') {
         axis = result.axis;
         endCapture();
-        setDownstrokesOnly(true);
+        setDirection('wrist');
         directionStatus.textContent = 'Downstroke calibrated. Lift once, then play.';
       } else if (result.kind === 'retry') {
         endCapture();

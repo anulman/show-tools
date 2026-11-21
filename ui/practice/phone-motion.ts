@@ -1,10 +1,11 @@
-import { downstrokeDetector, type DownstrokeAxis } from './tambourine-direction.js';
+import { downstrokeDetector, gravityDownstrokeDetector, type TambourineDirection } from './tambourine-direction.js';
 
 interface MotionAxes { readonly x: number | null; readonly y: number | null; readonly z: number | null }
 export interface MotionReading extends MotionAxes {
   readonly time: number;
   readonly gravity: boolean;
   readonly rotation?: MotionAxes;
+  readonly accelerationIncludingGravity?: MotionAxes;
 }
 type MotionSensor = 'shake' | 'gyroscope' | 'tambourine';
 export interface MotionSurface {
@@ -108,9 +109,13 @@ export type TambourineTrace = {
   comparedMs?: number;
   turnDegrees?: number;
   signedSpeed?: number;
-  rearm?: 'release' | 'reversal';
+  verticalAcceleration?: number;
+  verticalVelocity?: number;
+  gravityMagnitude?: number;
+  rearm?: 'release' | 'reversal' | 'upward' | 'still';
   decision: 'stale-time' | 'missing-acceleration' | 'below-threshold' | 'latched-or-gap' | 'soft-pending' | 'shake' | 'hit' | 'hit-gap'
-    | 'return-stroke' | 'awaiting-downstroke' | 'missing-rotation' | 'calibrating';
+    | 'return-stroke' | 'awaiting-downstroke' | 'missing-rotation' | 'calibrating'
+    | 'missing-gravity' | 'waiting-for-stillness' | 'waiting-for-return';
   slots: readonly TambourineSlot[];
 };
 
@@ -245,7 +250,8 @@ export function browserMotionSurface(sensor: MotionSensor = 'shake'): MotionSurf
         const usable = linear !== null && [linear.x, linear.y, linear.z].every(value => typeof value === 'number' && Number.isFinite(value));
         const acceleration = usable ? linear : event.accelerationIncludingGravity;
         if (acceleration || rotation) listener({ x: acceleration?.x ?? null, y: acceleration?.y ?? null, z: acceleration?.z ?? null,
-          time: event.timeStamp, gravity: !usable, rotation });
+          time: event.timeStamp, gravity: !usable, rotation,
+          accelerationIncludingGravity: sensor === 'tambourine' ? event.accelerationIncludingGravity ?? undefined : undefined });
       };
       window.addEventListener('devicemotion', receive);
       return () => window.removeEventListener('devicemotion', receive);
@@ -265,7 +271,7 @@ export async function enablePhoneMotion({
   sensor?: MotionSensor; surface?: MotionSurface; signal: AbortSignal; current: () => boolean;
   hit: (velocity: number) => void; stopped?: () => void; settings?: GyroscopeSettings; tambourineTuning?: () => TambourineTuning;
   tambourineTrace?: (entry: TambourineTrace) => void;
-  tambourineDirection?: () => DownstrokeAxis | undefined;
+  tambourineDirection?: () => TambourineDirection | undefined;
   tambourineCalibration?: (reading: MotionReading) => boolean;
 }): Promise<{ stop(): void }> {
   if (!surface.secure) throw new Error('Phone motion needs HTTPS or localhost');
@@ -274,9 +280,11 @@ export async function enablePhoneMotion({
 
   let tuning = tambourineTuning?.() ?? TAMBOURINE_DEFAULTS;
   let direction = tambourineDirection?.();
-  const makeTambourineDetector = () => direction
-    ? downstrokeDetector(hit, tuning, direction, tambourineTrace)
-    : tambourineDetector(hit, tuning, tambourineTrace);
+  const makeTambourineDetector = () => {
+    if (direction === 'gravity') return gravityDownstrokeDetector(hit, tuning, tambourineTrace);
+    if (direction) return downstrokeDetector(hit, tuning, direction, tambourineTrace);
+    return tambourineDetector(hit, tuning, tambourineTrace);
+  };
   const detectMotion = sensor === 'tambourine' ? undefined
     : sensor === 'gyroscope' ? gyroscopeDetector(settings) : shakeDetector(settings);
   let detectTambourine = sensor === 'tambourine' ? makeTambourineDetector() : undefined;
