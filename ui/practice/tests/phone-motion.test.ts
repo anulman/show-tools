@@ -118,7 +118,7 @@ test('hide while permission is pending prevents late motion attachment', async (
 });
 
 test('tambourine picks shake variants by acceleration and hit layers by speed before braking', () => {
-  const detect = tambourineDetector();
+  const detect = tambourineDetector({ ...TAMBOURINE_DEFAULTS, hitsEnabled: true, minimumIntervalMs: 85 });
   const read = (time: number, x: number | null, rotation?: number) => detect({
     x, y: 0, z: 0, time, gravity: false,
     ...(rotation === undefined ? {} : { rotation: { x: rotation, y: 0, z: 0 } }),
@@ -141,7 +141,7 @@ test('tambourine picks shake variants by acceleration and hit layers by speed be
 });
 
 test('tambourine recognizes linear braking and ignores gravity-only tilt', () => {
-  const detect = tambourineDetector();
+  const detect = tambourineDetector({ ...TAMBOURINE_DEFAULTS, hitsEnabled: true, minimumIntervalMs: 85 });
   const read = (time: number, x: number, z: number, gravity: boolean) => detect({ x, y: 0, z, time, gravity });
   assert.equal(read(0, 0, 9.81, true), undefined);
   assert.equal(read(20, 9.81, 0, true), undefined);
@@ -155,9 +155,10 @@ test('tambourine recognizes linear braking and ignores gravity-only tilt', () =>
 
 test('the motion listener sends a tambourine hit even when the selected slot is zero', async () => {
   const { surface, read } = fixture();
+  const tuning = { ...TAMBOURINE_DEFAULTS, hitsEnabled: true };
   const slots: number[] = [];
   const connection = await enablePhoneMotion({ sensor: 'tambourine', surface, signal: new AbortController().signal,
-    current: () => true, hit: slot => slots.push(slot) });
+    current: () => true, hit: slot => slots.push(slot), tambourineTuning: () => tuning });
   read(0, 0);
   read(12, 20);
   read(-12, 40);
@@ -178,4 +179,21 @@ test('changing a motion threshold affects the existing listener without changing
   read(0, 150); read(10, 170); read(0, 190);
   assert.deepEqual(slots, [2, 3], 'the same acceleration selects the hard take after tuning');
   connection.stop();
+});
+
+
+test('shake-only defaults allow rapidly rearmed strokes while ignoring braking hits', () => {
+  const detect = tambourineDetector();
+  const read = (time: number, x: number | null, rotation = 0) => detect({
+    x, y: 0, z: 0, time, gravity: false, rotation: { x: rotation, y: 0, z: 0 },
+  });
+  assert.equal(read(0, 0, 480), undefined);
+  assert.equal(read(16, null, 100), undefined, 'rotational braking alone is silent');
+  assert.equal(read(32, 16, 480), 3);
+  assert.equal(read(48, 16, 100), undefined, 'continuous acceleration does not retrigger');
+  assert.equal(read(64, 3), undefined);
+  assert.equal(read(80, 16), 3, 'another stroke can play 48 ms later');
+  assert.equal(read(96, 0), undefined);
+  assert.equal(read(112, 8, 480), undefined);
+  assert.equal(read(128, 0, 100), 2, 'braking cannot consume a pending shake');
 });

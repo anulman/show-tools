@@ -670,7 +670,7 @@ function mountPhoneMotion() {
         const current = () => !cancel.signal.aborted && generation === songGeneration && !switching && !starting && isRunning() === running;
         let sequence = 0;
         let audition: PerformanceSession | undefined;
-        let hitPending: Promise<unknown> | undefined;
+        let pendingHits = Promise.resolve();
         let ready = false;
         button.disabled = true;
         button.dataset.motion = 'pending';
@@ -683,7 +683,7 @@ function mountPhoneMotion() {
           button.setAttribute('aria-pressed', 'false');
           button.disabled = false;
           if (auditioning) queuePhoneAudition(async () => {
-            await hitPending;
+            await pendingHits;
             if (audition) await audition.auditionTambourine(-1);
           }).catch(error => {
             if (generation === songGeneration && audio === audition && !switching && !starting && isRunning() === running) showError(error);
@@ -705,11 +705,13 @@ function mountPhoneMotion() {
                 void instance.control({ id: 'external', slot }, { commandId }).catch(error => {
                   if (current() && audio === instance) showError(error);
                 });
-              } else if (!hitPending) {
-                hitPending = instance.auditionTambourine(recorded ? 127 : stroke, recorded ? slot : undefined).catch(error => {
+              } else {
+                pendingHits = pendingHits.then(async () => {
+                  if (current() && instance === audio) await instance.auditionTambourine(recorded ? 127 : stroke, recorded ? slot : undefined);
+                }).catch(error => {
                   if (current() && audio === instance) showError(error);
                   cancel.abort();
-                }).finally(() => { hitPending = undefined; });
+                });
               }
             },
             stopped: () => cancel.abort(),

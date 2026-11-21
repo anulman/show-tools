@@ -44,9 +44,9 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   button.events.get('click')?.(); await pending;
   assert(button.textContent.startsWith('Disable shake')); assert.equal(context.audio, undefined);
   vm.runInContext('audio = { control: (control, options) => { captured.push({ control, options }); return Promise.resolve(); } }', Object.assign(context, { captured: commands }));
-  listener?.({ x: null, y: null, z: null, rotation: { x: 480, y: 0, z: 0 }, time: 100, gravity: false });
-  listener?.({ x: 12, y: 0, z: 0, rotation: { x: 100, y: 0, z: 0 }, time: 120, gravity: false });
-  assert.equal(commands.length, 1); assert.equal(JSON.stringify(commands[0]), JSON.stringify({ control: { id: 'external', slot: 1 }, options: { commandId: 'phone-motion/motion-fixture/1' } }));
+  listener?.({ x: 0, y: 0, z: 0, time: 100, gravity: false });
+  listener?.({ x: 16, y: 0, z: 0, time: 120, gravity: false });
+  assert.equal(commands.length, 1); assert.equal(JSON.stringify(commands[0]), JSON.stringify({ control: { id: 'external', slot: 3 }, options: { commandId: 'phone-motion/motion-fixture/1' } }));
   context.songGeneration++;
   listener?.({ x: 0, y: 0, z: 0, time: 250, gravity: false });
   listener?.({ x: 12, y: 0, z: 0, time: 400, gravity: false });
@@ -69,10 +69,12 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
       hide(receive) { hide = receive; return () => { hide = undefined; }; },
     };
     let holdArm: Promise<void> | undefined;
+    let holdStroke: Promise<void> | undefined;
     const audio = {
       async auditionTambourine(velocity: number, slot?: number) {
         commands.push(slot === undefined ? velocity : [velocity, slot]);
         if (velocity === 0) await holdArm;
+        if (slot !== undefined) await holdStroke;
       },
       control() { assert.fail('Audition cannot issue a chart hit'); },
     };
@@ -107,12 +109,20 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
     await pending;
     assert.deepEqual(commands, [0]);
     assert.equal(button.textContent, 'End Tambourine audition');
-    listener?.({ x: null, y: null, z: null, rotation: { x: 220, y: 0, z: 0 }, time: 100, gravity: false });
-    listener?.({ x: null, y: null, z: null, rotation: { x: 70, y: 0, z: 0 }, time: 120, gravity: false });
-    assert.deepEqual(commands, [0, [127, 0]]);
+    let releaseStroke: () => void = () => assert.fail('stroke delay not installed');
+    holdStroke = new Promise(resolve => { releaseStroke = resolve; });
+    const motion = (x: number, time: number) => listener?.({ x, y: 0, z: 0, time, gravity: false });
+    motion(0, 100); motion(16, 120);
+    await new Promise(resolve => setImmediate(resolve));
+    motion(0, 140); motion(16, 160);
+    assert.deepEqual(commands, [0, [127, 3]], 'the next shake waits for the command in flight');
+    holdStroke = undefined;
+    releaseStroke();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.deepEqual(commands, [0, [127, 3], [127, 3]], 'a released stroke queues even within 85 ms');
     hide?.();
     await context.phoneAuditionTransition;
-    assert.deepEqual(commands, [0, [127, 0], -1]);
+    assert.deepEqual(commands, [0, [127, 3], [127, 3], -1]);
     assert.equal(listener, undefined);
     assert.equal(button.textContent, 'Audition Tambourine');
 
@@ -121,19 +131,19 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
     button.events.get('click')?.();
     grant('granted');
     await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(commands, [0, [127, 0], -1, 0]);
+    assert.deepEqual(commands, [0, [127, 3], [127, 3], -1, 0]);
     hide?.();
     button.events.get('click')?.();
     grant('granted');
     await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(commands, [0, [127, 0], -1, 0], 'new arm waits for old cleanup');
+    assert.deepEqual(commands, [0, [127, 3], [127, 3], -1, 0], 'new arm waits for old cleanup');
     holdArm = undefined;
     acknowledge();
     await pending;
-    assert.deepEqual(commands, [0, [127, 0], -1, 0, -1, 0]);
+    assert.deepEqual(commands, [0, [127, 3], [127, 3], -1, 0, -1, 0]);
     button.events.get('click')?.();
     await context.phoneAuditionTransition;
-    assert.deepEqual(commands, [0, [127, 0], -1, 0, -1, 0, -1]);
+    assert.deepEqual(commands, [0, [127, 3], [127, 3], -1, 0, -1, 0, -1]);
     assert.deepEqual(errors, []);
   });
 }
@@ -158,6 +168,13 @@ test('actual source rows display Spit as its independent prepared voice rather t
 test('saved tambourine settings recover from damaged data and keep the shake layers ordered', () => {
   assert.equal(normalizeTambourineTuning({ shake: 14.2, hardShake: 8 }).hardShake, 15);
   assert.equal(normalizeTambourineTuning({ angularBrake: Infinity }).angularBrake, 1000);
-  assert.equal(normalizeTambourineTuning({ minimumIntervalMs: '20' }).minimumIntervalMs, 85);
+  assert.equal(normalizeTambourineTuning({ hitsEnabled: false, minimumIntervalMs: '20' }).minimumIntervalMs, 0);
   assert.equal(normalizeTambourineTuning({ hardHitSpeed: 6 }).hardHitSpeed, 1.5);
+  const older = normalizeTambourineTuning({ hardShake: 17, minimumIntervalMs: 85 });
+  assert.equal(older.hardShake, 17);
+  assert.equal(older.minimumIntervalMs, 0);
+  assert.equal(older.hitsEnabled, false);
+  const optedIn = normalizeTambourineTuning({ hitsEnabled: true, minimumIntervalMs: 85 });
+  assert.equal(optedIn.minimumIntervalMs, 85);
+  assert.equal(optedIn.hitsEnabled, true);
 });
