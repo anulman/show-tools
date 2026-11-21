@@ -82,7 +82,10 @@ test('the hardware desk admits Tribulations shake hits through the authenticated
       assert.equal((await command('start', { bpm: 120, countInBars: 0, startBar: bar, endBar: bar, loop: false, recordDemo: true })).outcome, 'applied');
       await until(() => {
         const active = controller.snapshot().audio;
-        return active.kind === 'ready' && active.performance.state.bar === bar ? true : undefined;
+        if (active.kind !== 'ready') return;
+        const state = active.performance.state;
+        // Start can publish the selected bar before the clock reaches its first downbeat.
+        return state.phase === 'playing' && state.bar === bar && state.beat === 2 ? true : undefined;
       });
       assert.equal((await audition(100)).outcome, 'rejected', 'starting transport clears the old audition');
       if (preview) {
