@@ -81,13 +81,13 @@ export function gyroscopeDetector({
 export type TambourineSlot = 0 | 1 | 2 | 3;
 
 export const TAMBOURINE_DEFAULTS = {
-  shake: 6, hardShake: 14, brake: 7, hardHitSpeed: 0.55, angularBrake: 1000,
+  shake: 6, hardShake: 14, brake: 9, hardHitSpeed: 1.5, angularBrake: 1000,
   hardHitAngularSpeed: 400, minimumIntervalMs: 0, hitsEnabled: false,
 };
 export type TambourineTuning = Readonly<typeof TAMBOURINE_DEFAULTS>;
 
 const TAMBOURINE = {
-  release: 3, shakePeakWindowMs: 24, hitSpeed: 0.18, hitAngularSpeed: 150,
+  release: 3, shakePeakWindowMs: 24, hitSpeed: 0.18, hitAngularSpeed: 150, angularRearmRise: 60,
   brakeFraction: 0.4, maximumGapMs: 120, velocityDecaySeconds: 0.12,
   reversalWindowMs: 120, reversalCosine: -.5,
 };
@@ -119,6 +119,7 @@ export function tambourineDetector(
   let previous: { time: number; velocity: MotionVector; angularSpeed?: number } | undefined;
   const strongDirections: { time: number; axes: MotionVector }[] = [];
   let lastHit = -Infinity;
+  let angularBrakeTrough: number | undefined;
   let shakePeak: { time: number; magnitude: number } | undefined;
   return (reading: MotionReading) => {
     const { time, gravity, rotation } = reading;
@@ -140,8 +141,15 @@ export function tambourineDetector(
       && opposingAcceleration * elapsed >= speed * TAMBOURINE.brakeFraction;
     const precedingAngularSpeed = recent?.angularSpeed ?? 0;
     const angularDrop = precedingAngularSpeed - (angularSpeed ?? precedingAngularSpeed);
-    const angularHit = precedingAngularSpeed >= TAMBOURINE.hitAngularSpeed
+    // A wrist brake can span several readings. Rearm after it speeds up from the trough.
+    if (!recent) angularBrakeTrough = undefined;
+    if (angularBrakeTrough !== undefined && angularSpeed !== undefined) {
+      angularBrakeTrough = angularSpeed - angularBrakeTrough >= TAMBOURINE.angularRearmRise
+        ? undefined : Math.min(angularBrakeTrough, angularSpeed);
+    }
+    const angularHit = angularBrakeTrough === undefined && precedingAngularSpeed >= TAMBOURINE.hitAngularSpeed
       && angularDrop >= Math.max(precedingAngularSpeed * TAMBOURINE.brakeFraction, tuning.angularBrake * elapsed);
+    if (tuning.hitsEnabled && angularHit) angularBrakeTrough = angularSpeed;
     const braking = tuning.hitsEnabled && (linearHit || angularHit);
     const decay = Math.exp(-elapsed / TAMBOURINE.velocityDecaySeconds);
     const velocity: MotionVector = recent && acceleration && !gravity && !braking

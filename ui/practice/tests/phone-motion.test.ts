@@ -160,8 +160,8 @@ test('tambourine recognizes linear braking and ignores gravity-only tilt', () =>
   assert.equal(read(70, 12, 0, false), undefined);
   assert.equal(read(90, -12, 0, false), 0, 'linear reversal brakes movement accumulated in the previous frame');
   assert.equal(read(220, 0, 0, false), undefined);
-  assert.equal(read(260, 16, 0, false), 3);
-  assert.equal(read(300, -16, 0, false), 1, 'a faster linear stroke selects the hard hit');
+  assert.equal(read(260, 40, 0, false), 3);
+  assert.equal(read(300, -40, 0, false), 1, 'a faster linear stroke selects the hard hit');
 });
 
 test('the motion listener sends a tambourine hit even when the selected slot is zero', async () => {
@@ -291,4 +291,24 @@ test('a wrist stroke can reverse across several above-threshold readings', () =>
   detect({ time: 6972, x: -31.79, y: 4.29, z: -6.17, gravity: false });
   detect({ time: 6988, x: -29.38, y: 0.41, z: -7.92, gravity: false });
   assert.deepEqual(slots, [3, 3], 'the return stroke plays once');
+});
+
+test('a continuous wrist brake hits once and a renewed stroke can hit immediately', () => {
+  const slots: TambourineSlot[] = [];
+  const detect = tambourineDetector(slot => slots.push(slot), { ...TAMBOURINE_DEFAULTS, hitsEnabled: true });
+  const read = (time: number, x: number, y = 0, z = 0) =>
+    detect({ time, x: 0, y: 0, z: 0, gravity: false, rotation: { x, y, z } });
+
+  read(0, 102.86, -68.79, -437.26);
+  read(16, 1.91, 41.71, -245.04);
+  assert.deepEqual(slots, [1], 'the first qualifying drop fires the hard hit on that reading');
+  read(33, -74.81, 55.62, 100.54);
+  assert.deepEqual(slots, [1], 'a second steep drop in the same slowdown is silent');
+
+  read(49, 155);
+  read(65, 80);
+  assert.deepEqual(slots, [1], 'a small rebound does not rearm the hit');
+  read(81, 320);
+  read(97, 110);
+  assert.deepEqual(slots, [1, 0], 'a fresh stroke rearms without a time delay');
 });
