@@ -182,6 +182,8 @@ Open the HTTPS desk in Safari and select **Tribulations**. In Hardware mode, swi
 
 Tap **Audition Tambourine** and allow motion access. A sharp brake plays a hit. Your speed just before braking selects the soft or hard hit. Acceleration selects the soft or hard shake recording. Audition works at any bar and while stopped. Tap **End Tambourine audition** to finish. Leaving the page, starting or stopping transport, and Panic end the audition. During playback, the audition is part of the output mix, including a demo recording.
 
+Open **Tune motion** below the tambourine controls to adjust the thresholds while auditioning. The same values apply to chart playback from this browser. The phone saves the values locally. Select **Reset motion defaults** to return to the starting calibration.
+
 Tap **Enable shake** during playback to switch back to chart-controlled motion. Tribulations uses the same four recordings for chart shake in bars 137–160.
 
 ## Audio modes
