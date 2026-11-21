@@ -152,43 +152,30 @@ function gravityProjection(reading: MotionReading) {
   };
 }
 
-export function gravityDownstrokeDetector(
-  hit: (slot: TambourineSlot) => void,
-  tuning: TambourineTuning,
-  trace?: (entry: TambourineTrace) => void,
-) {
-  const downwardSpeed = .18;
-  const upwardSpeed = -.10;
-  const downAcceleration = 2.5;
-  const settlingMs = 180;
-  let phase: 'settling' | 'ready' | 'played' = 'settling';
-  let lastTime = -Infinity, lastHit = -Infinity;
+export function gravityMotion() {
+  let initialized = false;
+  let lastTime = -Infinity;
   let velocity = 0, previousAcceleration = 0, bias = 0;
   let quiet: { time: number; sum: number; count: number } | undefined;
-  let softSince: number | undefined;
 
   return (reading: MotionReading) => {
     const { time } = reading;
-    if (!Number.isFinite(time) || time <= lastTime) {
-      trace?.({ reading, decision: 'stale-time', slots: [] });
-      return;
-    }
+    if (!Number.isFinite(time) || time <= lastTime) return { kind: 'stale-time' } as const;
     const elapsed = time - lastTime;
     lastTime = time;
     const projection = gravityProjection(reading);
-    if (!projection || elapsed > SENSOR_GAP_MS) {
-      phase = 'settling';
+    const reset = !projection || elapsed > SENSOR_GAP_MS;
+    if (reset) {
+      initialized = false;
       velocity = previousAcceleration = bias = 0;
-      quiet = softSince = undefined;
+      quiet = undefined;
     }
-    if (!projection) {
-      trace?.({ reading, decision: 'missing-gravity', slots: [] });
-      return;
-    }
+    if (!projection) return { kind: 'missing-gravity' } as const;
 
     const { verticalAcceleration, magnitude } = projection;
     const angular = angularVelocity(reading);
-    if (magnitude <= 1.5 && (!angular || Math.hypot(...angular) <= QUIET)) {
+    const angularSpeed = angular ? Math.hypot(...angular) : 0;
+    if (magnitude <= 1.5 && angularSpeed <= QUIET) {
       quiet ??= { time, sum: 0, count: 0 };
       quiet.sum += verticalAcceleration;
       quiet.count++;
@@ -196,42 +183,17 @@ export function gravityDownstrokeDetector(
       quiet = undefined;
     }
 
-    let rearm: TambourineTrace['rearm'];
-    if (phase !== 'settling') {
-      velocity += ((previousAcceleration + verticalAcceleration) / 2 - bias) * elapsed / 1000;
-      if (phase === 'played' && velocity <= upwardSpeed) {
-        phase = 'ready';
-        rearm = 'upward';
-      }
-    }
+    if (initialized) velocity += ((previousAcceleration + verticalAcceleration) / 2 - bias) * elapsed / 1000;
     previousAcceleration = verticalAcceleration;
 
-    if (quiet && time - quiet.time >= REST_MS
-      && (phase === 'settling' || Math.abs(velocity) <= .12 || time - quiet.time >= settlingMs)) {
-      if (phase !== 'ready') rearm = 'still';
-      phase = 'ready';
+    const settled = !!quiet && time - quiet.time >= REST_MS
+      && (!initialized || Math.abs(velocity) <= .12 || time - quiet.time >= 180);
+    if (settled && quiet) {
+      initialized = true;
       velocity = 0;
       bias = quiet.sum / quiet.count;
     }
-
-    const report = (decision: TambourineTrace['decision'], slot?: TambourineSlot) => trace?.({
-      reading, ...projection, verticalVelocity: velocity, rearm, decision, slots: slot === undefined ? [] : [slot],
-    });
-    const emit = (slot: TambourineSlot) => {
-      phase = velocity <= upwardSpeed ? 'ready' : 'played';
-      softSince = undefined;
-      if (time - lastHit < tuning.minimumIntervalMs) { report('latched-or-gap'); return; }
-      lastHit = time;
-      hit(slot);
-      report('shake', slot);
-    };
-
-    if (phase === 'ready' && velocity >= downwardSpeed && verticalAcceleration - bias >= downAcceleration) {
-      if (magnitude >= tuning.hardShake) { emit(3); return; }
-      if (magnitude >= tuning.shake) softSince ??= time;
-    }
-    if (softSince !== undefined && (time - softSince >= PEAK_MS || velocity <= 0)) { emit(2); return; }
-    report(phase === 'settling' ? 'waiting-for-stillness' : phase === 'played' ? 'waiting-for-return'
-      : softSince === undefined ? 'awaiting-downstroke' : 'soft-pending');
+    return { kind: 'motion', ...projection, reset, initialized, settled,
+      angular, angularSpeed, velocity, downAcceleration: verticalAcceleration - bias } as const;
   };
 }

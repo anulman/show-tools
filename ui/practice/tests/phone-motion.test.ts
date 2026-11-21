@@ -1,3 +1,4 @@
+import { tambourineGrooveDetector } from '../tambourine-groove.js';
 import { captureDownstrokeAxis, normalizeDownstrokeAxis } from '../tambourine-direction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -365,7 +366,7 @@ test('downstroke calibration rejects two conflicting directions in one capture',
   assert.equal(read(170, 0).kind, 'retry');
 });
 
-test('gravity downstrokes play eighths in any grip and silence upward braking', async () => {
+test('gravity plays alternating downshakes and returns through a grip change', async () => {
   let listener: (reading: MotionReading) => void = () => assert.fail('motion listener missing');
   const surface: MotionSurface = { secure: true, available: true,
     listen(receive) { listener = receive; return () => {}; }, hide() { return () => {}; } };
@@ -389,12 +390,112 @@ test('gravity downstrokes play eighths in any grip and silence upward braking', 
       const strong = stroke % 2 === 0;
       const turned = stroke >= 4;
       const before: number = slots.length;
-      for (const acceleration of [6, 6, 6, -18, 0]) read(acceleration, acceleration > 0 ? strong ? 16 : 5 : 0, turned);
+      for (const acceleration of [6, 6, 6, -18, 0, 0]) read(acceleration, acceleration > 0 ? strong ? 16 : 5 : 0, turned);
       assert.equal(slots.length, before + 1, 'the downstroke chooses one sample');
-      for (const acceleration of [-5, -5, 10, 0]) read(acceleration, 0, turned);
-      assert.equal(slots.length, before + 1, 'the return and its brake stay silent');
-      for (let index = 0; index < 9; index++) read(0, 0, turned);
+      for (const acceleration of [-8, -8, 16, 0]) read(acceleration, 0, turned);
+      assert.equal(slots.length, before + 2, 'the completed downstroke admits one upshake');
+      for (let index = 0; index < 8; index++) read(0, 0, turned);
     }
-    assert.deepEqual(slots, [3, 2, 3, 2, 3, 2, 3, 2]);
+    assert.deepEqual(slots, [3, 2, 2, 2, 3, 2, 2, 2, 3, 2, 2, 2, 3, 2, 2, 2]);
   } finally { connection.stop(); }
+});
+
+
+function replayGravityGestures(rows: readonly number[][], { hits = true, wristScale = 1 } = {}) {
+  const gestures: [number, TambourineTrace['gesture'], readonly TambourineSlot[]][] = [];
+  const detect = tambourineGrooveDetector(() => {}, { ...TAMBOURINE_DEFAULTS, hitsEnabled: hits }, entry => {
+    if (entry.slots.length) gestures.push([entry.reading.time, entry.gesture, entry.slots]);
+  });
+  const send = ([time, down, magnitude, gx, gy, gz]: readonly number[]) => {
+    const x = Math.sqrt(Math.max(0, magnitude ** 2 - down ** 2));
+    const z = -down;
+    detect({ time, x, y: 0, z, gravity: false,
+      accelerationIncludingGravity: { x, y: 0, z: z + 9.81 },
+      rotation: { x: gx * wristScale, y: gy * wristScale, z: gz * wristScale } });
+  };
+  for (let time = -160; time < 0; time += 16) send([time, 0, 0, 0, 0, 0]);
+  rows.forEach(send);
+  return gestures;
+}
+
+test('the labeled phone trace distinguishes a numbered hit from a downshake and plays both returns', () => {
+  // Time, vertical acceleration, total acceleration, and the three wrist rates.
+  const hit = [
+    [0,0.87,1.41,25.53,-57.92,-54.49],
+    [16,1.32,1.75,31.16,-62.79,-52.21],
+    [34,3.04,3.66,39.93,-53.18,-36.34],
+    [49,5.29,7.62,62.25,-29.36,49.26],
+    [67,8.55,18.86,112.02,-9.4,247.56],
+    [84,6.85,29.64,100.83,64.77,451.96],
+    [100,25.39,39.55,28.52,250.26,1001.95],
+    [116,37.32,38.27,3.31,285.91,1190.13],
+    [134,-0.52,50.97,-30.28,385.88,891.47],
+    [150,-45.93,60.09,92.42,-78.61,-126.6],
+    [167,-32.77,35.08,97.31,-379.83,-372.89],
+    [184,-14.33,16.7,-124.79,-317.95,-243.63],
+    [200,-12.28,12.35,-182.56,100.96,-105.68],
+    [217,-5.99,9.87,-128.39,133.66,-139.89],
+    [233,-4.51,9.79,-54.14,60.22,-239.0],
+    [250,2.16,9.12,33.03,-23.24,-364.33],
+  ];
+  const downshake = [
+    [0,0.9,1.34,21.69,-34.51,-10.58],
+    [17,1.36,2.49,39.35,-49.17,13.63],
+    [34,1.94,3.88,48.69,-48.85,51.01],
+    [50,4.33,9.2,78.83,-18.75,190.97],
+    [67,6.52,14.57,71.45,8.67,341.76],
+    [84,7.79,14.65,41.73,40.3,425.18],
+    [101,7.77,8.04,-27.31,125.31,523.89],
+    [117,-3.23,13.88,-68.03,131.55,355.07],
+    [133,-6.89,18.27,-74.83,66.58,196.93],
+    [150,-9.91,14.75,-61.57,-129.84,-54.08],
+    [167,-8.22,8.47,-51.12,-132.25,-116.72],
+    [184,-7.06,7.3,-50.0,-89.69,-96.36],
+    [200,-4.51,5.06,-47.21,-25.97,-43.31],
+    [217,-1.09,2.75,-27.64,-4.78,-51.14],
+    [234,-0.26,3.01,-16.24,-7.76,-72.35],
+    [250,1.95,2.86,6.76,-30.88,-105.73],
+  ];
+  assert.deepEqual(replayGravityGestures(hit), [[150, 'hit', [1]], [200, 'upshake', [3]]]);
+  assert.deepEqual(replayGravityGestures(hit, { wristScale: .3 }), [[150, 'hit', [0]], [200, 'upshake', [3]]]);
+  assert.deepEqual(replayGravityGestures(hit, { hits: false }).map(event => event[1]), ['downshake', 'upshake']);
+  assert.deepEqual(replayGravityGestures(downshake), [[167, 'downshake', [3]], [200, 'upshake', [2]]]);
+});
+
+test('a wrist reversal admits a second downstroke while the gravity velocity still points down', () => {
+  const approach = [
+    [0, -14, 14, 0, 0, -250], [16, -14, 14, 0, 0, -250], [32, -14, 14, 0, 0, -250],
+    [48, -14, 14, 0, 0, -250], [64, -14, 14, 0, 0, -250], [72, -5.36, 15.41, 265, -245, -535],
+  ];
+  const continuous = [
+    [89,2.63,11.87,321,-254,-580],
+    [105,10.05,10.85,300,-217,-580],
+    [122,14.32,14.54,242,-191,-587],
+    [139,15.88,16.43,201,-184,-602],
+    [155,19.13,20.14,117,-157,-623],
+    [172,21.97,23.45,69,-127,-588],
+    [188,22.43,25.57,63,-101,-533],
+    [205,5.77,21.98,49,-92,-399],
+    [222,-15.22,30.25,20,-42,-17],
+    [239,-16.19,34.71,6,39,221],
+    [255,-9.34,34.74,-57,205,667],
+    [272,16.78,30.49,-179,384,1066],
+    [289,30.37,32.44,-258,429,1220],
+    [305,23.51,39.55,-367,512,1113],
+    [322,-12.05,56.68,-445,289,270],
+    [339,-24.55,53.31,-398,57,-177],
+    [355,-22.43,30.22,-89,-296,-530],
+    [372,-4.65,20.31,264,-307,-291],
+    [388,-1.45,12.22,334,-249,-194],
+    [405,-2.64,6.17,278,-28,48],
+    [422,-2.97,7.74,165,143,187],
+    [439,-0.37,6.73,80,226,271],
+    [455,-3.69,5.7,-59,320,418],
+    [472,-14.3,20.23,-160,308,302],
+    [489,-16.93,25.78,-180,232,103],
+    [505,-17.15,28.86,-113,-33,-345],
+  ];
+  assert.deepEqual(replayGravityGestures([...approach, ...continuous]), [
+    [255, 'downshake', [3]], [272, 'upshake', [3]], [339, 'hit', [1]], [472, 'upshake', [3]],
+  ]);
 });
