@@ -77,6 +77,7 @@ struct Program::Cue {
   double cue = -1, execute = 0, occurred_frame = std::numeric_limits<double>::quiet_NaN();
   int tempo_hint = 0, launch = PF_AUTOPLAY, mode = PF_LOOP_MODE, bar_offset = 0, group = -1;
   bool used = false, replacement_capture = false, announced = false;
+  bool implicit_commit() const noexcept { return kind == PF_COMMIT && launch == PF_STORE_ONLY && timing == 2 && cue < 0; }
   bool playback_intent() const noexcept { return kind == PF_STOP || kind == PF_PLAY; }
   bool recoverable() const noexcept { return kind == PF_STOP || (kind == PF_PLAY && mode == PF_LOOP_MODE); }
 };
@@ -561,7 +562,7 @@ bool Program::cue_on_current_bar(const Cue& cue) const noexcept {
   return cue.bar == bar_ && (cue.bar == 0 ? start_ == 1 : cue.bar >= start_);
 }
 bool Program::cue_visible(const Cue& cue, int end_bar) const noexcept {
-  if (cue.used || cue.bar > end_bar) return false;
+  if (cue.used || cue.implicit_commit() || cue.bar > end_bar) return false;
   if (cue.cue < 0) return cue_on_current_bar(cue);
   const double at = (cue.bar - 1) * beats_ + cue.cue;
   return cue.bar >= start_ && query_position_ >= at - 2 && query_position_ <= at;
@@ -693,7 +694,7 @@ int Program::resolve(int button, double frame, double bpm) noexcept {
   double best = std::numeric_limits<double>::infinity(); int found = -1; bool tied = false;
   for (int id = 0; id < cue_count_; ++id) {
     const Cue& cue = cues_[id];
-    if (cue.button != button || cue.bar > run_end_ || (cue.bar != 0 && cue.bar < start_)
+    if (cue.button != button || cue.implicit_commit() || cue.bar > run_end_ || (cue.bar != 0 && cue.bar < start_)
       || (cue.used && !cue.playback_intent())) continue;
     double at = cue_frame(cue, bpm), delta = frame - at;
     bool applicable = cue.cue < 0 ? cue_on_current_bar(cue) : phase_ == PF_PLAYING && delta >= -early_ * rate_ / 1000 - epsilon && delta <= late_ * rate_ / 1000 + epsilon;
@@ -1579,7 +1580,7 @@ VoiceInfo Program::channel_info(int button, double bpm) const noexcept {
   if (info.release_ms > 0 && info.status == PF_STOPPING) info.light = PF_RELEASING;
   if (info.light == PF_OFF && (phase_ == PF_COUNT_IN || phase_ == PF_PLAYING)) for (int id = 0; id < cue_count_; ++id) {
     const Cue& cue = cues_[id];
-    if (cue.button != button || cue.used) continue;
+    if (cue.button != button || cue.used || cue.implicit_commit()) continue;
     double delta = query_frame_ - cue_frame(cue, bpm);
     if ((cue.cue < 0 && cue_on_current_bar(cue)) || (cue.cue >= 0 && delta >= -early_ * rate_ / 1000 && delta <= late_ * rate_ / 1000)) { info.light = PF_CUE; break; }
   }
