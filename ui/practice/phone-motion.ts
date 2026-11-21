@@ -1,3 +1,5 @@
+import { downstrokeDetector, type DownstrokeAxis } from './tambourine-direction.js';
+
 interface MotionAxes { readonly x: number | null; readonly y: number | null; readonly z: number | null }
 export interface MotionReading extends MotionAxes {
   readonly time: number;
@@ -105,8 +107,10 @@ export type TambourineTrace = {
   magnitude?: number;
   comparedMs?: number;
   turnDegrees?: number;
+  signedSpeed?: number;
   rearm?: 'release' | 'reversal';
-  decision: 'stale-time' | 'missing-acceleration' | 'below-threshold' | 'latched-or-gap' | 'soft-pending' | 'shake' | 'hit' | 'hit-gap';
+  decision: 'stale-time' | 'missing-acceleration' | 'below-threshold' | 'latched-or-gap' | 'soft-pending' | 'shake' | 'hit' | 'hit-gap'
+    | 'return-stroke' | 'awaiting-downstroke' | 'missing-rotation' | 'calibrating';
   slots: readonly TambourineSlot[];
 };
 
@@ -256,19 +260,26 @@ export function browserMotionSurface(sensor: MotionSensor = 'shake'): MotionSurf
 
 export async function enablePhoneMotion({
   sensor = 'shake', surface = browserMotionSurface(sensor), signal, current, hit, stopped = () => {}, settings, tambourineTuning, tambourineTrace,
+  tambourineDirection, tambourineCalibration,
 }: {
   sensor?: MotionSensor; surface?: MotionSurface; signal: AbortSignal; current: () => boolean;
   hit: (velocity: number) => void; stopped?: () => void; settings?: GyroscopeSettings; tambourineTuning?: () => TambourineTuning;
   tambourineTrace?: (entry: TambourineTrace) => void;
+  tambourineDirection?: () => DownstrokeAxis | undefined;
+  tambourineCalibration?: (reading: MotionReading) => boolean;
 }): Promise<{ stop(): void }> {
   if (!surface.secure) throw new Error('Phone motion needs HTTPS or localhost');
   if (!surface.available) throw new Error('This browser does not provide motion input');
   signal.throwIfAborted();
 
-  let tuning = tambourineTuning?.();
+  let tuning = tambourineTuning?.() ?? TAMBOURINE_DEFAULTS;
+  let direction = tambourineDirection?.();
+  const makeTambourineDetector = () => direction
+    ? downstrokeDetector(hit, tuning, direction, tambourineTrace)
+    : tambourineDetector(hit, tuning, tambourineTrace);
   const detectMotion = sensor === 'tambourine' ? undefined
     : sensor === 'gyroscope' ? gyroscopeDetector(settings) : shakeDetector(settings);
-  let detectTambourine = sensor === 'tambourine' ? tambourineDetector(hit, tuning, tambourineTrace) : undefined;
+  let detectTambourine = sensor === 'tambourine' ? makeTambourineDetector() : undefined;
   let active = true, unlisten = () => {}, unhide = () => {};
   const stop = () => {
     if (!active) return;
@@ -288,10 +299,16 @@ export async function enablePhoneMotion({
       if (!active) return;
       if (!current()) { stop(); return; }
       if (detectTambourine) {
-        const nextTuning = tambourineTuning?.();
-        if (nextTuning !== tuning) {
+        if (tambourineCalibration?.(reading)) {
+          tambourineTrace?.({ reading, decision: 'calibrating', slots: [] });
+          return;
+        }
+        const nextTuning = tambourineTuning?.() ?? TAMBOURINE_DEFAULTS;
+        const nextDirection = tambourineDirection?.();
+        if (nextTuning !== tuning || nextDirection !== direction) {
           tuning = nextTuning;
-          detectTambourine = tambourineDetector(hit, tuning, tambourineTrace);
+          direction = nextDirection;
+          detectTambourine = makeTambourineDetector();
         }
         detectTambourine(reading);
         return;

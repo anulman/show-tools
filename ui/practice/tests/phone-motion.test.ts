@@ -1,3 +1,4 @@
+import { captureDownstrokeAxis, normalizeDownstrokeAxis } from '../tambourine-direction.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { TAMBOURINE_DEFAULTS, enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, tambourineDetector, type MotionReading, type MotionSurface, type TambourineSlot, type TambourineTrace, type TambourineTuning } from '../phone-motion.js';
@@ -6,7 +7,7 @@ function fixture(permission?: MotionSurface['permission']) {
   let removed = 0;
   const surface: MotionSurface = { secure: true, available: true, permission,
     listen(listener) { receive = listener; return () => { removed++; receive = undefined; }; }, hide(listener) { hide = listener; return () => { removed++; hide = undefined; }; } };
-  return { surface, read(x: number, time: number) { receive?.({ x, y: 0, z: 0, time, gravity: false }); }, hide() { hide?.(); }, removed: () => removed };
+  return { surface, read(x: number, time: number, gravity = false, rotation?: MotionReading['rotation']) { receive?.({ x, y: 0, z: 0, time, gravity, rotation }); }, hide() { hide?.(); }, removed: () => removed };
 }
 test('motion permission gates listeners, delivers manual hits and cleans up on hide or song replacement', async () => {
   const env = fixture(async () => 'granted'), abort = new AbortController(); let hits = 0, current = true;
@@ -311,4 +312,55 @@ test('a continuous wrist brake hits once and a renewed stroke can hit immediatel
   read(81, 320);
   read(97, 110);
   assert.deepEqual(slots, [1, 0], 'a fresh stroke rearms without a time delay');
+});
+
+test('calibrated eighths play alternating accents and silence every return', async () => {
+  const { surface, read } = fixture();
+  const slots: number[] = [];
+  const axis: readonly [number, number, number] = [0, -1, 0];
+  const tuning = { ...TAMBOURINE_DEFAULTS, hitsEnabled: true };
+  const active = await enablePhoneMotion({ sensor: 'tambourine', surface, signal: new AbortController().signal,
+    current: () => true, hit: slot => slots.push(slot), tambourineTuning: () => tuning, tambourineDirection: () => axis });
+  try {
+    // The return and brake can both exceed the hard-shake threshold.
+    for (let stroke = 0; stroke < 8; stroke++) {
+      const time = 100 + stroke * 300;
+      const before = slots.length;
+      read(25, time - 16, false, { x: 65, y: 400, z: 70 });
+      assert.equal(slots.length, before, 'upstroke stays silent');
+      read(8, time, false, { x: 20, y: -110, z: 0 });
+      read(stroke % 2 === 0 ? 20 : 10, time + 16, false, { x: 80, y: -330, z: -10 });
+      read(9, time + 33, false, { x: 35, y: -280, z: 40 });
+      read(24, time + 50, false, { x: 65, y: -95, z: 35 });
+      assert.equal(slots.length, before + 1, 'one sample per downstroke, even across a hard brake');
+    }
+    assert.deepEqual(slots, [3, 2, 3, 2, 3, 2, 3, 2]);
+  } finally { active.stop(); }
+});
+
+test('downstroke calibration waits for a still grip and captures the sign of one stroke', () => {
+  const capture = captureDownstrokeAxis();
+  const read = (time: number, y: number) => capture({
+    x: 0, y: 0, z: 0, time, gravity: false, rotation: { x: 0, y, z: 0 },
+  });
+  assert.equal(read(0, 300).kind, 'listening');
+  assert.equal(read(16, 0).kind, 'listening');
+  assert.equal(read(96, 0).kind, 'listening');
+  assert.equal(read(112, -120).kind, 'listening');
+  assert.equal(read(128, -215).kind, 'listening');
+  assert.equal(read(144, -180).kind, 'listening');
+  assert.deepEqual(read(160, 0), { kind: 'calibrated', axis: [0, -1, 0] });
+  assert.equal(normalizeDownstrokeAxis([0, 0, 0]), undefined);
+  assert.equal(normalizeDownstrokeAxis([0, '1', 0]), undefined);
+});
+
+test('downstroke calibration rejects two conflicting directions in one capture', () => {
+  const capture = captureDownstrokeAxis();
+  const read = (time: number, x: number) => capture({
+    x: 0, y: 0, z: 0, time, gravity: false, rotation: { x, y: 0, z: 0 },
+  });
+  for (const [time, x] of [[0, 0], [90, 0], [106, 200], [122, 300], [138, -300], [154, -200]]) {
+    assert.equal(read(time, x).kind, 'listening');
+  }
+  assert.equal(read(170, 0).kind, 'retry');
 });
