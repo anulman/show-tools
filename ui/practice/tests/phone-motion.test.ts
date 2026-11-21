@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, tambourineDetector, type MotionReading, type MotionSurface } from '../phone-motion.js';
+import { TAMBOURINE_DEFAULTS, enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, tambourineDetector, type MotionReading, type MotionSurface } from '../phone-motion.js';
 function fixture(permission?: MotionSurface['permission']) {
   let receive: ((reading: MotionReading) => void) | undefined, hide: (() => void) | undefined;
   let removed = 0;
@@ -162,5 +162,20 @@ test('the motion listener sends a tambourine hit even when the selected slot is 
   read(12, 20);
   read(-12, 40);
   assert.deepEqual(slots, [0]);
+  connection.stop();
+});
+
+
+test('changing a motion threshold affects the existing listener without changing audio modes', async () => {
+  const { surface, read } = fixture();
+  const slots: number[] = [];
+  let tuning = { ...TAMBOURINE_DEFAULTS };
+  const connection = await enablePhoneMotion({ sensor: 'tambourine', surface, signal: new AbortController().signal,
+    current: () => true, hit: slot => slots.push(slot), tambourineTuning: () => tuning });
+  read(0, 0); read(10, 20); read(0, 40);
+  assert.deepEqual(slots, [2], 'the unmodified acceleration selects the soft take');
+  tuning = { ...tuning, hardShake: 9 };
+  read(0, 150); read(10, 170); read(0, 190);
+  assert.deepEqual(slots, [2, 3], 'the same acceleration selects the hard take after tuning');
   connection.stop();
 });

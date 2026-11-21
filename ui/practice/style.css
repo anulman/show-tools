@@ -158,3 +158,9 @@
   padding: 8px;
   margin-bottom: 12px;
 }
+
+.tambourine-tuning { flex-basis: 100%; }
+.tambourine-tuning[open] { border-top: 1px solid var(--line); padding-top: 8px; }
+.tambourine-tuning summary { width: fit-content; cursor: pointer; font-size: 12px; padding: 8px 0; }
+.tambourine-tuning .fx-knobs { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); margin: 4px 0 8px; }
+.tambourine-tuning small { display: inline-block; margin-left: 8px; }

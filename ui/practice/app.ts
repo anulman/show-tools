@@ -1,6 +1,7 @@
 import { dismissOnBackdrop } from './dialog.js';
 import { chartBarLabel, chartBarOrdinal } from '../../lib/performance/chart-position.js';
 import { enablePhoneMotion } from './phone-motion.js';
+import { createTambourineTuning } from './tambourine-tuning.js';
 import { audioMode, audioModeURL, defaultAudioMode, changeAudioMode } from './audio-mode.js';
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
 import { exportMusicXmlWithVoices } from '../../lib/performance/musicxml-authoring.js';
@@ -645,6 +646,7 @@ function mountPhoneMotion() {
     if (seen.has(motionSource)) continue;
     seen.add(motionSource);
     const recorded = tambourine && recordedTambourine;
+    const tuning = recorded ? createTambourineTuning() : undefined;
     const name = tambourine ? 'Tambourine' : source.voiceId;
     const addMotionButton = (auditioning: boolean) => {
       const button = document.createElement('button');
@@ -690,6 +692,7 @@ function mountPhoneMotion() {
         try {
           const motion = enablePhoneMotion({
             sensor: recorded ? 'tambourine' : auditioning ? 'gyroscope' : 'shake',
+            tambourineTuning: tuning?.read,
             signal: cancel.signal,
             current,
             hit: stroke => {
@@ -739,6 +742,7 @@ function mountPhoneMotion() {
     };
     addMotionButton(false);
     if (tambourine) addMotionButton(true);
+    if (tuning) group.append(tuning.root);
     if (song && source.begin.beat === 0 && source.end.beat === 0 && !sources.some(other => other !== source && other.slot === source.slot)) {
       const hint = document.createElement('small');
       const first = chartBarLabel(song.chart, source.begin.bar);

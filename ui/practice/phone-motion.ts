@@ -80,12 +80,15 @@ export function gyroscopeDetector({
 
 export type TambourineSlot = 0 | 1 | 2 | 3;
 
+export const TAMBOURINE_DEFAULTS = {
+  shake: 6, hardShake: 14, brake: 7, hardHitSpeed: 0.55, angularBrake: 1000,
+  hardHitAngularSpeed: 400, minimumIntervalMs: 85,
+};
+export type TambourineTuning = Readonly<typeof TAMBOURINE_DEFAULTS>;
+
 const TAMBOURINE = {
-  shake: 6, hardShake: 14, release: 3, shakePeakWindowMs: 24,
-  brake: 7, hitSpeed: 0.18, hardHitSpeed: 0.55,
-  angularBrake: 1000, hitAngularSpeed: 150, hardHitAngularSpeed: 400,
-  brakeFraction: 0.4, minimumIntervalMs: 85, maximumGapMs: 120,
-  velocityDecaySeconds: 0.12,
+  release: 3, shakePeakWindowMs: 24, hitSpeed: 0.18, hitAngularSpeed: 150,
+  brakeFraction: 0.4, maximumGapMs: 120, velocityDecaySeconds: 0.12,
 };
 
 type MotionVector = readonly [number, number, number];
@@ -96,8 +99,8 @@ function finiteAxes(axes: MotionAxes | undefined): MotionVector | undefined {
   return [x, y, z];
 }
 
-export function tambourineDetector(): (reading: MotionReading) => TambourineSlot | undefined {
-  const shake = thresholdCrossing(TAMBOURINE.shake, TAMBOURINE.release, TAMBOURINE.minimumIntervalMs);
+export function tambourineDetector(tuning: TambourineTuning = TAMBOURINE_DEFAULTS): (reading: MotionReading) => TambourineSlot | undefined {
+  const shake = thresholdCrossing(tuning.shake, TAMBOURINE.release, tuning.minimumIntervalMs);
   let previous: { time: number; velocity: MotionVector; angularSpeed?: number } | undefined;
   let lastHit = -Infinity;
   let shakePeak: { time: number; magnitude: number } | undefined;
@@ -114,12 +117,12 @@ export function tambourineDetector(): (reading: MotionReading) => TambourineSlot
     const speed = Math.hypot(vx, vy, vz);
     const [ax, ay, az] = !gravity && acceleration ? acceleration : [0, 0, 0];
     const opposingAcceleration = speed > 0 ? -(vx * ax + vy * ay + vz * az) / speed : 0;
-    const linearHit = speed >= TAMBOURINE.hitSpeed && opposingAcceleration >= TAMBOURINE.brake
+    const linearHit = speed >= TAMBOURINE.hitSpeed && opposingAcceleration >= tuning.brake
       && opposingAcceleration * elapsed >= speed * TAMBOURINE.brakeFraction;
     const precedingAngularSpeed = recent?.angularSpeed ?? 0;
     const angularDrop = precedingAngularSpeed - (angularSpeed ?? precedingAngularSpeed);
     const angularHit = precedingAngularSpeed >= TAMBOURINE.hitAngularSpeed
-      && angularDrop >= Math.max(precedingAngularSpeed * TAMBOURINE.brakeFraction, TAMBOURINE.angularBrake * elapsed);
+      && angularDrop >= Math.max(precedingAngularSpeed * TAMBOURINE.brakeFraction, tuning.angularBrake * elapsed);
     const braking = linearHit || angularHit;
     const decay = Math.exp(-elapsed / TAMBOURINE.velocityDecaySeconds);
     const velocity: MotionVector = recent && acceleration && !gravity && !braking
@@ -130,14 +133,14 @@ export function tambourineDetector(): (reading: MotionReading) => TambourineSlot
     const shakeStarted = magnitude !== undefined && shake(magnitude, time);
     if (braking) {
       shakePeak = undefined;
-      if (time - lastHit < TAMBOURINE.minimumIntervalMs) return;
+      if (time - lastHit < tuning.minimumIntervalMs) return;
       lastHit = time;
-      return (linearHit && speed >= TAMBOURINE.hardHitSpeed)
-        || (angularHit && precedingAngularSpeed >= TAMBOURINE.hardHitAngularSpeed) ? 1 : 0;
+      return (linearHit && speed >= tuning.hardHitSpeed)
+        || (angularHit && precedingAngularSpeed >= tuning.hardHitAngularSpeed) ? 1 : 0;
     }
     if (magnitude === undefined) return;
     if (!recent) shakePeak = undefined;
-    if (magnitude >= TAMBOURINE.hardShake && (shakeStarted || shakePeak)) {
+    if (magnitude >= tuning.hardShake && (shakeStarted || shakePeak)) {
       shakePeak = undefined;
       return 3;
     }
@@ -184,16 +187,17 @@ export function browserMotionSurface(sensor: MotionSensor = 'shake'): MotionSurf
 }
 
 export async function enablePhoneMotion({
-  sensor = 'shake', surface = browserMotionSurface(sensor), signal, current, hit, stopped = () => {}, settings,
+  sensor = 'shake', surface = browserMotionSurface(sensor), signal, current, hit, stopped = () => {}, settings, tambourineTuning,
 }: {
   sensor?: MotionSensor; surface?: MotionSurface; signal: AbortSignal; current: () => boolean;
-  hit: (velocity: number) => void; stopped?: () => void; settings?: GyroscopeSettings;
+  hit: (velocity: number) => void; stopped?: () => void; settings?: GyroscopeSettings; tambourineTuning?: () => TambourineTuning;
 }): Promise<{ stop(): void }> {
   if (!surface.secure) throw new Error('Phone motion needs HTTPS or localhost');
   if (!surface.available) throw new Error('This browser does not provide motion input');
   signal.throwIfAborted();
 
-  const detect = sensor === 'tambourine' ? tambourineDetector()
+  let tuning = tambourineTuning?.();
+  let detect = sensor === 'tambourine' ? tambourineDetector(tuning)
     : sensor === 'gyroscope' ? gyroscopeDetector(settings) : shakeDetector(settings);
   let active = true, unlisten = () => {}, unhide = () => {};
   const stop = () => {
@@ -213,6 +217,11 @@ export async function enablePhoneMotion({
     unlisten = surface.listen(reading => {
       if (!active) return;
       if (!current()) { stop(); return; }
+      const nextTuning = tambourineTuning?.();
+      if (sensor === 'tambourine' && nextTuning !== tuning) {
+        tuning = nextTuning;
+        detect = tambourineDetector(tuning);
+      }
       const value = detect(reading);
       if (sensor === 'tambourine' ? value !== undefined : value) hit(Number(value));
     });
