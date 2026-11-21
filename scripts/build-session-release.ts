@@ -38,7 +38,9 @@ const sourceIdentity = commitIdentity(sourceRevision);
 const reviewedIdentity = commitIdentity(options['reviewed-revision'] ?? sourceRevision);
 if (sourceIdentity.tree !== reviewedIdentity.tree) throw new Error('Reviewed revision and release source have different trees');
 const nativeRevision = Schema.decodeUnknownSync(revisionString)((await readFile(join(native, 'source-revision.txt'), 'utf8')).trim());
-execFileSync('git', ['diff', '--exit-code', nativeRevision, sourceRevision, '--', 'lib'], { cwd: root, stdio: 'pipe' });
+// The remote controls fixtures run under Node in CI and are not linked into the native host.
+execFileSync('git', ['diff', '--exit-code', nativeRevision, sourceRevision, '--', 'lib', ':(exclude)lib/remote-performance/tests/**'],
+  { cwd: root, stdio: 'pipe' });
 const nativeFiles: string[] = [];
 for (const line of (await readFile(join(native, 'SHA256SUMS'), 'utf8')).trim().split('\n')) {
   const match = /^([a-f0-9]{64})  ([A-Za-z0-9_.-]+)$/.exec(line);
