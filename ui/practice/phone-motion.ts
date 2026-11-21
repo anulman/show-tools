@@ -88,7 +88,8 @@ export type TambourineTuning = Readonly<typeof TAMBOURINE_DEFAULTS>;
 
 const TAMBOURINE = {
   release: 3, shakePeakWindowMs: 24, hitSpeed: 0.18, hitAngularSpeed: 150,
-  brakeFraction: 0.4, maximumGapMs: 120, velocityDecaySeconds: 0.12, reversalCosine: -.5,
+  brakeFraction: 0.4, maximumGapMs: 120, velocityDecaySeconds: 0.12,
+  reversalWindowMs: 120, reversalCosine: -.5,
 };
 
 type MotionVector = readonly [number, number, number];
@@ -116,7 +117,7 @@ export function tambourineDetector(
 ) {
   const shake = thresholdCrossing(tuning.shake, TAMBOURINE.release, tuning.minimumIntervalMs);
   let previous: { time: number; velocity: MotionVector; angularSpeed?: number } | undefined;
-  let strongDirection: { time: number; axes: MotionVector; magnitude: number } | undefined;
+  const strongDirections: { time: number; axes: MotionVector }[] = [];
   let lastHit = -Infinity;
   let shakePeak: { time: number; magnitude: number } | undefined;
   return (reading: MotionReading) => {
@@ -148,22 +149,33 @@ export function tambourineDetector(
     // Raw gravity changes direction as the phone turns. Its length is the usable shake signal.
     const magnitude = acceleration ? gravity ? Math.abs(Math.hypot(...acceleration) - 9.81) : Math.hypot(...acceleration) : undefined;
     const released = magnitude !== undefined && magnitude <= TAMBOURINE.release;
-    if (gravity || !acceleration || released || (strongDirection && time - strongDirection.time > TAMBOURINE.maximumGapMs))
-      strongDirection = undefined;
-    const comparison = !gravity && acceleration && magnitude !== undefined && magnitude >= tuning.shake ? strongDirection : undefined;
-    const cosine = comparison && magnitude !== undefined
-      ? (ax * comparison.axes[0] + ay * comparison.axes[1] + az * comparison.axes[2]) / (magnitude * comparison.magnitude)
-      : undefined;
-    const reversed = cosine !== undefined && cosine <= TAMBOURINE.reversalCosine;
-    if (!gravity && acceleration && magnitude !== undefined && magnitude >= tuning.shake)
-      strongDirection = { time, axes: acceleration, magnitude };
+    if (gravity || !acceleration || released) strongDirections.length = 0;
+    while (strongDirections[0] && time - strongDirections[0].time > TAMBOURINE.reversalWindowMs)
+      strongDirections.shift();
+    let cosine: number | undefined;
+    let comparedMs: number | undefined;
+    let reversed = false;
+    if (!gravity && magnitude !== undefined && magnitude >= tuning.shake) {
+      const axes: MotionVector = [ax / magnitude, ay / magnitude, az / magnitude];
+      for (const direction of strongDirections) {
+        const alignment = axes[0] * direction.axes[0] + axes[1] * direction.axes[1] + axes[2] * direction.axes[2];
+        if (cosine === undefined || alignment < cosine) {
+          cosine = alignment;
+          comparedMs = time - direction.time;
+        }
+      }
+      reversed = cosine !== undefined && cosine <= TAMBOURINE.reversalCosine;
+      // A reversal starts a new stroke. Do not compare it to the stroke it just ended.
+      if (reversed) strongDirections.length = 0;
+      strongDirections.push({ time, axes });
+    }
     previous = { time, velocity, angularSpeed };
     const shakeStarted = magnitude !== undefined && shake(magnitude, time, reversed);
     const slots: TambourineSlot[] | undefined = trace ? [] : undefined;
     const emit = (slot: TambourineSlot) => { slots?.push(slot); hit(slot); };
     const report = (decision: TambourineTrace['decision']) => trace?.({
       reading, magnitude,
-      comparedMs: comparison && time - comparison.time,
+      comparedMs,
       turnDegrees: cosine === undefined ? undefined : Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI,
       rearm: reversed ? 'reversal' : released ? 'release' : undefined,
       decision, slots: slots ?? [],
