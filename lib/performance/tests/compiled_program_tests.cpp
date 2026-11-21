@@ -77,25 +77,25 @@ void until(pf_engine* engine, int bar, int beat = 1) {
 int press(pf_engine* engine, int button) { return pf_control(engine, button, 0, nullptr, 0); }
 void tambourine_audition_uses_sample_output() {
   Engine engine(48000);
-  require(pf_audition_tambourine(engine, 0) < 0, "audition needs a compiled song");
+  require(pf_audition_tambourine(engine, 0, -1) < 0, "audition needs a compiled song");
   const auto song = table();
   prepare(engine, song);
   ok(engine, pf_set_microphone(engine, 0));
   auto silent = [](const auto& pcm) {
     return std::all_of(pcm.begin(), pcm.end(), [](float sample) { return sample == 0; });
   };
-  auto arm = [&] { ok(engine, pf_audition_tambourine(engine, 0)); };
-  auto hit = [&] { ok(engine, pf_audition_tambourine(engine, 96)); };
+  auto arm = [&] { ok(engine, pf_audition_tambourine(engine, 0, -1)); };
+  auto hit = [&] { ok(engine, pf_audition_tambourine(engine, 96, -1)); };
   auto disarmed = [&] {
-    require(pf_audition_tambourine(engine, 96) < 0, "changes invalidate the previous audition");
+    require(pf_audition_tambourine(engine, 96, -1) < 0, "changes invalidate the previous audition");
     const auto out = render(engine, 128);
     require(silent(out.left) && silent(out.right), "changes cancel the pending hit and its tail");
   };
-  require(!pf_audio_needed(engine) && pf_audition_tambourine(engine, 96) < 0, "unarmed hit is rejected");
+  require(!pf_audio_needed(engine) && pf_audition_tambourine(engine, 96, -1) < 0, "unarmed hit is rejected");
   arm();
   require(!pf_audio_needed(engine), "arming alone does not need audio");
   require(silent(render(engine, 128).left), "arming does not play a hit");
-  require(pf_audition_tambourine(engine, -2) < 0 && pf_audition_tambourine(engine, 128) < 0, "out-of-range velocities reject");
+  require(pf_audition_tambourine(engine, -2, -1) < 0 && pf_audition_tambourine(engine, 128, -1) < 0, "out-of-range velocities reject");
 
   std::array<float, 128> left{}, right{}, live_left{}, live_right{};
   uint32_t song_offset = 128, song_frames = 128;
@@ -113,7 +113,7 @@ void tambourine_audition_uses_sample_output() {
   require(state(engine)[PF_PHASE] == PF_IDLE && !take(engine, 0)[PF_TAKE_READY], "the audition leaves transport and capture idle");
   arm();
   require(!silent(render(engine, 128).left), "arming twice preserves a playing tail");
-  ok(engine, pf_audition_tambourine(engine, -1));
+  ok(engine, pf_audition_tambourine(engine, -1, -1));
   disarmed();
   require(!pf_audio_needed(engine), "ending the audition releases idle audio");
   arm(); hit();
@@ -128,7 +128,7 @@ void tambourine_audition_uses_sample_output() {
   left.fill(0); right.fill(0);
   const int active_result = pf_process_stems_with_song_span(engine, nullptr, left.data(), right.data(), live_left.data(), live_right.data(),
     left.size(), &song_offset, &song_frames);
-  ok(engine, pf_audition_tambourine(engine, -1));
+  ok(engine, pf_audition_tambourine(engine, -1, -1));
   watch_heap = false;
   ok(engine, active_result);
   require(!silent(left) && !silent(right), "audition mixes a hit during the count-in");

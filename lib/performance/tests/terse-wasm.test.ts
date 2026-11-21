@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { terseCaptureFixture } from './fixtures/terse-capture.js';
+import { prepareDeclaredExternalAssets } from '../external-assets.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
@@ -427,28 +428,44 @@ test('canonical Drunk Girls pickup loop restarts at Pickup8 phase and crosses nu
   } finally { native.dispose(); }
 });
 
-test('Tribulations Tambourine renders on the browser playback bus only during audition', () => {
+test('Tribulations uses the same four recorded samples for Audition and chart playback', async () => {
   assert(tribulations.compiled);
   const native = engine(Array.from(encodeCompiledProgram(tribulations.compiled)), undefined, 48000);
   try {
-    const playback = [new Float32Array(128), new Float32Array(128)];
-    const monitor = [new Float32Array(128), new Float32Array(128)];
-    const process = () => native.process(null, playback, 128, monitor);
-    assert.throws(() => native.auditionTambourine(100));
+    const samples = await prepareDeclaredExternalAssets(tribulations.compiled.externalSamples);
+    assert.deepEqual(samples.map(sample => sample.slot), [0, 1, 2, 3]);
+    for (const { slot, bytes } of samples) native.prepareExternalWav(slot, bytes);
+    const auditions: Float32Array[] = [];
+    assert.throws(() => native.auditionTambourine(127, 0));
     native.auditionTambourine(0);
-    process();
-    assert(playback.every(channel => channel.every(value => value === 0)), 'arming is silent');
-    native.auditionTambourine(100);
-    process();
-    assert(playback.every(channel => channel.some(value => Math.abs(value) > .001)), 'audible stereo hit');
-    assert(monitor.every(channel => channel.every(value => value === 0)), 'no microphone monitor needed');
-    assert.equal(native.state().phase, 'idle');
-    native.auditionTambourine(-1);
-    process();
-    assert(playback.every(channel => channel.every(value => value === 0)), 'ending audition clears tails');
+    assert(render(native, 2048, 0).every(value => value === 0));
+    for (const { slot } of samples) {
+      native.auditionTambourine(127, slot);
+      const pcm = render(native, 2048, 0);
+      assert(pcm.some(value => Math.abs(value) > .001), `audible sample in slot ${slot}`);
+      assert(!auditions.some(prior => prior.every((value, frame) => value === pcm[frame])), 'each slot sounds different');
+      auditions.push(pcm);
+      native.auditionTambourine(-1);
+      assert(render(native, 2048, 0).every(value => value === 0), 'ending audition clears tails');
+      native.auditionTambourine(0);
+    }
+
+    native.start({ runId: 'outside-window', bpm: 120, countInBars: 0, startBar: 1, endBar: 1 });
+    until(native, 1);
+    native.control({ id: 'external', slot: 0 });
+    assert(render(native, 2048, 0).every(value => value === 0), 'chart input outside the window is silent');
     native.auditionTambourine(0);
-    native.auditionTambourine(100);
+    native.auditionTambourine(127, 0);
+    assert.deepEqual(render(native, 2048, 0), auditions[0], 'running audition bypasses only the chart window');
     native.stop();
-    assert.throws(() => native.auditionTambourine(100), 'Stop disarms audition');
+    assert.throws(() => native.auditionTambourine(127, 0), 'Stop disarms audition');
+
+    for (const { slot } of samples) {
+      native.start({ runId: `chart-sample-${slot}`, bpm: 120, countInBars: 0, startBar: 160, endBar: 160 });
+      until(native, 160);
+      native.control({ id: 'external', slot });
+      assert.deepEqual(render(native, 2048, 0), auditions[slot]);
+      native.stop();
+    }
   } finally { native.dispose(); }
 });

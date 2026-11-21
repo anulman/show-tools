@@ -1530,9 +1530,21 @@ int Program::trigger_external(uint32_t slot) noexcept {
   if (!eligible) return PF_CUE_LATE;
   return launch_external(slot);
 }
-int Program::launch_external(uint32_t slot) noexcept {
+int Program::audition_external(uint32_t slot) noexcept {
+  for (int id = 0; id < external_count_; ++id)
+    if (external_windows_[id].slot == slot) return launch_external(slot, true);
+  return PF_NO_SAMPLE;
+}
+void Program::end_external_audition() noexcept {
+  for (auto& voice : external_playback_) if (voice.audition) voice = {};
+}
+bool Program::external_audition_active() const noexcept {
+  for (const auto& voice : external_playback_) if (voice.audition) return true;
+  return false;
+}
+int Program::launch_external(uint32_t slot, bool audition) noexcept {
   if (!external_samples_[slot].pcm || !external_samples_[slot].frames) return PF_NO_SAMPLE;
-  for (auto& voice : external_playback_) if (voice.slot < 0) { voice = {int(slot), 0}; return PF_OK; }
+  for (auto& voice : external_playback_) if (voice.slot < 0) { voice = {int(slot), 0, audition}; return PF_OK; }
   return PF_TAKE_UNAVAILABLE;
 }
 void Program::set_channel(int button, double gain, bool muted) noexcept {

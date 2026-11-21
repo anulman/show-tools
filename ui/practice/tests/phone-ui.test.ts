@@ -39,12 +39,13 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   assert(group); const button = group.children[0]; assert(button.textContent.includes('Tambourine'));
   assert.equal(group.children[1]?.textContent, 'Audition Tambourine');
   assert.equal(group.children[2]?.textContent, 'Chart shake plays in bars 137–160');
+  assert.equal(group.children.length, 3, 'the four samples share one pair of controls');
   button.events.get('click')?.(); await pending;
   assert(button.textContent.startsWith('Disable shake')); assert.equal(context.audio, undefined);
   vm.runInContext('audio = { control: (control, options) => { captured.push({ control, options }); return Promise.resolve(); } }', Object.assign(context, { captured: commands }));
-  listener?.({ x: null, y: null, z: null, rotation: { x: 500, y: 0, z: 0 }, time: 100, gravity: false });
-  listener?.({ x: 12, y: 0, z: 0, rotation: { x: 510, y: 0, z: 0 }, time: 200, gravity: false });
-  assert.equal(commands.length, 1); assert.equal(JSON.stringify(commands[0]), JSON.stringify({ control: { id: 'external', slot: 0 }, options: { commandId: 'phone-motion/motion-fixture/1' } }));
+  listener?.({ x: null, y: null, z: null, rotation: { x: 480, y: 0, z: 0 }, time: 100, gravity: false });
+  listener?.({ x: 12, y: 0, z: 0, rotation: { x: 100, y: 0, z: 0 }, time: 120, gravity: false });
+  assert.equal(commands.length, 1); assert.equal(JSON.stringify(commands[0]), JSON.stringify({ control: { id: 'external', slot: 1 }, options: { commandId: 'phone-motion/motion-fixture/1' } }));
   context.songGeneration++;
   listener?.({ x: 0, y: 0, z: 0, time: 250, gravity: false });
   listener?.({ x: 12, y: 0, z: 0, time: 400, gravity: false });
@@ -54,7 +55,7 @@ test('actual shake UI enables input without audio startup and sends scoped typed
 for (const { remote, running } of [{ remote: false, running: false }, { remote: false, running: true }, { remote: true, running: true }]) {
   test(`Tambourine audition routes to ${remote ? 'Hardware' : 'Browser'} audio when ${running ? 'playing' : 'stopped'}`, async () => {
     const source = await sourceForVM(new URL('../app.ts', import.meta.url));
-    const commands: number[] = [], errors: unknown[] = [];
+    const commands: (number | [number, number])[] = [], errors: unknown[] = [];
     let listener: ((reading: MotionReading) => void) | undefined;
     let hide: (() => void) | undefined;
     let group: Node | undefined;
@@ -68,8 +69,8 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
     };
     let holdArm: Promise<void> | undefined;
     const audio = {
-      async auditionTambourine(velocity: number) {
-        commands.push(velocity);
+      async auditionTambourine(velocity: number, slot?: number) {
+        commands.push(slot === undefined ? velocity : [velocity, slot]);
         if (velocity === 0) await holdArm;
       },
       control() { assert.fail('Audition cannot issue a chart hit'); },
@@ -80,7 +81,7 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
       document: { getElementById: () => null, createElement: () => new Node() },
       elements: { 'live-voices': { insertAdjacentElement(_position: string, element: Node) { group = element; } } },
       enablePhoneMotion: (options: Parameters<typeof enablePhoneMotion>[0]) => {
-        assert.equal(options.sensor, 'gyroscope');
+        assert.equal(options.sensor, 'tambourine');
         return enablePhoneMotion({ ...options, surface });
       },
       isRunning: () => running, showError: (error: unknown) => errors.push(error),
@@ -104,12 +105,12 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
     await pending;
     assert.deepEqual(commands, [0]);
     assert.equal(button.textContent, 'End Tambourine audition');
-    listener?.({ x: 350, y: 0, z: 0, time: 100, gravity: false });
-    listener?.({ x: 600, y: 0, z: 0, time: 150, gravity: false });
-    assert.deepEqual(commands, [0, 78]);
+    listener?.({ x: null, y: null, z: null, rotation: { x: 220, y: 0, z: 0 }, time: 100, gravity: false });
+    listener?.({ x: null, y: null, z: null, rotation: { x: 70, y: 0, z: 0 }, time: 120, gravity: false });
+    assert.deepEqual(commands, [0, [127, 0]]);
     hide?.();
     await context.phoneAuditionTransition;
-    assert.deepEqual(commands, [0, 78, -1]);
+    assert.deepEqual(commands, [0, [127, 0], -1]);
     assert.equal(listener, undefined);
     assert.equal(button.textContent, 'Audition Tambourine');
 
@@ -118,19 +119,19 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
     button.events.get('click')?.();
     grant('granted');
     await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(commands, [0, 78, -1, 0]);
+    assert.deepEqual(commands, [0, [127, 0], -1, 0]);
     hide?.();
     button.events.get('click')?.();
     grant('granted');
     await new Promise(resolve => setImmediate(resolve));
-    assert.deepEqual(commands, [0, 78, -1, 0], 'new arm waits for old cleanup');
+    assert.deepEqual(commands, [0, [127, 0], -1, 0], 'new arm waits for old cleanup');
     holdArm = undefined;
     acknowledge();
     await pending;
-    assert.deepEqual(commands, [0, 78, -1, 0, -1, 0]);
+    assert.deepEqual(commands, [0, [127, 0], -1, 0, -1, 0]);
     button.events.get('click')?.();
     await context.phoneAuditionTransition;
-    assert.deepEqual(commands, [0, 78, -1, 0, -1, 0, -1]);
+    assert.deepEqual(commands, [0, [127, 0], -1, 0, -1, 0, -1]);
     assert.deepEqual(errors, []);
   });
 }

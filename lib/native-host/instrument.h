@@ -41,7 +41,7 @@ public:
   bool supports_audition() const { return config_.idle_microphone_monitor; }
   int audition_profile() const { return audition_profile_; }
   int audition(int profile);
-  int audition_tambourine(int32_t velocity);
+  int audition_tambourine(int32_t velocity, int32_t slot = -1);
   bool has_tambourine_output() const { return output_ == Output::Tambourine; }
   int render(const float* input, uint32_t frames);
   int64_t write(AudioPump::Write sink, void* context);

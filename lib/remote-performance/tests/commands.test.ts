@@ -480,13 +480,17 @@ test('empty reconnect churn preserves unknown and settled original-owner readbac
 
 test('Tambourine audition encodes only integer commands for Tribulations', () => {
   const state = decodeNativeState(Array(PF.FIELDS).fill(0), Array(PF.CHANNELS * PF.CHANNEL_FIELDS).fill(0), 'test', String);
-  const input = (velocity: unknown) => ({ command: 'auditionTambourine', args: { velocity } });
+  const input = (velocity: unknown, slot?: unknown) => ({ command: 'auditionTambourine', args: { velocity, ...(slot === undefined ? {} : { slot }) } });
   for (const velocity of [-1, 0, 1, 127]) {
     const bytes = encodeCommand(input(velocity), state, 'tribulations');
     assert.equal(bytes.readUInt16LE(0), 23);
     assert.equal(bytes.readDoubleLE(2), velocity);
+    assert.equal(bytes.readDoubleLE(10), -1);
   }
   for (const velocity of [-2, 128, .5, '127', Infinity, NaN])
     assert.throws(() => encodeCommand(input(velocity), state, 'tribulations'));
+  for (const slot of [0, 1, 2, 3]) assert.equal(encodeCommand(input(127, slot), state, 'tribulations').readDoubleLE(10), slot);
+  for (const slot of [-1, 64, 1.5, '0']) assert.throws(() => encodeCommand(input(127, slot), state, 'tribulations'));
+  assert.throws(() => encodeCommand(input(0, 0), state, 'tribulations'));
   assert.throws(() => encodeCommand(input(0), state, 'dance-yrself-clean'), /Tribulations/);
 });

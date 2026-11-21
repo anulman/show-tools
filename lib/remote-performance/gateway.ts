@@ -10,7 +10,7 @@ import { extname, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Schema } from 'effect';
 import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
-import { decodeClientInputCommand, isPriorityCommand, TambourineVelocity, type ClientInputCommand } from './commands.js';
+import { decodeClientInputCommand, isPriorityCommand, TambourineAudition, type ClientInputCommand } from './commands.js';
 import { InputBindingsSchema, decodeInputBindings, decodeInputAttach, type InputBindings, type InputAttach } from '../performance/input-bindings.js';
 
 export interface Observation {
@@ -238,7 +238,7 @@ const decodeCommand = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields,
   command: Schema.Literals(['start', 'stop', 'recordDemo', 'audition', 'auditionTambourine', 'control', 'selectChannel', 'setChannel', 'setClick', 'configureVoiceProfile', 'configureJiggle', 'tuner', 'inputAttach', 'inputEvent', 'inputRevoke']),
   args: Schema.Record(Schema.String, Schema.Unknown), target: NativeTargetSchema,
 }));
-const decodeTambourine = Schema.decodeUnknownSync(Schema.Struct({ velocity: TambourineVelocity }), { onExcessProperty: 'error' });
+const decodeTambourine = Schema.decodeUnknownSync(TambourineAudition, { onExcessProperty: 'error' });
 const decodeAudio = Schema.decodeUnknownSync(Schema.Struct({ ...requestFields, goal: AudioGoalSchema }));
 
 function json(response: ServerResponse, status: number, value: unknown) {
@@ -296,18 +296,19 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
     return view.song.id === 'tribulations' && view.audio.kind === 'ready'
       && view.audio.attempt === target.attempt && view.audio.performance.hostEpoch === target.hostEpoch;
   };
-  const sendAudition = (target: NativeTarget, velocity: number): Promise<NativeOutcome> =>
-    controller.command(target, { command: 'auditionTambourine', args: { velocity } }).catch(() => ({ outcome: 'unknown' }));
+  const sendAudition = (target: NativeTarget, args: typeof TambourineAudition.Type): Promise<NativeOutcome> =>
+    controller.command(target, { command: 'auditionTambourine', args }).catch(() => ({ outcome: 'unknown' }));
   const endAudition = async (lease: NonNullable<typeof audition>) => {
     if (lease !== audition) return { outcome: 'rejected' as const, error: 'This session has no Tambourine audition' };
-    const result = await sendAudition(lease.target, -1);
+    const result = await sendAudition(lease.target, { velocity: -1 });
     if (result.outcome === 'applied' || !isAuditionTarget(lease.target)) audition = undefined;
     return result;
   };
   const commandAudition = (owner: Session, target: NativeTarget, input: unknown): Promise<NativeOutcome> => {
-    let velocity: number;
-    try { ({ velocity } = decodeTambourine(input)); }
+    let args: typeof TambourineAudition.Type;
+    try { args = decodeTambourine(input); }
     catch { return Promise.resolve({ outcome: 'rejected', error: 'Invalid Tambourine audition velocity' }); }
+    const { velocity } = args;
     return queueAudition(async () => {
       if (!owner.attached || !isAuditionTarget(target))
         return { outcome: 'rejected', error: 'Connect to hardware audio with Tribulations selected' };
@@ -320,7 +321,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
       if (velocity !== 0 && !audition)
         return { outcome: 'rejected', error: 'Start Tambourine audition first' };
       if (velocity === -1 && audition) return endAudition(audition);
-      const result = await sendAudition(target, velocity);
+      const result = await sendAudition(target, args);
       if (velocity === 0 && result.outcome !== 'rejected') audition = { owner, target };
       return result;
     });

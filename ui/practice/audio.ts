@@ -297,7 +297,7 @@ export class PracticeAudio {
     const commandId = typeof options === 'string' ? options : options.commandId;
     return this.request('practice.control', { control, commandId });
   }
-  auditionTambourine(velocity: number) { return this.request('practice.audition-tambourine', { velocity }); }
+  auditionTambourine(velocity: number, slot?: number) { return this.request('practice.audition-tambourine', { velocity, slot }); }
   inputAttach(args: InputAttachArgs) { return this.request('practice.input-attach', args); }
   inputEvent(args: InputEventArgs) {
     const routing = this.latest.inputRouting;

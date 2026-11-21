@@ -118,9 +118,11 @@ bool parse(Request& request,const Bytes& data) {
     return profile>=-1 && profile<PF_VOICE_PROFILES && std::floor(profile)==profile;
   }
   if(request.op==audition_tambourine) {
-    if(left!=8)return false;
+    if(left!=8 && left!=16)return false;
     const double velocity=request.args[0]=f64(p);
-    return velocity>=-1 && velocity<=127 && std::floor(velocity)==velocity;
+    const double slot=request.args[1]=left==16?f64(p+8):-1;
+    return velocity>=-1 && velocity<=127 && std::floor(velocity)==velocity &&
+      slot>=-1 && slot<64 && std::floor(slot)==slot && (slot==-1 || velocity>0);
   }
   if(request.op==18) {
     if(left!=32)return false;
@@ -287,7 +289,7 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #ifdef NATIVE_ALSA_HOST
           const bool drop_output=a[0]==-1 && instrument.has_tambourine_output() && alsa_run.active();
 #endif
-          rc=instrument.audition_tambourine(int32_t(a[0]));
+          rc=instrument.audition_tambourine(int32_t(a[0]),int32_t(a[1]));
 #ifdef NATIVE_ALSA_HOST
           if(rc==0 && ((drop_output && device_fault("drop on Tambourine audition end",alsa_run.drop(*device))) ||
                        ((drop_output || (a[0]>0 && alsa_run.can_activate())) &&
@@ -554,7 +556,7 @@ void run_connection(int fd,Shared& shared,const std::array<uint8_t,16>& epoch,ui
   }
   if(owns_tambourine) {
     auto* cleanup=new Request; cleanup->connection=connection; cleanup->order=++order;
-    cleanup->op=audition_tambourine; cleanup->args[0]=-1;
+    cleanup->op=audition_tambourine; cleanup->args[0]=-1; cleanup->args[1]=-1;
     if(shared.commands.push(cleanup)) ++outstanding; else delete cleanup;
   }
   for(uint32_t slot=0;slot<PF_INPUT_PRODUCERS;++slot) {
