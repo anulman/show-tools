@@ -740,6 +740,10 @@ function mountPhoneMotion() {
             await queuePhoneAudition(async () => {
               if (!current() || instance !== audio) return;
               audition = instance;
+              if (diagnostics) {
+                const detach = instance.onEvent((event: PracticeEvent, outputTime?: number) => diagnostics.recordClick(event, outputTime));
+                cancel.signal.addEventListener('abort', detach, { once: true });
+              }
               await audition.auditionTambourine(0);
             });
           }

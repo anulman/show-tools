@@ -29,7 +29,7 @@ export class PracticeAudio {
   readonly recordDestination: MediaStreamAudioDestinationNode;
   readonly liveMonitor: GainNode;
   readonly listeners = new Set<(state: PracticeState) => void>();
-  readonly eventListeners = new Set<(event: PracticeEvent) => void>();
+  readonly eventListeners = new Set<(event: PracticeEvent, outputTime?: number) => void>();
   readonly tunerListeners = new Set<(state: TunerState) => void>();
   private latestTuner: TunerState | null = null;
   private latestTuningBank: TuningBankState | null = null;
@@ -52,7 +52,7 @@ export class PracticeAudio {
       return this.tuner.snapshot();
     },
   };
-  readonly onMessage: (event: MessageEvent<{ event?: PracticeEvent }>) => void;
+  readonly onMessage: (event: MessageEvent<{ event?: PracticeEvent; contextFrame?: number }>) => void;
   readonly detachState: () => void;
   detachPeripheral: () => void | Promise<void> = () => {};
   peripheralReady: Promise<void> = Promise.resolve();
@@ -155,8 +155,13 @@ export class PracticeAudio {
       const cue = event.cueIndex === undefined ? undefined : compiled?.cues[event.cueIndex];
       if (cue && event.error) event.error = `${cue.source.a1} ${cue.source.text}: ${event.error}`;
       if (event.type === 'fault') this.fail(new Error(event.error || 'The performance stopped'));
+      const context = tracker.context;
+      const timestamp = event.state.click && data.contextFrame !== undefined && context.state === 'running'
+        ? context.getOutputTimestamp?.() : undefined;
+      const outputTime = timestamp?.performanceTime && timestamp.contextTime !== undefined && data.contextFrame !== undefined
+        ? timestamp.performanceTime + (data.contextFrame / context.sampleRate - timestamp.contextTime) * 1000 : undefined;
       for (const listener of this.eventListeners) {
-        try { listener(event); } catch (error) { globalThis.reportError?.(error); }
+        try { listener(event, outputTime); } catch (error) { globalThis.reportError?.(error); }
       }
     };
     endpoint.port.addEventListener('message', this.onMessage);
@@ -229,7 +234,7 @@ export class PracticeAudio {
     return () => this.listeners.delete(listener);
   }
 
-  onEvent(listener: (event: PracticeEvent) => void) {
+  onEvent(listener: (event: PracticeEvent, outputTime?: number) => void) {
     this.eventListeners.add(listener);
     return () => this.eventListeners.delete(listener);
   }

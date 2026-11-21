@@ -1,7 +1,9 @@
+import type { PracticeEvent } from '../../lib/performance/model.js';
 import type { TambourineDirection } from './tambourine-direction.js';
 import type { MotionReading, TambourineTrace, TambourineTuning } from './phone-motion.js';
 
-const TRACE_LIMIT = 300;
+const TRACE_LIMIT = 480;
+const CLICK_LIMIT = 32;
 const labels = ['hit v1', 'hit v2', 'shake rr1', 'shake rr2'];
 const number = (value?: number | null) => typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '-';
 
@@ -40,16 +42,23 @@ export function createTambourineTrace() {
   root.append(heading, copy, status, output);
 
   const rows: string[] = [];
+  const clicks: string[] = [];
   let dropped = 0;
+  let clicksDropped = 0;
+  let mode: 'Hardware' | 'Browser';
   let tuning: (() => TambourineTuning) | undefined;
   let direction: (() => TambourineDirection | undefined) | undefined;
   let lastDirection: TambourineDirection | undefined;
   let lastTuning: TambourineTuning | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const content = () => [
-    'Tambourine audition v4 · acceleration m/s² · velocity m/s · gyro °/s',
+    'Tambourine audition v5 · acceleration m/s² · velocity m/s · gyro °/s',
     `Latest tuning: ${JSON.stringify(tuning?.())} · older entries discarded: ${dropped}`,
     `Motion direction: ${JSON.stringify(direction?.() ?? null)}`,
+    clicks.length
+      ? `Desk clicks on the phone timeline · older clicks discarded: ${clicksDropped}`
+      : 'No desk clicks captured. Start the song with Song click enabled before opening audition.',
+    ...clicks,
     ...rows,
   ].join('\n');
   const flush = () => {
@@ -59,11 +68,12 @@ export function createTambourineTrace() {
     output.value = content();
     output.scrollTop = output.scrollHeight;
   };
-  const note = (line: string) => {
+  const append = (line: string) => {
     if (rows.length === TRACE_LIMIT) { rows.shift(); dropped++; }
     rows.push(line.replace(/[\r\n]+/g, ' ').slice(0, 500));
     if (timer === undefined) timer = setTimeout(flush, 200);
   };
+  const note = (line: string) => append(`t=${number(performance.now())}ms ${line}`);
   output.addEventListener('blur', flush);
   copy.addEventListener('click', async () => {
     const report = content();
@@ -79,9 +89,10 @@ export function createTambourineTrace() {
   });
   return {
     root,
-    start(read: () => TambourineTuning, mode: 'Hardware' | 'Browser', readDirection?: () => TambourineDirection | undefined) {
+    start(read: () => TambourineTuning, route: 'Hardware' | 'Browser', readDirection?: () => TambourineDirection | undefined) {
       root.hidden = false;
-      rows.length = 0; dropped = 0; tuning = read; status.textContent = '';
+      rows.length = 0; clicks.length = 0; dropped = 0; clicksDropped = 0;
+      tuning = read; mode = route; status.textContent = '';
       lastTuning = read();
       direction = readDirection;
       lastDirection = direction?.();
@@ -89,6 +100,16 @@ export function createTambourineTrace() {
       flush();
     },
     note,
+    recordClick(event: PracticeEvent, outputTime?: number) {
+      if (event.type !== 'beat' || !event.state.click || event.frame === undefined || !event.sampleRate) return;
+      const received = performance.now();
+      const mapped = outputTime !== undefined && Number.isFinite(outputTime) && outputTime >= 0;
+      const source = mapped ? 'browser-output-estimate' : mode === 'Hardware' ? 'hardware-event-receipt' : 'browser-event-receipt';
+      const { bar, beat, bpm, phase } = event.state;
+      if (clicks.length === CLICK_LIMIT) { clicks.shift(); clicksDropped++; }
+      clicks.push(`t=${number(mapped ? outputTime : received)}ms click source=${source} phase=${phase} bar=${bar ?? '-'} beat=${beat ?? '-'} bpm=${number(bpm)} frame=${number(event.frame)} rate=${event.sampleRate} received=${number(received)}ms`);
+      if (timer === undefined) timer = setTimeout(flush, 200);
+    },
     record(entry: TambourineTrace) {
       const settings = tuning?.();
       if (settings !== lastTuning) {
@@ -100,7 +121,7 @@ export function createTambourineTrace() {
         lastDirection = axis;
         note(`Motion direction updated · ${JSON.stringify(axis ?? null)}`);
       }
-      note(formatTambourineTrace(entry));
+      append(formatTambourineTrace(entry));
     },
   };
 }

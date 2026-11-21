@@ -1,4 +1,5 @@
 export class PerformanceProcessor extends AudioWorkletProcessor {
+  readonly frameOrigin: number;
   sampler: import('../../../lib/sampler/wasm-sampler.js').SampleEngine;
   recorder: import('../../../lib/sampler/wasm-sampler.js').SampleRecorder;
   sequencer: import('../../../lib/sequencer/wasm-sequencer.js').AudioSequenceEngine;
