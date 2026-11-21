@@ -27,10 +27,10 @@ function thresholdCrossing(threshold: number, release: number, minimumIntervalMs
   let armed = true;
   let lastHit = -Infinity;
   let lastReading = -Infinity;
-  return (magnitude: number, time: number) => {
+  return (magnitude: number, time: number, reversed = false) => {
     if (!Number.isFinite(magnitude) || !Number.isFinite(time) || time < lastReading) return false;
     lastReading = time;
-    if (magnitude <= release) armed = true;
+    if (magnitude <= release || reversed) armed = true;
     if (!armed || magnitude < threshold || time - lastHit < minimumIntervalMs) return false;
     armed = false;
     lastHit = time;
@@ -88,7 +88,7 @@ export type TambourineTuning = Readonly<typeof TAMBOURINE_DEFAULTS>;
 
 const TAMBOURINE = {
   release: 3, shakePeakWindowMs: 24, hitSpeed: 0.18, hitAngularSpeed: 150,
-  brakeFraction: 0.4, maximumGapMs: 120, velocityDecaySeconds: 0.12,
+  brakeFraction: 0.4, maximumGapMs: 120, velocityDecaySeconds: 0.12, reversalCosine: -.5,
 };
 
 type MotionVector = readonly [number, number, number];
@@ -99,12 +99,12 @@ function finiteAxes(axes: MotionAxes | undefined): MotionVector | undefined {
   return [x, y, z];
 }
 
-export function tambourineDetector(tuning: TambourineTuning = TAMBOURINE_DEFAULTS): (reading: MotionReading) => TambourineSlot | undefined {
+export function tambourineDetector(hit: (slot: TambourineSlot) => void, tuning: TambourineTuning = TAMBOURINE_DEFAULTS) {
   const shake = thresholdCrossing(tuning.shake, TAMBOURINE.release, tuning.minimumIntervalMs);
-  let previous: { time: number; velocity: MotionVector; angularSpeed?: number } | undefined;
+  let previous: { time: number; velocity: MotionVector; angularSpeed?: number; shakeDirection?: MotionVector } | undefined;
   let lastHit = -Infinity;
   let shakePeak: { time: number; magnitude: number } | undefined;
-  return reading => {
+  return (reading: MotionReading) => {
     const { time, gravity, rotation } = reading;
     if (!Number.isFinite(time) || (previous && time <= previous.time)) return;
     const acceleration = finiteAxes(reading);
@@ -127,28 +127,40 @@ export function tambourineDetector(tuning: TambourineTuning = TAMBOURINE_DEFAULT
     const decay = Math.exp(-elapsed / TAMBOURINE.velocityDecaySeconds);
     const velocity: MotionVector = recent && acceleration && !gravity && !braking
       ? [decay * vx + elapsed * ax, decay * vy + elapsed * ay, decay * vz + elapsed * az] : [0, 0, 0];
-    previous = { time, velocity, angularSpeed };
     // Raw gravity changes direction as the phone turns. Its length is the usable shake signal.
     const magnitude = acceleration ? gravity ? Math.abs(Math.hypot(...acceleration) - 9.81) : Math.hypot(...acceleration) : undefined;
-    const shakeStarted = magnitude !== undefined && shake(magnitude, time);
+    const shakeDirection = !gravity && magnitude !== undefined && magnitude >= tuning.shake ? acceleration : undefined;
+    const lastDirection = recent?.shakeDirection;
+    const reversed = Boolean(shakeDirection && lastDirection &&
+      ax * lastDirection[0] + ay * lastDirection[1] + az * lastDirection[2]
+        <= TAMBOURINE.reversalCosine * Math.hypot(...shakeDirection) * Math.hypot(...lastDirection));
+    previous = { time, velocity, angularSpeed, shakeDirection };
+    const shakeStarted = magnitude !== undefined && shake(magnitude, time, reversed);
     if (braking) {
       shakePeak = undefined;
       if (time - lastHit < tuning.minimumIntervalMs) return;
       lastHit = time;
-      return (linearHit && speed >= tuning.hardHitSpeed)
-        || (angularHit && precedingAngularSpeed >= tuning.hardHitAngularSpeed) ? 1 : 0;
+      hit((linearHit && speed >= tuning.hardHitSpeed)
+        || (angularHit && precedingAngularSpeed >= tuning.hardHitAngularSpeed) ? 1 : 0);
+      return;
     }
     if (magnitude === undefined) return;
     if (!recent) shakePeak = undefined;
+    if (reversed && shakePeak) {
+      shakePeak = undefined;
+      hit(2);
+    }
     if (magnitude >= tuning.hardShake && (shakeStarted || shakePeak)) {
       shakePeak = undefined;
-      return 3;
+      hit(3);
+      return;
     }
     if (shakePeak) {
       // A hard stroke can cross the soft threshold one reading before its peak.
       if (magnitude < shakePeak.magnitude * .8 || time - shakePeak.time >= TAMBOURINE.shakePeakWindowMs) {
         shakePeak = undefined;
-        return 2;
+        hit(2);
+        return;
       }
       shakePeak.magnitude = Math.max(shakePeak.magnitude, magnitude);
     } else if (shakeStarted) shakePeak = { time, magnitude };
@@ -197,8 +209,9 @@ export async function enablePhoneMotion({
   signal.throwIfAborted();
 
   let tuning = tambourineTuning?.();
-  let detect = sensor === 'tambourine' ? tambourineDetector(tuning)
+  const detectMotion = sensor === 'tambourine' ? undefined
     : sensor === 'gyroscope' ? gyroscopeDetector(settings) : shakeDetector(settings);
+  let detectTambourine = sensor === 'tambourine' ? tambourineDetector(hit, tuning) : undefined;
   let active = true, unlisten = () => {}, unhide = () => {};
   const stop = () => {
     if (!active) return;
@@ -217,13 +230,17 @@ export async function enablePhoneMotion({
     unlisten = surface.listen(reading => {
       if (!active) return;
       if (!current()) { stop(); return; }
-      const nextTuning = tambourineTuning?.();
-      if (sensor === 'tambourine' && nextTuning !== tuning) {
-        tuning = nextTuning;
-        detect = tambourineDetector(tuning);
+      if (detectTambourine) {
+        const nextTuning = tambourineTuning?.();
+        if (nextTuning !== tuning) {
+          tuning = nextTuning;
+          detectTambourine = tambourineDetector(hit, tuning);
+        }
+        detectTambourine(reading);
+        return;
       }
-      const value = detect(reading);
-      if (sensor === 'tambourine' ? value !== undefined : value) hit(Number(value));
+      const value = detectMotion?.(reading);
+      if (value) hit(Number(value));
     });
     return { stop };
   } catch (error) {
