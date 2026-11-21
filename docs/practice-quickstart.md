@@ -203,6 +203,25 @@ To use Tribulations' phone tambourine, open the same hardware desk on the phone,
 
 During a song, any configured button with an LED still reaches full brightness while held, including an unassigned musical button. Release restores the sequenced level. Recording pulses take priority over the playing level, which is at most 70%.
 
+## Soundcheck before the show
+
+1. Listen through the speakers or headphones connected to the Scarlett. Set the Scarlett's output level for soundcheck.
+2. Switch the desk to **Live** with transport stopped. Speak into the mic. Check that the Scarlett input ring responds and that you can hear your voice in the output.
+3. Press **Start** and confirm that the bar and beat advance. Listen for the count-in click. Enable **Song click** if you also want the click during the song.
+4. Press **Stop**. Check that the song stops and that the idle mic is still audible. Use this same check after any cable or output-routing change.
+
+### If the desk goes quiet
+
+| What you see or hear | What to do |
+| --- | --- |
+| **Live**, with the bar and beat stopped | Press **Start** when you are ready for the count-in. **Live** means the audio engine is available. **Start** runs the song. |
+| Mic input ring stays dark while you speak | Check the mic cable, the selected Scarlett input, and input gain. |
+| Mic input ring responds, but you hear neither voice nor count-in | Check the Scarlett output level and the connected headphones, speakers, or mixer. Test with headphones directly on the Scarlett to isolate the downstream path. |
+| You hear the count-in but still hear no mic | The output path works. Check the mic input ring, then test the idle mic again after **Stop**. If the desk was muted with **Panic**, a deliberate **Start** re-enables monitoring. |
+| **Standby** or **Hardware audio fault** | Switch to **Live** and repeat the soundcheck. If the fault returns, read the message in the desk or run `practice audio status` from the EliteDesk terminal using the setup above. |
+
+If you need to reset the engine between songs, switch to **Standby**, then back to **Live**. Standby clears in-memory takes, so save any takes you need first.
+
 ## Download a practice demo
 
 **Start** records a stereo demo after count-in. Press **Stop** to finish both practice and the demo. Press **Finish take** to save the demo and keep playing. When **WAV ready** appears, choose **Download take**. Turning audio off leaves the last completed demo available while the web service runs. Download it before stopping the service or finishing another demo.
