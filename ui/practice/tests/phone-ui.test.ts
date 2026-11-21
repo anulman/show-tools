@@ -5,6 +5,7 @@ import { sourceForVM } from '../../../scripts/source-for-vm.js';
 import { enablePhoneMotion, type MotionReading, type MotionSurface } from '../phone-motion.js';
 import { normalizeTambourineTuning } from '../tambourine-tuning.js';
 import { chartBarLabel } from '../../../lib/performance/chart-position.js';
+import type { PracticeEvent } from '../../../lib/performance/model.js';
 import tribulations from '../../../songs/tribulations.js';
 
 const createTambourineTrace = () => ({ root: new Node(), start() {}, note() {}, record() {} });
@@ -72,7 +73,10 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
     };
     let holdArm: Promise<void> | undefined;
     let holdStroke: Promise<void> | undefined;
+    const clicks: { event: PracticeEvent; outputTime?: number }[] = [];
+    let eventListener: ((event: PracticeEvent, outputTime?: number) => void) | undefined;
     const audio = {
+      onEvent(receive: typeof eventListener) { eventListener = receive; return () => { eventListener = undefined; }; },
       async auditionTambourine(velocity: number, slot?: number) {
         commands.push(slot === undefined ? velocity : [velocity, slot]);
         if (velocity === 0) await holdArm;
@@ -81,7 +85,9 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
       control() { assert.fail('Audition cannot issue a chart hit'); },
     };
     const context = {
-      createTambourineTrace, createTambourineTuning: () => ({ root: new Node(), read: () => undefined, setAuditionActive() {} }),
+      createTambourineTrace: () => ({ ...createTambourineTrace(),
+        recordClick(event: PracticeEvent, outputTime?: number) { clicks.push({ event, outputTime }); } }),
+      createTambourineTuning: () => ({ root: new Node(), read: () => undefined, setAuditionActive() {} }),
       song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote, audio: remote || running ? audio : undefined,
       phoneMotionAbort: undefined, phoneAuditionTransition: Promise.resolve(), crypto: { randomUUID: () => 'motion-fixture' }, AbortController, DOMException,
       document: { getElementById: () => null, createElement: () => new Node() },
@@ -111,6 +117,11 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
     await pending;
     assert.deepEqual(commands, [0]);
     assert.equal(button.textContent, 'End Tambourine audition');
+    const beat = { type: 'beat' } as PracticeEvent;
+    const outputTime = remote ? undefined : 1234;
+    assert(eventListener);
+    eventListener(beat, outputTime);
+    assert.deepEqual(clicks, [{ event: beat, outputTime }]);
     let releaseStroke: () => void = () => assert.fail('stroke delay not installed');
     holdStroke = new Promise(resolve => { releaseStroke = resolve; });
     const motion = (x: number, time: number) => listener?.({ x, y: 0, z: 0, time, gravity: false });
@@ -126,6 +137,7 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
     await context.phoneAuditionTransition;
     assert.deepEqual(commands, [0, [127, 3], [127, 3], -1]);
     assert.equal(listener, undefined);
+    assert.equal(eventListener, undefined);
     assert.equal(button.textContent, 'Audition Tambourine');
 
     let acknowledge: () => void = () => assert.fail('arm delay not installed');

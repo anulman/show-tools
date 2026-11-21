@@ -60,7 +60,10 @@ export class PracticeProcessor extends PerformanceProcessor {
   performanceState() { return { ...super.performanceState(), practice: this.native.state(), takeAudioToken: this.native.takeAudioToken(), tuner: this.native.tunerState(), tuningBank: this.native.tuningBankState() }; }
   publishNativeEvents() {
     if (this.peripheralLights) this.performancePort?.postMessage({ lights: Array.from(this.native.lightOutput()) });
-    for (const event of this.native.events()) this.performancePort?.postMessage({ event, state: this.performanceState() });
+    for (const event of this.native.events()) {
+      const contextFrame = event.type === 'beat' && event.frame !== undefined ? this.frameOrigin + event.frame : undefined;
+      this.performancePort?.postMessage({ event, contextFrame, state: this.performanceState() });
+    }
   }
   command(message: PracticeMessage) {
     const { id, command } = message;
