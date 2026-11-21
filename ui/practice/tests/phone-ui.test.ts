@@ -27,7 +27,7 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   const surface: MotionSurface = { secure: true, available: true, async permission() { return 'granted'; },
     listen(receive) { listener = receive; return () => { removed++; listener = undefined; }; }, hide() { return () => {}; } };
   const commands: unknown[] = [], errors: unknown[] = [];
-  const context = { createTambourineTrace, createTambourineTuning: () => ({ root: new Node(), read: () => undefined, setAuditionActive() {} }), song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote: false, audio: undefined,
+  const context = { createTambourineTrace, createTambourineTuning: () => ({ root: new Node(), read: () => undefined }), song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote: false, audio: undefined,
     phoneMotionAbort: undefined, phoneAuditionTransition: Promise.resolve(), crypto: { randomUUID: () => 'motion-fixture' }, AbortController, DOMException,
     document: { getElementById: () => null, createElement: () => new Node() },
     elements: { 'live-voices': { insertAdjacentElement(_position: string, element: Node) { group = element; } } },
@@ -81,7 +81,7 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
       control() { assert.fail('Audition cannot issue a chart hit'); },
     };
     const context = {
-      createTambourineTrace, createTambourineTuning: () => ({ root: new Node(), read: () => undefined, setAuditionActive() {} }),
+      createTambourineTrace, createTambourineTuning: () => ({ root: new Node(), read: () => undefined }),
       song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote, audio: remote || running ? audio : undefined,
       phoneMotionAbort: undefined, phoneAuditionTransition: Promise.resolve(), crypto: { randomUUID: () => 'motion-fixture' }, AbortController, DOMException,
       document: { getElementById: () => null, createElement: () => new Node() },

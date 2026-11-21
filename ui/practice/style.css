@@ -163,8 +163,6 @@
 .tambourine-tuning[open] { border-top: 1px solid var(--line); padding-top: 8px; }
 .tambourine-tuning summary { width: fit-content; cursor: pointer; font-size: 12px; padding: 8px 0; }
 .tambourine-tuning .fx-knobs { grid-template-columns: repeat(auto-fit, minmax(125px, 1fr)); margin: 4px 0 8px; }
-.tambourine-direction { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
-.tambourine-direction small { flex-basis: 100%; }
 .tambourine-tuning small { display: inline-block; margin-left: 8px; }
 
 .tambourine-trace { flex-basis: 100%; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
