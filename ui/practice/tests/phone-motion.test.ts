@@ -267,3 +267,28 @@ test('a short reading between the release and onset thresholds preserves the rev
   assert.equal(trace.at(-1)?.comparedMs, undefined, 'a sequence of weak readings does not extend the strong reference');
   assert.deepEqual(slots, [3, 3]);
 });
+
+test('a wrist stroke can reverse across several above-threshold readings', () => {
+  const slots: TambourineSlot[] = [];
+  const tuning = { ...TAMBOURINE_DEFAULTS, shake: 4, hardShake: 5.5 };
+  const detect = tambourineDetector(slot => slots.push(slot), tuning);
+
+  for (const [time, x, y, z] of [
+    [6804, 2.25, 7.15, 2.72],
+    [6821, 3.93, 6.98, 2.04],
+    [6836, 9.39, 3.49, -0.37],
+    [6855, 14.18, 2.38, -0.79],
+    [6873, 15.70, 3.06, -0.91],
+    [6887, 15.30, 4.81, -2.37],
+    [6903, 12.09, 8.83, -1.40],
+    [6921, 9.64, 10.58, -1.25],
+    [6937, 0.27, 12.64, -0.60],
+  ]) detect({ time, x, y, z, gravity: false });
+  assert.deepEqual(slots, [3], 'the outward stroke plays once as it arcs sideways');
+
+  detect({ time: 6954, x: -21.07, y: 6.87, z: -2.57, gravity: false });
+  assert.deepEqual(slots, [3, 3], 'the full reversal plays the return stroke');
+  detect({ time: 6972, x: -31.79, y: 4.29, z: -6.17, gravity: false });
+  detect({ time: 6988, x: -29.38, y: 0.41, z: -7.92, gravity: false });
+  assert.deepEqual(slots, [3, 3], 'the return stroke plays once');
+});
