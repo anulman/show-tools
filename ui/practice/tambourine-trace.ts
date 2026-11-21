@@ -1,3 +1,4 @@
+import type { DownstrokeAxis } from './tambourine-direction.js';
 import type { TambourineTrace, TambourineTuning } from './phone-motion.js';
 
 const TRACE_LIMIT = 300;
@@ -5,14 +6,15 @@ const labels = ['hit v1', 'hit v2', 'shake rr1', 'shake rr2'];
 const number = (value?: number | null) => typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '-';
 
 function formatTambourineTrace(entry: TambourineTrace): string {
-  const { reading, magnitude, comparedMs, turnDegrees, rearm, decision, slots } = entry;
+  const { reading, magnitude, comparedMs, turnDegrees, signedSpeed, rearm, decision, slots } = entry;
   const { rotation } = reading;
-  const source = magnitude === undefined ? 'missing' : reading.gravity ? 'gravity' : 'linear';
+  const source = reading.x === null || reading.y === null || reading.z === null ? 'missing' : reading.gravity ? 'gravity' : 'linear';
   return [
     `t=${number(reading.time)}ms`,
     `src=${source} a=[${number(reading.x)},${number(reading.y)},${number(reading.z)}] mag=${number(magnitude)}`,
     `gyro=[${number(rotation?.x)},${number(rotation?.y)},${number(rotation?.z)}]`,
-    `turn=${number(turnDegrees)}deg anchor=${number(comparedMs)}ms`,
+    signedSpeed === undefined ? `turn=${number(turnDegrees)}deg anchor=${number(comparedMs)}ms`
+      : `down=${number(signedSpeed)}°/s`,
     `rearm=${rearm ?? '-'} decision=${decision} samples=${slots.map(slot => labels[slot]).join('+') || '-'}`,
   ].join(' ');
 }
@@ -34,11 +36,14 @@ export function createTambourineTrace() {
   const rows: string[] = [];
   let dropped = 0;
   let tuning: (() => TambourineTuning) | undefined;
+  let direction: (() => DownstrokeAxis | undefined) | undefined;
+  let lastDirection: DownstrokeAxis | undefined;
   let lastTuning: TambourineTuning | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const content = () => [
-    'Tambourine audition v1 · acceleration m/s² · gyro °/s',
+    'Tambourine audition v2 · acceleration m/s² · gyro °/s',
     `Latest tuning: ${JSON.stringify(tuning?.())} · older entries discarded: ${dropped}`,
+    `Downstroke axis: ${JSON.stringify(direction?.() ?? null)}`,
     ...rows,
   ].join('\n');
   const flush = () => {
@@ -68,10 +73,12 @@ export function createTambourineTrace() {
   });
   return {
     root,
-    start(read: () => TambourineTuning, mode: 'Hardware' | 'Browser') {
+    start(read: () => TambourineTuning, mode: 'Hardware' | 'Browser', readDirection?: () => DownstrokeAxis | undefined) {
       root.hidden = false;
       rows.length = 0; dropped = 0; tuning = read; status.textContent = '';
       lastTuning = read();
+      direction = readDirection;
+      lastDirection = direction?.();
       note(`Audition opening · ${mode} · ${JSON.stringify(lastTuning)}`);
       flush();
     },
@@ -81,6 +88,11 @@ export function createTambourineTrace() {
       if (settings !== lastTuning) {
         lastTuning = settings;
         note(`Tuning updated · ${JSON.stringify(settings)}`);
+      }
+      const axis = direction?.();
+      if (axis !== lastDirection) {
+        lastDirection = axis;
+        note(`Downstroke axis updated · ${JSON.stringify(axis ?? null)}`);
       }
       note(formatTambourineTrace(entry));
     },

@@ -666,7 +666,7 @@ function mountPhoneMotion() {
         if (auditioning && remote && !audio) throw new Error('Switch hardware audio to Live to audition Tambourine.');
         phoneMotionAbort?.abort();
         const diagnostics = auditioning ? trace : undefined;
-        if (tuning) diagnostics?.start(tuning.read, remote ? 'Hardware' : 'Browser');
+        if (tuning) diagnostics?.start(tuning.read, remote ? 'Hardware' : 'Browser', tuning.direction);
         const cancel = new AbortController();
         phoneMotionAbort = control = cancel;
         const generation = songGeneration;
@@ -686,6 +686,7 @@ function mountPhoneMotion() {
           button.textContent = inactiveLabel;
           button.setAttribute('aria-pressed', 'false');
           button.disabled = false;
+          if (auditioning) tuning?.setAuditionActive(false);
           diagnostics?.note('Audition stopped');
           if (auditioning) queuePhoneAudition(async () => {
             await pendingHits;
@@ -698,6 +699,8 @@ function mountPhoneMotion() {
           const motion = enablePhoneMotion({
             sensor: recorded ? 'tambourine' : auditioning ? 'gyroscope' : 'shake',
             tambourineTuning: tuning?.read,
+            tambourineDirection: tuning?.direction,
+            tambourineCalibration: auditioning ? tuning?.capture : undefined,
             tambourineTrace: diagnostics?.record,
             signal: cancel.signal,
             current,
@@ -742,6 +745,7 @@ function mountPhoneMotion() {
           }
           if (!current()) { cancel.abort(); return; }
           ready = true;
+          if (auditioning) tuning?.setAuditionActive(true);
           diagnostics?.note('Audition ready');
           button.dataset.motion = 'active';
           button.textContent = auditioning ? 'End Tambourine audition' : `Disable shake · ${name}`;
