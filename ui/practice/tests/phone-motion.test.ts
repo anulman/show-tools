@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TAMBOURINE_DEFAULTS, enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, tambourineDetector, type MotionReading, type MotionSurface } from '../phone-motion.js';
+import { TAMBOURINE_DEFAULTS, enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, tambourineDetector, type MotionReading, type MotionSurface, type TambourineSlot, type TambourineTuning } from '../phone-motion.js';
 function fixture(permission?: MotionSurface['permission']) {
   let receive: ((reading: MotionReading) => void) | undefined, hide: (() => void) | undefined;
   let removed = 0;
@@ -117,8 +117,19 @@ test('hide while permission is pending prevents late motion attachment', async (
   assert.equal(env.removed(), 1);
 });
 
+function singleTambourineStroke(tuning?: TambourineTuning) {
+  const slots: TambourineSlot[] = [];
+  const detect = tambourineDetector(slot => slots.push(slot), tuning);
+  return (reading: MotionReading) => {
+    slots.length = 0;
+    detect(reading);
+    assert(slots.length <= 1);
+    return slots[0];
+  };
+}
+
 test('tambourine picks shake variants by acceleration and hit layers by speed before braking', () => {
-  const detect = tambourineDetector({ ...TAMBOURINE_DEFAULTS, hitsEnabled: true, minimumIntervalMs: 85 });
+  const detect = singleTambourineStroke({ ...TAMBOURINE_DEFAULTS, hitsEnabled: true, minimumIntervalMs: 85 });
   const read = (time: number, x: number | null, rotation?: number) => detect({
     x, y: 0, z: 0, time, gravity: false,
     ...(rotation === undefined ? {} : { rotation: { x: rotation, y: 0, z: 0 } }),
@@ -141,7 +152,7 @@ test('tambourine picks shake variants by acceleration and hit layers by speed be
 });
 
 test('tambourine recognizes linear braking and ignores gravity-only tilt', () => {
-  const detect = tambourineDetector({ ...TAMBOURINE_DEFAULTS, hitsEnabled: true, minimumIntervalMs: 85 });
+  const detect = singleTambourineStroke({ ...TAMBOURINE_DEFAULTS, hitsEnabled: true, minimumIntervalMs: 85 });
   const read = (time: number, x: number, z: number, gravity: boolean) => detect({ x, y: 0, z, time, gravity });
   assert.equal(read(0, 0, 9.81, true), undefined);
   assert.equal(read(20, 9.81, 0, true), undefined);
@@ -183,7 +194,7 @@ test('changing a motion threshold affects the existing listener without changing
 
 
 test('shake-only defaults allow rapidly rearmed strokes while ignoring braking hits', () => {
-  const detect = tambourineDetector();
+  const detect = singleTambourineStroke();
   const read = (time: number, x: number | null, rotation = 0) => detect({
     x, y: 0, z: 0, time, gravity: false, rotation: { x: rotation, y: 0, z: 0 },
   });
@@ -196,4 +207,42 @@ test('shake-only defaults allow rapidly rearmed strokes while ignoring braking h
   assert.equal(read(96, 0), undefined);
   assert.equal(read(112, 8, 480), undefined);
   assert.equal(read(128, 0, 100), 2, 'braking cannot consume a pending shake');
+});
+
+
+test('strong reversals rearm without a dip and adjacent motion in similar directions does not', () => {
+  const slots: TambourineSlot[] = [];
+  const detect = tambourineDetector(slot => slots.push(slot));
+  const read = (time: number, x: number, y = 0, gravity = false) => detect({ x, y, z: 0, time, gravity });
+  read(0, 16);
+  read(16, 16, 3);
+  read(32, 0, 16);
+  assert.deepEqual(slots, [3], 'jitter and a sideways reading keep the latch set');
+  read(48, 0, -16);
+  read(64, 0, 16);
+  assert.deepEqual(slots, [3, 3, 3], 'sustained above-threshold back-and-forth strokes all play');
+  read(300, 0, -16);
+  assert.deepEqual(slots, [3, 3, 3], 'opposite data after a sensor gap is not a reversal');
+  read(316, 0, 30, true);
+  read(332, 0, -30, true);
+  assert.deepEqual(slots, [3, 3, 3], 'raw gravity direction does not create a reversal');
+});
+
+test('a reversal closes the soft stroke before playing the hard return stroke', () => {
+  const slots: TambourineSlot[] = [];
+  const detect = tambourineDetector(slot => slots.push(slot));
+  detect({ x: 0, y: 0, z: 0, time: 0, gravity: false });
+  detect({ x: 8, y: 0, z: 0, time: 16, gravity: false });
+  assert.deepEqual(slots, []);
+  detect({ x: -16, y: 0, z: 0, time: 32, gravity: false });
+  assert.deepEqual(slots, [2, 3]);
+});
+
+test('a reversal rearms immediately and an explicitly configured gap still applies', () => {
+  const slots: TambourineSlot[] = [];
+  const detect = tambourineDetector(slot => slots.push(slot), { ...TAMBOURINE_DEFAULTS, minimumIntervalMs: 40 });
+  for (const [time, x] of [[0, 16], [16, -16], [32, -16]]) detect({ x, y: 0, z: 0, time, gravity: false });
+  assert.deepEqual(slots, [3]);
+  detect({ x: -16, y: 0, z: 0, time: 48, gravity: false });
+  assert.deepEqual(slots, [3, 3]);
 });
