@@ -99,14 +99,32 @@ function finiteAxes(axes: MotionAxes | undefined): MotionVector | undefined {
   return [x, y, z];
 }
 
-export function tambourineDetector(hit: (slot: TambourineSlot) => void, tuning: TambourineTuning = TAMBOURINE_DEFAULTS) {
+export type TambourineTrace = {
+  reading: MotionReading;
+  magnitude?: number;
+  comparedMs?: number;
+  turnDegrees?: number;
+  rearm?: 'release' | 'reversal';
+  decision: 'stale-time' | 'missing-acceleration' | 'below-threshold' | 'latched-or-gap' | 'soft-pending' | 'shake' | 'hit' | 'hit-gap';
+  slots: readonly TambourineSlot[];
+};
+
+export function tambourineDetector(
+  hit: (slot: TambourineSlot) => void,
+  tuning: TambourineTuning = TAMBOURINE_DEFAULTS,
+  trace?: (entry: TambourineTrace) => void,
+) {
   const shake = thresholdCrossing(tuning.shake, TAMBOURINE.release, tuning.minimumIntervalMs);
-  let previous: { time: number; velocity: MotionVector; angularSpeed?: number; shakeDirection?: MotionVector } | undefined;
+  let previous: { time: number; velocity: MotionVector; angularSpeed?: number } | undefined;
+  let strongDirection: { time: number; axes: MotionVector; magnitude: number } | undefined;
   let lastHit = -Infinity;
   let shakePeak: { time: number; magnitude: number } | undefined;
   return (reading: MotionReading) => {
     const { time, gravity, rotation } = reading;
-    if (!Number.isFinite(time) || (previous && time <= previous.time)) return;
+    if (!Number.isFinite(time) || (previous && time <= previous.time)) {
+      trace?.({ reading, decision: 'stale-time', slots: [] });
+      return;
+    }
     const acceleration = finiteAxes(reading);
     const angularAxes = finiteAxes(rotation);
     const angularSpeed = angularAxes && Math.hypot(...angularAxes);
@@ -129,41 +147,59 @@ export function tambourineDetector(hit: (slot: TambourineSlot) => void, tuning: 
       ? [decay * vx + elapsed * ax, decay * vy + elapsed * ay, decay * vz + elapsed * az] : [0, 0, 0];
     // Raw gravity changes direction as the phone turns. Its length is the usable shake signal.
     const magnitude = acceleration ? gravity ? Math.abs(Math.hypot(...acceleration) - 9.81) : Math.hypot(...acceleration) : undefined;
-    const shakeDirection = !gravity && magnitude !== undefined && magnitude >= tuning.shake ? acceleration : undefined;
-    const lastDirection = recent?.shakeDirection;
-    const reversed = Boolean(shakeDirection && lastDirection &&
-      ax * lastDirection[0] + ay * lastDirection[1] + az * lastDirection[2]
-        <= TAMBOURINE.reversalCosine * Math.hypot(...shakeDirection) * Math.hypot(...lastDirection));
-    previous = { time, velocity, angularSpeed, shakeDirection };
+    const released = magnitude !== undefined && magnitude <= TAMBOURINE.release;
+    if (gravity || !acceleration || released || (strongDirection && time - strongDirection.time > TAMBOURINE.maximumGapMs))
+      strongDirection = undefined;
+    const comparison = !gravity && acceleration && magnitude !== undefined && magnitude >= tuning.shake ? strongDirection : undefined;
+    const cosine = comparison && magnitude !== undefined
+      ? (ax * comparison.axes[0] + ay * comparison.axes[1] + az * comparison.axes[2]) / (magnitude * comparison.magnitude)
+      : undefined;
+    const reversed = cosine !== undefined && cosine <= TAMBOURINE.reversalCosine;
+    if (!gravity && acceleration && magnitude !== undefined && magnitude >= tuning.shake)
+      strongDirection = { time, axes: acceleration, magnitude };
+    previous = { time, velocity, angularSpeed };
     const shakeStarted = magnitude !== undefined && shake(magnitude, time, reversed);
+    const slots: TambourineSlot[] | undefined = trace ? [] : undefined;
+    const emit = (slot: TambourineSlot) => { slots?.push(slot); hit(slot); };
+    const report = (decision: TambourineTrace['decision']) => trace?.({
+      reading, magnitude,
+      comparedMs: comparison && time - comparison.time,
+      turnDegrees: cosine === undefined ? undefined : Math.acos(Math.max(-1, Math.min(1, cosine))) * 180 / Math.PI,
+      rearm: reversed ? 'reversal' : released ? 'release' : undefined,
+      decision, slots: slots ?? [],
+    });
     if (braking) {
       shakePeak = undefined;
-      if (time - lastHit < tuning.minimumIntervalMs) return;
+      if (time - lastHit < tuning.minimumIntervalMs) { report('hit-gap'); return; }
       lastHit = time;
-      hit((linearHit && speed >= tuning.hardHitSpeed)
+      emit((linearHit && speed >= tuning.hardHitSpeed)
         || (angularHit && precedingAngularSpeed >= tuning.hardHitAngularSpeed) ? 1 : 0);
+      report('hit');
       return;
     }
-    if (magnitude === undefined) return;
+    if (magnitude === undefined) { report('missing-acceleration'); return; }
     if (!recent) shakePeak = undefined;
     if (reversed && shakePeak) {
       shakePeak = undefined;
-      hit(2);
+      emit(2);
     }
     if (magnitude >= tuning.hardShake && (shakeStarted || shakePeak)) {
       shakePeak = undefined;
-      hit(3);
+      emit(3);
+      report('shake');
       return;
     }
     if (shakePeak) {
       // A hard stroke can cross the soft threshold one reading before its peak.
       if (magnitude < shakePeak.magnitude * .8 || time - shakePeak.time >= TAMBOURINE.shakePeakWindowMs) {
         shakePeak = undefined;
-        hit(2);
+        emit(2);
+        report('shake');
         return;
       }
       shakePeak.magnitude = Math.max(shakePeak.magnitude, magnitude);
     } else if (shakeStarted) shakePeak = { time, magnitude };
+    report(shakePeak ? 'soft-pending' : magnitude < tuning.shake ? 'below-threshold' : 'latched-or-gap');
   };
 }
 
@@ -199,10 +235,11 @@ export function browserMotionSurface(sensor: MotionSensor = 'shake'): MotionSurf
 }
 
 export async function enablePhoneMotion({
-  sensor = 'shake', surface = browserMotionSurface(sensor), signal, current, hit, stopped = () => {}, settings, tambourineTuning,
+  sensor = 'shake', surface = browserMotionSurface(sensor), signal, current, hit, stopped = () => {}, settings, tambourineTuning, tambourineTrace,
 }: {
   sensor?: MotionSensor; surface?: MotionSurface; signal: AbortSignal; current: () => boolean;
   hit: (velocity: number) => void; stopped?: () => void; settings?: GyroscopeSettings; tambourineTuning?: () => TambourineTuning;
+  tambourineTrace?: (entry: TambourineTrace) => void;
 }): Promise<{ stop(): void }> {
   if (!surface.secure) throw new Error('Phone motion needs HTTPS or localhost');
   if (!surface.available) throw new Error('This browser does not provide motion input');
@@ -211,7 +248,7 @@ export async function enablePhoneMotion({
   let tuning = tambourineTuning?.();
   const detectMotion = sensor === 'tambourine' ? undefined
     : sensor === 'gyroscope' ? gyroscopeDetector(settings) : shakeDetector(settings);
-  let detectTambourine = sensor === 'tambourine' ? tambourineDetector(hit, tuning) : undefined;
+  let detectTambourine = sensor === 'tambourine' ? tambourineDetector(hit, tuning, tambourineTrace) : undefined;
   let active = true, unlisten = () => {}, unhide = () => {};
   const stop = () => {
     if (!active) return;
@@ -234,7 +271,7 @@ export async function enablePhoneMotion({
         const nextTuning = tambourineTuning?.();
         if (nextTuning !== tuning) {
           tuning = nextTuning;
-          detectTambourine = tambourineDetector(hit, tuning);
+          detectTambourine = tambourineDetector(hit, tuning, tambourineTrace);
         }
         detectTambourine(reading);
         return;

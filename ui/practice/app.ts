@@ -2,6 +2,7 @@ import { dismissOnBackdrop } from './dialog.js';
 import { chartBarLabel, chartBarOrdinal } from '../../lib/performance/chart-position.js';
 import { enablePhoneMotion } from './phone-motion.js';
 import { createTambourineTuning } from './tambourine-tuning.js';
+import { createTambourineTrace } from './tambourine-trace.js';
 import { audioMode, audioModeURL, defaultAudioMode, changeAudioMode } from './audio-mode.js';
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
 import { exportMusicXmlWithVoices } from '../../lib/performance/musicxml-authoring.js';
@@ -647,6 +648,7 @@ function mountPhoneMotion() {
     seen.add(motionSource);
     const recorded = tambourine && recordedTambourine;
     const tuning = recorded ? createTambourineTuning() : undefined;
+    const trace = recorded ? createTambourineTrace() : undefined;
     const name = tambourine ? 'Tambourine' : source.voiceId;
     const addMotionButton = (auditioning: boolean) => {
       const button = document.createElement('button');
@@ -663,6 +665,8 @@ function mountPhoneMotion() {
         if (starting || switching || (!running && !auditioning)) return;
         if (auditioning && remote && !audio) throw new Error('Switch hardware audio to Live to audition Tambourine.');
         phoneMotionAbort?.abort();
+        const diagnostics = auditioning ? trace : undefined;
+        if (tuning) diagnostics?.start(tuning.read, remote ? 'Hardware' : 'Browser');
         const cancel = new AbortController();
         phoneMotionAbort = control = cancel;
         const generation = songGeneration;
@@ -682,6 +686,7 @@ function mountPhoneMotion() {
           button.textContent = inactiveLabel;
           button.setAttribute('aria-pressed', 'false');
           button.disabled = false;
+          diagnostics?.note('Audition stopped');
           if (auditioning) queuePhoneAudition(async () => {
             await pendingHits;
             if (audition) await audition.auditionTambourine(-1);
@@ -693,6 +698,7 @@ function mountPhoneMotion() {
           const motion = enablePhoneMotion({
             sensor: recorded ? 'tambourine' : auditioning ? 'gyroscope' : 'shake',
             tambourineTuning: tuning?.read,
+            tambourineTrace: diagnostics?.record,
             signal: cancel.signal,
             current,
             hit: stroke => {
@@ -707,9 +713,15 @@ function mountPhoneMotion() {
                 });
               } else {
                 pendingHits = pendingHits.then(async () => {
-                  if (current() && instance === audio) await instance.auditionTambourine(recorded ? 127 : stroke, recorded ? slot : undefined);
+                  if (!current() || instance !== audio) return;
+                  diagnostics?.note(`Sending sample slot ${slot}`);
+                  await instance.auditionTambourine(recorded ? 127 : stroke, recorded ? slot : undefined);
+                  if (current()) diagnostics?.note(`Audio accepted sample slot ${slot}`);
                 }).catch(error => {
-                  if (current() && audio === instance) showError(error);
+                  if (current() && audio === instance) {
+                    diagnostics?.note(`Audio command failed: ${error instanceof Error ? error.message : String(error)}`);
+                    showError(error);
+                  }
                   cancel.abort();
                 });
               }
@@ -730,12 +742,14 @@ function mountPhoneMotion() {
           }
           if (!current()) { cancel.abort(); return; }
           ready = true;
+          diagnostics?.note('Audition ready');
           button.dataset.motion = 'active';
           button.textContent = auditioning ? 'End Tambourine audition' : `Disable shake · ${name}`;
           button.setAttribute('aria-pressed', 'true');
           button.disabled = false;
         } catch (error) {
           if (cancel.signal.aborted && error instanceof DOMException && error.name === 'AbortError') return;
+          diagnostics?.note(`Audition failed: ${error instanceof Error ? error.message : String(error)}`);
           cancel.abort();
           throw error;
         }
@@ -745,6 +759,7 @@ function mountPhoneMotion() {
     addMotionButton(false);
     if (tambourine) addMotionButton(true);
     if (tuning) group.append(tuning.root);
+    if (trace) group.append(trace.root);
     if (song && source.begin.beat === 0 && source.end.beat === 0 && !sources.some(other => other !== source && other.slot === source.slot)) {
       const hint = document.createElement('small');
       const first = chartBarLabel(song.chart, source.begin.bar);

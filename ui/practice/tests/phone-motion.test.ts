@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TAMBOURINE_DEFAULTS, enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, tambourineDetector, type MotionReading, type MotionSurface, type TambourineSlot, type TambourineTuning } from '../phone-motion.js';
+import { TAMBOURINE_DEFAULTS, enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, tambourineDetector, type MotionReading, type MotionSurface, type TambourineSlot, type TambourineTrace, type TambourineTuning } from '../phone-motion.js';
 function fixture(permission?: MotionSurface['permission']) {
   let receive: ((reading: MotionReading) => void) | undefined, hide: (() => void) | undefined;
   let removed = 0;
@@ -244,5 +244,26 @@ test('a reversal rearms immediately and an explicitly configured gap still appli
   for (const [time, x] of [[0, 16], [16, -16], [32, -16]]) detect({ x, y: 0, z: 0, time, gravity: false });
   assert.deepEqual(slots, [3]);
   detect({ x: -16, y: 0, z: 0, time: 48, gravity: false });
+  assert.deepEqual(slots, [3, 3]);
+});
+
+
+test('a short reading between the release and onset thresholds preserves the reversal reference', () => {
+  const trace: TambourineTrace[] = [];
+  const slots: TambourineSlot[] = [];
+  const detect = tambourineDetector(slot => slots.push(slot), TAMBOURINE_DEFAULTS, entry => trace.push(entry));
+  for (const [time, x] of [[0, 16], [16, 4], [32, -16], [48, -4], [64, -16]])
+    detect({ time, x, y: 0, z: 0, gravity: false });
+  assert.deepEqual(slots, [3, 3]);
+  assert.equal(trace[1].decision, 'below-threshold');
+  assert.equal(trace[1].rearm, undefined);
+  assert.equal(trace[2].rearm, 'reversal');
+  assert.equal(trace[2].comparedMs, 32);
+  assert.equal(trace[2].turnDegrees, 180);
+  assert.deepEqual(trace[2].slots, [3]);
+  assert.equal(trace[4].decision, 'latched-or-gap');
+  detect({ time: 160, x: 4, y: 0, z: 0, gravity: false });
+  detect({ time: 190, x: 16, y: 0, z: 0, gravity: false });
+  assert.equal(trace.at(-1)?.comparedMs, undefined, 'a sequence of weak readings does not extend the strong reference');
   assert.deepEqual(slots, [3, 3]);
 });
