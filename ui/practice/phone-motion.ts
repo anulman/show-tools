@@ -82,7 +82,7 @@ export type TambourineSlot = 0 | 1 | 2 | 3;
 
 export const TAMBOURINE_DEFAULTS = {
   shake: 6, hardShake: 14, brake: 7, hardHitSpeed: 0.55, angularBrake: 1000,
-  hardHitAngularSpeed: 400, minimumIntervalMs: 85,
+  hardHitAngularSpeed: 400, minimumIntervalMs: 0, hitsEnabled: false,
 };
 export type TambourineTuning = Readonly<typeof TAMBOURINE_DEFAULTS>;
 
@@ -123,7 +123,7 @@ export function tambourineDetector(tuning: TambourineTuning = TAMBOURINE_DEFAULT
     const angularDrop = precedingAngularSpeed - (angularSpeed ?? precedingAngularSpeed);
     const angularHit = precedingAngularSpeed >= TAMBOURINE.hitAngularSpeed
       && angularDrop >= Math.max(precedingAngularSpeed * TAMBOURINE.brakeFraction, tuning.angularBrake * elapsed);
-    const braking = linearHit || angularHit;
+    const braking = tuning.hitsEnabled && (linearHit || angularHit);
     const decay = Math.exp(-elapsed / TAMBOURINE.velocityDecaySeconds);
     const velocity: MotionVector = recent && acceleration && !gravity && !braking
       ? [decay * vx + elapsed * ax, decay * vy + elapsed * ay, decay * vz + elapsed * az] : [0, 0, 0];
