@@ -1,6 +1,7 @@
 import type { MotionReading, TambourineSlot, TambourineTrace, TambourineTuning } from './phone-motion.js';
 
 export type DownstrokeAxis = readonly [x: number, y: number, z: number];
+export type TambourineDirection = DownstrokeAxis | 'gravity';
 
 const ONSET = 80;
 const QUIET = 40;
@@ -132,5 +133,105 @@ export function downstrokeDetector(
     }
     if (softSince !== undefined && time - softSince >= PEAK_MS) { emit(2); return; }
     report(softSince !== undefined ? 'soft-pending' : 'awaiting-downstroke');
+  };
+}
+
+
+function gravityProjection(reading: MotionReading) {
+  const { x, y, z, accelerationIncludingGravity: raw } = reading;
+  if (reading.gravity || x === null || y === null || z === null || !raw
+    || raw.x === null || raw.y === null || raw.z === null) return;
+  // The raw accelerometer reads +9.81 along the upward axis when held still.
+  const gx = x - raw.x, gy = y - raw.y, gz = z - raw.z;
+  const gravityMagnitude = Math.hypot(gx, gy, gz);
+  if (!Number.isFinite(gravityMagnitude) || gravityMagnitude < 7 || gravityMagnitude > 12.5) return;
+  return {
+    verticalAcceleration: (x * gx + y * gy + z * gz) / gravityMagnitude,
+    magnitude: Math.hypot(x, y, z),
+    gravityMagnitude,
+  };
+}
+
+export function gravityDownstrokeDetector(
+  hit: (slot: TambourineSlot) => void,
+  tuning: TambourineTuning,
+  trace?: (entry: TambourineTrace) => void,
+) {
+  const downwardSpeed = .18;
+  const upwardSpeed = -.10;
+  const downAcceleration = 2.5;
+  const settlingMs = 180;
+  let phase: 'settling' | 'ready' | 'played' = 'settling';
+  let lastTime = -Infinity, lastHit = -Infinity;
+  let velocity = 0, previousAcceleration = 0, bias = 0;
+  let quiet: { time: number; sum: number; count: number } | undefined;
+  let softSince: number | undefined;
+
+  return (reading: MotionReading) => {
+    const { time } = reading;
+    if (!Number.isFinite(time) || time <= lastTime) {
+      trace?.({ reading, decision: 'stale-time', slots: [] });
+      return;
+    }
+    const elapsed = time - lastTime;
+    lastTime = time;
+    const projection = gravityProjection(reading);
+    if (!projection || elapsed > SENSOR_GAP_MS) {
+      phase = 'settling';
+      velocity = previousAcceleration = bias = 0;
+      quiet = softSince = undefined;
+    }
+    if (!projection) {
+      trace?.({ reading, decision: 'missing-gravity', slots: [] });
+      return;
+    }
+
+    const { verticalAcceleration, magnitude } = projection;
+    const angular = angularVelocity(reading);
+    if (magnitude <= 1.5 && (!angular || Math.hypot(...angular) <= QUIET)) {
+      quiet ??= { time, sum: 0, count: 0 };
+      quiet.sum += verticalAcceleration;
+      quiet.count++;
+    } else {
+      quiet = undefined;
+    }
+
+    let rearm: TambourineTrace['rearm'];
+    if (phase !== 'settling') {
+      velocity += ((previousAcceleration + verticalAcceleration) / 2 - bias) * elapsed / 1000;
+      if (phase === 'played' && velocity <= upwardSpeed) {
+        phase = 'ready';
+        rearm = 'upward';
+      }
+    }
+    previousAcceleration = verticalAcceleration;
+
+    if (quiet && time - quiet.time >= REST_MS
+      && (phase === 'settling' || Math.abs(velocity) <= .12 || time - quiet.time >= settlingMs)) {
+      if (phase !== 'ready') rearm = 'still';
+      phase = 'ready';
+      velocity = 0;
+      bias = quiet.sum / quiet.count;
+    }
+
+    const report = (decision: TambourineTrace['decision'], slot?: TambourineSlot) => trace?.({
+      reading, ...projection, verticalVelocity: velocity, rearm, decision, slots: slot === undefined ? [] : [slot],
+    });
+    const emit = (slot: TambourineSlot) => {
+      phase = velocity <= upwardSpeed ? 'ready' : 'played';
+      softSince = undefined;
+      if (time - lastHit < tuning.minimumIntervalMs) { report('latched-or-gap'); return; }
+      lastHit = time;
+      hit(slot);
+      report('shake', slot);
+    };
+
+    if (phase === 'ready' && velocity >= downwardSpeed && verticalAcceleration - bias >= downAcceleration) {
+      if (magnitude >= tuning.hardShake) { emit(3); return; }
+      if (magnitude >= tuning.shake) softSince ??= time;
+    }
+    if (softSince !== undefined && (time - softSince >= PEAK_MS || velocity <= 0)) { emit(2); return; }
+    report(phase === 'settling' ? 'waiting-for-stillness' : phase === 'played' ? 'waiting-for-return'
+      : softSince === undefined ? 'awaiting-downstroke' : 'soft-pending');
   };
 }

@@ -364,3 +364,37 @@ test('downstroke calibration rejects two conflicting directions in one capture',
   }
   assert.equal(read(170, 0).kind, 'retry');
 });
+
+test('gravity downstrokes play eighths in any grip and silence upward braking', async () => {
+  let listener: (reading: MotionReading) => void = () => assert.fail('motion listener missing');
+  const surface: MotionSurface = { secure: true, available: true,
+    listen(receive) { listener = receive; return () => {}; }, hide() { return () => {}; } };
+  const slots: number[] = [];
+  const connection = await enablePhoneMotion({ sensor: 'tambourine', surface, signal: new AbortController().signal,
+    current: () => true, hit: slot => slots.push(slot), tambourineDirection: () => 'gravity' });
+  let frame = 0;
+  const read = (down: number, forward = 0, turned = false) => {
+    const motion = turned ? { x: -down, y: 0, z: forward } : { x: forward, y: 0, z: -down };
+    listener({ ...motion, time: frame++ * 1000 / 60, gravity: false, rotation: { x: 0, y: 0, z: 0 },
+      accelerationIncludingGravity: turned ? { ...motion, x: motion.x + 9.81 } : { ...motion, z: motion.z + 9.81 } });
+  };
+  try {
+    for (let index = 0; index < 7; index++) read(0);
+    // The strong downward acceleration only brakes the phone on its way up.
+    for (const acceleration of [-8, -8, -8, 24, 0]) read(acceleration);
+    assert.deepEqual(slots, []);
+    for (const acceleration of [18, 18, -18, -18, 0]) read(0, acceleration);
+    assert.deepEqual(slots, [], 'forward-only movement cannot fire');
+    for (let stroke = 0; stroke < 8; stroke++) {
+      const strong = stroke % 2 === 0;
+      const turned = stroke >= 4;
+      const before: number = slots.length;
+      for (const acceleration of [6, 6, 6, -18, 0]) read(acceleration, acceleration > 0 ? strong ? 16 : 5 : 0, turned);
+      assert.equal(slots.length, before + 1, 'the downstroke chooses one sample');
+      for (const acceleration of [-5, -5, 10, 0]) read(acceleration, 0, turned);
+      assert.equal(slots.length, before + 1, 'the return and its brake stay silent');
+      for (let index = 0; index < 9; index++) read(0, 0, turned);
+    }
+    assert.deepEqual(slots, [3, 2, 3, 2, 3, 2, 3, 2]);
+  } finally { connection.stop(); }
+});
