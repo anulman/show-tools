@@ -401,9 +401,9 @@ test('gravity plays alternating downshakes and returns through a grip change', a
 });
 
 
-function replayGravityGestures(rows: readonly number[][], { hits = true, wristScale = 1 } = {}) {
+function replayGravityGestures(rows: readonly number[][], { hits = true, wristScale = 1, minimumIntervalMs = 0 } = {}) {
   const gestures: [number, TambourineTrace['gesture'], readonly TambourineSlot[]][] = [];
-  const detect = tambourineGrooveDetector(() => {}, { ...TAMBOURINE_DEFAULTS, hitsEnabled: hits }, entry => {
+  const detect = tambourineGrooveDetector(() => {}, { ...TAMBOURINE_DEFAULTS, hitsEnabled: hits, minimumIntervalMs }, entry => {
     if (entry.slots.length) gestures.push([entry.reading.time, entry.gesture, entry.slots]);
   });
   const send = ([time, down, magnitude, gx, gy, gz]: readonly number[]) => {
@@ -418,26 +418,27 @@ function replayGravityGestures(rows: readonly number[][], { hits = true, wristSc
   return gestures;
 }
 
+// Time, vertical acceleration, total acceleration, and the three wrist rates.
+const labeledGravityHit = [
+  [0,0.87,1.41,25.53,-57.92,-54.49],
+  [16,1.32,1.75,31.16,-62.79,-52.21],
+  [34,3.04,3.66,39.93,-53.18,-36.34],
+  [49,5.29,7.62,62.25,-29.36,49.26],
+  [67,8.55,18.86,112.02,-9.4,247.56],
+  [84,6.85,29.64,100.83,64.77,451.96],
+  [100,25.39,39.55,28.52,250.26,1001.95],
+  [116,37.32,38.27,3.31,285.91,1190.13],
+  [134,-0.52,50.97,-30.28,385.88,891.47],
+  [150,-45.93,60.09,92.42,-78.61,-126.6],
+  [167,-32.77,35.08,97.31,-379.83,-372.89],
+  [184,-14.33,16.7,-124.79,-317.95,-243.63],
+  [200,-12.28,12.35,-182.56,100.96,-105.68],
+  [217,-5.99,9.87,-128.39,133.66,-139.89],
+  [233,-4.51,9.79,-54.14,60.22,-239.0],
+  [250,2.16,9.12,33.03,-23.24,-364.33],
+];
+
 test('the labeled phone trace distinguishes a numbered hit from a downshake and plays both returns', () => {
-  // Time, vertical acceleration, total acceleration, and the three wrist rates.
-  const hit = [
-    [0,0.87,1.41,25.53,-57.92,-54.49],
-    [16,1.32,1.75,31.16,-62.79,-52.21],
-    [34,3.04,3.66,39.93,-53.18,-36.34],
-    [49,5.29,7.62,62.25,-29.36,49.26],
-    [67,8.55,18.86,112.02,-9.4,247.56],
-    [84,6.85,29.64,100.83,64.77,451.96],
-    [100,25.39,39.55,28.52,250.26,1001.95],
-    [116,37.32,38.27,3.31,285.91,1190.13],
-    [134,-0.52,50.97,-30.28,385.88,891.47],
-    [150,-45.93,60.09,92.42,-78.61,-126.6],
-    [167,-32.77,35.08,97.31,-379.83,-372.89],
-    [184,-14.33,16.7,-124.79,-317.95,-243.63],
-    [200,-12.28,12.35,-182.56,100.96,-105.68],
-    [217,-5.99,9.87,-128.39,133.66,-139.89],
-    [233,-4.51,9.79,-54.14,60.22,-239.0],
-    [250,2.16,9.12,33.03,-23.24,-364.33],
-  ];
   const downshake = [
     [0,0.9,1.34,21.69,-34.51,-10.58],
     [17,1.36,2.49,39.35,-49.17,13.63],
@@ -456,9 +457,9 @@ test('the labeled phone trace distinguishes a numbered hit from a downshake and 
     [234,-0.26,3.01,-16.24,-7.76,-72.35],
     [250,1.95,2.86,6.76,-30.88,-105.73],
   ];
-  assert.deepEqual(replayGravityGestures(hit), [[150, 'hit', [1]], [200, 'upshake', [3]]]);
-  assert.deepEqual(replayGravityGestures(hit, { wristScale: .3 }), [[150, 'hit', [0]], [200, 'upshake', [3]]]);
-  assert.deepEqual(replayGravityGestures(hit, { hits: false }).map(event => event[1]), ['downshake', 'upshake']);
+  assert.deepEqual(replayGravityGestures(labeledGravityHit), [[150, 'hit', [1]], [184, 'upshake', [3]]]);
+  assert.deepEqual(replayGravityGestures(labeledGravityHit, { wristScale: .3 }), [[150, 'hit', [0]], [184, 'upshake', [3]]]);
+  assert.deepEqual(replayGravityGestures(labeledGravityHit, { hits: false }).map(event => event[1]), ['downshake', 'upshake']);
   assert.deepEqual(replayGravityGestures(downshake), [[167, 'downshake', [3]], [200, 'upshake', [2]]]);
 });
 
@@ -496,6 +497,27 @@ test('a wrist reversal admits a second downstroke while the gravity velocity sti
     [505,-17.15,28.86,-113,-33,-345],
   ];
   assert.deepEqual(replayGravityGestures([...approach, ...continuous]), [
-    [255, 'downshake', [3]], [272, 'upshake', [3]], [339, 'hit', [1]], [472, 'upshake', [3]],
+    [255, 'downshake', [3]], [272, 'upshake', [3]], [339, 'hit', [1]], [372, 'upshake', [3]],
   ]);
+});
+
+
+test('a down-hit gives a quiet pull-up its own shake even inside the retrigger gap', () => {
+  const strike = labeledGravityHit.filter(([time]) => time <= 150);
+  assert.deepEqual(replayGravityGestures([
+    ...strike,
+    [166, -2, 2, 0, 0, -100],
+    [182, -2, 2, 0, 0, -100],
+    [198, -2, 2, 0, 0, -100],
+    [214, -2, 2, 0, 0, -100],
+  ], { minimumIntervalMs: 100 }), [[150, 'hit', [1]], [182, 'upshake', [2]]]);
+});
+
+test('a down-hit stays silent at rest and plays a later gentle lift once', () => {
+  const strike = labeledGravityHit.filter(([time]) => time <= 150);
+  const rest = Array.from({ length: 18 }, (_, index) => [166 + 16 * index, 0, 0, 0, 0, 0]);
+  assert.deepEqual(replayGravityGestures([...strike, ...rest]), [[150, 'hit', [1]]]);
+  const lift = Array.from({ length: 8 }, (_, index) => [454 + 16 * index, -2, 2, 0, 0, 0]);
+  assert.deepEqual(replayGravityGestures([...strike, ...rest, ...lift]),
+    [[150, 'hit', [1]], [502, 'upshake', [2]]]);
 });
