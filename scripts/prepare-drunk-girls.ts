@@ -30,7 +30,7 @@ const mapping: SongMapping = {
     { buttonId: 'R2', sourceName: 'girls', default: true, playbackMode: 'one-shot' },
     { buttonId: 'L1', sourceName: 'boys', default: true, playbackMode: 'one-shot', sustain: { kind: 'periodic' } },
     { buttonId: 'L2', sourceName: 'guitar', default: true, playbackMode: 'loop', captureReplacement: true, loopCounts: 32, sustain: { kind: 'periodic' } },
-  ], cueWindow: { earlyMs: 25, lateMs: 25, ties: 'reject' },
+  ], cueWindow: { earlyMs: 75, lateMs: 75, ties: 'reject' },
   capturePolicies: ['day', 'girls', 'boys', 'guitar'].map(voiceId => ({ voiceId, retention: 'variant' as const, gain: 1 })),
   layerGroups: [], variantRules: [], variantReuses: [], overrides: [],
   deferredRows: [
