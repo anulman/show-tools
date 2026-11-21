@@ -1,5 +1,5 @@
 {
-  "syncCommit": "1b4f45d1052359a997770e2680301e2da153e56c",
+  "syncCommit": "a57cf3721623880448a968dcb1b513a2ae4c7f47",
   "domain": {
     "physicalControls": 6,
     "physicalProducers": 2,
@@ -57,12 +57,12 @@
     "lib/patches/src/tribulations_internal.h": "5d2d9ed6a37c7670626382f0fd56903b75332cceca1014d02dbda69f572e0330",
     "lib/patches/src/tribulations_string.cpp": "799e0355ccd6e78ce1a37d959919477bf66d1db492b5b52f4758e9a966b64baa",
     "lib/performance/CMakeLists.txt": "69ef7918fe679f6da3f0e72c29721fe21820da53703b32e380112d366ee52470",
-    "lib/performance/include/performance_engine.h": "26521f7d05e3f9d3f5f46531e183033fb64e6304e9d637511581deb7d6c97ff0",
+    "lib/performance/include/performance_engine.h": "393f55cc2ca595e46a7f45407efe0b561c07eaac81695c23b421f00102b0010f",
     "lib/performance/include/performance_light_output.h": "a20d9ce3f3f6d5dc573765551793160628b6f8767a54ede7b478e38e63619d09",
-    "lib/performance/src/compiled_program.cpp": "51820e6dd7981abd6ae14fc47c04fcd9f25019dbb04b800aa4f22bc6952147bb",
-    "lib/performance/src/compiled_program.h": "24f71fd2674863d2dbf2c4a23b82005ae59d884d3a27b9e62d2b957147c88309",
+    "lib/performance/src/compiled_program.cpp": "bcb884bf921d3a76a84b3ee6c1c7082d7d42edc6627517bbe410ba22663c27cd",
+    "lib/performance/src/compiled_program.h": "b35f3d568c578f944f590501e25e085f7f3cb64a6d617ae44766b05039ce931a",
     "lib/performance/src/input_router.h": "8c02d7145052f297e2f693cfe71046dbf6091ab4188b1e731a77a3248696e49d",
-    "lib/performance/src/performance_engine.cpp": "b991c53045ede031334a70b11f20ea0bcd146303e49eb14a06dbab66a88d2afa",
+    "lib/performance/src/performance_engine.cpp": "74264068e4ad8172cbd9d4f56bf139ca5b1149532e541d15c07ea0d115b03de6",
     "lib/performance/src/performance_lights.cpp": "99567a6669033d8cf9d659cb543371604428b7c9ca7fd32757530719cc478012",
     "lib/performance/src/performance_lights.h": "a1dce69693e42d57a86971bac54964c2db38b2a2fe23ae522afdae0cb6f5fc85",
     "lib/performance/tests/cue_light_tests.cpp": "b49d201839e47f3b40b7716661a2163d38926a9702457ceff4becf1736341c09",
