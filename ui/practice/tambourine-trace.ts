@@ -11,6 +11,7 @@ const axes = (reading?: MotionReading['rotation']) =>
 function formatTambourineTrace(entry: TambourineTrace): string {
   const { reading, magnitude, comparedMs, turnDegrees, signedSpeed, verticalAcceleration, verticalVelocity, gravityMagnitude, rearm, decision, slots } = entry;
   const { rotation } = reading;
+  const gesture = entry.gesture ? ` gesture=${entry.gesture}` : '';
   const source = reading.x === null || reading.y === null || reading.z === null ? 'missing' : reading.gravity ? 'gravity' : 'linear';
   return [
     `t=${number(reading.time)}ms`,
@@ -20,7 +21,7 @@ function formatTambourineTrace(entry: TambourineTrace): string {
     ...(verticalVelocity === undefined ? [] : [`g=${number(gravityMagnitude)} aDown=${number(verticalAcceleration)} vDown=${number(verticalVelocity)}`]),
     ...(signedSpeed !== undefined ? [`down=${number(signedSpeed)}°/s`]
       : verticalVelocity === undefined ? [`turn=${number(turnDegrees)}deg anchor=${number(comparedMs)}ms`] : []),
-    `rearm=${rearm ?? '-'} decision=${decision} samples=${slots.map(slot => labels[slot]).join('+') || '-'}`,
+    `rearm=${rearm ?? '-'} decision=${decision}${gesture} samples=${slots.map(slot => labels[slot]).join('+') || '-'}`,
   ].join(' ');
 }
 
@@ -46,7 +47,7 @@ export function createTambourineTrace() {
   let lastTuning: TambourineTuning | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const content = () => [
-    'Tambourine audition v3 · acceleration m/s² · velocity m/s · gyro °/s',
+    'Tambourine audition v4 · acceleration m/s² · velocity m/s · gyro °/s',
     `Latest tuning: ${JSON.stringify(tuning?.())} · older entries discarded: ${dropped}`,
     `Motion direction: ${JSON.stringify(direction?.() ?? null)}`,
     ...rows,

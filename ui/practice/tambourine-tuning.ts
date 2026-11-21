@@ -64,7 +64,7 @@ export function createTambourineTuning() {
   directionLabel.className = 'field';
   const directionSelect = document.createElement('select');
   const wristOption = document.createElement('option');
-  for (const [value, title] of [['all', 'All strokes'], ['gravity', 'Downstrokes · Gravity'], ['wrist', 'Downstrokes · Calibrated wrist']]) {
+  for (const [value, title] of [['all', 'All strokes'], ['gravity', 'Gravity'], ['wrist', 'Downstrokes · Calibrated wrist']]) {
     const option = value === 'wrist' ? wristOption : document.createElement('option');
     option.value = value;
     option.textContent = title;
@@ -111,15 +111,15 @@ export function createTambourineTuning() {
     wristOption.disabled = !axis;
     calibrate.disabled = !auditionActive;
     calibrate.textContent = capture ? 'Cancel calibration' : 'Calibrate downstroke';
-    hits.hidden = mode !== 'all';
+    hits.hidden = mode === 'wrist';
     hitsToggle.checked = tuning.hitsEnabled;
     for (const { key, dial, hit } of dials) {
-      dial.root.hidden = Boolean(hit && (mode !== 'all' || !tuning.hitsEnabled));
+      dial.root.hidden = Boolean(hit && (mode === 'wrist' || !tuning.hitsEnabled));
       dial.setValue(tuning[key]);
     }
   }
   function describeDirection() {
-    directionStatus.textContent = mode === 'gravity' ? 'Hold still briefly, then swing forward and down.'
+    directionStatus.textContent = mode === 'gravity' ? 'Hold still briefly, then play. Down and return strokes both sound.'
       : mode === 'wrist' ? 'Downstrokes play. Return strokes and hits are silent.'
       : auditionActive ? '' : 'Start Tambourine audition to calibrate a wrist stroke.';
   }

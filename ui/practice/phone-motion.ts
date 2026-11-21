@@ -1,4 +1,5 @@
-import { downstrokeDetector, gravityDownstrokeDetector, type TambourineDirection } from './tambourine-direction.js';
+import { tambourineGrooveDetector } from './tambourine-groove.js';
+import { downstrokeDetector, type TambourineDirection } from './tambourine-direction.js';
 
 interface MotionAxes { readonly x: number | null; readonly y: number | null; readonly z: number | null }
 export interface MotionReading extends MotionAxes {
@@ -112,10 +113,11 @@ export type TambourineTrace = {
   verticalAcceleration?: number;
   verticalVelocity?: number;
   gravityMagnitude?: number;
+  gesture?: 'hit' | 'downshake' | 'upshake';
   rearm?: 'release' | 'reversal' | 'upward' | 'still';
   decision: 'stale-time' | 'missing-acceleration' | 'below-threshold' | 'latched-or-gap' | 'soft-pending' | 'shake' | 'hit' | 'hit-gap'
     | 'return-stroke' | 'awaiting-downstroke' | 'missing-rotation' | 'calibrating'
-    | 'missing-gravity' | 'waiting-for-stillness' | 'waiting-for-return';
+    | 'missing-gravity' | 'waiting-for-stillness' | 'waiting-for-return' | 'waiting-for-turn';
   slots: readonly TambourineSlot[];
 };
 
@@ -281,7 +283,7 @@ export async function enablePhoneMotion({
   let tuning = tambourineTuning?.() ?? TAMBOURINE_DEFAULTS;
   let direction = tambourineDirection?.();
   const makeTambourineDetector = () => {
-    if (direction === 'gravity') return gravityDownstrokeDetector(hit, tuning, tambourineTrace);
+    if (direction === 'gravity') return tambourineGrooveDetector(hit, tuning, tambourineTrace);
     if (direction) return downstrokeDetector(hit, tuning, direction, tambourineTrace);
     return tambourineDetector(hit, tuning, tambourineTrace);
   };
