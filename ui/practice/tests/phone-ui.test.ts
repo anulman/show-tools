@@ -7,6 +7,8 @@ import { normalizeTambourineTuning } from '../tambourine-tuning.js';
 import { chartBarLabel } from '../../../lib/performance/chart-position.js';
 import tribulations from '../../../songs/tribulations.js';
 
+const createTambourineTrace = () => ({ root: new Node(), start() {}, note() {}, record() {} });
+
 class Node {
   children: Node[] = []; textContent = ''; disabled = false; type = ''; className = ''; id = ''; title = ''; hidden = false;
   dataset: Record<string, string> = {}; events = new Map<string, () => void>();
@@ -25,7 +27,7 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   const surface: MotionSurface = { secure: true, available: true, async permission() { return 'granted'; },
     listen(receive) { listener = receive; return () => { removed++; listener = undefined; }; }, hide() { return () => {}; } };
   const commands: unknown[] = [], errors: unknown[] = [];
-  const context = { createTambourineTuning: () => ({ root: new Node(), read: () => undefined }), song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote: false, audio: undefined,
+  const context = { createTambourineTrace, createTambourineTuning: () => ({ root: new Node(), read: () => undefined }), song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote: false, audio: undefined,
     phoneMotionAbort: undefined, phoneAuditionTransition: Promise.resolve(), crypto: { randomUUID: () => 'motion-fixture' }, AbortController, DOMException,
     document: { getElementById: () => null, createElement: () => new Node() },
     elements: { 'live-voices': { insertAdjacentElement(_position: string, element: Node) { group = element; } } },
@@ -39,8 +41,8 @@ test('actual shake UI enables input without audio startup and sends scoped typed
   vm.runInContext('mountPhoneMotion()', context);
   assert(group); const button = group.children[0]; assert(button.textContent.includes('Tambourine'));
   assert.equal(group.children[1]?.textContent, 'Audition Tambourine');
-  assert.equal(group.children[3]?.textContent, 'Chart shake plays in bars 137–160');
-  assert.equal(group.children.length, 4, 'the four samples share one tuning panel and pair of controls');
+  assert.equal(group.children[4]?.textContent, 'Chart shake plays in bars 137–160');
+  assert.equal(group.children.length, 5, 'the four samples share one tuning panel and pair of controls');
   button.events.get('click')?.(); await pending;
   assert(button.textContent.startsWith('Disable shake')); assert.equal(context.audio, undefined);
   vm.runInContext('audio = { control: (control, options) => { captured.push({ control, options }); return Promise.resolve(); } }', Object.assign(context, { captured: commands }));
@@ -79,7 +81,7 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
       control() { assert.fail('Audition cannot issue a chart hit'); },
     };
     const context = {
-      createTambourineTuning: () => ({ root: new Node(), read: () => undefined }),
+      createTambourineTrace, createTambourineTuning: () => ({ root: new Node(), read: () => undefined }),
       song: tribulations, chartBarLabel, songGeneration: 1, switching: false, starting: false, remote, audio: remote || running ? audio : undefined,
       phoneMotionAbort: undefined, phoneAuditionTransition: Promise.resolve(), crypto: { randomUUID: () => 'motion-fixture' }, AbortController, DOMException,
       document: { getElementById: () => null, createElement: () => new Node() },
