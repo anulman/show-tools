@@ -102,10 +102,10 @@ int Instrument::audition(int profile) {
   audition_profile_ = profile;
   return 0;
 }
-int Instrument::audition_tambourine(int32_t velocity) {
+int Instrument::audition_tambourine(int32_t velocity, int32_t slot) {
   if (!engine_ || lifecycle_ == Lifecycle::Faulted ||
       (velocity >= 0 && (lifecycle_ == Lifecycle::Prepared && pending() && output_ == Output::Performance))) return -1;
-  const int result = pf_audition_tambourine(engine_.get(), velocity);
+  const int result = pf_audition_tambourine(engine_.get(), velocity, slot);
   if (result < 0) return result;
   if (velocity == -1 && has_tambourine_output()) {
     pump_->discard();

@@ -636,11 +636,15 @@ function mountPhoneMotion() {
   const group = document.createElement('section');
   group.id = 'phone-motion-controls';
   group.className = 'voice-row';
-  const seen = new Set<number>();
+  const seen = new Set<string>();
+  const tambourineSlots = sources.filter(source => source.voiceId === 'tambourine').map(source => source.slot);
+  const recordedTambourine = [0, 1, 2, 3].every(slot => tambourineSlots.includes(slot));
   for (const source of sources) {
-    if (seen.has(source.slot)) continue;
-    seen.add(source.slot);
-    const tambourine = song?.id === 'tribulations' && source.voiceId === 'tambourine' && source.slot === 0;
+    const tambourine = song?.id === 'tribulations' && source.voiceId === 'tambourine' && (recordedTambourine || source.slot === 0);
+    const motionSource = tambourine ? source.voiceId : String(source.slot);
+    if (seen.has(motionSource)) continue;
+    seen.add(motionSource);
+    const recorded = tambourine && recordedTambourine;
     const name = tambourine ? 'Tambourine' : source.voiceId;
     const addMotionButton = (auditioning: boolean) => {
       const button = document.createElement('button');
@@ -685,20 +689,21 @@ function mountPhoneMotion() {
         }, { once: true });
         try {
           const motion = enablePhoneMotion({
-            sensor: auditioning ? 'gyroscope' : 'shake',
+            sensor: recorded ? 'tambourine' : auditioning ? 'gyroscope' : 'shake',
             signal: cancel.signal,
             current,
-            hit: velocity => {
+            hit: stroke => {
               if (!ready || !current()) return;
               const instance = auditioning ? audition : audio;
               if (!instance || instance !== audio) return;
+              const slot = recorded ? stroke : source.slot;
               if (!auditioning) {
                 const commandId = `phone-motion/${session}/${++sequence}`;
-                void instance.control({ id: 'external', slot: source.slot }, { commandId }).catch(error => {
+                void instance.control({ id: 'external', slot }, { commandId }).catch(error => {
                   if (current() && audio === instance) showError(error);
                 });
               } else if (!hitPending) {
-                hitPending = instance.auditionTambourine(velocity).catch(error => {
+                hitPending = instance.auditionTambourine(recorded ? 127 : stroke, recorded ? slot : undefined).catch(error => {
                   if (current() && audio === instance) showError(error);
                   cancel.abort();
                 }).finally(() => { hitPending = undefined; });

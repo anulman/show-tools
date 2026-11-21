@@ -243,6 +243,7 @@ void publish_beat_prediction_if_changed(pf_engine* engine) {
 void reset_tambourine(pf_engine* engine) {
   engine->tambourine_armed = false;
   if (engine->percussion) engine->percussion->reset();
+  if (engine->compiled) engine->compiled->end_external_audition();
 }
 void silence(pf_engine* engine, int reason = 3) {
   bt_cancel_pedal_tempo(engine->tracker);
@@ -428,7 +429,7 @@ void render_segment(pf_engine* engine, const float* input, float* left, float* r
     }
   }
   if (engine->mode != PF_TRACKER) st_render(engine->sampler, left, right, count, start);
-  if (pf_tambourine_active(engine)) {
+  if (engine->tambourine_armed && engine->percussion && engine->percussion->active()) {
     for (unsigned index = 0; index < count; ++index) {
       const auto sample = engine->percussion->next();
       if (left) left[index] += sample.left;
@@ -782,15 +783,17 @@ int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected, in
   engine->error_code = PF_OK; engine->error = "";
   return 0;
 }
-int pf_audition_tambourine(pf_engine* engine, int32_t velocity) {
-  if (!engine || velocity < -1 || velocity > 127) return -1;
+int pf_audition_tambourine(pf_engine* engine, int32_t velocity, int32_t slot) {
+  if (!engine || velocity < -1 || velocity > 127 || slot < -1 || slot >= 64 || (slot >= 0 && velocity <= 0)) return -1;
   if (velocity == -1) {
     reset_tambourine(engine);
     return 0;
   }
   if (!engine->compiled) return -1;
   if (velocity > 0) {
-    return engine->tambourine_armed && engine->percussion->note_on(patches::tambourine_note, velocity) ? 0 : -1;
+    if (!engine->tambourine_armed) return -1;
+    if (slot >= 0) return engine->compiled->audition_external(uint32_t(slot)) == PF_OK ? 0 : -1;
+    return engine->percussion && engine->percussion->note_on(patches::tambourine_note, velocity) ? 0 : -1;
   }
   if (!engine->percussion) {
     if (running(engine)) return -1;
@@ -801,7 +804,8 @@ int pf_audition_tambourine(pf_engine* engine, int32_t velocity) {
   return 0;
 }
 int pf_tambourine_active(const pf_engine* engine) {
-  return engine && engine->tambourine_armed && engine->percussion->active();
+  return engine && engine->tambourine_armed &&
+    ((engine->compiled && engine->compiled->external_audition_active()) || (engine->percussion && engine->percussion->active()));
 }
 int pf_audio_needed(const pf_engine* engine) {
   if (!engine || !engine->tuning) return 0;

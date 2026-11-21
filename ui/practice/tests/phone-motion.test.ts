@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, type MotionReading, type MotionSurface } from '../phone-motion.js';
+import { enablePhoneMotion, browserMotionSurface, gyroscopeDetector, shakeDetector, tambourineDetector, type MotionReading, type MotionSurface } from '../phone-motion.js';
 function fixture(permission?: MotionSurface['permission']) {
   let receive: ((reading: MotionReading) => void) | undefined, hide: (() => void) | undefined;
   let removed = 0;
@@ -115,4 +115,52 @@ test('hide while permission is pending prevents late motion attachment', async (
   resolve('granted');
   await assert.rejects(pending, { name: 'AbortError' });
   assert.equal(env.removed(), 1);
+});
+
+test('tambourine picks shake variants by acceleration and hit layers by speed before braking', () => {
+  const detect = tambourineDetector();
+  const read = (time: number, x: number | null, rotation?: number) => detect({
+    x, y: 0, z: 0, time, gravity: false,
+    ...(rotation === undefined ? {} : { rotation: { x: rotation, y: 0, z: 0 } }),
+  });
+  assert.equal(read(0, 0), undefined);
+  assert.equal(read(20, 8), undefined);
+  assert.equal(read(40, 0), 2, 'soft shake RR1');
+  assert.equal(read(150, 8), undefined);
+  assert.equal(read(170, 16), 3, 'a single hard shake RR2 can ramp through the soft layer');
+  assert.equal(read(190, 16), undefined, 'one stroke cannot retrigger a sustained excursion');
+  assert.equal(read(300, 0, 220), undefined, 'rotation alone is not a shake or hit');
+  assert.equal(read(320, 8, 70), 0, 'a soft brake wins when the same frame also looks like a shake');
+  assert.equal(read(340, 16, 50), undefined, 'brake does not also fire a second shake');
+  assert.equal(read(460, null, 480), undefined);
+  assert.equal(read(480, null, 100), 1, 'fast pre-brake speed chooses the hard hit');
+  assert.equal(read(650, null, 500), undefined);
+  assert.equal(read(850, null, 10), undefined, 'a stale rotation reading does not create a hit');
+  assert.equal(read(890, NaN, NaN), undefined);
+  assert.equal(read(880, 16, 500), undefined, 'out-of-order readings cannot trigger');
+});
+
+test('tambourine recognizes linear braking and ignores gravity-only tilt', () => {
+  const detect = tambourineDetector();
+  const read = (time: number, x: number, z: number, gravity: boolean) => detect({ x, y: 0, z, time, gravity });
+  assert.equal(read(0, 0, 9.81, true), undefined);
+  assert.equal(read(20, 9.81, 0, true), undefined);
+  assert.equal(read(50, 0, 0, false), undefined);
+  assert.equal(read(70, 12, 0, false), undefined);
+  assert.equal(read(90, -12, 0, false), 0, 'linear reversal brakes movement accumulated in the previous frame');
+  assert.equal(read(220, 0, 0, false), undefined);
+  assert.equal(read(260, 16, 0, false), 3);
+  assert.equal(read(300, -16, 0, false), 1, 'a faster linear stroke selects the hard hit');
+});
+
+test('the motion listener sends a tambourine hit even when the selected slot is zero', async () => {
+  const { surface, read } = fixture();
+  const slots: number[] = [];
+  const connection = await enablePhoneMotion({ sensor: 'tambourine', surface, signal: new AbortController().signal,
+    current: () => true, hit: slot => slots.push(slot) });
+  read(0, 0);
+  read(12, 20);
+  read(-12, 40);
+  assert.deepEqual(slots, [0]);
+  connection.stop();
 });

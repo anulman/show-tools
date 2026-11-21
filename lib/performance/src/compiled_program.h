@@ -55,6 +55,9 @@ class Program {
   bool set_bend_parameters(double velocity_per_semitone, double stale_ms) noexcept;
   bool prepare_external_sample(uint32_t slot, const float* left, const float* right, uint32_t frames) noexcept;
   int trigger_external(uint32_t slot) noexcept;
+  int audition_external(uint32_t slot) noexcept;
+  void end_external_audition() noexcept;
+  bool external_audition_active() const noexcept;
   bool has_external_samples() const noexcept { return external_count_ != 0; }
   int copy_take_audio(uint32_t take, uint32_t offset, uint32_t frames, float* stereo) const noexcept;
   void take_info(uint32_t take, double* out) const noexcept;
@@ -82,10 +85,10 @@ class Program {
   std::unique_ptr<InstrumentNote[]> notes_;
   int note_count_ = 0;
   int play_note(int button) noexcept;
-  int launch_external(uint32_t slot) noexcept;
+  int launch_external(uint32_t slot, bool audition = false) noexcept;
   struct ExternalWindow { uint32_t slot = 0; double begin = 0, end = 0; };
   struct ExternalSample { std::unique_ptr<patches::Stereo[]> pcm; uint32_t frames = 0, capacity = 0; double midi = -1; };
-  struct ExternalPlayback { int slot = -1; uint32_t frame = 0; };
+  struct ExternalPlayback { int slot = -1; uint32_t frame = 0; bool audition = false; };
   ExternalSample external_samples_[64];
   ExternalPlayback external_playback_[32];
   std::unique_ptr<ExternalWindow[]> external_windows_;
