@@ -144,7 +144,7 @@ The test asks you to observe real LEDs. A successful capture or active service d
 
 ## Capture and test the dial
 
-If you captured only the buttons, you can add the dial without recapturing them. Before mapping the dial, run `hardware --check-knob`. Turn in each prompted direction after `ARMED`. The read-only check reports axes that moved in opposite directions on the same USB attachment and prints the evidence paths.
+If you captured only the buttons, you can add the dial without recapturing them. Before mapping the dial, run `hardware --check-knob`. Turn the dial briefly in each prompted direction after `ARMED`, then let it settle. The read-only check keeps motion outside the capture window in the evidence without counting it. It reports axes that moved in opposite directions on the same USB attachment and prints the evidence paths.
 
 Keep audio off. Run:
 

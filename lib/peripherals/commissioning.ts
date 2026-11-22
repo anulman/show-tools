@@ -339,10 +339,10 @@ interface MotionCaptureOptions {
   signal?: AbortSignal; python?: string; timeoutMs?: number;
 }
 async function observeMotion({ readerPath, publisherPath, stagingRoot, direction, captureSeconds, onArmed,
-  signal, python, timeoutMs }: MotionCaptureOptions) {
+  signal, python, timeoutMs }: MotionCaptureOptions, mode: 'mapping' | 'diagnostic' = 'mapping') {
   Schema.decodeUnknownSync(integer(1, 30))(captureSeconds);
   const result = await foregroundTrial({ readerPath, publisherPath, stagingRoot, trialPrefix: 'setup-knob',
-    readerArgs: ['--direction', direction, '--capture-seconds', String(captureSeconds)], signal, python, timeoutMs,
+    readerArgs: ['--direction', direction, '--capture-seconds', String(captureSeconds), ...(mode === 'diagnostic' ? ['--diagnostic-only'] : [])], signal, python, timeoutMs,
     onArmed: () => onArmed(direction, captureSeconds), phase: (value, type) => {
       const phase = type === 'ready' ? decodeMotionReady(value) : decodeMotionPhase(value);
       if (phase.type !== type || phase.operatorDirection !== direction) throw new Error('Motion capture direction or phase differs.');
@@ -355,7 +355,8 @@ async function observeMotion({ readerPath, publisherPath, stagingRoot, direction
   const durableReady = result.values.filter(value => decodeTag(value).type === 'ready');
   if (durableReady.length !== 1 || JSON.stringify(ready) !== JSON.stringify(decodeMotionReady(durableReady[0])))
     throw new Error('Public and durable motion attachment records differ.');
-  return { axes, attachment: JSON.stringify([ready.usbParent, ...ready.instance]), evidencePath: result.evidencePath };
+  return { axes, attachment: JSON.stringify([ready.usbParent, ...ready.instance]), evidencePath: result.evidencePath,
+    outsideWindow: result.values.filter(value => decodeTag(value).type === 'out-of-window-motion').length };
 }
 
 export async function captureAxis({ chooseAxis, ...options }: MotionCaptureOptions & {
@@ -383,7 +384,8 @@ export async function checkDialMotion({ profilePath, io, ...capture }: Omit<Moti
     await io.question(`Leave all buttons released and the dial still. Press Enter to prepare the ${direction} turn. `);
     await verifyProfile();
     const observation = await observeMotion({ ...capture, direction, captureSeconds: 5,
-      onArmed: (direction, seconds) => io.write(`ARMED: turn only the dial ${direction} for ${seconds} seconds.\n`) });
+      onArmed: (direction, seconds) => io.write(`ARMED: turn the dial ${direction} briefly, then let it settle. Capture lasts ${seconds} seconds.\n`) }, 'diagnostic');
+    if (observation.outsideWindow) io.write(`Outside the capture window: ${observation.outsideWindow} motion records excluded.\n`);
     io.write(`Capture evidence: ${observation.evidencePath}\n`);
     await verifyProfile();
     return observation;
