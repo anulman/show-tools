@@ -52,6 +52,8 @@ const mutants = [
   { file: sourceFile, name: 'voices-omitted-from-semantic-digest', witness: 'voices', marker: 'VOICE_SEMANTIC_IDENTITY',
     source: replaceExactlyOnce(original, 'chartBinding: { ...data.chartBinding, controlNames } }, voices };',
       'chartBinding: { ...data.chartBinding, controlNames } }, voices: null };') },
+  { file: sourceFile, name: 'release-capture-metadata-omitted-from-writer', witness: 'edge-metadata', marker: 'EDGE_METADATA_MEANING',
+    source: replaceExactlyOnce(original, '    ...(song.releaseCapturePairs === undefined ? {} : { releaseCapturePairs: song.releaseCapturePairs }),', '') },
   { file: sourceFile, name: 'measure-label-agreement-removed', witness: 'labels', marker: 'MEASURE_LABEL_AGREEMENT',
     source: replaceExactlyOnce(original, labelLine, '      void measure.number;') },
   { file: sourceFile, name: 'input-bindings-omitted-from-writer', witness: 'bindings', marker: 'INPUT_BINDING_MEANING',
