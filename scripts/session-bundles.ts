@@ -13,7 +13,7 @@ export async function writeSessionLaunchers(output: string) {
   await writeFile(join(output, 'bin', 'show-tools-config'), `#!/bin/sh
 set -eu
 ST_RELEASE=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
-if [ "$#" -eq 0 ]; then set -- --stop-performance --start; fi
+if [ "$#" -eq 0 ]; then set -- --with-dial --stop-performance --start; fi
 exec "$ST_RELEASE/bin/show-tools-peripheral" setup "$@"
 `, { mode: 0o755 });
 }
