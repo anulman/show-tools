@@ -26,10 +26,10 @@
     "runnerRelativePath": "bin/show-tools-peripheral",
     "helperRelativePath": "native/peripheral/peripheral-host",
     "gateway": {
-      "origin": "https://proxmox.tail54fc55.ts.net:8443",
-      "connectAddress": "100.93.139.99",
+      "origin": "https://show-tools.home.arpa",
+      "connectAddress": "192.168.2.22",
       "tokenFile": "/home/anulman/.config/show-tools/credentials/token",
-      "caFile": null
+      "caFile": "/home/anulman/.local/state/show-tools-offline-v1/ca.crt"
     },
     "peripheralAssignment": {
       "mapVersion": 2,
@@ -111,6 +111,6 @@
     "maxBytes": 8388608,
     "onFailure": "deny"
   },
-  "checkerSha256": "c9e67248a7656956b1c67bded435b760caec543d8ad734cdc8583b82a0508143",
+  "checkerSha256": "eb3f1dfaa7bf57b03cd23d2f842d4cdb61c058480b0fa5c75da1e003aaa37347",
   "signersSha256": "367f4cd6685d962f7fac2e4e406f691e6c3c4da92a40b36c1170d95c1df5adc7"
 }
