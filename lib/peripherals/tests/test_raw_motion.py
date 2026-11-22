@@ -78,6 +78,28 @@ class GateTests(unittest.TestCase):
         with self.assertRaises(RuntimeError): gate.observe(decoded(stamp=1001000000), 1002000000)
         with self.assertRaises(RuntimeError): gate.arm(1003000000)
 
+    def test_read_only_diagnostic_excludes_drift_on_both_sides_of_the_window(self):
+        gate = motion.MotionGate(0, 1, {'owned-pipe': CAPS}, diagnostic_only=True)
+        self.assertFalse(gate.observe(decoded(1, stamp=900000000), 901000000))
+        gate.arm(1000000000)
+        self.assertFalse(gate.observe(decoded(1, stamp=999999000), 1000000000))
+        self.assertTrue(gate.observe(decoded(23), 1002000000))
+        self.assertTrue(gate.observe(decoded(4, stamp=1999999000), 2001000000))
+        self.assertFalse(gate.observe(decoded(-1, stamp=2000000000), 2001000000))
+        row = gate.result()['observedAxes'][0]
+        self.assertEqual((row['samples'], row['delta'], row['negativeCounts']), (2, 27, 0))
+        with self.assertRaisesRegex(RuntimeError, 'qualified capabilities'):
+            gate.observe(decoded(device='foreign', stamp=2001000000), 2002000000)
+        with self.assertRaisesRegex(RuntimeError, 'Motion timestamp'):
+            gate.observe(decoded(stamp=1001000000), 2002000000)
+
+    def test_outside_drift_cannot_complete_a_diagnostic(self):
+        gate = motion.MotionGate(0, 1, {'owned-pipe': CAPS}, diagnostic_only=True)
+        self.assertFalse(gate.observe(decoded(1), 1002000000))
+        gate.arm(1100000000)
+        self.assertFalse(gate.observe(decoded(-1, stamp=2110000000), 2111000000))
+        self.assertFalse(gate.result()['complete'])
+
     def test_caps_bound_samples_and_axis_state(self):
         gate = self.gate()
         with patch.object(raw, 'MAX_SIGNATURES', 1):
@@ -123,6 +145,8 @@ class RunTests(unittest.TestCase):
             def held(_records, _caps):
                 nonlocal snapshots
                 snapshots += 1
+                if variant == 'diagnostic-drift' and snapshots in (1, 3):
+                    os.write(write_fd, event(1, stamp=time.monotonic_ns()))
                 if variant == 'final-drop' and snapshots == 3:
                     os.write(write_fd, event(kind=0, code=3, stamp=time.monotonic_ns()))
                 if variant == 'final-interrupt' and snapshots == 3:
@@ -154,7 +178,8 @@ class RunTests(unittest.TestCase):
                             if variant == 'key': values = [event(kind=1, stamp=stamp)]
                             if variant == 'detach': os.close(write_fd); return
                             os.write(write_fd, b''.join(values))
-                            publisher.publish_marker(directory, 'stop', 'trial1', ready['nonce'])
+                            if variant != 'diagnostic-drift':
+                                publisher.publish_marker(directory, 'stop', 'trial1', ready['nonce'])
                             phase = 'finish'
                         time.sleep(.002)
                     raise AssertionError('Owned motion trial did not terminate')
@@ -173,7 +198,7 @@ class RunTests(unittest.TestCase):
                 else: ready_cap = contextlib.nullcontext()
                 with ready_cap:
                     thread.start()
-                    code = motion.run(directory, 'trial1', direction, 1)
+                    code = motion.run(directory, 'trial1', direction, 1, diagnostic_only=variant == 'diagnostic-drift')
                     thread.join(timeout=3)
             self.assertFalse(thread.is_alive()); self.assertEqual(failures, [])
             try: os.close(write_fd)
@@ -188,11 +213,13 @@ class RunTests(unittest.TestCase):
             self.assertTrue(terminal['requiresSuccessfulExit'])
             public = [json.loads(line) for line in output.getvalue().splitlines()]
             self.assertEqual(public[-1], terminal)
-            if variant == 'success':
+            if variant in ('success', 'diagnostic-drift'):
                 self.assertEqual(code, 0); self.assertTrue(terminal['complete'])
                 self.assertEqual(len(terminal['observedAxes']), 2)
                 self.assertTrue(all(isinstance(row['receivedMonotonicNs'], str) for row in rows if row['type'] == 'motion'))
                 self.assertEqual(terminal['observedAxes'][1]['delta'], 2)
+                if variant == 'diagnostic-drift':
+                    self.assertEqual([row['value'] for row in rows if row['type'] == 'out-of-window-motion'], [1, 1])
             else:
                 self.assertEqual(code, 1); self.assertFalse(terminal['complete'])
             return terminal
@@ -200,6 +227,9 @@ class RunTests(unittest.TestCase):
     def test_real_owned_pipe_marker_evidence_lifecycle_both_direction_labels(self):
         for direction in motion.DIRECTIONS:
             with self.subTest(direction=direction): self.exercise(direction)
+
+    def test_read_only_diagnostic_records_uncounted_drift_in_the_durable_log(self):
+        self.exercise(variant='diagnostic-drift')
 
     def test_failed_qualification_and_input_never_complete(self):
         for variant in ('held', 'unknown', 'premature', 'zero', 'key', 'detach', 'timeout', 'no-axis', 'clock-error', 'usb-change', 'endpoint-change'):
