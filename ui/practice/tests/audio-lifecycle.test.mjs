@@ -827,3 +827,98 @@ for (const failure of ['context-close', 'microphone-notification', 'track-stop']
   assert(calls.includes('endpoint'));
   assert.equal(calls.includes('context-close'), failure !== 'track-stop');
 });
+
+test('only pointerup emits a musical release and cancellation retires pointer input', async () => {
+  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const controls = [{ id: 'L1', key: 'KeyQ' }, { id: 'R2', key: 'KeyS' }];
+  const commands = [];
+  const windowEvents = new Map(), documentEvents = new Map();
+  class Element {
+    dataset = {};
+    style = { setProperty() {} };
+    classList = { add() {}, remove() {} };
+    listeners = new Map();
+    append() {}
+    setAttribute() {}
+    setPointerCapture() {}
+    addEventListener(name, listener) { this.listeners.set(name, listener); }
+    observe(name, pointerId) { this.listeners.get(name)({ pointerId, button: 0, isPrimary: true, preventDefault() {} }); }
+  }
+  const audio = {
+    inputScope: 'fixture',
+    snapshot: () => ({ inputRouting: { bindingGeneration: 1 } }),
+    async selectChannel() {},
+    async inputAttach({ kind }) { commands.push(['attach', kind]); },
+    async inputEvent({ input, value }) { commands.push(['edge', input, value]); },
+    async inputRevoke({ kind }) { commands.push(['revoke', kind]); },
+  };
+  const panels = new Map();
+  const context = {
+    HTMLElement: Element, HTMLSpanElement: Element,
+    CONTROLS: controls, CONTROL_IDS: ['L1', 'L2', 'R1', 'R2'], pads: panels, heldKeys: new Set(), pointerHeld: new Map(),
+    pointerEpoch: 0, keyboardEpoch: 0, transportGeneration: 0, remote: false, voiceCatalog: { busy: false }, audio,
+    window: { addEventListener: (name, listener) => windowEvents.set(name, listener) },
+    document: { hidden: false, createElement: () => new Element(), addEventListener: (name, listener) => documentEvents.set(name, listener) },
+    elements: { pads: new Element() }, arcadeColorForRow: () => '', controlName: id => id,
+    inputPolicy: { allowsDomInput: () => true }, requiredElement: () => new Element(), flash() {},
+    ensureAudio: async () => audio, phoneMotionAbort: undefined,
+    act: action => action(),
+    pointerProducer: createMusicalInputProducer({ kind: 'pointer', endpoint: async () => audio, releasedMask: 223 }),
+    keyboardProducer: createMusicalInputProducer({ kind: 'keyboard', endpoint: async () => audio, releasedMask: 0 }),
+  };
+  prepareUIContext(context);
+  vm.runInContext(
+    source.slice(source.indexOf('function releasePresses('), source.indexOf('function scheduleAuditionEffect(')) +
+    source.slice(source.indexOf('function makePads('), source.indexOf('function mountVoiceRows(')) +
+    source.slice(source.indexOf('window.addEventListener("blur"'), source.indexOf('window.addEventListener("beforeunload"')) + 'makePads();',
+    context,
+  );
+  const left = panels.get('L1').button, right = panels.get('R2').button;
+  const drain = () => new Promise(resolve => setImmediate(resolve));
+
+  right.observe('pointerdown', 1);
+  await drain();
+  right.observe('pointerup', 1);
+  right.observe('lostpointercapture', 1);
+  await drain();
+  assert.deepEqual(commands.splice(0), [['attach', 'pointer'], ['edge', 3, 1], ['edge', 3, 0]]);
+
+  right.observe('pointerdown', 2);
+  left.observe('pointerdown', 3);
+  await drain();
+  right.observe('lostpointercapture', 1);
+  assert.deepEqual(commands.splice(0), [['edge', 3, 1], ['edge', 0, 1]], 'an old capture event cannot retire current holds');
+  right.observe('pointercancel', 2);
+  right.observe('lostpointercapture', 2);
+  left.observe('pointerup', 3);
+  await drain();
+  assert.deepEqual(commands.splice(0), [['revoke', 'pointer']], 'canceling one pointer retires the shared source without releasing either pad');
+
+  const preparing = deferred();
+  context.ensureAudio = () => preparing.promise;
+  right.observe('pointerdown', 4);
+  right.observe('lostpointercapture', 4);
+  preparing.resolve(audio);
+  await drain();
+  assert.deepEqual(commands.splice(0), [], 'an already canceled press cannot attach after audio preparation');
+
+  right.observe('pointerdown', 5);
+  await drain();
+  context.document.hidden = true;
+  documentEvents.get('visibilitychange')();
+  windowEvents.get('blur')();
+  right.observe('pointerup', 5);
+  await drain();
+  assert.deepEqual(commands.splice(0), [['attach', 'pointer'], ['edge', 3, 1], ['revoke', 'pointer']]);
+
+  context.document.hidden = false;
+  right.observe('pointerdown', 6);
+  await drain();
+  right.observe('pointerup', 6);
+  await drain();
+  context.document.hidden = true;
+  documentEvents.get('visibilitychange')();
+  await drain();
+  assert.deepEqual(commands, [['attach', 'pointer'], ['edge', 3, 1], ['edge', 3, 0], ['revoke', 'pointer']],
+    'hiding the page retires the source even after its real release started recording');
+});

@@ -82,8 +82,9 @@ interface PadElements {
 }
 const pads = new Map<ChannelId, PadElements>();
 const heldKeys = new Set<string>();
-const pointerHeld = new Set<ChannelId>();
+const pointerHeld = new Map<ChannelId, number>();
 let keyboardEpoch = 0;
+let pointerEpoch = 0;
 const keyboardProducer = createMusicalInputProducer({ kind: 'keyboard', endpoint: () => ensureAudio(), releasedMask: 0 });
 const pointerProducer = createMusicalInputProducer({ kind: 'pointer', endpoint: () => ensureAudio(), releasedMask: 223 });
 const inputPolicy = createMusicalInputPolicy({ changed: () => releasePresses() });
@@ -342,6 +343,19 @@ function releasePresses() {
   void keyboardProducer.reset().catch(error => { globalThis.reportError?.(error); });
 }
 
+function retirePointerInput() {
+  pointerEpoch++;
+  for (const control of CONTROLS)
+    if (pointerHeld.has(control.id) && !heldKeys.has(control.key)) pads.get(control.id)?.button.classList.remove('pressed');
+  pointerHeld.clear();
+  void pointerProducer.reset().catch(error => { globalThis.reportError?.(error); });
+}
+
+function retirePageInputs() {
+  retirePointerInput();
+  releasePresses();
+}
+
 const pendingPadPresses = new Map<string, Promise<void>>();
 function triggerPad(id: ChannelId, source: 'keyboard' | 'pointer' = 'pointer') {
   const action = pressPad(id, source);
@@ -349,21 +363,23 @@ function triggerPad(id: ChannelId, source: 'keyboard' | 'pointer' = 'pointer') {
   return action;
 }
 async function releasePad(id: ChannelId, source: 'keyboard' | 'pointer' = 'pointer') {
-  const epoch = keyboardEpoch;
+  const epoch = source === 'pointer' ? pointerEpoch : keyboardEpoch;
   try { await pendingPadPresses.get(`${source}/${id}`); }
   finally {
-    if (audio && (source === 'pointer' || epoch === keyboardEpoch && inputPolicy.allowsDomInput()))
+    if (audio && (source === 'pointer' ? epoch === pointerEpoch : epoch === keyboardEpoch && inputPolicy.allowsDomInput()))
       await (source === 'keyboard' ? keyboardProducer : pointerProducer).event(CONTROL_IDS.indexOf(id), 0);
   }
 }
 async function pressPad(id: ChannelId, source: 'keyboard' | 'pointer') {
   if (voiceCatalog.busy) return;
   const generation = transportGeneration;
-  const epoch = keyboardEpoch;
+  const epoch = source === 'pointer' ? pointerEpoch : keyboardEpoch;
+  const inputCurrent = () => generation === transportGeneration
+    && (source === 'pointer' ? epoch === pointerEpoch : epoch === keyboardEpoch && inputPolicy.allowsDomInput());
   const instance = await ensureAudio();
-  if (generation !== transportGeneration || source === 'keyboard' && (epoch !== keyboardEpoch || !inputPolicy.allowsDomInput())) return;
+  if (!inputCurrent()) return;
   await instance.selectChannel(id);
-  if (generation !== transportGeneration || source === 'keyboard' && (epoch !== keyboardEpoch || !inputPolicy.allowsDomInput())) return;
+  if (!inputCurrent()) return;
   await (source === 'keyboard' ? keyboardProducer : pointerProducer).event(CONTROL_IDS.indexOf(id), 1);
 }
 
@@ -561,17 +577,21 @@ function makePads() {
       button.setAttribute('aria-describedby', `${pad.sampleStatus.id} ${pad.takePlan.id}`);
     }
     button.addEventListener('pointerdown', event => {
-      if (event.button !== 0 || !event.isPrimary) return;
+      if (event.button !== 0 || !event.isPrimary || pointerHeld.has(control.id)) return;
       event.preventDefault();
       button.setPointerCapture(event.pointerId);
-      pointerHeld.add(control.id); flash(control.id, true);
+      pointerHeld.set(control.id, event.pointerId); flash(control.id, true);
       act(() => triggerPad(control.id));
     });
-    for (const type of ['pointerup', 'pointercancel', 'lostpointercapture']) {
-      button.addEventListener(type, () => {
-        if (!pointerHeld.delete(control.id)) return;
-        if (!heldKeys.has(control.key)) button.classList.remove('pressed');
-        act(() => releasePad(control.id));
+    button.addEventListener('pointerup', event => {
+      if (pointerHeld.get(control.id) !== event.pointerId) return;
+      pointerHeld.delete(control.id);
+      if (!heldKeys.has(control.key)) button.classList.remove('pressed');
+      act(() => releasePad(control.id));
+    });
+    for (const type of ['pointercancel', 'lostpointercapture'] as const) {
+      button.addEventListener(type, event => {
+        if (pointerHeld.get(control.id) === event.pointerId) retirePointerInput();
       });
     }
     button.addEventListener('click', event => {
@@ -1191,16 +1211,16 @@ window.addEventListener('message', event => {
   postPerformanceEvent({ v: 1, runId: current.runId, seq: current.seq, type: 'state', state: current });
 });
 
-window.addEventListener('blur', releasePresses);
+window.addEventListener('blur', retirePageInputs);
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden) return;
-  releasePresses();
+  retirePageInputs();
   phoneMotionAbort?.abort();
 });
 window.addEventListener('beforeunload', event => {
   if (isRunning() && !changingAudioMode) { event.preventDefault(); event.returnValue = ''; }
 });
-window.addEventListener('pagehide', () => { void pointerProducer.reset().catch(() => {}); releasePresses(); phoneMotionAbort?.abort(); preparationAbort?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
+window.addEventListener('pagehide', () => { retirePageInputs(); phoneMotionAbort?.abort(); preparationAbort?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
 
 makePads();
 for (const entry of SONGS) {
