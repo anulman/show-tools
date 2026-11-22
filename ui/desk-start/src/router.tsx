@@ -12,6 +12,8 @@ export function getRouter() {
     routeTree,
     basepath: TANSTACK_DESK_PATH,
     context: { runtime: {} } satisfies DeskRouterContext,
+    defaultPendingMs: 250,
+    defaultPendingMinMs: 0,
     defaultPreloadStaleTime: 30_000,
     scrollRestoration: true,
   });

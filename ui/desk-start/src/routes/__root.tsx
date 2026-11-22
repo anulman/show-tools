@@ -2,6 +2,8 @@ import { createRootRouteWithContext, HeadContent, Scripts } from '@tanstack/reac
 import { useEffect, useState, type ReactNode } from 'react';
 import type { DeskRouterContext } from '../router';
 import { DeskPage } from '../desk-page';
+import { LoadingSkeleton } from '../loading';
+import '../loading.css';
 
 function Document({ children }: { children: ReactNode }) {
   return (
@@ -15,7 +17,7 @@ function Document({ children }: { children: ReactNode }) {
 function Root() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
-  return mounted ? <DeskPage /> : <main className="desk" aria-busy="true">Loading Performance Desk…</main>;
+  return mounted ? <DeskPage /> : <main className="desk"><LoadingSkeleton label="Loading Performance Desk…" /></main>;
 }
 
 export const Route = createRootRouteWithContext<DeskRouterContext>()({

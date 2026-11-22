@@ -1,0 +1,22 @@
+.desk-loading {
+  color: var(--muted);
+  font-size: 0.875rem;
+  margin-block: 0.875rem;
+}
+
+.desk-loading-lines {
+  display: grid;
+  gap: 0.375rem;
+  margin-block-start: 0.5rem;
+  max-inline-size: 18rem;
+}
+
+.desk-loading-lines span {
+  background: var(--line);
+  border-radius: 0.25rem;
+  block-size: 0.625rem;
+}
+
+.desk-loading-lines span:last-child {
+  inline-size: 65%;
+}
