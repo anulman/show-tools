@@ -139,6 +139,8 @@ export async function followDeskCharts({ origin, token, cdp, select, signal, log
       const connection = new AbortController();
       const connected = AbortSignal.any([connection.signal, signal]);
       let timeout: ReturnType<typeof setTimeout> | undefined;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+      const cancelRead = () => { void reader?.cancel().catch(() => {}); };
       const expectData = () => {
         clearTimeout(timeout);
         timeout = setTimeout(() => connection.abort(new Error('The EliteDesk event stream went silent.')), DESK_STREAM_IDLE_MS);
@@ -154,12 +156,17 @@ export async function followDeskCharts({ origin, token, cdp, select, signal, log
           await stream.body?.cancel();
           throw new DeskProtocolError('The EliteDesk did not provide an event stream.');
         }
+        reader = stream.body.getReader();
+        // Some Node versions leave a pending SSE read open after fetch is aborted.
+        connected.addEventListener('abort', cancelRead, { once: true });
         log(`Desk      following ${origin}`);
         const decoder = new TextDecoder();
         let buffer = '';
-        for await (const chunk of stream.body.values()) {
+        while (!connected.aborted) {
+          const { done, value } = await reader.read();
+          if (done || connected.aborted) break;
           expectData();
-          buffer += decoder.decode(chunk, { stream: true });
+          buffer += decoder.decode(value, { stream: true });
           let end: number;
           while ((end = buffer.indexOf('\n\n')) !== -1) {
             const message = buffer.slice(0, end);
@@ -198,7 +205,10 @@ export async function followDeskCharts({ origin, token, cdp, select, signal, log
         log(`Desk      ${cause instanceof Error ? cause.message : 'Connection interrupted'} Reconnecting…`);
       } finally {
         clearTimeout(timeout);
+        connected.removeEventListener('abort', cancelRead);
         connection.abort();
+        await reader?.cancel().catch(() => {});
+        reader?.releaseLock();
         stop();
       }
       await delay(1000, undefined, { signal }).catch(() => {});
