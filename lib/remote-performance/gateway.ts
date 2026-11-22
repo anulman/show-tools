@@ -535,18 +535,14 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
     const browserEntry = isDeskEntry(relative, BROWSER_DESK_PATH);
     const selectedBrowser = !url.searchParams.has('remote') && (browserEntry || url.searchParams.has('browser'));
     const legacyEntry = browserEntry || isDeskEntry(relative, HARDWARE_DESK_PATH) || isDeskEntry(relative, PRACTICE_ASSET_PATH);
-    const deskInstalled = (relative === '/' || legacyEntry || previousPreview)
+    const deskInstalled = (relative === '/' || legacyEntry)
       && await stat(resolve(root, '.' + deskShell)).then(file => file.isFile(), () => false);
     const deskFile = relative === '/' && !deskInstalled ? undefined : tanstackFile(relative, worker);
     const deskAsset = deskFile !== undefined;
-    if (!worker && pin === undefined && deskInstalled && (legacyEntry || previousPreview)) {
-      const destination = previousPreview ? relative.slice(TANSTACK_STATIC_PATH.length) || '/' : selectedBrowser ? '/browser/' : '/';
-      if (isTanstackDeskDocument(destination)) {
-        response.writeHead(302, { location: destination + url.search, 'cache-control': 'no-store' });
-        return response.end();
-      }
+    if ((legacyEntry && deskInstalled) || previousPreview || (!deskFile && relative.startsWith(TANSTACK_ASSET_PATH))
+      || (worker && isTanstackDeskDocument(relative) && (relative !== '/' || deskInstalled))) {
+      return json(response, 404, { error: 'Not found' });
     }
-    if ((worker && isTanstackDeskDocument(relative) && (relative !== '/' || deskInstalled)) || previousPreview || (!deskFile && relative.startsWith(TANSTACK_ASSET_PATH))) return json(response, 404, { error: 'Not found' });
     if (deskFile) relative = deskFile;
     if (pin === undefined && legacyEntry) {
       const destination = selectedBrowser ? BROWSER_DESK_PATH : HARDWARE_DESK_PATH;

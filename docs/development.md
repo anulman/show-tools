@@ -311,7 +311,7 @@ npm run build:desk-preview
 npm --prefix ui/desk-start run typecheck
 ```
 
-A session gateway serving this build handles `/` and numbered routes such as `/01-dance-yrself-clean`. Browser mode uses `/browser/` and has its own offline cache. The previous Live, Browser, and preview bookmarks redirect to the matching TanStack route. Use a fixture profile with a loopback bind address and the fake native host for repeatable QA.
+A session gateway serving this build handles `/` and numbered routes such as `/01-dance-yrself-clean`. Browser mode uses `/browser/` and has its own offline cache. Use a fixture profile with a loopback bind address and the fake native host for repeatable QA.
 
 Pass `--desk-preview` to the [Linux release builder](implementation/elitedesk-install.md) to include the TanStack Desk in a staged release. The Desk adds no production Node service. The existing gateway serves the static shell and authenticated APIs.
 

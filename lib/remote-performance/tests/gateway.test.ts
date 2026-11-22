@@ -177,7 +177,7 @@ test('keeps Hardware Desk assets current and verifies offline Browser build pins
 });
 
 
-test('serves registered root songs, redirects legacy bookmarks and isolates Browser assets', async () => {
+test('serves registered root songs, retires old entries and isolates Browser assets', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'gateway-preview-'));
   const mount = join(directory, 'preview/tanstack');
   const pin = 'c'.repeat(64);
@@ -206,16 +206,9 @@ test('serves registered root songs, redirects legacy bookmarks and isolates Brow
       assert.equal(response.headers.get('cache-control'), 'no-store');
       assert.equal(await response.text(), '<title>Preview</title>');
     }
-    for (const [before, after] of [
-      ['/ui/live/?remote', '/?remote'],
-      ['/ui/browser/', '/browser/'],
-      ['/ui/practice/?browser', '/browser/?browser'],
-      ['/preview/tanstack/04-tribulations', '/04-tribulations'],
-    ]) {
-      const response = await fetch(base + before, { redirect: 'manual' });
-      assert.equal(response.status, 302);
-      assert.equal(response.headers.get('location'), after);
-      assert.equal(response.headers.get('cache-control'), 'no-store');
+    for (const retired of ['/ui/live/?remote', '/ui/browser/', '/ui/practice/?browser', '/preview/tanstack/04-tribulations']) {
+      const response = await fetch(base + retired, { redirect: 'manual' });
+      assert.equal(response.status, 404, retired);
     }
     const head = await fetch(base + '/04-tribulations', { method: 'HEAD' });
     assert.equal(head.status, 200);
@@ -415,7 +408,7 @@ test('an input body finishing after its empty SSE owner closed cannot dispatch o
     const ownerRequest = once(server, 'request');
     const events = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': session.sessionId }, signal: abort.signal });
     const [owner] = await ownerRequest;
-    const ownerClosed = once(owner, 'close');
+    const ownerClosed = new Promise<void>(resolve => owner.once('close', resolve));
     await events.body!.getReader().read();
     const body = JSON.stringify({ sessionId: session.sessionId, sequence: 1, target, command: 'inputAttach', args: {
       intentId: 'late-intent', kind: 'pointer', bindingGeneration: 1, releasedMask: 223, heldMask: 0,
