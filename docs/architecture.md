@@ -121,9 +121,11 @@ Drunk Girls is executable from canonical MusicXML, with nine full pickup measure
 
 ## The UI observes the instrument
 
+The TanStack Start preview has a persistent React header and one route per numbered song. The shared Desk runtime owns one live gateway connection for the page. Route loaders read the song chart and effect defaults. Only the explicit song selection command can change the live session. React navigation releases inputs and tools held by that page. Browser mode has its own scoped offline worker. See the [preview instructions](development.md#run-the-tanstack-desk-preview).
+
 The [tuner](implementation/tuner.md) is a sibling view inside the same desk. Its injected session capability borrows the existing microphone, WASM instance, worklet, or native PCM owner. `lib/tuner/` owns pitch detection, scale spelling and progression, and finite reference synthesis in C++. PF feeds raw input before effects and capture and exposes tuner telemetry separately from historical song events. The native host also processes utility audio while transport stays Prepared. Opening the modal acquires no audio resources. Start, Stop, Panic, and microphone loss close native tuning.
 
-[app.ts](../ui/practice/app.ts) owns browser interaction and presentation. [model.ts](../lib/performance/model.ts) defines the shared controls and state. The pad grid matches keyboard position, with Q/W above A/S. Escape dismisses an open dialog. Otherwise, it invokes Panic even while a field has focus. Other pad shortcuts avoid fields being edited. The removed foot control is not a record control.
+[desk.ts](../ui/practice/desk.ts) owns browser interaction and presentation. The existing entry and the TanStack preview both mount this runtime. [model.ts](../lib/performance/model.ts) defines the shared controls and state. The pad grid matches keyboard position, with Q/W above A/S. Escape dismisses an open dialog. Otherwise, it invokes Panic even while a field has focus. Other pad shortcuts avoid fields being edited. The removed foot control is not a record control.
 
 Pad light states come from C++. The UI renders those states. An available unused cue pulses when the loop is inactive. Armed actions, recording, and playing loops glow steadily. A queued stop pulses with diminishing strength until its boundary. Completed stops turn the light off. A redesign can change their appearance while the native engine remains the owner of musical state.
 

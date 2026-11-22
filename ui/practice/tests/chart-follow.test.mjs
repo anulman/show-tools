@@ -4,8 +4,8 @@ import vm from 'node:vm';
 import { sourceForVM } from '../../../scripts/source-for-vm.ts';
 import { createChartFollower } from '../open-chart.ts';
 
-const source = await sourceForVM(new URL('../app.ts', import.meta.url));
-const dispatch = source.match(/function postPerformanceEvent[^\{]*\{[\s\S]*?\n\}/)?.[0];
+const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
+const dispatch = source.slice(source.indexOf('function postPerformanceEvent('), source.indexOf('window.addEventListener("message"'));
 assert(dispatch);
 const event = seq => ({ v: 1, runId: 'test-run', seq, state: { phase: 'playing', bar: 1,
   chart: { spreadsheetId: '1234567890123456789012345', sheetId: 101, columns: [3, 4], leadInColumn: 2 } } });

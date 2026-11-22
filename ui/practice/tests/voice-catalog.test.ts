@@ -51,7 +51,7 @@ async function harness() {
   };
   const context = vm.createContext({
     registry: { characters: [] }, parseCatalogDocument, discoverSheetVoices, discoverCueRows, loadedCommandRows, reconcileCatalog, resolveVoice, withVoice,
-    CatalogClientConflictError, initialVoiceEffects, crypto: webcrypto, Blob, Error, URL: {
+    CatalogClientConflictError, initialVoiceEffects, AbortController, AbortSignal, crypto: webcrypto, Blob, Error, URL: {
       createObjectURL(blob: Blob) { downloads.push(blob); return 'blob:test'; }, revokeObjectURL() {},
     }, setTimeout: () => 0,
     window: { document: { baseURI: 'http://localhost/', createElement: () => ({ href: '', download: '', click() {} }) } },

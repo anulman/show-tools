@@ -132,8 +132,8 @@ test('another practice window prevents forced activation until it closes', async
   assert.deepEqual(next.lifecycle, ['skipWaiting']);
 });
 
-const appSource = await sourceForVM(new URL('../app.ts', import.meta.url));
-const updateSource = appSource.slice(appSource.indexOf('function applyPendingPracticeUpdate()'));
+const appSource = await sourceForVM(new URL('../desk.ts', import.meta.url));
+const updateSource = appSource.slice(appSource.indexOf('function applyPendingPracticeUpdate()'), appSource.indexOf('return { dispose, selectSong'));
 const tunerSyncSource = appSource.slice(appSource.indexOf('function syncTunerSession()'), appSource.indexOf('requiredElement("#open-tuner"'));
 const renderSource = appSource.slice(appSource.indexOf('function render('), appSource.indexOf('function beginOutputRecording('));
 
@@ -149,7 +149,7 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
   const registration = { waiting: waiting ? worker : null, active: {}, async update() { updateChecks++; }, addEventListener(type, callback) { registrationEvents.set(type, callback); } };
   const serviceWorker = { controller: controlled ? {} : null, ready: Promise.resolve(), async register(url, options) { assert.equal(url, './sw.js'); assert.equal(options.updateViaCache, 'none'); return registration; }, addEventListener(type, callback) { events.set(type, callback); } };
   const context = {
-    URLSearchParams, remote: false, mode: 'browser', changingAudioMode: false,
+    URLSearchParams, mountSignal: new AbortController().signal, options: {}, remote: false, mode: 'browser', changingAudioMode: false,
     tunerPanel: undefined, tunerSession: undefined, audio: undefined, phoneMotionAbort: undefined,
     browserModeBusy: () => false, canChangeAudioMode: () => true, navigator: { serviceWorker },
     voiceCatalog: { busy: false }, sampleDownloads: { busy: false, render() {} },
