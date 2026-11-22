@@ -78,6 +78,11 @@
     <span id="hardware-key-status" role="status"></span>
     <p>Live enables microphone monitoring. Standby stops audio, releases the interface, and clears captured loops.</p>
   </section>
+  <section id="chart-publish" class="hardware-audio" aria-label="Chart update" hidden>
+    <label class="field"><span>Chart update</span><input id="chart-update-file" type="file" accept=".musicxml,.xml"></label>
+    <button id="chart-update-publish" type="button" class="secondary" disabled>Publish chart</button>
+    <p id="chart-update-status" role="status">Export the selected song as MusicXML, then publish it in Standby.</p>
+  </section>
   <div class="settings-options">
     <div class="transport-switches"><label class="switch"><input id="loop" type="checkbox"><span>Loop range</span></label><label class="switch"><input id="click" type="checkbox"><span>Song click</span></label></div>
   </div>

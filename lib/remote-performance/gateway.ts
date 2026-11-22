@@ -1,7 +1,8 @@
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { MAX_CHART_BYTES } from './chart-overrides.js';
 import { DESK_HEARTBEAT_MS } from './event-liveness.js';
 import { BROWSER_DESK_PATH, HARDWARE_DESK_PATH, PRACTICE_ASSET_PATH, isDeskEntry } from './desk-paths.js';
 import type { TunerState } from '../tuner/model.js';
-import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
@@ -246,13 +247,13 @@ function json(response: ServerResponse, status: number, value: unknown) {
 	response.end(JSON.stringify(value));
 }
 
-async function readBody(request: IncomingMessage): Promise<unknown> {
+async function readBody(request: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
 	const chunks: Buffer[] = [];
 	let length = 0;
 	for await (const chunk of request) {
 		const bytes = Buffer.from(chunk);
 		length += bytes.length;
-		if (length > MAX_BODY) throw new Error('Body too large');
+		if (length > limit) throw new Error('Body too large');
 		chunks.push(bytes);
 	}
 	return JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -268,10 +269,14 @@ export interface SongActions {
   choices(): readonly { id: string; title: string; packageDigest: string }[];
   select(id: string, expectedRevision: string): Promise<AudioDecision>;
   bindings(expectedRevision: string, values: InputBindings): Promise<AudioDecision>;
+  publishChart?(expectedRevision: string, xml: string): Promise<AudioDecision>;
 }
 const configurationFields = { ...requestFields, expectedRevision: Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/)) };
 const decodeSongSelection = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields, songId: Schema.NonEmptyString.check(Schema.isMaxLength(256)) }), { onExcessProperty: 'error' });
 const decodeButtonBindings = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields, bindings: InputBindingsSchema }), { onExcessProperty: 'error' });
+
+const decodeChartUpdate = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields,
+  musicXml: Schema.NonEmptyString }), { onExcessProperty: 'error' });
 
 function deskWireView(view: DeskView): DeskView {
   const { compiled } = view.song;
@@ -294,6 +299,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 	if ((config.tls ? 'https:' : 'http:') !== origin.protocol) throw new Error('Origin protocol does not match listener');
 	const sessions = new Map<string, Session>();
 	const inputs = new InputProducerRegistry(controller);
+  let receivingChart = false;
   const inputOwners = new Map<string, { owner: Session; reads: number }>();
   let audition: { owner: Session; target: NativeTarget } | undefined;
   let auditionTransition = Promise.resolve();
@@ -442,15 +448,24 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				if (snapshot) send(response, Buffer.from(`data: ${JSON.stringify({ type: 'desk', view: deskWireView(snapshot) })}\n\n`));
 				return;
 			}
-			if (request.method === 'POST' && ['/api/command', '/api/audio', '/api/song', '/api/button-bindings'].includes(path)) {
+			if (request.method === 'POST' && ['/api/command', '/api/audio', '/api/song', '/api/button-bindings', '/api/chart'].includes(path)) {
 				if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
-				let body: ReturnType<typeof decodeCommand> | ReturnType<typeof decodeAudio> | ReturnType<typeof decodeSongSelection> | ReturnType<typeof decodeButtonBindings>;
-				try { const input = await readBody(request); body = path === '/api/audio' ? decodeAudio(input) : path === '/api/song' ? decodeSongSelection(input) : path === '/api/button-bindings' ? decodeButtonBindings(input) : decodeCommand(input); }
-				catch { return json(response, 400, { error: 'Invalid body' }); }
+        const chart = path === '/api/chart';
+        if (chart && receivingChart) return json(response, 409, { error: 'A chart upload is already in progress' });
+        if (chart) receivingChart = true;
+        let body: ReturnType<typeof decodeCommand> | ReturnType<typeof decodeAudio> | ReturnType<typeof decodeSongSelection>
+          | ReturnType<typeof decodeButtonBindings> | ReturnType<typeof decodeChartUpdate>;
+        try {
+          const input = await readBody(request, chart ? MAX_CHART_BYTES * 2 + MAX_BODY : MAX_BODY);
+          body = chart ? decodeChartUpdate(input) : path === '/api/audio' ? decodeAudio(input) : path === '/api/song' ? decodeSongSelection(input)
+            : path === '/api/button-bindings' ? decodeButtonBindings(input) : decodeCommand(input);
+          if ('musicXml' in body && Buffer.byteLength(body.musicXml) > MAX_CHART_BYTES) return json(response, 413, { error: 'MusicXML exceeds 4 MiB' });
+        } catch { return json(response, 400, { error: 'Invalid body' }); }
+        finally { if (chart) receivingChart = false; }
 				const session = sessions.get(body.sessionId);
 				if (!session) return json(response, 409, { error: 'Session expired' });
 				const sequence = Number(body.sequence);
-				const requestKey = JSON.stringify([path, body]);
+				const requestKey = createHash('sha256').update(JSON.stringify([path, body])).digest('hex');
 				const retained = session.results.get(sequence);
 				if (retained) {
 					if (retained.request !== requestKey) return json(response, 409, { error: 'Command identity reused' });
@@ -465,6 +480,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				session.inFlight++;
 				const result: Promise<Outcome | AudioDecision | NativeOutcome> = ('goal' in body
 					? Promise.resolve(controller.setAudio(body.goal))
+          : 'musicXml' in body ? songs?.publishChart?.(body.expectedRevision, body.musicXml) ?? Promise.resolve({ outcome: 'rejected' as const, error: 'Chart updates are unavailable on this desk', view: controller.snapshot() })
           : 'expectedRevision' in body ? songs ? 'bindings' in body ? songs.bindings(body.expectedRevision, decodeInputBindings(body.bindings)) : songs.select(body.songId, body.expectedRevision) : Promise.resolve({ outcome: 'rejected' as const, error: 'Song configuration is unavailable', view: controller.snapshot() })
 					: body.command === 'auditionTambourine' ? commandAudition(session, body.target, body.args)
 					: body.command.startsWith('input') ? inputs.command(session, body.target, { command: body.command, args: body.args })

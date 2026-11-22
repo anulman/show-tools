@@ -85,18 +85,33 @@ function validateDatabase(database: DatabaseSync) {
   return { version, records, legacy };
 }
 
-export async function prepareSongBindings(entry: InstalledSong, input: unknown): Promise<PreparedSongBindings> {
+export async function prepareSongBindings(entry: InstalledSong, input: unknown, override?: string): Promise<PreparedSongBindings> {
   const bindings = decodeInputBindings(input);
   const compiled = entry.installed.song.compiled;
   if (!compiled) throw new Error('Installed song has no canonical compiled program');
   const [sourceBytes, effects] = await Promise.all([
-    readFile(join(dirname(entry.paths.manifest), 'source.musicxml')),
+    override ?? readFile(join(dirname(entry.paths.manifest), 'source.musicxml'), 'utf8'),
     readFile(entry.paths.effects),
   ]);
   if (hash(effects) !== entry.hashes.effectsSha256) throw new Error('Installed effects changed after catalog validation');
-  const document = await readMusicXmlSong(sourceBytes.toString('utf8'));
-  if (document.song.id !== entry.id || stableMusicXmlJson(document.song) !== stableMusicXmlJson(compiled))
-    throw new Error('Canonical source.musicxml does not match the installed song; install a matched chart package before editing bindings');
+  const document = await readMusicXmlSong(sourceBytes);
+  if (override === undefined) {
+    if (document.song.id !== entry.id || stableMusicXmlJson(document.song) !== stableMusicXmlJson(compiled))
+      throw new Error('Canonical source.musicxml does not match the installed song; install a matched chart package before editing bindings');
+  } else {
+    if (document.song.id !== entry.id || document.song.source.spreadsheetId !== compiled.source.spreadsheetId
+      || document.song.source.sheetId !== compiled.source.sheetId)
+      throw new Error('Choose a MusicXML export for the selected song and worksheet');
+    if (!document.song.executable) {
+      const errors = document.song.diagnostics.filter(item => item.severity === 'error').slice(0, 4);
+      throw new Error('Chart is not executable. ' + errors.map(item => `${item.source.a1} ${item.message}`).join(' '));
+    }
+    const owners = (song: typeof compiled, profile: number) =>
+      [...song.parts, ...song.sourceProfiles ?? []].filter(part => part.profile === profile).map(part => part.id).sort().join(',');
+    for (const configuration of entry.installed.defaultVoiceEffects) if (configuration.effects.length
+      && owners(compiled, configuration.profile) !== owners(document.song, configuration.profile))
+      throw new Error(`Chart changes the owner of saved effects profile ${configuration.profile}`);
+  }
   const changed = decodeCompiledSong({ ...document.song, inputBindings: bindings });
   const musicXml = await writeMusicXmlSong({ song: changed, report: document.report,
     ...(document.source === null ? {} : { source: document.source }),
@@ -107,7 +122,8 @@ export async function prepareSongBindings(entry: InstalledSong, input: unknown):
   const packet = Buffer.from(compiledProgramBytes(canonical.song));
   const configurations: unknown = JSON.parse(effects.toString('utf8'));
   const manifest = Buffer.from(JSON.stringify({ id: entry.id, description: entry.installed.song.description,
-    compiled: canonical.song, practice: entry.installed.song.practice, takeCount: canonical.song.takes.length,
+    compiled: canonical.song, practice: override === undefined ? entry.installed.song.practice
+      : { startBar: 1, endBar: canonical.song.chart.annotatedThroughBar }, takeCount: canonical.song.takes.length,
     packetSha256: hash(packet), profilesSha256: hash(encodeInitialProfiles(configurations)) }));
   const installed = validateInstalledPackage(manifest, packet, configurations);
   return { songId: entry.id, sourceDigest: compiled.source.digest, bindings: acknowledged, musicXml,

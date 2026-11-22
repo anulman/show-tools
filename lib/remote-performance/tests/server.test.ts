@@ -38,6 +38,88 @@ async function fixture() {
   return { directory, profile, headers };
 }
 
+test('a Standby chart publish updates the running desk and survives restart', async () => {
+  const { directory, profile, headers } = await fixture();
+  const { readMusicXmlSong, writeMusicXmlSong } = await import('../../performance/musicxml-song.js');
+  const path = join(profile.catalog.entries[0].path, 'source.musicxml');
+  const baseline = await readFile(path, 'utf8');
+  const document = await readMusicXmlSong(baseline);
+  const title = 'Dance Yrself Clean revised';
+  const musicXml = await writeMusicXmlSong({ song: document.song, report: { ...document.report, title } });
+  const otherSong = await readFile('songs/tribulations.musicxml', 'utf8');
+  let app = await serveProfile(profile);
+  let stream: ReadableStreamDefaultReader<string> | undefined;
+  try {
+    const session = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
+    const origin = profile.origin;
+    const events = await fetch(origin + '/api/events', { headers: { ...headers, 'x-session-id': session.sessionId } });
+    const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+    stream = reader;
+    let publicationBuffer = '';
+    const publication = async () => {
+      while (!publicationBuffer.includes('\n\n')) {
+        const received = await reader.read();
+        assert.equal(received.done, false);
+        publicationBuffer += received.value;
+      }
+      const boundary = publicationBuffer.indexOf('\n\n');
+      const result = decodeDeskPublication(JSON.parse(publicationBuffer.slice(6, boundary)));
+      publicationBuffer = publicationBuffer.slice(boundary + 2);
+      return result;
+    };
+    assert.equal((await publication()).type, 'desk');
+    let sequence = 0;
+    const request = async (route: string, body: object, seq = ++sequence) => {
+      const response = await fetch(origin + route, { method: 'POST', headers,
+        body: JSON.stringify({ sessionId: session.sessionId, sequence: seq, ...body }) });
+      return { status: response.status, result: await response.json() };
+    };
+    const publish = (xml: string, expectedRevision = app.controller.snapshot().revision) =>
+      request('/api/chart', { musicXml: xml, expectedRevision });
+    assert.equal((await fetch(origin + '/api/chart', { method: 'POST' })).status, 401);
+    for (const bad of [otherSong, '<invalid/>']) {
+      assert.equal((await publish(bad)).result.outcome, 'rejected');
+      assert.equal(app.controller.snapshot().revision, session.view.revision);
+    }
+    const list = () => fetch(origin + '/api/songs', { headers }).then(response => response.json());
+    const before = (await list()).songs[0];
+    const accepted = await publish(musicXml);
+    assert.equal(accepted.result.outcome, 'accepted', JSON.stringify(accepted.result.error));
+    assert.equal(accepted.result.view.song.chart.title, title);
+    assert.equal(accepted.result.view.serverEpoch, session.view.serverEpoch);
+    assert.equal(accepted.result.view.audio.kind, 'off');
+    const updated = await publication();
+    assert.equal(updated.type, 'desk');
+    assert.equal(updated.view.song.chart.title, title);
+    assert.equal(updated.view.revision, accepted.result.view.revision);
+    assert.deepEqual(accepted.result.view.defaultVoiceEffects, session.view.defaultVoiceEffects);
+    assert.deepEqual(accepted.result.view.song.compiled.inputBindings, session.view.song.compiled?.inputBindings);
+    assert.equal((await request('/api/chart', { musicXml, expectedRevision: session.view.revision }, sequence)).result.outcome, 'accepted');
+    assert.equal((await request('/api/chart', { musicXml: otherSong, expectedRevision: session.view.revision }, sequence)).status, 409);
+    assert.equal((await publish(musicXml, session.view.revision)).result.outcome, 'rejected');
+    const after = (await list()).songs[0];
+    assert.equal(after.title, title);
+    assert.notEqual(before.packageDigest, after.packageDigest);
+    assert.equal(await readFile(path, 'utf8'), baseline);
+    await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
+
+    assert.equal((await request('/api/audio', { goal: 'on' })).result.outcome, 'accepted');
+    const live = await until(() => {
+      const view = app.controller.snapshot();
+      return view.audio.kind === 'ready' ? view : undefined;
+    });
+    assert.equal(live.song.chart.title, title);
+    assert.equal((await publish(baseline)).result.outcome, 'rejected');
+    await stream.cancel();
+    stream = undefined;
+    await app.close();
+    app = await serveProfile(profile);
+    assert.equal(app.controller.snapshot().song.chart.title, title);
+    assert.equal(app.controller.snapshot().audio.kind, 'off');
+    assert.deepEqual((await list()).songs[0], after);
+  } finally { await stream?.cancel(); await app.close(); await rm(directory, { recursive: true, force: true }); }
+});
+
 test('profile server starts off without native executable and SSE bootstraps the desk', async () => {
   const { directory, profile, headers } = await fixture();
   const app = await serveProfile({ ...profile, native: { ...profile.native, executable: '/missing/native-host' } });
