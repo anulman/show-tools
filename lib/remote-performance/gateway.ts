@@ -519,7 +519,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				const exclusive = 'goal' in body ? body.goal === 'on' : 'expectedRevision' in body;
 				const result = (exclusive && config.peripheralProfile
 					? withPeripheralMaintenance(config.peripheralProfile, run)
-					: Promise.resolve().then(run)).catch(
+					: run()).catch(
 					(error): Outcome | AudioDecision => error instanceof PeripheralMaintenanceBusy
 						? { outcome: 'rejected', error: 'Peripheral maintenance is in progress', view: controller.snapshot() }
 						: { outcome: 'unknown' },
