@@ -135,7 +135,7 @@ test('another practice window prevents forced activation until it closes', async
 const appSource = await sourceForVM(new URL('../desk.ts', import.meta.url));
 const updateSource = appSource.slice(appSource.indexOf('function applyPendingPracticeUpdate()'), appSource.indexOf('return { dispose, selectSong'));
 const tunerSyncSource = appSource.slice(appSource.indexOf('function syncTunerSession()'), appSource.indexOf('requiredElement("#open-tuner"'));
-const renderSource = appSource.slice(appSource.indexOf('function render('), appSource.indexOf('function beginOutputRecording('));
+const renderSource = appSource.slice(appSource.indexOf('function songChanging()'), appSource.indexOf('function beginOutputRecording('));
 
 async function updateHarness({ controlled = true, waiting = true } = {}) {
   let reloads = 0, updateChecks = 0;
@@ -160,6 +160,8 @@ async function updateHarness({ controlled = true, waiting = true } = {}) {
     state: { phase: 'playing' }, chart: undefined, starting: false, switching: false, effectsApplying: false, preparing: null, outputCapture: 'idle',
     offlineUpdate: { kind: 'current' },
     isRunning() { return context.state.phase === 'playing' || context.state.phase === 'count-in'; },
+    transport: { hasAttribute: () => false, toggleAttribute() {}, setAttribute() {} },
+    songLoadingStatus: { textContent: '' }, explicitlySelected: undefined,
     beginOutputRecording() {}, finishOutputRecording() {},
   };
   vm.createContext(context);

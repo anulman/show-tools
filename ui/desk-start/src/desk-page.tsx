@@ -4,7 +4,6 @@ import { nextSetSong, songForRoute, songRoute } from '../../../songs/routes.js';
 import { TANSTACK_DESK_PATH } from '../../../lib/remote-performance/desk-paths.js';
 import type { AudioMode } from '../../practice/audio-mode.js';
 import { DeskState, type DeskMount, type SongObservation } from './desk-state';
-import { LoadingSkeleton } from './loading';
 import { template } from './template';
 
 function routeSong(pathname: string) {
@@ -122,10 +121,9 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
       {mode === 'browser' && <link rel="manifest" href={TANSTACK_DESK_PATH + 'browser/manifest.webmanifest'} />}
       <main id="practice-desk" className="desk">
         <header className="topline" dangerouslySetInnerHTML={{ __html: template.header }} />
-        {!ready && !error && <LoadingSkeleton label="Opening Performance Desk…" />}
         {error && <p role="alert">{error}</p>}
         <Outlet />
-        <div hidden={previewing} inert={previewing || !ready} aria-busy={!ready && !error} style={{ display: previewing ? 'none' : 'contents' }} dangerouslySetInnerHTML={{ __html: template.song }} />
+        <div hidden={previewing} inert={previewing} style={{ display: previewing ? 'none' : 'contents' }} dangerouslySetInnerHTML={{ __html: template.song }} />
       </main>
       <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: template.dialogs }} />
     </DeskState.Provider>

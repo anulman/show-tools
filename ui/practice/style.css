@@ -174,3 +174,22 @@
 .tambourine-trace { flex-basis: 100%; min-width: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; }
 .tambourine-trace strong { font-size: 12px; }
 .tambourine-trace textarea { width: 100%; min-width: 0; resize: none; border: 1px solid var(--line); border-radius: 5px; padding: 6px; font: 11px/1.4 ui-monospace, monospace; }
+
+.transport-status{position:absolute;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.transport-loading-label,.transport[data-song-loading] #phase-label{display:none}
+.transport[data-song-loading] .transport-loading-label{display:inline}
+.transport[data-song-loading]{--transport-skeleton:#53634a}
+.transport[data-song-loading] :is(#bar-number,#beat-number,#range-label),
+.transport[data-song-loading] .transport-options :is(input,select){
+  color:transparent;
+  background:linear-gradient(var(--transport-skeleton),var(--transport-skeleton)) left center/100% .7em no-repeat;
+  border-radius:4px;
+}
+.transport[data-song-loading] #bar-number{min-width:2ch}
+.transport[data-song-loading] #beat-number{min-width:1ch}
+.transport[data-song-loading] #range-label{min-width:10ch}
+.transport[data-song-loading] .transport-options :is(input,select){
+  appearance:none;
+  min-width:3ch;
+  background-size:75% .65em;
+}

@@ -132,6 +132,8 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   let song: SongScript | undefined;
   let songGeneration = 0;
   let switching = false;
+  const transport = requiredElement('.transport', HTMLElement);
+  const songLoadingStatus = requiredElement('#song-loading-status', HTMLElement);
   let outputCapture: 'idle' | 'starting' | 'waiting' | 'recording' | 'stopping' = 'idle';
   let audio: PerformanceSession | undefined;
   let tunerPanel: TunerPanel | undefined;
@@ -478,7 +480,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }
 
   async function startPractice() {
-    if (voiceCatalog.busy || starting || isRunning() || effectsApplying || auditionTimer !== undefined || outputCapture === 'starting' || outputCapture === 'stopping') return;
+    if (songChanging() || voiceCatalog.busy || starting || isRunning() || effectsApplying || auditionTimer !== undefined || outputCapture === 'starting' || outputCapture === 'stopping') return;
     if (!chart) throw new Error('The song chart is still loading. Try again in a moment.');
     const bpm = Number(elements.bpm.value);
     const startBar = Number(elements['start-section'].value);
@@ -864,6 +866,18 @@ export async function mountDesk(options: DeskMountOptions = {}) {
       .catch(error => { changingAudioMode = false; select.value = mode; select.disabled = false; showError(error); });
   }, { signal: mountSignal });
 
+  function songChanging() {
+    return switching || explicitlySelected !== undefined;
+  }
+
+  function renderSongLoading() {
+    const loading = songChanging();
+    if (transport.hasAttribute('data-song-loading') === loading) return;
+    transport.toggleAttribute('data-song-loading', loading);
+    transport.setAttribute('aria-busy', String(loading));
+    songLoadingStatus.textContent = loading ? 'Loading song' : '';
+  }
+
   function render(next: Partial<PracticeState>) {
     if (mountSignal.aborted) return;
     syncTunerSession();
@@ -871,6 +885,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     const newPhase = next.phase ?? state.phase;
     if ((newPhase === 'playing' || newPhase === 'count-in') !== (state.phase === 'playing' || state.phase === 'count-in')) phoneMotionAbort?.abort();
     state = { ...state, ...next };
+    renderSongLoading();
     sampleDownloads.render();
     beginOutputRecording(state.phase);
     if (ended) {
@@ -901,8 +916,8 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     elements['bar-number'].classList.toggle('pickup', Boolean(currentBar?.label && !/^\d/.test(currentBar.label)));
     elements['beat-number'].textContent = String(state.beat || 1);
     elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
-    elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || switching || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping' || remoteDemoChanging || auditionTimer !== undefined || (remote && remoteDesk?.demoState() === 'finishing');
-    elements['song-select'].disabled = remote && remoteDesk?.connection.kind !== 'connected' || voiceCatalog.busy || switching || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
+    elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || songChanging() || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping' || remoteDemoChanging || auditionTimer !== undefined || (remote && remoteDesk?.demoState() === 'finishing');
+    elements['song-select'].disabled = remote && remoteDesk?.connection.kind !== 'connected' || voiceCatalog.busy || songChanging() || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
     if (!remote) elements['record-demo'].disabled = voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
     const effectsLocked = running || starting || switching || Boolean(preparing) || (effectsApplying && !auditionApplying) || outputCapture !== 'idle';
     renderSongVoices(state, effectsLocked);
@@ -915,7 +930,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
         : 'Live monitoring is off. Confirm your physical setup after Start. Downloads still include processed voice.';
     startLabel.textContent = preparing ? 'Preparing audio…' : state.phase === 'ended' ? 'Play again' : 'Start';
     elements.stop.disabled = !starting && !running && !recording;
-    for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting;
+    for (const element of [elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop]) element.disabled = running || starting || songChanging();
     renderPads(displayBar, state);
     if (state.error) showError(new Error(state.error));
   }
@@ -1135,6 +1150,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
 
   async function selectSong(id: string) {
     mountSignal.throwIfAborted();
+    if (songChanging()) return;
     if ((remote ? remoteDesk?.snapshot().song.id : song?.id) === id) return;
     if (remote && isRunning()) {
       if (!window.confirm('Switching songs stops the current performance and clears its captured samples. Continue?')) {
@@ -1145,8 +1161,13 @@ export async function mountDesk(options: DeskMountOptions = {}) {
       catch (error) { elements['song-select'].value = remoteDesk?.snapshot().song.id ?? id; throw error; }
     }
     explicitlySelected = id;
-    try { await switchSong(id); }
-    finally { if (explicitlySelected === id) explicitlySelected = undefined; }
+    try {
+      render(state);
+      await switchSong(id);
+    } finally {
+      explicitlySelected = undefined;
+      render(state);
+    }
   }
 
   elements.stop.addEventListener('click', () => act(stopPractice), { signal: mountSignal });
@@ -1494,9 +1515,9 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     if (chart) elements['range-label'].textContent = `BARS ${chartBarLabel(chart, displayBar)}–${elements['end-bar'].value}`;
     for (const control of [elements.start, elements.stop, elements.bpm, elements['count-in'], elements['start-section'], elements['end-bar'], elements.loop, elements.click, elements.mushroom, elements['record-demo'], elements['song-select'], elements['monitor-relationship']]) control.disabled = true;
     const canEnable = remoteDesk?.connection.kind === 'connected' && remoteDesk.snapshot().audio.kind === 'off';
-    if (canEnable) elements.start.disabled = false;
+    if (canEnable && !songChanging()) elements.start.disabled = false;
     startLabel.textContent = canEnable ? 'Enable audio' : 'Start';
-    elements['song-select'].disabled = !canEnable || switching;
+    elements['song-select'].disabled = !canEnable || songChanging();
     elements['phase-label'].textContent = remoteDesk?.connection.kind === 'connected' && remoteDesk.snapshot().audio.kind === 'off' ? 'AUDIO OFF' : 'AUDIO UNAVAILABLE';
     elements['bar-number'].textContent = '··';
     elements['beat-number'].textContent = '·';
