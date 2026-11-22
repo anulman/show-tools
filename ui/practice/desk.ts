@@ -1,3 +1,4 @@
+import { initialVoiceEffects } from '../../lib/performance/vocal-effects.js';
 import { dismissOnBackdrop } from './dialog.js';
 import { chartBarLabel, chartBarOrdinal } from '../../lib/performance/chart-position.js';
 import { enablePhoneMotion } from './phone-motion.js';
@@ -28,7 +29,7 @@ import { recordingToMp3 } from './recording-export.js';
 import { installChartPanel } from './chart-panel.js';
 import { decodeCompiledSong } from '../../lib/performance/compiled-song.js';
 import type { CompiledSong } from '../../lib/performance/compiled-song.js';
-import { createVoiceEffectsEditor, initialVoiceEffects } from './voice-effects.js';
+import { createVoiceEffectsEditor } from './voice-effects.js';
 import { keyboardFocusBlocksShortcut } from './keyboard-focus.js';
 import { takePresentation } from './take-presentation.js';
 import { createMusicalInputProducer } from './peripheral-input.js';
@@ -498,7 +499,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
       } finally { starting = false; render(state); }
       return;
     }
-    const effects = song?.compiled ? voiceEffects.configurations() : initialVoiceEffects('dry');
+    const effects = song?.compiled ? voiceEffects.configurations() : initialVoiceEffects();
     const generation = ++transportGeneration;
     starting = true;
     render(state);
@@ -637,7 +638,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }
 
   function mountVoiceRows() {
-    voiceEffects.reset(!remote && song?.compiled ? 'compiled' : 'dry'); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0;
+    voiceEffects.reset(initialVoiceEffects(remote ? undefined : song?.compiled)); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0;
     for (const pad of pads.values()) {
       const avatar = requiredElement('.performance-avatar', HTMLElement, pad.button);
       avatar.hidden = true; delete avatar.dataset.avatar;

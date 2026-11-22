@@ -1,25 +1,19 @@
 import { dismissOnBackdrop } from './dialog.js';
 import { createEffectKnob } from './effect-knob.js';
-import { VOICE_PROFILE_COUNT, ROTATION_LIVE_PROFILE, DEFAULT_LIVE_PROFILE } from '../../lib/performance/model.js';
+import { chorus, initialVoiceEffects, slapback } from '../../lib/performance/vocal-effects.js';
 import type { LiveEffectDefinition, VoiceEffectConfiguration, VoiceEffectsState } from '../../lib/performance/model.js';
 
 type Voice = { id: string; name: string; profile: number };
 type Knob = ReturnType<typeof createEffectKnob> & { value: () => number };
 type Footer = { titles: HTMLButtonElement[]; edit?: () => void; voice: Voice; root: HTMLElement; editor: HTMLDialogElement; editorBody: HTMLElement; open: HTMLButtonElement; controls: HTMLInputElement[]; buttons: HTMLButtonElement[]; knobs: Knob[]; apply?: HTMLButtonElement };
-const slapback = (): LiveEffectDefinition => ({ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 });
-const chorus = (): LiveEffectDefinition => ({ kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: .35 });
-export function initialVoiceEffects(mode: 'compiled' | 'dry' = 'compiled', sourceProfiles: readonly number[] = []): VoiceEffectConfiguration[] {
-  return Array.from({ length: VOICE_PROFILE_COUNT }, (_, profile) => ({ profile,
-    effects: mode === 'dry' || sourceProfiles.includes(profile) ? [] : profile === ROTATION_LIVE_PROFILE ? [slapback(), chorus()] : profile === DEFAULT_LIVE_PROFILE ? [slapback()] : [] }));
-}
-const dryDefaults = initialVoiceEffects('dry');
+const dryDefaults = initialVoiceEffects();
 export function effectSummary(effects: readonly LiveEffectDefinition[]): string {
   return effects.map(effect => effect.kind === 'slapback'
     ? `Slapback · ${effect.delayMs} ms · ${Math.round(effect.wet * 100)}%`
     : `Chorus · ${effect.rateHz} Hz · ${Math.round(effect.wet * 100)}%`).join(' → ') || 'Dry';
 }
 export function createVoiceEffectsEditor(onApply: (profile: number) => void, onChange?: (profile: number) => void) {
-  let baseline: readonly VoiceEffectConfiguration[] = initialVoiceEffects();
+  let baseline: readonly VoiceEffectConfiguration[] = dryDefaults;
   let drafts = baseline;
   let applied: readonly VoiceEffectsState[] = [];
   let locked = false;
@@ -146,7 +140,7 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void, onC
     if (restoreFocus) footer.editor.querySelector<HTMLButtonElement>('button[autofocus]')?.focus();
   }
   return {
-    reset(nextMode: 'compiled' | 'dry') { for (const footer of footers) { for (const knob of footer.knobs) knob.cancelDrag(); footer.editor.remove(); footer.open.remove(); } baseline = initialVoiceEffects(nextMode); drafts = baseline; applied = []; footers.length = 0; },
+    reset(configurations: readonly VoiceEffectConfiguration[]) { for (const footer of footers) { for (const knob of footer.knobs) knob.cancelDrag(); footer.editor.remove(); footer.open.remove(); } baseline = configurations; drafts = baseline; applied = []; footers.length = 0; },
     setEffects(profile: number, effects: readonly LiveEffectDefinition[]) {
       baseline = baseline.map(item => item.profile === profile ? { ...item, effects } : item);
       setProfileEffects(profile, effects);

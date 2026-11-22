@@ -6,13 +6,14 @@ import { pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 import { compiledProgramBytes } from '../lib/performance/compiled-native.js';
 import { readMusicXmlSong, writeMusicXmlSong } from '../lib/performance/musicxml-song.js';
+import { initialVoiceEffects } from '../lib/performance/vocal-effects.js';
 import { encodeInitialProfiles } from '../lib/remote-performance/commands.js';
 import { validateInstalledPackage } from '../lib/remote-performance/prepare.js';
 
 const id = Schema.String.check(Schema.isPattern(/^[a-z0-9]+(?:-[a-z0-9]+)*$/));
 const digest = Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/));
 const specSchema = Schema.Struct({ schemaVersion: Schema.Literal(1), initialSongId: id,
-  songs: Schema.NonEmptyArray(Schema.Struct({ id, musicXml: Schema.NonEmptyString, effects: Schema.NonEmptyString })) });
+  songs: Schema.NonEmptyArray(Schema.Struct({ id, musicXml: Schema.NonEmptyString, effects: Schema.optionalKey(Schema.NonEmptyString) })) });
 export const catalogSchema = Schema.Struct({ schemaVersion: Schema.Literal(1), initialSongId: id,
   entries: Schema.NonEmptyArray(Schema.Struct({ id, path: Schema.NonEmptyString, title: Schema.String,
     packageDigest: digest, files: Schema.Struct({ 'manifest.json': digest, 'song.pfp': digest, 'effects.json': digest, 'source.musicxml': digest }) })) });
@@ -62,16 +63,19 @@ export async function buildSongCatalog(input: unknown, output: string, base = pr
   for (const song of spec.songs) {
     if (ids.has(song.id)) throw new Error(`Duplicate song ID: ${song.id}`);
     ids.add(song.id);
-    const [source, effects] = await Promise.all([readFile(resolve(base, song.musicXml)), readFile(resolve(base, song.effects))]);
+    const [source, explicitEffects] = await Promise.all([readFile(resolve(base, song.musicXml)),
+      song.effects === undefined ? undefined : readFile(resolve(base, song.effects))]);
     const document = await readMusicXmlSong(source.toString('utf8'));
     const reread = await readMusicXmlSong(await writeMusicXmlSong({ song: document.song, report: document.report, ...(document.source ? { source: document.source } : {}), ...(document.mapping ? { mapping: document.mapping } : {}), ...(document.voices ? { voices: document.voices } : {}) }));
     if (document.song.id !== song.id || JSON.stringify(document.song) !== JSON.stringify(reread.song)) throw new Error('MusicXML canonical roundtrip identity mismatch');
     const compiled = reread.song;
+    const effects = explicitEffects ?? json(initialVoiceEffects(compiled));
+    const configurations: unknown = JSON.parse(effects.toString('utf8'));
     const packet = Buffer.from(compiledProgramBytes(compiled));
     const manifest = json({ id: song.id, description: 'Compiled from canonical MusicXML.', compiled,
       practice: { startBar: 1, endBar: compiled.chart.bars.length }, takeCount: compiled.takes.length,
-      packetSha256: hash(packet), profilesSha256: hash(encodeInitialProfiles(JSON.parse(effects.toString('utf8')))) });
-    validateInstalledPackage(manifest, packet, JSON.parse(effects.toString('utf8')));
+      packetSha256: hash(packet), profilesSha256: hash(encodeInitialProfiles(configurations)) });
+    validateInstalledPackage(manifest, packet, configurations);
     const data = { 'manifest.json': manifest, 'song.pfp': packet, 'effects.json': effects, 'source.musicxml': source };
     const files = { 'manifest.json': hash(manifest), 'song.pfp': hash(packet), 'effects.json': hash(effects), 'source.musicxml': hash(source) };
     const path = `songs/${song.id}`;

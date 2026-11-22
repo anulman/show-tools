@@ -1,4 +1,5 @@
-import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.js';
+import { initialVoiceEffects } from '../../../lib/performance/vocal-effects.js';
+import { createVoiceEffectsEditor } from '../voice-effects.js';
 import { DEFAULT_LIVE_PROFILE, ROTATION_LIVE_PROFILE, type VoiceEffectsState } from '../../../lib/performance/model.js';
 const status = document.createElement('pre'); status.id = 'test-results'; document.body.prepend(status);
 const results: string[] = [];
@@ -8,9 +9,15 @@ const host = document.createElement('div'); host.id = 'fx-test-host'; host.style
 let applying: number | undefined;
 const editor = createVoiceEffectsEditor(profile => { applying = profile; });
 const voice = { id: 'vocals', name: 'Vocals', profile: DEFAULT_LIVE_PROFILE };
+const backing = { id: 'backup', name: 'Backup Vocals', profile: ROTATION_LIVE_PROFILE };
+const configurations = initialVoiceEffects({ parts: [], sourceProfiles: [
+  { ...voice, source: { sheetId: 0, a1: 'A1', text: '', note: '' } },
+  { ...backing, source: { sheetId: 0, a1: 'A2', text: '', note: '' } },
+] });
+editor.reset(configurations);
 const vox = document.createElement('div'), backup = document.createElement('div'), dry = document.createElement('div'); host.append(vox, backup, dry);
 editor.mount(voice, vox, () => {});
-editor.mount({ id: 'backup', name: 'Backup Vocals', profile: ROTATION_LIVE_PROFILE }, backup, () => {});
+editor.mount(backing, backup, () => {});
 editor.mount({ id: 'dry', name: 'Dry', profile: 0 }, dry, () => {});
 check(vox.querySelectorAll('.fx-stage').length === 1, 'one Vocals effect row');
 check(backup.querySelectorAll('.fx-stage').length === 2, 'two Backup Vocals effect rows');
@@ -19,7 +26,7 @@ const input = vox.querySelector<HTMLInputElement>('input'); if (!input) throw ne
 input.value = '125'; input.dispatchEvent(new Event('input', { bubbles: true }));
 const effect = editor.configurations().find(item => item.profile === DEFAULT_LIVE_PROFILE)?.effects[0];
 check(effect?.kind === 'slapback' && effect.delayMs === 125, 'knob changes actual effect draft');
-const states: VoiceEffectsState[] = initialVoiceEffects().map(config => ({ ...config, prepared: true, revision: 1, activity: 'standby', rotationEligible: false, rotationRemainingBeats: 0 }));
+const states: VoiceEffectsState[] = configurations.map(config => ({ ...config, prepared: true, revision: 1, activity: 'standby', rotationEligible: false, rotationRemainingBeats: 0 }));
 editor.render(states, false); editor.render(states, false);
 check(vox.querySelector('input') === input && input.value === '125', 'native render preserves knob identity and pending edit');
 check(editor.configurations(ROTATION_LIVE_PROFILE).find(item => item.profile === DEFAULT_LIVE_PROFILE)?.effects[0]?.kind === 'slapback' && JSON.stringify(editor.configurations(ROTATION_LIVE_PROFILE).find(item => item.profile === DEFAULT_LIVE_PROFILE)?.effects) === JSON.stringify(states.find(item => item.profile === DEFAULT_LIVE_PROFILE)?.effects), 'applying another profile preserves applied Vocals');

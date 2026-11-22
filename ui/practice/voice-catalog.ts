@@ -10,7 +10,8 @@ import { discoverSheetVoices, discoverCueRows, loadedCommandRows, type SheetCueR
 import { reconcileCatalog, resolveVoice, withVoice } from '../../lib/voice-catalog/session.js';
 import { createCatalogClient, CatalogClientConflictError, type CatalogClient } from './catalog-client.js';
 import { installVoiceLibrary } from './voice-library.js';
-import { initialVoiceEffects, type createVoiceEffectsEditor } from './voice-effects.js';
+import type { createVoiceEffectsEditor } from './voice-effects.js';
+import { initialVoiceEffects } from '../../lib/performance/vocal-effects.js';
 
 type Drafts = ReturnType<typeof createVoiceEffectsEditor>;
 export function installVoiceCatalog(root: HTMLElement, options: {
@@ -33,11 +34,10 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   let availability: string | undefined = 'Opening local voice library…';
   let current: Pick<PracticeState, 'bar' | 'voiceEffects'> = { bar: null };
   let pendingSave = false;
-  let effectMode: 'compiled' | 'dry' = 'compiled';
+  let defaults = initialVoiceEffects();
   let loadedDigest: string | undefined;
-  let sourceProfiles: readonly number[] = [];
   function savedConfigurations(): readonly VoiceEffectConfiguration[] {
-    return initialVoiceEffects(effectMode, sourceProfiles).map(configuration => {
+    return defaults.map(configuration => {
       const row = rows.find(row => row.profile === configuration.profile);
       return { ...configuration, effects: (row ? resolveVoice(document, row)?.effects ?? configuration.effects : configuration.effects).map(effect => ({ ...effect })) };
     });
@@ -87,10 +87,8 @@ export function installVoiceCatalog(root: HTMLElement, options: {
     update(current);
   }
   function loadDrafts() {
-    for (const row of rows) {
-      const voice = resolveVoice(document, row);
-      if (row.profile !== null) options.drafts.setEffects(row.profile, voice?.effects ?? []);
-    }
+    if (options.remote) return;
+    for (const { profile, effects } of savedConfigurations()) options.drafts.setEffects(profile, effects);
   }
   async function save(voice: Voice, binding: SheetBinding | undefined, expectedRevision: number): Promise<{ message: string }> {
     if (expectedRevision !== document.revision) throw new Error('The library changed. Close and reopen this voice before saving.');
@@ -128,21 +126,19 @@ export function installVoiceCatalog(root: HTMLElement, options: {
     async exportSongVoices(song: CompiledSong, source: SongSource) {
       await ready;
       const latest = loadedDigest === song.source.digest || !client ? document : await client.snapshot();
-      const defaults = new Map(initialVoiceEffects('compiled', song.sourceProfiles?.map(source => source.profile)).map(item => [item.profile, item.effects]));
+      const defaults = new Map(initialVoiceEffects(song).map(item => [item.profile, item.effects]));
       return snapshotSongVoices(latest, discoverSheetVoices(song, source), defaults);
     },
     async load(song: SongScript) {
       await ready;
       signal.throwIfAborted();
-      effectMode = song.compiled ? 'compiled' : 'dry';
-      sourceProfiles = song.compiled?.sourceProfiles?.map(source => source.profile) ?? [];
+      defaults = initialVoiceEffects(song.compiled);
       rows = song.compiled ? discoverSheetVoices(song.compiled, song.source) : [];
       cueRows = song.compiled ? discoverCueRows(song.compiled, song.source) : [];
       commandRows = new Map(rows.map(row => [row.key, song.compiled && row.partId ? loadedCommandRows(song.compiled, row.partId) : []]));
       loadedDigest = song.compiled?.source.digest;
       if (client) document = await client.snapshot();
-      const defaults = new Map(initialVoiceEffects(song.compiled ? 'compiled' : 'dry', sourceProfiles).map(item => [item.profile, item.effects]));
-      let next = reconcileCatalog(document, rows, defaults, () => crypto.randomUUID());
+      let next = reconcileCatalog(document, rows, new Map(defaults.map(item => [item.profile, item.effects])), () => crypto.randomUUID());
       if (song.voiceMetadata) next = mergeSongVoices(next, song.voiceMetadata, rows);
       if (client && next !== document) {
         try { await persist(next); }

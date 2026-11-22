@@ -8,7 +8,8 @@ import { parseCatalogDocument, type CatalogDocument, type Voice } from '../../..
 import { discoverSheetVoices, discoverCueRows, loadedCommandRows } from '../../../lib/voice-catalog/sheet-voices.js';
 import { reconcileCatalog, resolveVoice, withVoice } from '../../../lib/voice-catalog/session.js';
 import { CatalogClientConflictError, type CatalogClient } from '../catalog-client.js';
-import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.js';
+import { createVoiceEffectsEditor } from '../voice-effects.js';
+import { initialVoiceEffects } from '../../../lib/performance/vocal-effects.js';
 import type { VoiceEffectConfiguration } from '../../../lib/performance/model.js';
 import type { VoiceLibraryOptions, VoiceLibraryUpdate } from '../voice-library.js';
 import type { installVoiceCatalog } from '../voice-catalog.js';
