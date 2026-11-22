@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
-import { link, lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { link, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Schema } from 'effect';
+import { peripheralConfigurationDirectory, withPeripheralMaintenance } from './maintenance.js';
 import { PHYSICAL_SWITCH_IDS } from '../performance/model.js';
 import { boundedLines, decodePeripheralBridgeConfig, decodePeripheralInputMap, type PeripheralBridgeConfig, type PeripheralInputMap } from './bridge.js';
 
@@ -63,38 +64,6 @@ export interface CommissioningService { inspect(): Promise<{ readonly active: bo
 export type CommissioningMaintenance = (operation: () => Promise<PeripheralBridgeConfig>) => Promise<PeripheralBridgeConfig>;
 export interface CommissioningIo { question(prompt: string): Promise<string>; write(message: string): void }
 export class CommissioningSaveUncertain extends Error {}
-
-async function configurationDirectory(path: string) {
-  if (resolve(path) !== path) throw new Error('Peripheral profile path must be canonical and absolute.');
-  const parent = dirname(path);
-  if (await realpath(parent) !== parent) throw new Error('Peripheral configuration directory must be canonical.');
-  const info = await lstat(parent);
-  if (!info.isDirectory() || (info.mode & 0o022) || (process.getuid && info.uid !== process.getuid()))
-    throw new Error('Peripheral configuration directory must be caller-owned and not writable by other users.');
-  return parent;
-}
-
-async function withCommissioningLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
-  await configurationDirectory(path);
-  const name = path + '.commissioning.lock';
-  let lock: Awaited<ReturnType<typeof open>>;
-  try { lock = await open(name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); }
-  catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'EEXIST')
-      throw new Error(`Commissioning is already active or left a lock at ${name}. Close the other setup terminal; inspect a leftover lock before removing it.`);
-    throw error;
-  }
-  const identity = await lock.stat();
-  try {
-    await lock.writeFile(JSON.stringify({ pid: process.pid }) + '\n');
-    return await operation();
-  } finally {
-    await lock.close();
-    const current = await lstat(name);
-    if (current.dev !== identity.dev || current.ino !== identity.ino) throw new Error('Commissioning lock changed; refusing to remove it.');
-    await unlink(name);
-  }
-}
 
 function hash(bytes: Uint8Array) { return createHash('sha256').update(bytes).digest('hex'); }
 function owner(info: Stats) {
@@ -434,7 +403,7 @@ export async function saveCommissionedProfile(path: string, expected: Buffer | n
   const valid = decodePeripheralBridgeConfig(profile);
   const encoded = Buffer.from(JSON.stringify(valid, null, 2) + '\n');
   if (encoded.length > 16384) throw new Error('The installation profile exceeds the runtime 16 KiB limit. Reduce the configured source set before saving.');
-  const parent = await configurationDirectory(path);
+  const parent = await peripheralConfigurationDirectory(path);
   const current = await profileSnapshot(path);
   if ((expected === null) !== (current === null) || (expected && current && hash(expected) !== hash(current)))
     throw new Error('Peripheral profile changed during commissioning. The previous configuration was preserved; run setup again.');
@@ -469,7 +438,7 @@ export interface HardwareCommissioningOptions {
   includeAxis: boolean; retainedAxis?: CapturedAxis; startAfterSave?: boolean; signal?: AbortSignal; maintenance?: CommissioningMaintenance;
 }
 export async function commissionHardware(options: HardwareCommissioningOptions) {
-  return withCommissioningLock(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionHardwareUnderLock(options)) : commissionHardwareUnderLock(options));
+  return withPeripheralMaintenance(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionHardwareUnderLock(options)) : commissionHardwareUnderLock(options));
 }
 async function commissionHardwareUnderLock({ profilePath, baseProfile, service, audioOff, io, capture, captureAxis, includeAxis, retainedAxis, startAfterSave = false, signal }: HardwareCommissioningOptions) {
   signal?.throwIfAborted();
@@ -551,7 +520,7 @@ export interface DialCommissioningOptions {
   jiggle?: PeripheralBridgeConfig['jiggle']; signal?: AbortSignal; maintenance?: CommissioningMaintenance;
 }
 export async function commissionDial(options: DialCommissioningOptions) {
-  return withCommissioningLock(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionDialUnderLock(options)) : commissionDialUnderLock(options));
+  return withPeripheralMaintenance(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionDialUnderLock(options)) : commissionDialUnderLock(options));
 }
 async function commissionDialUnderLock({ profilePath, service, audioOff, io, captureAxis, jiggle, signal }: DialCommissioningOptions) {
   signal?.throwIfAborted();

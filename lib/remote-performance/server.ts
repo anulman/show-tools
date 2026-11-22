@@ -5,12 +5,14 @@ import { PersistentDesk } from './controller.js';
 import { SongBindingAuthority, prepareSongBindings } from './song-bindings.js';
 import { loadInstalledSongCatalog } from './song-catalog.js';
 import { ChartOverrides } from './chart-overrides.js';
+import { peripheralConfigurationDirectory } from '../peripherals/maintenance.js';
 import { Effect } from 'effect';
 import { decodeSessionProfile, type SessionProfile } from './session-profile.js';
 import type { SongPreview } from './session-schema.js';
 
 export async function serveProfile(input: SessionProfile) {
   const profile = decodeSessionProfile(input);
+  if (profile.peripheralProfile) await peripheralConfigurationDirectory(profile.peripheralProfile);
   const root = await realpath(profile.staticRoot);
   const privateFile = async (path: string) => {
     const actual = await realpath(path);
@@ -48,7 +50,7 @@ export async function serveProfile(input: SessionProfile) {
   } catch (error) { bindings.close(); throw error; }
   const controller = new PersistentDesk(profile, installed, { catalog, bindings, charts, chartPreviews });
   const server = createGateway({ host: profile.host, port: profile.port, origin: profile.origin,
-    token: Buffer.from(tokenFile.toString('utf8').trim()), staticRoot: root, tls }, controller, {
+    token: Buffer.from(tokenFile.toString('utf8').trim()), staticRoot: root, tls, ...(profile.peripheralProfile ? { peripheralProfile: profile.peripheralProfile } : {}) }, controller, {
       choices: () => controller.songChoices(), preview: id => controller.songPreview(id),
       select: (id, expected) => controller.selectSong(id, expected),
       bindings: (expected, values) => controller.configureButtonBindings(expected, values),

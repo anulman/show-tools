@@ -7,6 +7,7 @@ import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { decodePeripheralInputMap, runPeripheralBridge, type PeripheralDevice } from '../../peripherals/bridge.js';
+import { withPeripheralMaintenance } from '../../peripherals/maintenance.js';
 import type { HelperInput } from '../../peripherals/browser-protocol.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
 import { DEFAULT_BUTTON_BINDINGS, decodeInputBindings } from '../../performance/input-bindings.js';
@@ -37,6 +38,30 @@ async function fixture() {
   const headers = { authorization: 'Bearer 0123456789abcdef0123456789abcdef', origin: profile.origin, 'content-type': 'application/json' };
   return { directory, profile, headers };
 }
+
+test('peripheral maintenance keeps an authenticated client from enabling audio or editing the chart', async () => {
+  const { directory, profile, headers } = await fixture();
+  const peripheralProfile = join(await realpath(directory), 'peripheral.json');
+  const app = await serveProfile({ ...profile, peripheralProfile });
+  try {
+    const session = decodeDeskBootstrap(await (await fetch(profile.origin + '/api/session', { headers })).json());
+    const request = (path: string, sequence: number, body: Record<string, unknown>) =>
+      fetch(profile.origin + path, { method: 'POST', headers, body: JSON.stringify({
+        sessionId: session.sessionId, sequence, ...body,
+      }) }).then(response => response.json());
+    const baseline = await readFile(join(profile.catalog.entries[0].path, 'source.musicxml'), 'utf8');
+    await withPeripheralMaintenance(peripheralProfile, async () => {
+      const result = await request('/api/audio', 1, { goal: 'on' });
+      assert.equal(result.outcome, 'rejected');
+      assert.equal(result.error, 'Peripheral maintenance is in progress');
+      assert.equal((await request('/api/chart', 2, { musicXml: baseline, expectedRevision: session.view.revision })).outcome, 'rejected');
+      assert.equal(app.controller.snapshot().audio.kind, 'off');
+      assert.equal((await request('/api/audio', 3, { goal: 'off' })).outcome, 'accepted');
+    });
+    assert.equal((await request('/api/chart', 4, { musicXml: baseline, expectedRevision: session.view.revision })).outcome, 'accepted');
+    assert.equal((await request('/api/audio', 5, { goal: 'on' })).outcome, 'accepted');
+  } finally { await app.close(); await rm(directory, { recursive: true, force: true }); }
+});
 
 test('a Standby chart publish updates the running desk and survives restart', async () => {
   const { directory, profile, headers } = await fixture();

@@ -1,3 +1,4 @@
+import { PeripheralMaintenanceBusy, withPeripheralMaintenance } from '../peripherals/maintenance.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { MAX_CHART_BYTES } from './chart-overrides.js';
 import { DESK_HEARTBEAT_MS } from './event-liveness.js';
@@ -31,6 +32,7 @@ export interface GatewayConfig {
 	origin: string;
 	token: Buffer;
 	staticRoot: string;
+	peripheralProfile?: string;
 	tls?: { cert: Buffer; key: Buffer };
 }
 
@@ -507,14 +509,20 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				if (!("goal" in body && body.goal === 'off') && session.inFlight >= MAX_RESULTS + (priority ? 1 : 0)) return json(response, 503, { error: 'Command capacity reached' });
 				session.highWater = sequence;
 				session.inFlight++;
-				const result: Promise<Outcome | AudioDecision | NativeOutcome> = ('goal' in body
+				const run = (): Promise<Outcome | AudioDecision | NativeOutcome> => 'goal' in body
 					? Promise.resolve(controller.setAudio(body.goal))
           : 'musicXml' in body ? songs?.publishChart?.(body.expectedRevision, body.musicXml) ?? Promise.resolve({ outcome: 'rejected' as const, error: 'Chart updates are unavailable on this desk', view: controller.snapshot() })
           : 'expectedRevision' in body ? songs ? 'bindings' in body ? songs.bindings(body.expectedRevision, decodeInputBindings(body.bindings)) : songs.select(body.songId, body.expectedRevision) : Promise.resolve({ outcome: 'rejected' as const, error: 'Song configuration is unavailable', view: controller.snapshot() })
 					: body.command === 'auditionTambourine' ? commandAudition(session, body.target, body.args)
 					: body.command.startsWith('input') ? inputs.command(session, body.target, { command: body.command, args: body.args })
-						: controller.command(body.target, { command: body.command, args: body.args })).catch(
-					() => ({ outcome: 'unknown' } as const),
+						: controller.command(body.target, { command: body.command, args: body.args });
+				const exclusive = 'goal' in body ? body.goal === 'on' : 'expectedRevision' in body;
+				const result = (exclusive && config.peripheralProfile
+					? withPeripheralMaintenance(config.peripheralProfile, run)
+					: Promise.resolve().then(run)).catch(
+					(error): Outcome | AudioDecision => error instanceof PeripheralMaintenanceBusy
+						? { outcome: 'rejected', error: 'Peripheral maintenance is in progress', view: controller.snapshot() }
+						: { outcome: 'unknown' },
 				).finally(() => { session.inFlight--; });
 				session.results.set(sequence, { request: requestKey, result });
 				if (session.results.size > MAX_RESULTS) session.results.delete(session.results.keys().next().value!);
