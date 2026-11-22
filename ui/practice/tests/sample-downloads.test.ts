@@ -5,8 +5,9 @@ import { unzipSync, strFromU8 } from 'fflate';
 import { NativePerformance } from '../../../lib/performance/wasm-performance.js';
 import { compiledCaptureFixture } from '../../../lib/performance/tests/fixtures/compiled-capture.js';
 import { encodeCompiledProgram } from '../../../lib/performance/compiled-native.js';
-import { voiceSampleArchive, sampleFileName } from '../sample-downloads.js';
+import { voiceSampleArchive, selectedSampleArchive, sampleFileName } from '../sample-downloads.js';
 import { decodeTakeAudio } from '../../../lib/performance/take-audio.js';
+import tribulations from '../../../songs/tribulations.js';
 
 async function captured(rate: number) {
   const compiled = await compiledCaptureFixture();
@@ -64,4 +65,44 @@ for (const rate of [8000, 48000]) test(`actual captured samples download as sepa
 test('invalid chunks and unsafe filename characters are rejected or bounded', () => {
   assert.throws(() => decodeTakeAudio(new Uint8Array(12)), /dimensions/);
   assert.equal(sampleFileName('../../Drums / Claps'), 'Drums-Claps');
+});
+
+
+test('a combined ZIP reads each selected capture once and includes only those voices', async () => {
+  const song = tribulations.compiled;
+  assert(song);
+  const requests: number[] = [];
+  const state = { phase: 'ended' as const, runId: 'combined', compiledTakes: [0, 1, 4].map(index => ({
+    index, ready: true, frames: 2, period: 2, playback: 'idle' as const, sourceEndFrames: null, selectionIndex: null,
+  })) };
+  let token = 'take-generation';
+  const takeAudio = async ({ take, frames }: { take: number; frames: number }) => {
+    requests.push(take);
+    const bytes = new Uint8Array(12 + frames * 8), data = new DataView(bytes.buffer);
+    data.setUint32(0, 48000, true); data.setUint32(4, 2, true); data.setUint32(8, frames, true);
+    return bytes;
+  };
+  const source = { takeAudioToken: () => token, takeAudio };
+  const archive = unzipSync(await selectedSampleArchive(song, ['pad', 'morse', 'pad'], state, source));
+  assert.deepEqual(requests, [0, 1]);
+  const manifest = JSON.parse(strFromU8(archive['samples.json']));
+  assert.equal(manifest.kind, 'captured-samples');
+  assert.deepEqual(manifest.voiceIds, ['pad', 'morse']);
+  assert.deepEqual(manifest.samples.map((sample: { capture: { voiceId: string } }) => sample.capture.voiceId), ['pad', 'morse']);
+  assert.deepEqual(Object.keys(archive), ['01-pad.wav', '02-morse.wav', 'samples.json']);
+  assert(manifest.selections.every((selection: { voiceId: string }) => ['pad', 'morse'].includes(selection.voiceId)));
+
+  requests.length = 0;
+  const large = { ...state, compiledTakes: state.compiledTakes.map(take => ({ ...take, frames: 9_000_000 })) };
+  await assert.rejects(selectedSampleArchive(song, ['pad', 'morse'], large, source), /128 MiB/);
+  assert.deepEqual(requests, [], 'reject an oversized selection before reading any PCM');
+  await assert.rejects(selectedSampleArchive(song, [], state, source), /select|captured/i);
+  assert.deepEqual(requests, [], 'empty selection reads no PCM');
+
+  await assert.rejects(selectedSampleArchive(song, ['pad', 'morse'], state, { ...source, takeAudio: async request => {
+    const chunk = await takeAudio(request);
+    if (request.take === 1) token = 'different-generation';
+    return chunk;
+  } }), /changed during download/);
+  assert.deepEqual(requests, [0, 1], 'a session replacement between voices cannot publish a mixed ZIP');
 });

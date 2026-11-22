@@ -69,7 +69,11 @@
 .sample-downloads { margin: 1rem 0; padding: .8rem; border: 1px solid var(--border, #444); border-radius: .6rem; }
 .sample-downloads h2 { font-size: 1rem; margin: 0 0 .4rem; }
 .sample-downloads p { font-size: .8rem; margin: .4rem 0; }
-.sample-download-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.sample-download-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+.sample-download-choices { display: flex; flex-wrap: wrap; gap: 0 1rem; min-width: 0; }
+.sample-download-choices label { display: flex; align-items: center; gap: .5rem; min-height: 44px; font-size: .8rem; overflow-wrap: anywhere; }
+.sample-download-choices input { flex: none; }
+.sample-download-choices input:disabled + span { color: var(--muted); }
 .sample-download-actions button { min-height: 44px; max-width: 100%; overflow-wrap: anywhere; }
 
 .desk-tools{margin-left:auto;display:flex;gap:6px;align-items:center}

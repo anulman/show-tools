@@ -84,9 +84,9 @@ The download contains your main live voice, song click, and sample output, start
 
 In **Hardware mode**, the EliteDesk records the same song mix as a stereo WAV. It starts at the song boundary and keeps recording if you close the browser. **Stop**, **Finish take**, or the end of the selected range makes the file available. The latest completed WAV remains available after **Terminate audio**. Download it before stopping the web service or finishing another demo. The host caps each take at 192 MiB of audio, about 17 minutes at 48 kHz.
 
-## Download a voice’s captured samples
+## Download captured samples
 
-After **Stop**, use **Voice samples → Download [voice]**. Each voice downloads a ZIP containing a separate stereo float32 WAV for every available committed chart take, plus `samples.json` with capture and selection references. Layered recordings remain separate files. Browser and Hardware modes use the same C++ capture data.
+After **Stop**, use **Voice samples → Download all samples**. Every voice with a committed take starts checked. Uncheck any voices you want to exclude, then use **Download selected samples**. The ZIP contains one stereo float32 WAV per selected take and `samples.json` with capture and selection references. Layered recordings remain separate WAV files. Browser and Hardware modes use the same C++ capture data.
 
 These are the latest retained processed samples, before playback gain and sequencing. They are not full-length channel stems, uncaptured live vocals, every earlier recapture, or the mixed demo MP3. Download them before terminating audio, reloading Browser mode, or changing songs. A changed practice session aborts the download; stop and retry. One voice archive is limited to 128 MiB.
 
