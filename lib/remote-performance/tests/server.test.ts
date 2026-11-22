@@ -207,6 +207,28 @@ test('installed catalog switches all three songs while stopped without replacing
       assert.equal(selected.outcome, 'accepted'); assert.equal(selected.view.song.id, songId); assert.equal(selected.view.audio.kind, 'off');
       assert.deepEqual(selected.view.song.compiled.inputBindings, DEFAULT_BUTTON_BINDINGS);
       assert.deepEqual(selected.view.defaultVoiceEffects, defaults.get(songId), 'Standby publishes the newly selected package defaults');
+      if (songId === 'drunk-girls') {
+        assert.equal(selected.view.song.compiled.authoredCues, undefined);
+        assert.equal(selected.view.song.compiled.playbackPairs.length, 41);
+        assert.ok(app.controller.snapshot().song.compiled?.authoredCues?.some(cell => cell.actions.some(action => action.operation === 'pp')));
+        const status = await (await fetch(`${profile.origin}/api/status`, { headers })).json();
+        assert.deepEqual(status.song.compiled, selected.view.song.compiled);
+        const fresh = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
+        const events = await fetch(`${profile.origin}/api/events`, { headers: { ...headers, 'X-Session-Id': fresh.sessionId } });
+        const reader = events.body!.pipeThrough(new TextDecoderStream()).getReader();
+        try {
+          let data = '';
+          while (!data.includes('\n\n')) {
+            const chunk = await reader.read();
+            assert.equal(chunk.done, false);
+            data += chunk.value;
+          }
+          const publication = JSON.parse(data.split('\n')[0].slice(6));
+          assert.equal(publication.type, 'desk');
+          assert.deepEqual(publication.view.song.compiled, fresh.view.song.compiled);
+          assert.equal(publication.view.song.compiled.authoredCues, undefined);
+        } finally { await reader.cancel(); }
+      }
     }
     await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
     const before = app.controller.snapshot();
