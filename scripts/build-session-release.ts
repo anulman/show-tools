@@ -14,9 +14,9 @@ const required = Schema.NonEmptyString;
 const revisionString = Schema.String.check(Schema.isPattern(/^[a-f0-9]{40}$/));
 const options = Schema.decodeUnknownSync(Schema.Struct({
   'native-artifact': required, 'peripheral-artifact': required, 'node-runtime': required, 'song-catalog': required, out: required,
-  'reviewed-revision': Schema.optionalKey(revisionString),
+  'reviewed-revision': Schema.optionalKey(revisionString), 'desk-preview': Schema.optionalKey(Schema.Boolean),
 }))(parseArgs({ options: { 'native-artifact': { type: 'string' }, 'peripheral-artifact': { type: 'string' }, 'node-runtime': { type: 'string' },
-  'song-catalog': { type: 'string' }, out: { type: 'string' }, 'reviewed-revision': { type: 'string' } } }).values);
+  'song-catalog': { type: 'string' }, out: { type: 'string' }, 'reviewed-revision': { type: 'string' }, 'desk-preview': { type: 'boolean' } } }).values);
 const native = resolve(options['native-artifact']);
 const peripheral = await readPeripheralArtifact(root, resolve(options['peripheral-artifact']));
 const runtime = resolve(options['node-runtime']);
@@ -55,6 +55,7 @@ if (catalog.catalog.entries.map(entry => entry.id).sort().join(',') !== 'dance-y
 await mkdir(output);
 execFileSync('bash', ['lib/beat-tracker/scripts/build-manual-wasm.sh'], { cwd: root, stdio: 'inherit' });
 execFileSync(process.execPath, ['--import', 'tsx', 'scripts/build-ui.ts'], { cwd: root, stdio: 'inherit' });
+if (options['desk-preview']) execFileSync(process.execPath, ['--import', 'tsx', 'scripts/build-desk-preview.ts'], { cwd: root, stdio: 'inherit' });
 assertCommittedSource();
 await Promise.all([
   mkdir(join(output, 'native/peripheral'), { recursive: true }), mkdir(join(output, 'catalog')),
@@ -84,7 +85,7 @@ const reviewSources = new Set(git('ls-files', '-z', '--', 'lib', 'scripts/build-
   'scripts/build-song-catalog.ts', 'scripts/tests/build-song-catalog.test.ts', 'scripts/session-bundles.ts', 'scripts/peripheral-artifact.ts', 'scripts/build-peripheral-artifact.ts',
   'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
   'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', '.github/workflows/native-host.yml', '.github/workflows/peripherals.yml',
-  'package.json', 'package-lock.json').split('\0').filter(Boolean));
+  'package.json', 'package-lock.json', ...(options['desk-preview'] ? ['scripts/build-desk-preview.ts', 'ui/desk-start', 'ui/practice', 'ui/tuner', 'songs'] : [])).split('\0').filter(Boolean));
 for (const name of Object.keys(SESSION_BUNDLES)) {
   const inputs = Schema.decodeUnknownSync(Schema.Record(Schema.String, Schema.Unknown))(
     JSON.parse(await readFile(join(output, 'provenance', `${name}.inputs.json`), 'utf8')));

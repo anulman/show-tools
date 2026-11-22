@@ -9,7 +9,7 @@ import { fetchSongSource, parseSongSource, canonicalSourceJson } from '../../lib
 import type { CatalogDocument } from '../../lib/voice-catalog/model.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 
-type PanelOptions = { resolveMapping?: (source: SongSource, mapping: SongMapping) => SongMapping; exportMusicXml?: (xml: string) => Promise<string>; isBusy: () => boolean; onLoad: (song: CompiledSong, source: SongSource | undefined, voices: CatalogDocument | null) => Promise<void> };
+type PanelOptions = { assetBase?: URL; resolveMapping?: (source: SongSource, mapping: SongMapping) => SongMapping; exportMusicXml?: (xml: string) => Promise<string>; isBusy: () => boolean; onLoad: (song: CompiledSong, source: SongSource | undefined, voices: CatalogDocument | null) => Promise<void> };
 type Work = 'idle' | 'fetching' | 'reading' | 'compiling' | 'loading' | 'exporting';
 
 function element<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string): HTMLElementTagNameMap[K] {
@@ -268,7 +268,7 @@ export function installChartPanel(root: HTMLElement, options: PanelOptions): { s
   const initialGeneration = begin('reading');
   status.textContent = 'Inspecting the bundled DYC MusicXML…';
   void (async () => {
-    const text = await readBundledMusicXml('dance-yrself-clean');
+    const text = await readBundledMusicXml('dance-yrself-clean', options.assetBase);
     const document = await readMusicXmlSong(text);
     if (!current(initialGeneration)) return;
     source = document.source;

@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { connect } from 'node:net';
 import { get, request } from 'node:http';
 import song from '../../../songs/dance-yrself-clean.js';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -177,6 +177,66 @@ test('keeps Hardware Desk assets current and verifies offline Browser build pins
 });
 
 
+test('serves registered root songs, retires old entries and isolates Browser assets', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gateway-preview-'));
+  const mount = join(directory, 'preview/tanstack');
+  const pin = 'c'.repeat(64);
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: directory }, deskFixture());
+  try {
+    await mkdir(join(mount, 'desk-assets'), { recursive: true });
+    await mkdir(join(mount, 'browser'));
+    await Promise.all([
+      writeFile(join(mount, '_shell.html'), '<title>Preview</title>'),
+      writeFile(join(mount, 'desk-assets/main.js'), 'export const preview = true;'),
+      writeFile(join(mount, 'desk-assets/browser._songId-abc.js'), 'export const mode = "browser";'),
+      writeFile(join(mount, 'browser/sw.js'), 'offline preview worker'),
+      writeFile(join(mount, 'browser/manifest.webmanifest'), '{}'),
+      writeFile(join(mount, 'offline-manifest.json'), JSON.stringify({ cacheId: pin })),
+      writeFile(join(directory, 'outside.js'), 'outside preview'),
+    ]);
+    await symlink(join(directory, 'outside.js'), join(mount, 'desk-assets/outside.js'));
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}`;
+    for (const route of ['/', '/01-dance-yrself-clean', '/browser', '/browser/03-i-can-change/']) {
+      const response = await fetch(base + route + '?remote');
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(await response.text(), '<title>Preview</title>');
+    }
+    for (const retired of ['/ui/live/?remote', '/ui/browser/', '/ui/practice/?browser', '/preview/tanstack/04-tribulations']) {
+      const response = await fetch(base + retired, { redirect: 'manual' });
+      assert.equal(response.status, 404, retired);
+    }
+    const head = await fetch(base + '/04-tribulations', { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), '');
+    const asset = await fetch(base + '/desk-assets/main.js?__show_tools_build=' + pin);
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers.get('content-type'), 'text/javascript; charset=utf-8');
+    assert.equal(await asset.text(), 'export const preview = true;');
+    assert.equal((await fetch(base + '/desk-assets/browser._songId-abc.js')).status, 200);
+    assert.equal((await fetch(base + '/browser/?__show_tools_build=' + 'b'.repeat(64))).status, 409);
+    assert.equal((await fetch(base + '/browser/manifest.webmanifest')).headers.get('content-type'), 'application/manifest+json');
+    for (const route of ['/02-tribulations', '/desk-assets/missing.js', '/desk-assets/outside.js', '/desk-assets/%2e%2e%2fsw.js', '/_shell.html', '/sw.js', '/preview/tanstack/_shell.html', '/ui/live/sw.js']) {
+      assert.equal((await fetch(base + route)).status, 404, route);
+    }
+    for (const route of ['/', '/01-dance-yrself-clean', '/desk-assets/main.js', '/browser']) {
+      assert.equal((await fetch(base + route, { headers: { 'Service-Worker': 'script' } })).status, 404, route);
+    }
+    const worker = await fetch(base + '/browser/sw.js', { headers: { 'Service-Worker': 'script' } });
+    assert.equal(worker.status, 200);
+    assert.equal(worker.headers.get('service-worker-allowed'), null, 'default scope stays in /browser/');
+    assert.equal(await worker.text(), 'offline preview worker');
+  } finally {
+    server.closeAllConnections();
+    if (server.listening) await new Promise<void>(done => server.close(() => done()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 test('streams a full compiled song and bounds a slow observer', async () => {
   assert.ok(song.compiled);
   const snapshot = deskFixture().snapshot();
@@ -345,7 +405,10 @@ test('an input body finishing after its empty SSE owner closed cannot dispatch o
   let finish!: () => void;
   try {
     const session = await (await fetch(`${base}/api/session`, { headers })).json();
+    const ownerRequest = once(server, 'request');
     const events = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': session.sessionId }, signal: abort.signal });
+    const [owner] = await ownerRequest;
+    const ownerClosed = new Promise<void>(resolve => owner.once('close', resolve));
     await events.body!.getReader().read();
     const body = JSON.stringify({ sessionId: session.sessionId, sequence: 1, target, command: 'inputAttach', args: {
       intentId: 'late-intent', kind: 'pointer', bindingGeneration: 1, releasedMask: 223, heldMask: 0,
@@ -357,7 +420,7 @@ test('an input body finishing after its empty SSE owner closed cannot dispatch o
       finish = () => command.end(body.slice(-1));
     });
     await arrived;
-    abort.abort(); await new Promise(resolve => setTimeout(resolve, 2));
+    abort.abort(); await ownerClosed;
     finish(); const response = await pending;
     assert.equal(response.statusCode, 409); response.resume();
     assert.equal(commands, 0);

@@ -5,12 +5,12 @@ import { createMusicalInputPolicy } from '../musical-input-policy.js';
 import { sourceForVM } from '../../../scripts/source-for-vm.js';
 
 async function fixture() {
-  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
   const commands: { input: number; value: number }[] = [];
   const inputPolicy = createMusicalInputPolicy({ storage: { getItem: () => 'keyboard', setItem() {} } });
   let wheel: ((event: object) => void) | undefined;
   class Element { constructor(readonly editing = false) {} closest() { return this.editing; } }
-  const context = vm.createContext({ Element, Number, inputPolicy,
+  const context = vm.createContext({ Element, Number, inputPolicy, acceptsRouteInput: () => true, mountSignal: new AbortController().signal,
     running: true, modalOpen: false, song: { compiled: { rotation: {} } },
     document: { activeElement: null, querySelector(selector: string) {
       assert.equal(selector, 'dialog[open]'); return context.modalOpen ? {} : null;

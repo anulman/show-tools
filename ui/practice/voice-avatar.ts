@@ -13,7 +13,7 @@ export function voiceAvatar(voice: Voice | undefined, name: string) {
 }
 
 /** Preserve the same node between native snapshots so pad gestures keep their target. */
-export function renderVoiceAvatar(root: HTMLElement, voice: Voice | undefined, name: string) {
+export function renderVoiceAvatar(root: HTMLElement, voice: Voice | undefined, name: string, assetBase?: URL) {
   const avatar = voiceAvatar(voice, name);
   const key = JSON.stringify(avatar);
   if (root.dataset.avatar === key) return;
@@ -26,7 +26,7 @@ export function renderVoiceAvatar(root: HTMLElement, voice: Voice | undefined, n
   root.setAttribute('aria-label', `${avatar.label}, character for ${name}`);
   if (avatar.path) {
     const image = document.createElement('img');
-    image.src = new URL('./' + avatar.path, document.baseURI).href;
+    image.src = new URL('./' + avatar.path, assetBase ?? document.baseURI).href;
     image.alt = '';
     image.addEventListener('error', () => { root.textContent = avatar.initials; }, { once: true });
     root.append(image);

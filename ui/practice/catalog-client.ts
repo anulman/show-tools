@@ -25,8 +25,9 @@ export class CatalogClientConflictError extends Error {
   constructor(message: string) { super(message); this.name = 'CatalogClientConflictError'; }
 }
 
-export async function createCatalogClient(): Promise<CatalogClient> {
-  const worker = new Worker(new URL('./catalog-worker.js', document.baseURI), { type: 'module' });
+export async function createCatalogClient({ assetBase, signal }: { assetBase?: URL; signal?: AbortSignal } = {}): Promise<CatalogClient> {
+  signal?.throwIfAborted();
+  const worker = new Worker(new URL('./catalog-worker.js', assetBase ?? document.baseURI), { type: 'module' });
   let nextId = 1;
   let unavailable: Error | undefined;
   const pending = new Map<number, { resolve(response: CatalogResponse): void; reject(error: Error): void }>();
@@ -34,10 +35,13 @@ export async function createCatalogClient(): Promise<CatalogClient> {
   function stop(error: Error): void {
     if (unavailable) return;
     unavailable = error;
+    signal?.removeEventListener('abort', abort);
     worker.terminate();
     for (const request of pending.values()) request.reject(error);
     pending.clear();
   }
+  const abort = () => stop(new Error('Voice library client is closed.'));
+  signal?.addEventListener('abort', abort, { once: true });
   worker.onmessage = (event: MessageEvent<unknown>) => {
     try {
       const response = decodeResponse(event.data);

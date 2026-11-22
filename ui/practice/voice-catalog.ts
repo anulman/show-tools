@@ -16,11 +16,15 @@ type Drafts = ReturnType<typeof createVoiceEffectsEditor>;
 export function installVoiceCatalog(root: HTMLElement, options: {
   drafts: Drafts;
   remote?: boolean;
+  assetBase?: URL;
+  signal?: AbortSignal;
   apply: (configurations: readonly VoiceEffectConfiguration[]) => Promise<void>;
   isBusy: () => boolean;
   onError: (error: unknown) => void;
   onBusyChange: () => void;
 }) {
+  const lifetime = new AbortController();
+  const signal = options.signal ? AbortSignal.any([lifetime.signal, options.signal]) : lifetime.signal;
   let client: CatalogClient | undefined;
   let document: CatalogDocument = { version: 2, revision: 0, voices: [], bindings: [] };
   let rows: SheetVoiceRow[] = [];
@@ -40,7 +44,7 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   }
   const ui = installVoiceLibrary(root, {
     characters: registry.characters.map(character => ({ ...character,
-      publishedAvatarPath: 'publishedAvatarPath' in character ? new URL('./' + character.publishedAvatarPath, window.document.baseURI).pathname : undefined,
+      publishedAvatarPath: 'publishedAvatarPath' in character ? new URL('./' + character.publishedAvatarPath, options.assetBase ?? window.document.baseURI).pathname : undefined,
     })),
     onSave: save,
     onExport: format => { void exportLibrary(format).catch(options.onError); },
@@ -62,9 +66,13 @@ export function installVoiceCatalog(root: HTMLElement, options: {
       return row ? options.drafts.configurations().find(item => item.profile === row.profile)?.effects ?? [] : document.voices.find(voice => voice.id === id)?.effects ?? [];
     },
   });
-  const ready = options.remote ? Promise.resolve().then(() => { availability = 'Voice library is unavailable in remote mode.'; }) : createCatalogClient().then(async value => {
-    client = value; document = await value.snapshot(); availability = undefined;
-  }).catch(error => { client?.close(); client = undefined; availability = `Voice library unavailable: ${error instanceof Error ? error.message : String(error)}`; }).finally(() => update(current));
+  const ready = options.remote ? Promise.resolve().then(() => { availability = 'Voice library is unavailable in remote mode.'; })
+    : createCatalogClient({ assetBase: options.assetBase, signal }).then(async value => {
+      client = value; document = await value.snapshot(); availability = undefined;
+    }).catch(error => {
+      client?.close(); client = undefined;
+      if (!signal.aborted) availability = `Voice library unavailable: ${error instanceof Error ? error.message : String(error)}`;
+    }).finally(() => { if (!signal.aborted) update(current); });
   function update(state: Pick<PracticeState, 'bar' | 'voiceEffects'>) {
     current = state;
     ui.update({ document, rows, cueRows, commandRows, state, locked: options.isBusy() || pendingSave, availability });
@@ -125,6 +133,7 @@ export function installVoiceCatalog(root: HTMLElement, options: {
     },
     async load(song: SongScript) {
       await ready;
+      signal.throwIfAborted();
       effectMode = song.compiled ? 'compiled' : 'dry';
       sourceProfiles = song.compiled?.sourceProfiles?.map(source => source.profile) ?? [];
       rows = song.compiled ? discoverSheetVoices(song.compiled, song.source) : [];
@@ -169,6 +178,6 @@ export function installVoiceCatalog(root: HTMLElement, options: {
       }
       await persist(next);
     },
-    dispose() { client?.close(); ui.dispose(); },
+    dispose() { lifetime.abort(); client?.close(); ui.dispose(); },
   };
 }

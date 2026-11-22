@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { practiceAssetBase } from '../../../lib/remote-performance/desk-paths.js';
 import { audioMode, audioModeURL, canChangeAudioMode, changeAudioMode, defaultAudioMode } from '../audio-mode.js';
 
 test('browser is the default and mode URLs preserve other state', () => {
@@ -41,4 +42,15 @@ test('leaving active hardware only disposes the client and navigates', async () 
   assert.equal(await changeAudioMode({ current: 'hardware', next: 'browser', browserBusy: true,
     url: new URL('https://example.test/?remote&test#cue'), dispose: () => session.dispose(), navigate: url => actions.push(url.href) }), true);
   assert.deepEqual(actions, ['detach', 'https://example.test/?test=#cue']);
+});
+
+test('nested preview song routes share the existing asset directory', () => {
+  for (const path of ['/', '/01-dance-yrself-clean', '/browser/04-tribulations']) {
+    const base = practiceAssetBase(`https://desk.test${path}`);
+    assert.equal(new URL('./songs/drunk-girls.musicxml', base).href, 'https://desk.test/ui/practice/songs/drunk-girls.musicxml');
+  }
+  for (const path of ['/ui/browser/', '/releases/archived/ui/practice/', '/preview/tanstack-lab/']) {
+    const base = practiceAssetBase(`https://desk.test${path}`);
+    assert.equal(new URL('./songs/drunk-girls.musicxml', base).pathname, `${path}songs/drunk-girls.musicxml`);
+  }
 });
