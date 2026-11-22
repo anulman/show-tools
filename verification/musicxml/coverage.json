@@ -1,9 +1,9 @@
 {
-  "syncCommit": "f6b4db9f9245dc3da47f6c7b8ac6085448b6799d",
+  "syncCommit": "2ad53a6fe59bf69ebb4d74f3c368f244cb6569ea",
   "files": {
-    "lib/performance/musicxml-song.ts": "8c27a8b68913136ebfeb939111f16e5814fd2bb8c865a72ebfc2d4287d79bf10",
+    "lib/performance/musicxml-song.ts": "b6561124d2b5b8aea81b81fd6d10f3950f9ae0b45a3d3fca7cc0aa6a43f1dfed",
     "lib/performance/sheet-musicxml.ts": "6b3ea20de11c840f36c388fe8d7ed246c26e6d1d94c460b922cc0ffdce51dd84",
-    "lib/performance/compiled-song.ts": "8d1fb1ad7cf4143d505f6c8e422a739a7df20af71b86d7d11a19b04e80dc1549",
+    "lib/performance/compiled-song.ts": "e9bd5b541b68dd24ce76fe94c405728bb9a011bef91fa854703a053859568731",
     "lib/performance/song-source.ts": "a68139ca0d84af478a8d536b9ffa530ad620cefd2358ab4b06b9a5404b36c0ee",
     "lib/performance/sheet-musical-annotations.ts": "0fd38346cbf3eb99891d2b30d04049e65aa28e47f2b483f0c72e476a09e40356",
     "lib/performance/sheet-stage-notation.ts": "27c4274a77175324c103756d3dbc833eeb3248fa42a508d8d17db61683f232ab",
@@ -12,13 +12,13 @@
     "lib/voice-catalog/sheet-voices.ts": "0d3fb06cbd8304ff6f9a19f1e29dfd36762f945a7b482827221ad1c943e21915",
     "lib/voice-catalog/model.ts": "c7021f9b57780e8fde33e50aa6fbdcfc1759b2fd8474a01376ab8863af0ecf41",
     "package-lock.json": "a094cbe140ca5384c42eff39345bc4d4346fe11ade3296bec534bb44943f1be6",
-    "lib/performance/sheet-cues.ts": "cfa9be2836e483a24aa42becfbe6a92cedd445475b91a9c2373a05425d0c8574",
+    "lib/performance/sheet-cues.ts": "078f88f5a235a38a65ed584576f276963b40c7a2b842dc70da416771cc2ff7e3",
     "lib/performance/external-assets.ts": "80910da673940d5cc43e2ad3b84674278334487cbd37f23b89ceb754232b7141",
-    "lib/performance/input-bindings.ts": "c2e46f4b821efa766c29415921aba0072394880c1567ebef573dabed84dd69ac",
-    "lib/performance/model.ts": "53bc8d0cf433ea2f51e144375f6a4ee6d07c44b3d8380d042c1e8457f7d36371",
-    "lib/performance/compiled-native.ts": "b094bb0093336438eabb6b2f162cb016e7364211dc8a3a5dd2d195a295fc436d",
-    "lib/performance/wasm-abi.ts": "13c22c8e005b40138ca196759f7ae5f9642a3e14534d203fdb97c7d211e486d3",
+    "lib/performance/input-bindings.ts": "1b34a25f6b2256e6255aee3c7c7c6f48f9639def46c978a90b81192bff10d7ea",
+    "lib/performance/model.ts": "b252c253073571468f281b8ce772664e78a7961f58e89178dde848b5527b86dd",
+    "lib/performance/compiled-native.ts": "5dbcad52812ce2c539e9957e8ded87d2109373441f39ffae00821194bde95889",
+    "lib/performance/wasm-abi.ts": "045af9c397c3cc93cb32f1fdbfc67960bb6b450ee2d3fda0ad36cf26d338a511",
     "lib/performance/musicxml-model.ts": "5cc2c84b01871c635f730af36690bcfb9da52776d045f5f156c98f9a402b8061"
   },
-  "scope": "Finite grammar actual TypeScript MusicXML semantic and explicit native binding-table verification; source changes require review and rerun before advancing this record."
+  "scope": "Finite grammar actual TypeScript MusicXML semantic and explicit native binding-table verification, including eight archive-free edge metadata cases. Source changes require review and rerun before advancing this record."
 }

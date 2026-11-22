@@ -990,7 +990,10 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
     else {
       bool rising = value == 1 && !engine->cue_button_held;
       engine->cue_button_held = value == 1;
-      if (value == 0 && engine->compiled) engine->compiled->release_owner(5);
+      if (value == 0 && engine->compiled) {
+        const int code = engine->compiled->release_input(5, 5, engine->processed, engine->bpm, live_active(engine));
+        if (code != PF_OK) result = fail(engine, code);
+      }
       if (rising && running(engine)) {
         if (engine->compiled) {
           int code = engine->compiled->press_current(engine->processed, engine->bpm, engine->microphone);
@@ -1011,7 +1014,13 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
   } else if (control >= 16 && control < 80) {
     int code = engine->compiled ? engine->compiled->trigger_external(uint32_t(control - 16)) : PF_INVALID_PROGRAM;
     if (code != PF_OK && code != PF_CUE_LATE) result = fail(engine, code);
-  } else if (control >= 8 && control < 8 + PF_CHANNELS) { if (engine->compiled) engine->compiled->release_owner(uint64_t(control - 8 + 1)); } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
+  } else if (control >= 8 && control < 8 + PF_CHANNELS) {
+    if (engine->compiled) {
+      const auto owner = uint64_t(control - 8 + 1);
+      const int code = engine->compiled->release_input(owner, owner, engine->processed, engine->bpm, live_active(engine));
+      if (code != PF_OK) result = fail(engine, code);
+    }
+  } else if (control == 6) { int code = tempo_hit(engine, 0, 0); if (code != PF_OK) result = fail(engine, code); }
   else result = fail(engine, PF_INVALID_CHANNEL);
   if (result >= 0 && command_id) {
     Dedup& item = engine->dedup[engine->dedup_cursor++ % dedup_capacity];
@@ -1020,14 +1029,24 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
   emit(engine, PF_CONTROL, (control == 5 || control == 7 || control >= 8) ? engine->processed : -1, result >= 0, control, value);
   return result;
 }
+static uint64_t input_source(uint32_t slot, double session, uint32_t input) noexcept {
+  return (uint64_t(1) << 63) | (uint64_t(session) << 8) | (uint64_t(slot) << 3) | input;
+}
 int pf_input_attach(pf_engine* engine, uint32_t slot, double session, double generation,
   uint32_t kind, uint32_t released, uint32_t held) {
   if (!engine) return -1;
   uint64_t previous[8]{};
-  if (auto* producer = engine->inputs.producer(slot)) std::copy(std::begin(producer->ownership), std::end(producer->ownership), previous);
+  double previous_session = 0;
+  if (auto* producer = engine->inputs.producer(slot); producer && producer->active) {
+    previous_session = producer->session;
+    std::copy(std::begin(producer->ownership), std::end(producer->ownership), previous);
+  }
   const int code = engine->inputs.attach(slot, session, generation, kind, released, held);
   if (code != PF_OK) return fail(engine, code);
-  if (engine->compiled) for (auto owner : previous) engine->compiled->release_owner(owner);
+  if (engine->compiled && previous_session) for (uint32_t input = 0; input < 8; ++input) {
+    engine->compiled->cancel_input(input_source(slot, previous_session, input));
+    engine->compiled->release_owner(previous[input]);
+  }
   emit(engine, PF_STATE, engine->processed); return accepted(engine);
 }
 int pf_input_is_panic(const pf_engine* engine, uint32_t slot, double session, double generation,
@@ -1060,8 +1079,12 @@ int pf_input_event(pf_engine* engine, uint32_t slot, double session, double gene
     event[PF_EVENT_INPUT_EDGE] = edge;
   }
   if (edge == PP_RELEASE) {
-    if (engine->compiled) engine->compiled->release_owner(producer->ownership[input]);
+    const uint64_t owner = producer->ownership[input];
     producer->ownership[input] = 0;
+    if (engine->compiled) {
+      const int code = engine->compiled->release_input(owner, input_source(slot, session, input), engine->processed, engine->bpm, live_active(engine));
+      if (code != PF_OK) return fail(engine, code);
+    }
   } else if (edge == PP_MOVEMENT) {
     if (producer->kind == PF_INPUT_PHYSICAL && input == performance_input::knob_observation) return accepted(engine);
     return pf_control(engine, 5, value, nullptr, 0);
@@ -1090,7 +1113,8 @@ int pf_input_event(pf_engine* engine, uint32_t slot, double session, double gene
     if (target.kind == PF_INPUT_TEMPO) return pf_control(engine, 6, 0, nullptr, 0);
     if (target.kind == PF_INPUT_CUES && running(engine)) {
       if (engine->compiled) {
-        const int code = engine->compiled->press_rows(target.rows, producer->ownership[input], engine->processed, engine->bpm, engine->microphone);
+        const int code = engine->compiled->press_rows(target.rows, producer->ownership[input], engine->processed, engine->bpm, engine->microphone,
+          input_source(slot, session, input));
         if (code != PF_OK) return fail(engine, code);
       } else {
         int first_error = PF_OK;
@@ -1112,7 +1136,10 @@ int pf_input_revoke(pf_engine* engine, uint32_t slot, double session) {
   auto* producer = engine->inputs.producer(slot);
   if (!producer || !performance_input::identity(session)) return fail(engine, PF_INVALID_INPUT);
   if (producer->session != session) return fail(engine, PF_STALE_INPUT);
-  if (producer->active && engine->compiled) for (auto owner : producer->ownership) engine->compiled->release_owner(owner);
+  if (producer->active && engine->compiled) for (uint32_t input = 0; input < 8; ++input) {
+    engine->compiled->cancel_input(input_source(slot, session, input));
+    engine->compiled->release_owner(producer->ownership[input]);
+  }
   producer->active = false; std::fill(std::begin(producer->ownership), std::end(producer->ownership), 0);
   emit(engine, PF_STATE, engine->processed); return accepted(engine);
 }

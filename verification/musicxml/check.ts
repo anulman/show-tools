@@ -5,7 +5,7 @@ import { CONTROL_IDS, PHYSICAL_SWITCH_IDS } from '../../lib/performance/model.js
 import { PF } from '../../lib/performance/wasm-abi.js';
 import { createHash } from 'node:crypto';
 import { importSheetMusicXml } from '../../lib/performance/sheet-musicxml.js';
-import { compileMusicXmlSong, readMusicXmlSong, writeMusicXmlSong, type MusicXmlSong } from '../../lib/performance/musicxml-song.js';
+import { compileMusicXmlSong, MusicXmlValidationError, readMusicXmlSong, writeMusicXmlSong, type MusicXmlSong } from '../../lib/performance/musicxml-song.js';
 import { bindingCases, bindingGrammar, fullSetupBindingCases, fullSetupBindingGrammar, grammar, scoreCases, scoreInput, voiceCatalog, type ScoreCase } from './domain.js';
 
 function withoutArchive(xml: string, field: string): string {
@@ -156,6 +156,47 @@ async function fullSetupBindingWitness() {
     distinctDigests: digests.size, nativeBindingTables: ids.size };
 }
 
+async function edgeCaptureWitness() {
+  let cases = 0;
+  for (const meter of grammar.meters) for (const firstBeat of [2, meter.numerator]) for (const order of [['lead', 'day'], ['day', 'lead']]) {
+    const input = scoreInput({ id: 'release-pair', meter, cells: ['', '', '', ''], text: 'plain', liveVocals: false, command: '' });
+    const values = input.source.values.map(row => [...row]);
+    values[17][2] = `${meter.numerator}ru(lead)`;
+    values[17][3] = '1cx(lead)+1ru(day) 2cx(day)';
+    const play = `${firstBeat}pp(${order.join('+')})`;
+    values[17][4] = play;
+    const imported = await importSheetMusicXml({ source: { ...input.source, values },
+      mapping: { ...input.mapping, notationVersion: 'terse-v2',
+        capturePolicies: [{ voiceId: 'pad0', retention: 'variant', gain: 1 }],
+        sourceBindings: ['lead', 'day'].map(sourceName => ({ buttonId: 'R1', sourceName, playbackMode: 'one-shot' })) } })
+      .catch((cause: unknown) => {
+        if (cause instanceof MusicXmlValidationError && cause.message === 'Authored edge cues disagree with compiled pairs.')
+          assert.fail('EDGE_METADATA_MEANING: imported chart lost its capture or playback metadata on readback');
+        throw cause;
+      });
+    const standaloneXml = archives(imported.xml, 'neither');
+    let parsed: MusicXmlSong | undefined;
+    await assert.doesNotReject(async () => { parsed = await readMusicXmlSong(standaloneXml); }, 'EDGE_METADATA_MEANING');
+    assert(parsed?.song.executable, 'EDGE_METADATA_MEANING');
+    const { song } = parsed;
+    const [lead, day] = song.takes.filter(take => take.voiceId === 'pad0');
+    assert(lead?.sourceName === 'lead' && day?.sourceName === 'day', 'EDGE_METADATA_MEANING');
+    assert.deepEqual(song.releaseCapturePairs, [{ firstTakeId: lead.id, secondTakeId: day.id }], 'EDGE_METADATA_MEANING');
+    const selections = order.map(name => song.selections.find(selection => selection.window.kind === 'full'
+      && selection.takeIds[0] === (name === 'lead' ? lead.id : day.id))?.id);
+    assert(selections.every(Boolean), 'EDGE_METADATA_MEANING');
+    assert.deepEqual(song.playbackPairs, [{ buttonId: 'R1', first: { bar: 3, beat: firstBeat - 1 },
+      firstSelectionId: selections[0], secondSelectionId: selections[1] }], 'EDGE_METADATA_MEANING');
+    assert.equal(song.chart.bars[2].cues.R1, play, 'EDGE_METADATA_MEANING');
+    const rewritten = await writeMusicXmlSong(writeInput(parsed));
+    assert.deepEqual(meaning(await readMusicXmlSong(rewritten)), meaning(parsed), 'EDGE_METADATA_MEANING');
+    assert.deepEqual(await compileMusicXmlSong(standaloneXml), song, 'EDGE_METADATA_MEANING');
+    cases++;
+  }
+  assert.equal(cases, 8, 'EDGE_WITNESS_CARDINALITY');
+  return { cases, archiveFreeRoundtrips: cases };
+}
+
 async function witness(property: string): Promise<void> {
   const example = scoreCases().next().value;
   assert(example, 'NONEMPTY_GRAMMAR');
@@ -167,6 +208,7 @@ async function witness(property: string): Promise<void> {
   else if (property === 'full-bindings') await fullSetupBindingWitness();
   else if (property === 'boundaries' || property === 'boundary-placement' || property === 'boundary-entities') await verifyBoundaries();
   else if (property === 'higher-intensity' || property === 'feel-identity') await verifyHigherIntensity(property === 'feel-identity');
+  else if (property === 'edge-metadata') await edgeCaptureWitness();
   else throw new Error('Unknown witness property');
 }
 
@@ -232,14 +274,15 @@ async function verifyDomain() {
   const fullSetupInputBindings = await fullSetupBindingWitness();
   const boundaryAnnotations = await verifyBoundaries();
   const higherIntensity = await verifyHigherIntensity();
+  const edgeCapture = await edgeCaptureWitness();
   return { status: 'PASS-bounded-exhaustive-musicxml', grammar, scoreCases: scoreCount, canonicalCases: canonicalCount, supplementalTimelineWitnesses: 1,
-    roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks, inputBindings, fullSetupInputBindings, boundaryAnnotations, higherIntensity,
+    roundtrips, displayRejections, archiveChecks, voiceIdentityChecks, actionIdentityChecks: actionDigests.size, equivalentTempoChecks, inputBindings, fullSetupInputBindings, boundaryAnnotations, higherIntensity, edgeCapture,
     caseFingerprint: fingerprint.digest('hex'), scope: 'Finite grammar through actual TypeScript implementation, not arbitrary XML or an unbounded proof.' };
 }
 
 if (process.argv[2] === '--witness') {
   const property = process.argv[3];
-  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : property === 'bindings' ? 'INPUT_BINDING_MEANING' : property === 'binding-identity' ? 'INPUT_BINDING_SEMANTIC_IDENTITY' : property === 'full-bindings' ? 'NATIVE_BINDING_TABLE' : property === 'boundaries' ? 'BOUNDARY_CUE_MEANING' : property === 'boundary-entities' ? 'BOUNDARY_XML_ENTITIES' : property === 'boundary-placement' ? 'BOUNDARY_PLACEMENT' : property === 'higher-intensity' ? 'HIGHER_INTENSITY_MEANING' : property === 'feel-identity' ? 'FEEL_SEMANTIC_IDENTITY' : null;
+  const marker = property === 'display' ? 'DISPLAY_ACTION_AGREEMENT' : property === 'voices' ? 'VOICE_SEMANTIC_IDENTITY' : property === 'labels' ? 'MEASURE_LABEL_AGREEMENT' : property === 'bindings' ? 'INPUT_BINDING_MEANING' : property === 'binding-identity' ? 'INPUT_BINDING_SEMANTIC_IDENTITY' : property === 'full-bindings' ? 'NATIVE_BINDING_TABLE' : property === 'boundaries' ? 'BOUNDARY_CUE_MEANING' : property === 'boundary-entities' ? 'BOUNDARY_XML_ENTITIES' : property === 'boundary-placement' ? 'BOUNDARY_PLACEMENT' : property === 'higher-intensity' ? 'HIGHER_INTENSITY_MEANING' : property === 'feel-identity' ? 'FEEL_SEMANTIC_IDENTITY' : property === 'edge-metadata' ? 'EDGE_METADATA_MEANING' : null;
   try {
     await witness(property);
     process.stdout.write(JSON.stringify({ status: 'PASS-witness', property }) + '\n');
@@ -249,6 +292,6 @@ if (process.argv[2] === '--witness') {
     process.exitCode = 1;
   }
 } else {
-  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels|bindings|binding-identity|full-bindings|boundaries|boundary-placement|boundary-entities|higher-intensity|feel-identity');
+  assert.equal(process.argv.length, 2, 'Use no arguments or --witness display|voices|labels|bindings|binding-identity|full-bindings|boundaries|boundary-placement|boundary-entities|higher-intensity|feel-identity|edge-metadata');
   process.stdout.write(JSON.stringify(await verifyDomain()) + '\n');
 }

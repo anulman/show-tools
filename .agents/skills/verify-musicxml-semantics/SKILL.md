@@ -11,7 +11,7 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 
 ## Covered source and sync record
 
-`verification/musicxml/coverage.json` records exact file hashes and source sync commit `f6b4db9f9245dc3da47f6c7b8ac6085448b6799d`. The original finite domain and all six existing source mutants remain unchanged. Six supplemental mutants cover boundary writing, endpoint offsets, higher-intensity normalization, feel identity, numeric decoding and XML-only entity admission. The separate cue verifier covers the terse grammar. Runtime tuner selection, pitch observations and periodic source analysis remain outside this verifier. It covers:
+`verification/musicxml/coverage.json` records exact file hashes and source sync commit `2ad53a6fe59bf69ebb4d74f3c368f244cb6569ea`. The original finite domain and all six existing source mutants remain unchanged. Six supplemental mutants cover boundary writing, endpoint offsets, higher-intensity normalization, feel identity, numeric decoding and XML-only entity admission. The separate cue verifier covers the terse grammar. Runtime tuner selection, pitch observations and periodic source analysis remain outside this verifier. It covers:
 
 - `lib/performance/musicxml-model.ts`: parsed annotation types, including optional boundary cues and the distinct Higher intensity feel.
 - `lib/performance/musicxml-song.ts`: `semanticDigest`, `writeMusicXmlSong`, `readMusicXmlSong`, and `compileMusicXmlSong`.
@@ -26,13 +26,13 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 
 ## Interpret failures
 
-The runner verifies source hashes, runs the full Cartesian domain, binding domains and supplemental notation witnesses, and requires twelve actual-source mutants in a temporary copy to fail their named properties. Each restored witness must pass afterward. Mutant acceptance requires the exact structured property-failure result emitted by a named assertion, exit code 1, and empty stderr. It never changes production files or connects to live services.
+The runner verifies source hashes, runs the full Cartesian domain, binding domains and supplemental notation witnesses, and requires thirteen actual-source mutants in a temporary copy to fail their named properties. Each restored witness must pass afterward. Mutant acceptance requires the exact structured property-failure result emitted by a named assertion, exit code 1, and empty stderr. It never changes production files or connects to live services.
 
 `BOUND_CASE_FAILURE` names an input whose current implementation violates the stated contract. Read its cause and replay that score input from `domain.ts`. Preserve the evidence and report the finding. Do not change product code or weaken the rule unless the task authorizes the corresponding behavior change.
 
 `SOURCE_DRIFT` means covered code changed since the sync record. It is not proof of a product bug. Review the covered diff against the recorded commit, then run `node --import tsx verification/musicxml/check.ts` to check the current implementation without the old hash gate. Compare the new behavior with the plain-language properties. Reviewers must distinguish an intended meaning change from a parser or model error.
 
-If the new behavior is intended, update the grammar, expectations, mutation witnesses, and proposed coverage hashes together. Compute hashes from the actual files. Run the complete `verify.ts` command against that proposed record. Advance the sync commit in both this skill and `coverage.json` only after the full domain and all twelve real-source mutation challenges pass and the verification still describes the code at that commit. Commit the verified record with the corresponding change. `/maintain-formal-verification-skill` provides the broader drift-review workflow.
+If the new behavior is intended, update the grammar, expectations, mutation witnesses, and proposed coverage hashes together. Compute hashes from the actual files. Run the complete `verify.ts` command against that proposed record. Advance the sync commit in both this skill and `coverage.json` only after the full domain and all thirteen real-source mutation challenges pass and the verification still describes the code at that commit. Commit the verified record with the corresponding change. `/maintain-formal-verification-skill` provides the broader drift-review workflow.
 
 `MUTANT_SOURCE_SHAPE_DRIFT`, `MUTANT_SURVIVED`, or `WRONG_MUTANT_FAILURE` means the implementation-coupling evidence is incomplete. Inspect the real source and repair the witness. Do not count an unrelated exception or the mere presence of an assertion string as a pass.
 
@@ -51,3 +51,7 @@ The original binding grammar fixes a single plain one-bar 4/4 score and registry
 The 32-case supplemental boundary grammar fixes managed Pad 0 and unmanaged Bass rows and crosses two meters, one or two measures, plain or escaped text containing CR, and absent, Lead-in, Tail or both cues. It preserves exact text and source identity through archive-free read/write/read without new measures. Sixteen cases reject misplaced tail offsets, forged source rows, duplicate identities and raw HTML-only entities. A separate named witness preserves Funky, Extra funky and Higher intensity, isolates AF notation, and changes semantic identity when only standard feel words change. These additions do not multiply or reduce the original domains.
 
 The expanded escaped-text case exposed a real product bug at `2ca9cb5`: the previous standard-value parser left `&#13;` as literal text. Source commit `6565fe9` enables numeric decoding and restricts raw entities to XML names and valid XML 1.0 scalar references, excluding comments and CDATA from the lexical guard. Literal entity spellings remain literal. The source-fence baseline failure was verification drift; this escaped-text counterexample was a product defect, fixed separately. See the README for reviewed commits, final counts and receipt.
+
+## Release capture and paired playback
+
+The supplemental eight-case grammar crosses both meters, the two playback orders, and playback that starts within one measure or crosses a barline. Each case checks archive-free preservation of the capture pair, ordered playback, visible directions and compiler output. The thirteenth actual-source mutant drops capture-pair metadata from the writer and must fail `EDGE_METADATA_MEANING`. The original domains and all twelve original witnesses are preserved. The edge witness does not execute playback or capture in C++.

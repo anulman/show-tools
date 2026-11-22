@@ -61,7 +61,7 @@ const mutations = [
     edits: [{ before: 'int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_next) noexcept {',
       after: 'int Program::finish_capture(const Cue& incoming, const CommitPlan& plan, bool starts_next) noexcept {\n  Cue cue = incoming; cue.launch = PF_AUTOPLAY;' }] },
   { name: 'missEndpoint', scenario: 'automatic-endpoint', invariant: 'AutomaticEndpointCompletes', message: 'missing finish press commits at the authored endpoint',
-    edits: [{ before: 'if (active_capture_.take >= 0 && frame >= boundary_frame(frame_at(takes_[active_capture_.take].end))', after: 'if (false && active_capture_.take >= 0 && frame >= boundary_frame(frame_at(takes_[active_capture_.take].end))' }] },
+    edits: [{ before: 'if (active_capture_.take >= 0 && !takes_[active_capture_.take].edge_capture && frame >= boundary_frame(frame_at(takes_[active_capture_.take].end))', after: 'if (false && active_capture_.take >= 0 && frame >= boundary_frame(frame_at(takes_[active_capture_.take].end))' }] },
 ];
 function checkModel(name: string, mutation: string, configuration = config) {
   const folder = join(output, name);

@@ -52,4 +52,33 @@ for (const meter of [4, 6]) for (let press = 0; press < meter * 4; press++) {
   cases++;
 }
 assert.equal(cases, 32390, 'FINITE_DOMAIN_CARDINALITY');
-process.stdout.write(JSON.stringify({ status: 'PASS-finite-real-parser', cases, domain: '4/4 and 6/8; every sixteenth press, 8 operations, 3 source names, immediate/next-bar/every sixteenth execution; inherited silent anchors and fresh cells; 14 malformed controls; 10,280 grouped action and stop-list cases' }) + '\n');
+let edgeCases = 0;
+const now = { kind: 'now' };
+for (const meter of [4, 6]) for (let press = 0; press < meter * 4; press++) {
+  const prefix = `${Math.floor(press / 4) + 1}${subdivisions[press % 4]}`;
+  for (const [first, second] of [['lead', 'day'], ['day', 'lead']]) {
+    assert.deepEqual(parseSheetCues(`${prefix}ru(${first})`, meter), { kind: 'parsed', actions: [
+      { operation: 'ru', sourceName: first, pressBeat: press / 4, execution: now },
+    ] }, 'RELEASE_ARM_MEANING');
+    assert.deepEqual(parseSheetCues(`${prefix}cx(${first})+ru(${second})`, meter), { kind: 'parsed', actions: [
+      { operation: 'cx', sourceName: first, pressBeat: press / 4, execution: now, group: 1 },
+      { operation: 'ru', sourceName: second, pressBeat: press / 4, execution: now, group: 1 },
+    ] }, 'RELEASE_ARM_GROUP');
+    assert.deepEqual(parseSheetCues(`${prefix}pp(${first}+${second})`, meter), { kind: 'parsed', actions: [
+      { operation: 'pp', sourceName: `${first}+${second}`, pressBeat: press / 4, execution: now },
+    ] }, 'PLAYBACK_PAIR_ORDER');
+    for (const token of [`${prefix}ru(${first}+${second})`, `${prefix}ru(${first})b`,
+      `${prefix}pp(${first})`, `${prefix}pp(${first}+${first})`,
+      `${prefix}pp(${first}+${second})b`, `${prefix}pp(${first}+${second})+x`]) {
+      assert.equal(parseSheetCues(token, meter).kind, 'invalid', 'EDGE_GRAMMAR_REJECTION');
+    }
+    edgeCases += 9;
+  }
+}
+for (const meter of [4, 6]) for (const token of ['ru', 'ru(lead)', '2ru', 'pp(lead+day)', '2pp']) {
+  assert.equal(parseSheetCues(token, meter).kind, 'invalid', 'EDGE_ANCHOR_OR_NAME_REQUIRED');
+  edgeCases++;
+}
+assert.equal(edgeCases, 730, 'EDGE_DOMAIN_CARDINALITY');
+process.stdout.write(JSON.stringify({ status: 'PASS-finite-real-parser', cases: cases + edgeCases, originalCases: cases, edgeCases,
+  domain: '4/4 and 6/8; every sixteenth press, execution and group in the original grammar, plus bounded release arms and ordered playback pairs' }) + '\n');

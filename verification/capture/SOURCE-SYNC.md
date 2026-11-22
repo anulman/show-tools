@@ -1,5 +1,13 @@
 # Capture source synchronization
 
+## Release-driven word capture
+
+The source fence rejected the changed engine implementation before checking the model. The covered changes from `a57cf372` are `8c87ca8` and `2ad53a6`. The phone tambourine change writes separate external playback voices. It does not write a song capture bank.
+
+The release-driven program extension adds an identified-input reservation in front of shared capture admission. A genuine release starts the draft through the existing bank preparation, and a later press preflights and publishes the recorded length through the existing store-only path. Stop, mushroom cancellation, producer revocation, microphone loss and deadline use draft cleanup. Paired taps start two full previously published finite clips through additive playback; they do not change capture writers or bank ownership.
+
+The model and its eleven invariants concern the scheduled handoff. The automatic-endpoint guarantee applies to scheduled takes. Updated the endpoint mutation to match that conditional branch, and retained its expected failure when a scheduled take misses its written endpoint. The model still uses three takes, two banks per take and three capture beginnings. It leaves release ownership, phase windows, actual clip length and paired PCM overlap to the real engine witness in [release-capture-wasm.test.ts](../../lib/performance/tests/release-capture-wasm.test.ts).
+
 ## Capture handoff after tempo warping and default arms
 
 The previous fence stopped at `a831cc6` and rejected changed source before running the model. The old native replay also used a fixture that treated tempo changes as invalid. The engine now retains and replays that capture at the updated tempo. The replacement witness stops the committed anchor while a layered take is recording. The layer fails to commit, the simultaneous incoming arm is rejected, and the prior source stays available.

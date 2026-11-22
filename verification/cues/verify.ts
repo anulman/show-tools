@@ -27,12 +27,15 @@ function run(cwd: string) {
 const baseline = run(root);
 assert.equal(baseline.status, 0, baseline.stderr);
 const mutants = [
-  { name: 'cx-launches-like-commit', marker: 'FINITE_GRAMMAR_MEANING', before: 'operation: op,', after: "operation: op === 'cx' ? 'c' : op," },
+  { name: 'cx-launches-like-commit', marker: 'FINITE_GRAMMAR_MEANING', before: 'operation: op, pressBeat, sourceName, execution,', after: "operation: op === 'cx' ? 'c' : op, pressBeat, sourceName, execution," },
   { name: 'source-name-discarded', marker: 'FINITE_GRAMMAR_MEANING', before: 'sourceName, execution,', after: 'sourceName: null, execution,' },
   { name: 'silent-anchor-shifted', marker: 'SILENT_ANCHOR', before: 'anchor = Number(match[1]) - 1', after: 'anchor = Number(match[1])' },
   { name: 'next-bar-wrap-lost', marker: 'FINITE_GRAMMAR_MEANING', before: 'pressBeat !== null && beat < pressBeat ? 1 : 0', after: '0' },
 ];
 mutants.push(
+  { name: 'playback-pair-reversed', marker: 'PLAYBACK_PAIR_ORDER', before: "names.join('+')", after: "names.slice().reverse().join('+')" },
+  { name: 'release-arm-without-a-guide', marker: 'EDGE_ANCHOR_OR_NAME_REQUIRED',
+    before: "if (op === 'ru' && (pressBeat === null || ", after: "if (op === 'ru' && (" },
   { name: 'group-identity-dropped', marker: 'GROUP_IDENTITY', before: '...(grouped ? { group } : {})', after: '...{}' },
   { name: 'group-inherited-press-lost', marker: 'GROUP_PARSE', before: ': sharedPress;', after: ': null;' },
 );

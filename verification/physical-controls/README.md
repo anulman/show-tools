@@ -66,6 +66,8 @@ library dependencies. It links the real `peripheral_light_delivery.cpp` into the
 replay. The copied tree includes unbuilt fixtures needed by CMake configuration;
 only declared source inputs may appear in actual compiler dependency records.
 
+The source refresh at `2ad53a6` passed 4,096 held-mask pairs, 24,576 complete delivery images and all ten source mutations. It follows the same physical held bits through identified press, release, attach and revoke. Release-driven recording adds a separate musical reservation whose owner is cleared when a producer retires. It leaves the held image, baseline identities, and delivery rules covered here intact. The finite domain does not enumerate release-driven musical phases. The [WASM release-capture witness](../../lib/performance/tests/release-capture-wasm.test.ts) checks that a different producer cannot finish the draft and that retiring the owner clears an armed or in-progress draft without publishing it.
+
 The main correspondence is:
 
 - `Router::physical_held`, `pf_input_attach`, `pf_input_revoke` and

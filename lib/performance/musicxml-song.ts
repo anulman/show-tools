@@ -54,6 +54,8 @@ const Performance = Schema.Struct({
   externalSamples: CompiledSongSchema.fields.externalSamples,
   terminalStops: CompiledSongSchema.fields.terminalStops,
   authoredCues: CompiledSongSchema.fields.authoredCues,
+  releaseCapturePairs: CompiledSongSchema.fields.releaseCapturePairs,
+  playbackPairs: CompiledSongSchema.fields.playbackPairs,
   cues: CompiledSongSchema.fields.cues, takes: CompiledSongSchema.fields.takes,
   selections: CompiledSongSchema.fields.selections, playback: CompiledSongSchema.fields.playback,
   diagnostics: CompiledSongSchema.fields.diagnostics, executable: Schema.Boolean,
@@ -221,6 +223,8 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
     source: song.source, mappingDigest: song.mappingDigest, voices: song.voices, parts: partBindings,
     ...(song.terminalStops === undefined ? {} : { terminalStops: song.terminalStops }),
     ...(song.authoredCues === undefined ? {} : { authoredCues: song.authoredCues }),
+    ...(song.releaseCapturePairs === undefined ? {} : { releaseCapturePairs: song.releaseCapturePairs }),
+    ...(song.playbackPairs === undefined ? {} : { playbackPairs: song.playbackPairs }),
     rotation: song.rotation, cueWindow: song.cueWindow, cues: song.cues, takes: song.takes,
     selections: song.selections, playback: song.playback, diagnostics: song.diagnostics, executable: song.executable,
     chartBinding: { columns: song.chart.bars.map(bar => bar.column),
@@ -509,7 +513,11 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
       const shown = cue.bar === 0 ? chart.leadInCues[cue.buttonId] : chart.bars[cue.bar - 1]?.cues[cue.buttonId];
       if (shown !== cue.source.text.trim()) throw new MusicXmlValidationError(`MusicXML command display disagrees with the typed action at ${cue.source.a1}. Update both explicitly.`);
     }
-    for (const bar of chart.bars) for (const button of buttons) if (bar.cues[button] && !performance.cues.some(cue => cue.bar === bar.bar && cue.buttonId === button)) throw new MusicXmlValidationError(`MusicXML command ${button} at bar ${bar.bar} lacks a typed action.`);
+    for (const bar of chart.bars) for (const button of buttons) {
+      if (bar.cues[button] && !performance.cues.some(cue => cue.bar === bar.bar && cue.buttonId === button)
+        && !performance.authoredCues?.some(cell => cell.bar === bar.bar && cell.buttonId === button && cell.actions.some(action => action.operation === 'pp')))
+        throw new MusicXmlValidationError(`MusicXML command ${button} at bar ${bar.bar} lacks a typed action.`);
+    }
   }
   const digest = await semanticDigest({ title: chart.title, meter, bpmPerChartCount: bpm, sections, vocalCues, parts, annotations }, performance, voices);
   const song = decodeCanonicalProgram({
@@ -522,6 +530,8 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     ...(performance.externalSamples === undefined ? {} : { externalSamples: performance.externalSamples }),
     voices: performance.voices, parts: resolvedParts, rotation: performance.rotation, cueWindow: performance.cueWindow,
     ...(performance.authoredCues === undefined ? {} : { authoredCues: performance.authoredCues }),
+    ...(performance.releaseCapturePairs === undefined ? {} : { releaseCapturePairs: performance.releaseCapturePairs }),
+    ...(performance.playbackPairs === undefined ? {} : { playbackPairs: performance.playbackPairs }),
     cues: performance.cues, takes: performance.takes, selections: performance.selections, playback: performance.playback,
     diagnostics: performance.diagnostics, executable: performance.executable,
   });

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseSheetCues } from '../sheet-cues.js';
-import { compileSheetsSong, decodeCompiledSong, inspectCompiledSong } from '../compiled-song.js';
+import { compileSheetsSong, decodeCompiledSong, inspectCompiledSong, type SongMapping } from '../compiled-song.js';
 import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { readMusicXmlSong, writeMusicXmlSong } from '../musicxml-song.js';
 import { readFile } from 'node:fs/promises';
@@ -176,4 +176,87 @@ test('pickup source instructions fail visibly until their chart timeline is repr
   const song = await compileSheetsSong({ ...source, values }, mapping);
   assert.equal(song.executable, false);
   assert(song.diagnostics.some(diagnostic => diagnostic.code === 'cue-timeline' && diagnostic.source.a1 === 'C20'));
+});
+
+test('release capture and ordered paired playback have separate auditable source actions', () => {
+  assert.deepEqual(parseSheetCues('4ru(drunk)'), { kind: 'parsed', actions: [
+    { operation: 'ru', pressBeat: 3, sourceName: 'drunk', execution: { kind: 'now' } },
+  ] });
+  assert.deepEqual(parseSheetCues('1cx(drunk)+1ru(girls) 2cx(girls)'), { kind: 'parsed', actions: [
+    { operation: 'cx', pressBeat: 0, sourceName: 'drunk', execution: { kind: 'now' }, group: 1 },
+    { operation: 'ru', pressBeat: 0, sourceName: 'girls', execution: { kind: 'now' }, group: 1 },
+    { operation: 'cx', pressBeat: 1, sourceName: 'girls', execution: { kind: 'now' } },
+  ] });
+  assert.deepEqual(parseSheetCues('4pp(drunk+girls)'), { kind: 'parsed', actions: [
+    { operation: 'pp', pressBeat: 3, sourceName: 'drunk+girls', execution: { kind: 'now' } },
+  ] });
+  for (const cell of ['4ru', 'ru(drunk)', '4ru(drunk)b', '4ru(drunk+girls)', 'pp(drunk+girls)', '4pp(drunk)',
+    '4pp(drunk+drunk)', '4pp(drunk+girls+boys)', '4pp(drunk+girls)b', '4pp(drunk+girls)+4x'])
+    assert.equal(parseSheetCues(cell).kind, 'invalid', cell);
+});
+
+async function edgeCaptureInput() {
+  const { terseCaptureInput } = await import('./fixtures/terse-capture.js');
+  const { source, mapping } = terseCaptureInput();
+  const values = source.values.map(row => [...row]);
+  values[17].fill('');
+  values[17][2] = '4ru(drunk)';
+  values[17][3] = '1cx(drunk)+1ru(girls) 2cx(girls)';
+  values[17][4] = '4pp(drunk+girls)';
+  values[17][6] = '2pp(drunk+girls)';
+  values[19][10] = '1x(strum+girls)';
+  return { source: { ...source, values }, mapping: { ...mapping, sourceBindings: [
+    ...mapping.sourceBindings ?? [],
+    { buttonId: 'R1', sourceName: 'drunk', playbackMode: 'one-shot' },
+    { buttonId: 'R1', sourceName: 'girls', playbackMode: 'one-shot' },
+  ] } satisfies SongMapping };
+}
+
+test('release and paired playback survive standalone MusicXML and encode exact native references', async () => {
+  const { encodeCompiledProgram } = await import('../compiled-native.js');
+  const { PF } = await import('../wasm-abi.js');
+  const input = await edgeCaptureInput();
+  const compiled = await compileSheetsSong(input.source, input.mapping);
+  assert(compiled.executable, JSON.stringify(compiled.diagnostics));
+  const [drunk, girls] = compiled.takes.filter(take => take.voiceId === 'words');
+  for (const take of [drunk, girls]) assert.equal(compiled.cues.find(cue => cue.id === take.commitCueId)?.launchPolicy, 'store');
+  const [firstSelection, secondSelection] = [drunk, girls].map(take => compiled.selections.find(selection => selection.takeIds[0] === take.id));
+  assert(firstSelection && secondSelection);
+  assert.deepEqual(compiled.releaseCapturePairs, [{ firstTakeId: drunk.id, secondTakeId: girls.id }]);
+  assert.deepEqual(compiled.playbackPairs, [{ bar: 3, beat: 3 }, { bar: 5, beat: 1 }].map(first => ({
+    buttonId: 'R1', first, firstSelectionId: firstSelection.id, secondSelectionId: secondSelection.id,
+  })));
+  assert(!compiled.cues.some(cue => cue.source.text.includes('pp(')));
+  const { song, report } = await readMusicXmlSong((await importSheetMusicXml(input)).xml);
+  const standalone = await readMusicXmlSong(await writeMusicXmlSong({ song, report }));
+  assert.equal(standalone.source, null);
+  assert.equal(standalone.song.chart.bars[2].cues.R1, '4pp(drunk+girls)');
+  assert.deepEqual(standalone.song.releaseCapturePairs, compiled.releaseCapturePairs);
+  assert.deepEqual(standalone.song.playbackPairs, compiled.playbackPairs);
+  const packet = Array.from(encodeCompiledProgram(standalone.song));
+  assert.deepEqual(packet.slice(packet.indexOf(PF.COMPILED_EDGE_MAGIC)), [
+    PF.COMPILED_EDGE_MAGIC, 1, 2, 0, 1, 2, 3, 3, 0, 1, 2, 5, 1, 0, 1,
+  ]);
+  assert.throws(() => decodeCompiledSong({ ...compiled, releaseCapturePairs: [] }), /disagree with compiled pairs/);
+  assert.throws(() => decodeCompiledSong({ ...compiled, playbackPairs: [] }), /disagree with compiled pairs/);
+});
+
+test('edge imports reject missing cuts, unbound clips, and overlapping or incomplete playback pairs', async () => {
+  for (const [column, replacement, a1] of [
+    [3, '1c(drunk)+1ru(girls) 2cx(girls)', 'C18'],
+    [3, '1cx(drunk)+1ru(girls) cx(girls)', 'C18'],
+    [3, '1cx(drunk)+1ru(girls)', 'C18'],
+    [4, '4pp(drunk+unknown)', 'E18'],
+    [5, '1pp(drunk+girls)', 'F18'],
+    [4, '3ap(girls) 4pp(drunk+girls)', 'E18'],
+    [5, '1p(girls)', 'E18'],
+    [5, '1ep(girls)', 'E18'],
+    [11, '4pp(drunk+girls)', 'L18'],
+  ] satisfies [number, string, string][]) {
+    const { source, mapping } = await edgeCaptureInput();
+    source.values[17][column] = replacement;
+    const compiled = await compileSheetsSong(source, mapping);
+    assert.equal(compiled.executable, false, replacement);
+    assert(compiled.diagnostics.some(diagnostic => diagnostic.source.a1 === a1 && diagnostic.code === 'edge-cue'), JSON.stringify(compiled.diagnostics));
+  }
 });
