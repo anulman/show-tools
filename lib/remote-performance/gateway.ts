@@ -9,7 +9,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { extname, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Schema } from 'effect';
-import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
+import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type DeskView, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
 import { decodeClientInputCommand, isPriorityCommand, TambourineAudition, type ClientInputCommand } from './commands.js';
 import { InputBindingsSchema, decodeInputBindings, decodeInputAttach, type InputBindings, type InputAttach } from '../performance/input-bindings.js';
 
@@ -273,6 +273,17 @@ const configurationFields = { ...requestFields, expectedRevision: Schema.String.
 const decodeSongSelection = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields, songId: Schema.NonEmptyString.check(Schema.isMaxLength(256)) }), { onExcessProperty: 'error' });
 const decodeButtonBindings = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields, bindings: InputBindingsSchema }), { onExcessProperty: 'error' });
 
+function deskWireView(view: DeskView): DeskView {
+  const { compiled } = view.song;
+  if (!compiled?.authoredCues) return view;
+  const { authoredCues: _, ...runtime } = compiled;
+  return { ...view, song: { ...view.song, compiled: runtime } };
+}
+
+function deskWireOutcome(outcome: Outcome | AudioDecision | NativeOutcome) {
+  return 'view' in outcome ? { ...outcome, view: deskWireView(outcome.view) } : outcome;
+}
+
 export function createGateway(config: GatewayConfig, controller: DeskController, songs?: SongActions) {
 	if (config.token.length < 32) throw new Error('Token must contain at least 32 bytes');
 	const origin = new URL(config.origin);
@@ -343,7 +354,8 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 		client.write(data);
 	};
 	const unsubscribe = controller.subscribe((observation) => {
-		const data = Buffer.from(`data: ${JSON.stringify(observation)}\n\n`);
+		const publication = observation.type === 'desk' ? { ...observation, view: deskWireView(observation.view) } : observation;
+		const data = Buffer.from(`data: ${JSON.stringify(publication)}\n\n`);
 		for (const client of clients) send(client, data);
 	});
 	const heartbeat = setInterval(() => {
@@ -379,7 +391,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         inputOwners.set(inputOwnerToken, { owner: session, reads: 0 });
 				sessions.set(sessionId, session);
 				setTimeout(() => { if (!session.attached) closeSession(sessionId, session); }, 30_000).unref();
-				return json(response, 200, { view: snapshot, sessionId, inputOwnerToken });
+				return json(response, 200, { view: deskWireView(snapshot), sessionId, inputOwnerToken });
 			}
       if (request.method === 'POST' && path === '/api/input-intent-status') {
         if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
@@ -415,7 +427,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
           return response.end(bytes);
         } catch { return json(response, 409, { error: 'Sample unavailable or practice changed. Stop practice and retry.' }); }
       }
-			if (request.method === 'GET' && path === '/api/status') return json(response, 200, controller.snapshot());
+			if (request.method === 'GET' && path === '/api/status') return json(response, 200, deskWireView(controller.snapshot()));
 			if (request.method === 'GET' && path === '/api/events') {
 				if (clients.size >= MAX_CLIENTS) return json(response, 503, { error: 'Observer capacity reached' });
 				const sessionId = request.headers['x-session-id'];
@@ -427,7 +439,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				request.on('close', () => { clients.delete(response); closeSession(sessionId as string, session); });
 				response.on('error', () => { clients.delete(response); response.destroy(); });
 				const snapshot = controller.snapshot();
-				if (snapshot) send(response, Buffer.from(`data: ${JSON.stringify({ type: 'desk', view: snapshot })}\n\n`));
+				if (snapshot) send(response, Buffer.from(`data: ${JSON.stringify({ type: 'desk', view: deskWireView(snapshot) })}\n\n`));
 				return;
 			}
 			if (request.method === 'POST' && ['/api/command', '/api/audio', '/api/song', '/api/button-bindings'].includes(path)) {
@@ -442,7 +454,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				const retained = session.results.get(sequence);
 				if (retained) {
 					if (retained.request !== requestKey) return json(response, 409, { error: 'Command identity reused' });
-					return json(response, 200, await retained.result);
+					return json(response, 200, deskWireOutcome(await retained.result));
 				}
 				if (sequence <= session.highWater) return json(response, 409, { error: 'Command expired' });
 				const priority = 'command' in body && (body.command.startsWith('input')
@@ -461,7 +473,7 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				).finally(() => { session.inFlight--; });
 				session.results.set(sequence, { request: requestKey, result });
 				if (session.results.size > MAX_RESULTS) session.results.delete(session.results.keys().next().value!);
-				return json(response, 200, await result);
+				return json(response, 200, deskWireOutcome(await result));
 			}
 			return json(response, 404, { error: 'Not found' });
 		}
