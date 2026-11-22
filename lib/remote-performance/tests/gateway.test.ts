@@ -412,7 +412,10 @@ test('an input body finishing after its empty SSE owner closed cannot dispatch o
   let finish!: () => void;
   try {
     const session = await (await fetch(`${base}/api/session`, { headers })).json();
+    const ownerRequest = once(server, 'request');
     const events = await fetch(`${base}/api/events`, { headers: { ...headers, 'x-session-id': session.sessionId }, signal: abort.signal });
+    const [owner] = await ownerRequest;
+    const ownerClosed = once(owner, 'close');
     await events.body!.getReader().read();
     const body = JSON.stringify({ sessionId: session.sessionId, sequence: 1, target, command: 'inputAttach', args: {
       intentId: 'late-intent', kind: 'pointer', bindingGeneration: 1, releasedMask: 223, heldMask: 0,
@@ -424,7 +427,7 @@ test('an input body finishing after its empty SSE owner closed cannot dispatch o
       finish = () => command.end(body.slice(-1));
     });
     await arrived;
-    abort.abort(); await new Promise(resolve => setTimeout(resolve, 2));
+    abort.abort(); await ownerClosed;
     finish(); const response = await pending;
     assert.equal(response.statusCode, 409); response.resume();
     assert.equal(commands, 0);
