@@ -123,6 +123,11 @@ test('hardware Sheets follows native practice through authenticated GETs with no
     await until(() => selections.length === 3 ? true : undefined);
     assert.equal(selections.at(-1)?.range, rangeForBar(off.song.chart, 4, 'playing'));
     assert.deepEqual(sessions, ['session-0', 'session-1']);
+    let stopped = false;
+    void running.then(() => { stopped = true; });
+    // The stub leaves the body open when the fetch signal aborts.
+    stop.abort();
+    await until(() => stopped ? true : undefined);
   } finally {
     stop.abort();
     try { stream?.close(); } catch { /* The connection already released the reader. */ }
