@@ -51,7 +51,7 @@ export async function peripheralFingerprint({ usb = '/sys/bus/usb/devices', inpu
 
 function retryable(error: unknown): boolean {
 	if (error instanceof PeripheralRetry) return true;
-	if (error instanceof PeripheralHttpError) return error.status === 503;
+	if (error instanceof PeripheralHttpError) return error.status === 502 || error.status === 503;
 	if (!(error instanceof Error)) return false;
 	if ('code' in error && ['ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'ETIMEDOUT', 'EPIPE', 'EADDRNOTAVAIL', 'ENOTFOUND', 'EAI_AGAIN'].includes(String(error.code))) return true;
 	return false;

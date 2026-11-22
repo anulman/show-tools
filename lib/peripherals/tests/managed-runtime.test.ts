@@ -60,9 +60,18 @@ test('absent device waits without opening a helper or requiring gateway audio', 
 	} finally { abort.abort(); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await controller.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
-test('gateway authentication failure holds musical input while the one local helper remains active', async () => {
-	const directory = await mkdtemp(join(tmpdir(), 'peripheral-auth-'));
-	const server = createServer((_, response) => { response.writeHead(401); response.end(); });
+for (const status of [401, 502]) test(`gateway HTTP ${status} keeps the local helper active`, async () => {
+	const directory = await mkdtemp(join(tmpdir(), 'peripheral-gateway-'));
+	const controller = new PersistentDesk(sessionProfile(directory), installedPackage().installed);
+	let requests = 0;
+	const server = createServer((_, response) => {
+		requests++;
+		if (status === 401 || requests === 1) {
+			response.writeHead(status).end();
+			return;
+		}
+		response.end(JSON.stringify(controller.snapshot()));
+	});
 	const abort = new AbortController(); let running: Promise<void> | undefined;
 	const helper = join(directory, 'helper'), log = join(directory, 'log');
 	const states: string[] = [];
@@ -80,11 +89,17 @@ process.on('exit',()=>fs.appendFileSync(${JSON.stringify(log)},'exit\\n'));
 		const address = server.address(); assert.ok(address && typeof address !== 'string');
 		running = servePeripheral({ version: 2, origin: `http://127.0.0.1:${address.port}`, tokenFile: join(directory, 'token'), helperExecutable: helper, inputMap, bindingRevision: 1, jiggle: null }, abort.signal,
 			{ present: async () => true, fingerprint: async () => 'same-device', retryMs: 5, report: state => states.push(JSON.stringify(state)) });
-		await until(() => states.some(state => state.includes('401') && state.includes('physical-only')) || undefined);
+		await until(() => states.some(state => state.includes(String(status)) && state.includes('physical-only')) || undefined);
+		if (status === 502) {
+			await until(() => states.some(state => state.includes('Audio is off or unavailable')) || undefined);
+			assert.ok(requests >= 2);
+		} else {
+			assert.equal(requests, 1);
+		}
 		assert.equal(await readFile(log, 'utf8'), 'start\n');
 		abort.abort(); await running;
 		assert.equal(await readFile(log, 'utf8'), 'start\nexit\n');
-	} finally { abort.abort(); await running?.catch(() => {}); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await rm(directory, { recursive: true, force: true }); }
+	} finally { abort.abort(); await running?.catch(() => {}); server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); await controller.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('persistent unit restarts abnormal exits with backoff, but holds normal configuration failures', () => {
