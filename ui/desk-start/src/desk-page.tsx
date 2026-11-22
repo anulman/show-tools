@@ -4,7 +4,7 @@ import { nextSetSong, songForRoute, songRoute } from '../../../songs/routes.js';
 import { TANSTACK_DESK_PATH } from '../../../lib/remote-performance/desk-paths.js';
 import type { AudioMode } from '../../practice/audio-mode.js';
 import { DeskState, type DeskMount, type SongObservation } from './desk-state';
-import { template } from './template';
+import { firstSongPath, template } from './template';
 
 function routeSong(pathname: string) {
   return songForRoute(pathname.replace(/^\/(?:browser\/)?/, '').replace(/\/$/, ''));
@@ -115,12 +115,14 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
     if (slug) void router.preloadRoute({ to: mode === 'hardware' ? '/$songId' : '/browser/$songId', params: { songId: slug } });
   }, [active?.id, active?.digest, active?.installedIds, mode, ready, requestedId, router]);
 
+  const home = (mode === 'browser' ? '/browser' : '') + firstSongPath;
+  const header = template.header.replace('href="./"', 'href="' + home + '"');
   const previewing = mode === 'hardware' && !!(requestedId && active && requestedId !== active.id);
   return (
     <DeskState.Provider value={{ active, runtime }}>
       {mode === 'browser' && <link rel="manifest" href={TANSTACK_DESK_PATH + 'browser/manifest.webmanifest'} />}
       <main id="practice-desk" className="desk">
-        <header className="topline" dangerouslySetInnerHTML={{ __html: template.header }} />
+        <header className="topline" dangerouslySetInnerHTML={{ __html: header }} />
         {error && <p role="alert">{error}</p>}
         <Outlet />
         <div hidden={previewing} inert={previewing} style={{ display: previewing ? 'none' : 'contents' }} dangerouslySetInnerHTML={{ __html: template.song }} />

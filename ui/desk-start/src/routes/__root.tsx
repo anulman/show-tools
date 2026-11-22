@@ -2,6 +2,7 @@ import { createRootRouteWithContext, HeadContent, Scripts } from '@tanstack/reac
 import { useEffect, useState, type ReactNode } from 'react';
 import type { DeskRouterContext } from '../router';
 import { DeskPage } from '../desk-page';
+import { firstSongPath } from '../template';
 
 function Document({ children }: { children: ReactNode }) {
   return (
@@ -33,5 +34,5 @@ export const Route = createRootRouteWithContext<DeskRouterContext>()({
   }),
   shellComponent: Document,
   component: Root,
-  notFoundComponent: () => <main className="desk"><p>Song not found.</p><a href="/">Open Performance Desk</a></main>,
+  notFoundComponent: () => <main className="desk"><p>Song not found.</p><a href={firstSongPath}>Open Performance Desk</a></main>,
 });

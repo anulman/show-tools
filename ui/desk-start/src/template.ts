@@ -1,4 +1,7 @@
 import source from '../../practice/index.html?raw';
+import { SET_SONGS, songRoute } from '../../../songs/routes.js';
+
+export const firstSongPath = '/' + songRoute(SET_SONGS[0].id);
 
 function section(start: string, end: string) {
   const begin = source.indexOf(start);
@@ -8,7 +11,7 @@ function section(start: string, end: string) {
 }
 
 export const template = {
-  header: section('<header class="topline">', '</header>').replace('href="./"', 'href="/"'),
+  header: section('<header class="topline">', '</header>'),
   song: section('</header>', '</main>').replace('href="./README.md"', 'href="/ui/practice/README.md"'),
   dialogs: section('</main>', '<script type="module"'),
 };
