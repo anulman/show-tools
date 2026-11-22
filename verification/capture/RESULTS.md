@@ -1,5 +1,11 @@
 # Capture verification result
 
+## Release-driven word capture source sync
+
+The pinned run at `2ad53a6fe59bf69ebb4d74f3c368f244cb6569ea` exhausted 11,894 main, 782 display and 102 overview states, passed all eleven invariants and rejected all six model mutants. All twelve actual C++ scenarios passed before and after seven assertion-specific source mutations. The nine statechart reports preserve the existing graph and deliberate counterexamples. The scheduled endpoint witness still catches a missed automatic commit. The source fence and that mutation's source selector needed updates. See [the source review](SOURCE-SYNC.md#release-driven-word-capture) and the receipt at `/private/tmp/show-edge-capture-sync-2ad53a6/receipt.json`.
+
+The [release-capture WASM witness](../../lib/performance/tests/release-capture-wasm.test.ts) separately runs the actual engine at 44.1 and 48 kHz. It checks measured take lengths, ordered overlapping playback, identified-input isolation and cancellation that preserves the first committed clip. This provides concrete execution evidence for release-driven behavior outside the finite scheduled-capture model.
+
 ## Independent light baseline source sync
 
 Outcome: **updated** at `eb994928dab680d594860152b65b677dc47d71d0`. The source gate first rejected expected drift in the light-publication function and identity header. Capture policy and the finite model are unchanged. The fresh pinned run exhausts 11,894 main, 782 display and 102 overview states with all eleven invariants. All six model mutants and seven actual-source mutants fail their intended checks; twelve native scenarios pass before and after mutation. Nine statechart interpretations check every rule and retain the existing graph and shortest violation paths. Full receipt: `/private/tmp/idle-light-capture-final/receipt.json`. See [source classification](SOURCE-SYNC.md#independent-light-baselines-at-eb99492).
