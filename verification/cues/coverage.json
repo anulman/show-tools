@@ -1,8 +1,8 @@
 {
-  "syncCommit": "2ad53a6fe59bf69ebb4d74f3c368f244cb6569ea",
+  "syncCommit": "46d87f67751e116aae0f37f7fe47217694688cfa",
   "files": {
     "lib/performance/sheet-cues.ts": "078f88f5a235a38a65ed584576f276963b40c7a2b842dc70da416771cc2ff7e3",
-    "lib/performance/compiled-song.ts": "e9bd5b541b68dd24ce76fe94c405728bb9a011bef91fa854703a053859568731",
+    "lib/performance/compiled-song.ts": "eeb084953dea3b5f82dad3def062600f8838a76908940919382de645293d5640",
     "lib/performance/musicxml-song.ts": "b6561124d2b5b8aea81b81fd6d10f3950f9ae0b45a3d3fca7cc0aa6a43f1dfed",
     "verification/cues/check.ts": "f6d4ecc222bd340624e5d6a2d4e388e1418a06a40844a13dc5d246b46b6459de",
     "lib/performance/tests/sheet-cues.test.ts": "db62c64db15e9082cfdadbf77cd06f715b4254633ba388db87f7753373d2b3b6",
@@ -10,7 +10,7 @@
     "lib/performance/external-assets.ts": "80910da673940d5cc43e2ad3b84674278334487cbd37f23b89ceb754232b7141",
     "lib/performance/input-bindings.ts": "1b34a25f6b2256e6255aee3c7c7c6f48f9639def46c978a90b81192bff10d7ea",
     "lib/performance/model.ts": "b252c253073571468f281b8ce772664e78a7961f58e89178dde848b5527b86dd",
-    "lib/performance/wasm-abi.ts": "045af9c397c3cc93cb32f1fdbfc67960bb6b450ee2d3fda0ad36cf26d338a511"
+    "lib/performance/wasm-abi.ts": "eea767cbb8c90a87231de9cd28b4b6102cc15894b30f392713d0221af1d84068"
   },
   "scope": "33,120 bounded actual parser cases including grouped release capture and ordered playback; canonical schema7 native lowering integration tests. Native execution verified separately."
 }

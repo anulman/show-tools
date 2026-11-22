@@ -202,3 +202,7 @@ Outcome: **updated** against `eb994928dab680d594860152b65b677dc47d71d0`. The unc
 The full pinned rerun at `/private/tmp/idle-light-capture-final/receipt.json` exhausts 11,894 main states, 782 display states and 102 overview states. Six model mutants and seven actual-source mutants fail their intended rules or assertions. All twelve native scenarios pass before and after mutation. All nine current statechart interpretations check every rule. Their shortest intended paths remain two steps except the three-step retained-bank violation. The overview remains six labels and thirteen arrows, hiding 156 same-label steps; the model and chart bytes are unchanged.
 
 The separate physical-control package now checks that the new baseline rows remain independent of held brightness and continue advancing while held. Its source mutation substitutes held brightness into the new baseline and must fail. Those checks do not broaden this capture model's claim.
+
+## Fixed beat windows for word playback
+
+The source sync at `46d87f6` covers matching playback taps by their written beats. The capture model, draft publication, and cancellation transitions are unchanged. The source fence caught the implementation change before the refresh. The rerun passed 11,894 main model states, 12 native scenarios, and seven actual-source mutants. The exact word positions and overlap are covered by the 44.1 and 48 kHz engine replays.

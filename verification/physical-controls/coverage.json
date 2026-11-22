@@ -1,5 +1,5 @@
 {
-  "syncCommit": "2ad53a6fe59bf69ebb4d74f3c368f244cb6569ea",
+  "syncCommit": "46d87f67751e116aae0f37f7fe47217694688cfa",
   "domain": {
     "physicalControls": 6,
     "physicalProducers": 2,
@@ -57,10 +57,10 @@
     "lib/patches/src/tribulations_internal.h": "5d2d9ed6a37c7670626382f0fd56903b75332cceca1014d02dbda69f572e0330",
     "lib/patches/src/tribulations_string.cpp": "799e0355ccd6e78ce1a37d959919477bf66d1db492b5b52f4758e9a966b64baa",
     "lib/performance/CMakeLists.txt": "69ef7918fe679f6da3f0e72c29721fe21820da53703b32e380112d366ee52470",
-    "lib/performance/include/performance_engine.h": "32e04543e5490f38613694cce13c7bb100b992ab7e8048d1efc48eff1e22d5a4",
+    "lib/performance/include/performance_engine.h": "e86a28ff6aeb2e752b90795a34d035b258142493fc9f645f2314ca9f00c4d9fd",
     "lib/performance/include/performance_light_output.h": "a20d9ce3f3f6d5dc573765551793160628b6f8767a54ede7b478e38e63619d09",
-    "lib/performance/src/compiled_program.cpp": "da76514e1b32aa76f21ce146c78a3020969b7a998c89d857eea4b420939a2ec2",
-    "lib/performance/src/compiled_program.h": "3ad13a63fecb624acc76336f0baee40dbf90a92acf1d4759651037baad6df1cc",
+    "lib/performance/src/compiled_program.cpp": "7d95bf53b3520ba6d8ae2505508a20c754a30c6b64c066660d6f1f46dbad552c",
+    "lib/performance/src/compiled_program.h": "3de78912f2e1e5db2487950fa3ca1e2deb6efacf1d99fd62c2e29692389da6c4",
     "lib/performance/src/input_router.h": "8c02d7145052f297e2f693cfe71046dbf6091ab4188b1e731a77a3248696e49d",
     "lib/performance/src/performance_engine.cpp": "6a08ec22e0af21d0caa5a98f104f31abf663fba1cac94f68f09e0a42f9454300",
     "lib/performance/src/performance_lights.cpp": "99567a6669033d8cf9d659cb543371604428b7c9ca7fd32757530719cc478012",
