@@ -4,7 +4,7 @@
 
 `(3)&r4 (4)&cr1` presses at 3& and 4&, records on 4, then commits and arms at the following bar's 1. `&cx2` presses at 1& and stores on 2 without launching playback. A numbered execution earlier than its press denotes the next measure; `b` explicitly denotes the next bar. `(4)&cx(lead)b` stores lead next bar. `4er(day)&` and `4ec(day)&` press at 4e and execute at 4&. `x(day)3` has no authored press position and executes on 3. A missing press position means the written bar supplies the cue. Timed presses use the song’s configured acceptance window.
 
-`1p &p 2p &p 3p &p 4p &p` contains eight manual hits. Word playback is finite per hit; guitar playback loops. `3h` sustains one held note until release. `1g` replaces a loop with an ongoing gated instrument mode, permitting repeated press/hold/release until `x` or ordinary `p` exits. A blank cell adds no cue. `4x` or `1x` with no active voice is an intentional dry press. Word selection follows chart beat parity, never a press counter. Named sources, immutable takes, and hardware banks are separate concepts.
+`1p &p 2p &p 3p &p 4p &p` contains eight manual hits. Word playback is finite per hit; guitar playback loops. `3h` sustains one held note until release. `1g` replaces a loop with an ongoing gated instrument mode, permitting repeated press/hold/release until `x` or ordinary `p` exits. A blank cell adds no cue. `4x` or `1x` with no active voice is an intentional dry press. An unnamed `p` on a word pad selects by chart beat parity. Use `pp` below for an ordered pair of word clips. Named sources, immutable takes, and hardware banks are separate concepts.
 
 ## Canonical interchange and current execution boundary
 
@@ -22,7 +22,7 @@ The legacy `dyc-v1` ingestion path explicitly migrates `clb`, `1p*`, and numeric
 
 ## Verification
 
-`npm run verify:formal:cues` exhausts 32,390 cases through the actual parser and catches six source mutations. The MusicXML verifier retains its separate 7,488-case domain and two mutation witnesses. `terse-wasm.test.ts` executes the shared C++ through real WASM and checks stored silence, finite/parity retriggers, prepared hold/gate release, grouped replacement and missed groups, source phase, external overlap, and ordered manual note hits.
+`npm run verify:formal:cues` checks the actual parser across its bounded domain and exercises source mutations. The MusicXML verifier checks its own domain and mutations. `terse-wasm.test.ts` executes the shared C++ through real WASM and checks stored silence, finite/parity retriggers, prepared hold/gate release, grouped replacement and missed groups, source phase, external overlap, and ordered manual note hits.
 
 The capture proof explicitly models launch policy. Its conditional successful-autoplay property remains intact, and a separate store-only property forbids publication from creating playback. The current main bound explores 11,894 distinct states with three take identities, two banks per take and three beginnings. Six model mutants and seven actual-source mutants exercise the protected policies. See the source-pinned capture receipt and exclusions in `verification/capture/RESULTS.md`.
 
