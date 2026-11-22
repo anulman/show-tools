@@ -18,6 +18,8 @@ Mapping source bindings identify named retained sources independently of physica
 
 Canonical external sample windows permit finite prepared samples with up to 32 simultaneous tails. Preparation copies validated PCM while stopped. Ordered `noteBanks` hold explicit sample slots and chart onsets; a manual hit chooses the next unplayed eligible note within its configured tolerance, skips missed notes, and never autoplays. Canonical assets carry portable WAV bytes, SHA-256 and license provenance. Normal browser and native package preparation verify and load them while stopped. The input-only phone adapter requests motion permission from an explicit Enable shake action and forwards manual hits over the existing control route. It starts no engine or microphone. Native windows ignore out-of-range motion and permit overlapping finite tails. Physical sensor thresholds and musical suitability still require operator audition.
 
+For a voice with a sampled-variant mapping, `cxb` stores a whole-bar variant capture at the next bar and keeps each recorded bar available for later play cues.
+
 The legacy `dyc-v1` ingestion path explicitly migrates `clb`, `1p*`, and numeric capture cutoffs before the same parser. Cutoffs retain `silence-to-bar-end`; terse numeric suffixes preserve the full source through their actual endpoint. Existing canonical documents remain typed data and are never recompiled from archived JSON. The legacy version remains accepted for existing songs; this milestone does not rewrite their canonical files or the live chart.
 
 ## Verification

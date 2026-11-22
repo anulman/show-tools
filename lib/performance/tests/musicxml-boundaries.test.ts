@@ -78,7 +78,7 @@ test('boundary directions reject malformed identities, source rows, source colum
     xml.replace(tail, tail.replace('3840', '0')),
     xml.replace(tail, tail.replace('>1</words>', '> </words>')),
     xml.replace(tail, tail + tail),
-    xml.replace(tail, '').replace('<measure number="Pickup 0">', '<measure number="Pickup 0">' + tail),
+    xml.replace(tail, '').replace('<measure number="Pickup">', '<measure number="Pickup">' + tail),
   ]) await assert.rejects(readMusicXmlSong(changed), /boundary|Duplicate|Unsupported/);
 });
 

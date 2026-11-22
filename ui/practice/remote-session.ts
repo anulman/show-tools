@@ -120,6 +120,12 @@ export class RemoteDesk {
     if (decision.outcome === 'rejected') throw new Error(decision.error);
     return decision.view;
   }
+  async publishChart(musicXml: string, expectedRevision: string) {
+    const decision = decodeAudioDecision(await this.post('/api/chart', { musicXml, expectedRevision }));
+    this.observe(decision.view);
+    if (decision.outcome === 'rejected') throw new Error(decision.error);
+    return decision.view;
+  }
   async configureButtonBindings(input: InputBindings, expectedRevision: string) {
     const decision = decodeAudioDecision(await this.post('/api/button-bindings', { expectedRevision, bindings: decodeInputBindings(input) }));
     this.observe(decision.view);

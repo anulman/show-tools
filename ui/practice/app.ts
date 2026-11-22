@@ -1277,6 +1277,8 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
     if (remoteSong && audio instanceof RemoteSession) {
       for (const voice of audio.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);
     }
+    const installedOption = remoteSong && [...elements['song-select'].options].find(option => option.value === loaded.id);
+    if (installedOption) installedOption.textContent = loaded.chart.title;
     if (remoteSong && ![...elements['song-select'].options].some(option => option.value === loaded.id)) {
       const option = document.createElement('option'); option.value = loaded.id; option.textContent = loaded.chart.title;
       elements['song-select'].append(option);
@@ -1339,10 +1341,39 @@ const audioSwitch = requiredElement('#audio-switch', HTMLButtonElement);
 const audioSwitchStatus = requiredElement('#audio-switch-status', HTMLSpanElement);
 const hardwareReconnect = requiredElement('#hardware-reconnect', HTMLButtonElement);
 const resetAudioFault = requiredElement('#reset-audio-fault', HTMLButtonElement);
+const chartPublish = requiredElement('#chart-publish', HTMLElement);
+const chartFile = requiredElement('#chart-update-file', HTMLInputElement);
+const chartPublishButton = requiredElement('#chart-update-publish', HTMLButtonElement);
+const chartPublishStatus = requiredElement('#chart-update-status', HTMLParagraphElement);
+let publishingChart = false;
+
+function renderChartPublish() {
+  chartPublish.hidden = !remote;
+  const available = remoteDesk?.connection.kind === 'connected' && remoteDesk.snapshot().audio.kind === 'off';
+  chartPublishButton.disabled = publishingChart || !available || !chartFile.files?.length;
+  chartFile.disabled = publishingChart || !available;
+}
+chartFile.addEventListener('change', renderChartPublish);
+chartPublishButton.addEventListener('click', async () => {
+  const file = chartFile.files?.[0], desk = remoteDesk;
+  if (!file || !desk || chartPublishButton.disabled) return;
+  const revision = desk.snapshot().revision;
+  publishingChart = true;
+  chartPublishStatus.textContent = 'Validating chart…';
+  renderChartPublish();
+  try {
+    const view = await desk.publishChart(await file.text(), revision);
+    chartPublishStatus.textContent = `Published ${view.song.chart.title}.`;
+    chartFile.value = '';
+  } catch (error) { chartPublishStatus.textContent = error instanceof Error ? error.message : String(error); }
+  finally { publishingChart = false; renderChartPublish(); }
+});
+
 let audioSwitchPending = false;
 let hardwareConnecting = false;
 
 function renderHardwareAudio() {
+  renderChartPublish();
   const connection = remoteDesk?.connection.kind ?? (hardwareConnecting ? 'connecting' : 'disconnected');
   const status = remoteDesk?.snapshot().audio;
   const kind = status?.kind ?? 'off';

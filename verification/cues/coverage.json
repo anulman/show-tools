@@ -1,8 +1,8 @@
 {
-  "syncCommit": "46d87f67751e116aae0f37f7fe47217694688cfa",
+  "syncCommit": "f3550830a69f2511f080671dcd180b48caa4431f",
   "files": {
     "lib/performance/sheet-cues.ts": "078f88f5a235a38a65ed584576f276963b40c7a2b842dc70da416771cc2ff7e3",
-    "lib/performance/compiled-song.ts": "eeb084953dea3b5f82dad3def062600f8838a76908940919382de645293d5640",
+    "lib/performance/compiled-song.ts": "d68be47e312c20d2ffe4f9060aa4f3637620f46cf29acef00a621a36680fc63e",
     "lib/performance/musicxml-song.ts": "b6561124d2b5b8aea81b81fd6d10f3950f9ae0b45a3d3fca7cc0aa6a43f1dfed",
     "verification/cues/check.ts": "f6d4ecc222bd340624e5d6a2d4e388e1418a06a40844a13dc5d246b46b6459de",
     "lib/performance/tests/sheet-cues.test.ts": "db62c64db15e9082cfdadbf77cd06f715b4254633ba388db87f7753373d2b3b6",

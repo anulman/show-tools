@@ -40,3 +40,8 @@ including all 468 notes.
 The initial unsupported import failed closed with 98 diagnostics. After implementing the confirmed semantics and updating stale mappings, native and WASM complete-song execution passed at 44.1 and 48 kHz. Independent PCM checks cover slice heads, evolving loops, omitted source, retained tails, phase-preserving switches and allocation-free playback. The canonical song retains five parent takes, eleven complete Cowbell bar views and one shortened view reused at two positions; the earlier fixed cutover fixture remains separate.
 
 Practice regression fixtures follow the same separation. Current chart checks exercise its actual cue cells, five-parent startup at both device rates, eleven Cowbell bar views and the real worklet control-port recording sequence. Historical doubled captures and overlapping future-arm reservations use the frozen cutover song explicitly, preserving those engine regressions without attributing old instructions to the latest chart.
+
+
+## Sheet refresh with store-only Cowbell commits
+
+The refreshed worksheet places Drums & Claps on row 20, Cowbell on row 21, Whistle on row 19, and Bing Bong on row 18. The Cowbell `cxb` cues in `N21` and `CH21` store at the next bar without starting playback. The existing sampled-variant rule still creates all eleven per-bar views from the two captures. The play cues and shortened reuse retain their written source choices. The older record above describes the previous worksheet revision.

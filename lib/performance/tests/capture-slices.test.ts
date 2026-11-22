@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { readMusicXmlSong, writeMusicXmlSong } from '../musicxml-song.js';
+import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { decodeCompiledSong } from '../compiled-song.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
@@ -13,20 +14,26 @@ async function fixture() {
 }
 
 test('latest DYC retains complete Cowbell parents and selects explicit whole-bar slices', async () => {
-  const { song, report } = await fixture();
+  const { song, report, source, mapping } = await fixture();
+  assert(source && mapping);
+  const reimported = await importSheetMusicXml({ source, mapping });
+  assert.deepEqual((await readMusicXmlSong(reimported.xml)).song, song);
   assert(song.executable);
   assert.equal(song.takes.length, 5);
   const parents = song.takes.filter(take => take.voiceId === 'cowbell');
   assert.deepEqual(parents.map(take => [take.begin.bar, take.captureEnd?.bar]), [[8, 13], [79, 85]]);
-  for (const [cell, bar] of [['O19', 12], ['CI19', 84]]) {
+  for (const [index, cell] of ['N21', 'CH21'].entries()) {
     const cue = song.cues.find(cue => cue.source.a1 === cell);
     assert(cue);
-    assert.deepEqual(cue.execution, { kind: 'now' });
-    const selection = song.selections.find(selection => selection.id === cue.selectionId);
-    const parent = parents.find(parent => parent.id === selection?.takeIds[0]);
-    assert(parent);
-    assert.deepEqual(selection?.window, { kind: 'slice', beginCount: (Number(bar) - parent.begin.bar) * 4,
-      endCount: (Number(bar) - parent.begin.bar + 1) * 4, loopCounts: 4 });
+    assert.deepEqual(cue.execution, { kind: 'next-bar' });
+    assert.equal(cue.launchPolicy, 'store');
+    const full = song.selections.find(selection => selection.id === cue.selectionId);
+    assert.deepEqual(full?.window, { kind: 'full' });
+    const parent = parents[index];
+    assert.deepEqual(full?.takeIds, [parent.id]);
+    const windows = song.selections.filter(selection => selection.takeIds[0] === parent.id && selection.id.includes('/bar-')).map(selection => selection.window);
+    assert.deepEqual(windows, Array.from({ length: index === 0 ? 5 : 6 }, (_, offset) =>
+      ({ kind: 'slice', beginCount: offset * 4, endCount: (offset + 1) * 4, loopCounts: 4 })));
   }
   const shortened = song.playback.find(cue => cue.voiceId === 'cowbell' && cue.bar === 96);
   assert.deepEqual(song.selections.find(selection => selection.id === shortened?.selectionId)?.window,

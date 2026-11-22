@@ -300,6 +300,15 @@ Local browser disposal releases monitoring, microphone acquisition and output co
 
 Use [the session CLI guide](implementation/session-cli.md) for `./show-tools session start`, `stop`, `status`, and `audio on|off|status`. Help and status acquire no device or CDP process. CLI process tests use an isolated XDG configuration directory and fake service manager; controller/server tests use actual synthetic native processes and Unix/loopback sockets. Verify a second page and reload during an existing performance, cancellation during startup, native faults with the web still available, parent death, and take retention across transport Stop versus loss across Terminate. Actual systemd and ALSA checks remain target deployment evidence.
 
+### Publish a chart without a code release
+
+1. Export the complete song to canonical MusicXML. Use the chart import command or the configured Sheets exporter.
+2. Open the Live Performance Desk. Switch to **Standby** and select the song you exported.
+3. In **Settings**, choose the file under **Chart update** and click **Publish chart**. A successful publish refreshes the selected chart on connected desks while the web service stays up.
+4. Check the updated chart and switch to **Live** when ready.
+
+Exports must match the selected song and worksheet. Publish accepts MusicXML up to 4 MiB, uses the saved global hardware bindings and effect defaults, and rejects charts with compiler errors. Publish an earlier valid export to restore that revision. Keep the worksheet or earlier exports for recovery. The server stores the published charts in the private `<authoringDatabase>.charts` directory alongside the database. Back up that directory with the authoring data if those uploads are your only copies.
+
 Build a relocatable Linux release after CI has produced the matching native artifact:
 
 ```sh

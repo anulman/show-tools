@@ -11,7 +11,7 @@ Read `verification/musicxml/README.md` before interpreting a result. The finite 
 
 ## Covered source and sync record
 
-`verification/musicxml/coverage.json` records exact file hashes and source sync commit `46d87f67751e116aae0f37f7fe47217694688cfa`. The original finite domain and all six existing source mutants remain unchanged. Six supplemental mutants cover boundary writing, endpoint offsets, higher-intensity normalization, feel identity, numeric decoding and XML-only entity admission. The separate cue verifier covers the terse grammar. Runtime tuner selection, pitch observations and periodic source analysis remain outside this verifier. It covers:
+`verification/musicxml/coverage.json` records exact file hashes and source sync commit `f3550830a69f2511f080671dcd180b48caa4431f`. The original finite domain and all six existing source mutants remain unchanged. Six supplemental mutants cover boundary writing, endpoint offsets, higher-intensity normalization, feel identity, numeric decoding and XML-only entity admission. The separate cue verifier covers the terse grammar. Runtime tuner selection, pitch observations and periodic source analysis remain outside this verifier. It covers:
 
 - `lib/performance/musicxml-model.ts`: parsed annotation types, including optional boundary cues and the distinct Higher intensity feel.
 - `lib/performance/musicxml-song.ts`: `semanticDigest`, `writeMusicXmlSong`, `readMusicXmlSong`, and `compileMusicXmlSong`.

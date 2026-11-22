@@ -3,7 +3,8 @@ import { basename, dirname, resolve, sep } from 'node:path';
 import { createGateway } from './gateway.js';
 import { PersistentDesk } from './controller.js';
 import { SongBindingAuthority, prepareSongBindings } from './song-bindings.js';
-import { loadInstalledSongCatalog } from './song-catalog.js';
+import { loadInstalledSongCatalog, type InstalledSong } from './song-catalog.js';
+import { ChartOverrides } from './chart-overrides.js';
 import { Effect } from 'effect';
 import { decodeSessionProfile, type SessionProfile } from './session-profile.js';
 
@@ -25,16 +26,29 @@ export async function serveProfile(input: SessionProfile) {
   ]);
   const database = resolve(await realpath(dirname(profile.authoringDatabase)), basename(profile.authoringDatabase));
   if (database === root || database.startsWith(root + sep)) throw new Error('Authoring database must be outside the static root');
+  const chartDirectory = database + '.charts';
+  if (chartDirectory === root || chartDirectory.startsWith(root + sep)) throw new Error('Charts must be outside the static root');
+  const charts = new ChartOverrides(chartDirectory);
   const bindings = SongBindingAuthority.open(database);
+  const chartChoices = new Map<string, Pick<InstalledSong, 'id' | 'title' | 'packageDigest'>>();
   let installed;
-  try { const initial = catalog.get(catalog.initialSongId), authored = bindings.read();
-    installed = (await prepareSongBindings(initial, authored.bindings)).installed;
+  try {
+    const authored = bindings.read();
+    for (const choice of catalog.choices) {
+      const override = await charts.read(choice.id);
+      if (override === undefined && choice.id !== catalog.initialSongId) continue;
+      const prepared = await prepareSongBindings(catalog.get(choice.id), authored.bindings, override);
+      if (choice.id === catalog.initialSongId) installed = prepared.installed;
+      if (override !== undefined) chartChoices.set(choice.id, { id: choice.id, title: prepared.installed.song.chart.title, packageDigest: prepared.packageDigest });
+    }
+    if (!installed) throw new Error('Initial chart preparation did not produce a song');
   } catch (error) { bindings.close(); throw error; }
-  const controller = new PersistentDesk(profile, installed, { catalog, bindings });
+  const controller = new PersistentDesk(profile, installed, { catalog, bindings, charts, chartChoices });
   const server = createGateway({ host: profile.host, port: profile.port, origin: profile.origin,
     token: Buffer.from(tokenFile.toString('utf8').trim()), staticRoot: root, tls }, controller, {
       choices: () => controller.songChoices(), select: (id, expected) => controller.selectSong(id, expected),
       bindings: (expected, values) => controller.configureButtonBindings(expected, values),
+      publishChart: (expected, xml) => controller.publishChart(xml, expected),
     });
   try {
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(profile.port, profile.host, () => { server.removeListener('error', reject); resolve(); }); });
