@@ -13,6 +13,12 @@ constexpr double edge_arm_early = PF_COMPILED_EDGE_ARM_EARLY_TICKS / 960.;
 constexpr double edge_arm_late = PF_COMPILED_EDGE_ARM_LATE_TICKS / 960.;
 constexpr double edge_capture_grace = PF_COMPILED_EDGE_CAPTURE_GRACE_TICKS / 960.;
 constexpr double edge_playback_tolerance = PF_COMPILED_EDGE_PLAYBACK_TOLERANCE_TICKS / 960.;
+int word_playback_slot(double offset) noexcept {
+  if (std::abs(offset) <= edge_playback_tolerance + epsilon) return 0;
+  if (std::abs(offset - 1) <= edge_playback_tolerance + epsilon) return 1;
+  return -1;
+}
+
 bool whole(double value, double maximum) { return std::isfinite(value) && value >= 0 && value <= maximum && std::floor(value) == value; }
 bool index(double value, int count, bool optional = false) { return (optional && value == -1) || whole(value, count - 1); }
 bool point(double value, int beats) { return std::isfinite(value) && value >= 0 && value < beats && std::floor(value * 960) == value * 960; }
@@ -81,7 +87,7 @@ struct Program::Cue {
   int button = 0, voice = 0, bar = 0, kind = PF_NONE, timing = 0, take = -1, commit = -1, selection = -1;
   double cue = -1, execute = 0, occurred_frame = std::numeric_limits<double>::quiet_NaN();
   int tempo_hint = 0, launch = PF_AUTOPLAY, mode = PF_LOOP_MODE, bar_offset = 0, group = -1;
-  bool used = false, replacement_capture = false, announced = false, edge_capture = false;
+  bool used = false, replacement_capture = false, announced = false, edge_capture = false, word_window = false;
   bool playback_intent() const noexcept { return kind == PF_STOP || kind == PF_PLAY; }
   bool recoverable() const noexcept { return kind == PF_STOP || (kind == PF_PLAY && mode == PF_LOOP_MODE); }
 };
@@ -459,10 +465,10 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       if (cue.button != pair.button || cue.bar < 1) continue;
       const double bar_start = (cue.bar - 1) * program->beats_;
       if (cue.cue < 0) {
-        if (bar_start < window_end && bar_start + program->beats_ > window_start) return nullptr;
+        if (bar_start <= window_end && bar_start + program->beats_ > window_start) return nullptr;
       } else {
         const double guide = bar_start + cue.cue;
-        if (guide >= window_start && guide < window_end) return nullptr;
+        if (guide >= window_start && guide <= window_end) return nullptr;
       }
     }
     for (int step = 0; step < 2; ++step) {
@@ -477,8 +483,14 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     if (pair.takes[0] == pair.takes[1]) return nullptr;
     for (int previous = 0; previous < id; ++previous) {
       const auto& other = program->edge_playback_pairs_[previous];
-      if (pair.button == other.button && std::abs(pair.at - other.at) < 1 + 2 * edge_playback_tolerance) return nullptr;
+      if (pair.button == other.button && std::abs(pair.at - other.at) <= 1 + 2 * edge_playback_tolerance) return nullptr;
     }
+  }
+  if (edge_captures) for (int id = 0; id < program->cue_count_; ++id) {
+    auto& cue = program->cues_[id];
+    if (cue.kind != PF_PLAY || cue.mode != PF_ONESHOT_MODE || cue.cue < 0) continue;
+    const int take = full_take(cue.selection, cue.voice);
+    cue.word_window = take >= 0 && program->takes_[take].edge_capture;
   }
   if (!definitions || !revisions || !program->prepare_effects(definitions, revisions)) return nullptr;
   return program;
@@ -817,7 +829,10 @@ int Program::resolve(int button, double frame, double bpm) noexcept {
     if (cue.button != button || cue.edge_capture || cue.bar > run_end_ || (cue.bar != 0 && cue.bar < start_)
       || (cue.used && !cue.playback_intent())) continue;
     double at = cue_frame(cue, bpm), delta = frame - at;
-    bool applicable = cue.cue < 0 ? cue_on_current_bar(cue) : phase_ == PF_PLAYING && delta >= -early_ * rate_ / 1000 - epsilon && delta <= late_ * rate_ / 1000 + epsilon;
+    const double word_offset = query_position_ - ((cue.bar - 1) * beats_ + cue.cue);
+    bool applicable = cue.cue < 0 ? cue_on_current_bar(cue) : phase_ == PF_PLAYING && (cue.word_window
+      ? std::abs(word_offset) <= edge_playback_tolerance + epsilon
+      : delta >= -early_ * rate_ / 1000 - epsilon && delta <= late_ * rate_ / 1000 + epsilon);
     if (!applicable) continue;
     double distance = cue.cue < 0 ? 0 : std::abs(delta);
     if (distance < best - epsilon) { found = id; best = distance; tied = false; }
@@ -865,7 +880,10 @@ double Program::edge_deadline(const EdgeCapturePair& pair) const noexcept {
 }
 void Program::reset_edge_pairs() noexcept {
   for (int id = 0; id < edge_capture_count_; ++id) edge_capture_pairs_[id].used = false;
-  for (int id = 0; id < edge_playback_count_; ++id) edge_playback_pairs_[id].next = 0;
+  for (int id = 0; id < edge_playback_count_; ++id) {
+    auto& pair = edge_playback_pairs_[id];
+    pair.fired[0] = pair.fired[1] = false;
+  }
 }
 void Program::cancel_edge_capture() noexcept {
   if (edge_capture_.pair < 0) return;
@@ -916,11 +934,12 @@ int Program::edge_press(int button, uint64_t owner, uint64_t source, double fram
   }
   for (int id = 0; id < edge_playback_count_; ++id) {
     auto& pair = edge_playback_pairs_[id];
-    if (pair.button != button || pair.at < (start_ - 1) * beats_ || pair.at + 1 >= run_end_ * beats_
-      || query_position_ < pair.at - edge_playback_tolerance || query_position_ >= pair.at + 1 + edge_playback_tolerance) continue;
-    if (pair.next == 2) return PF_OK;
-    if (!select(binding_[button], pair.selections[pair.next], false, PF_ONESHOT_MODE, true, true)) return PF_NO_SAMPLE;
-    ++pair.next;
+    if (pair.button != button || pair.at < (start_ - 1) * beats_ || pair.at + 1 >= run_end_ * beats_) continue;
+    const int slot = word_playback_slot(query_position_ - pair.at);
+    if (slot < 0) continue;
+    if (pair.fired[slot]) return PF_OK;
+    if (!select(binding_[button], pair.selections[slot], false, PF_ONESHOT_MODE, true, true)) return PF_NO_SAMPLE;
+    pair.fired[slot] = true;
     return PF_OK;
   }
   return -1;
@@ -1808,12 +1827,16 @@ VoiceInfo Program::channel_info(int button, double bpm) const noexcept {
     const Cue& cue = cues_[id];
     if (cue.button != button || cue.used) continue;
     double delta = query_frame_ - cue_frame(cue, bpm);
-    if ((cue.cue < 0 && cue_on_current_bar(cue)) || (cue.cue >= 0 && delta >= -early_ * rate_ / 1000 && delta <= late_ * rate_ / 1000)) { info.light = PF_CUE; break; }
+    const double word_offset = query_position_ - ((cue.bar - 1) * beats_ + cue.cue);
+    const bool timed = cue.word_window ? phase_ == PF_PLAYING && std::abs(word_offset) <= edge_playback_tolerance + epsilon
+      : delta >= -early_ * rate_ / 1000 && delta <= late_ * rate_ / 1000;
+    if ((cue.cue < 0 && cue_on_current_bar(cue)) || (cue.cue >= 0 && timed)) { info.light = PF_CUE; break; }
   }
   if (info.light == PF_OFF && phase_ == PF_PLAYING) for (int id = 0; id < edge_playback_count_; ++id) {
     const auto& pair = edge_playback_pairs_[id];
-    if (pair.button == button && pair.next < 2 && pair.at >= (start_ - 1) * beats_ && pair.at + 1 < run_end_ * beats_
-      && query_position_ >= pair.at - edge_playback_tolerance && query_position_ < pair.at + 1 + edge_playback_tolerance) {
+    const int slot = word_playback_slot(query_position_ - pair.at);
+    if (pair.button == button && slot >= 0 && !pair.fired[slot]
+      && pair.at >= (start_ - 1) * beats_ && pair.at + 1 < run_end_ * beats_) {
       info.light = PF_CUE; break;
     }
   }

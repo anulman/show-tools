@@ -251,9 +251,9 @@ function resolveEdgeCues(song: EdgeCueInputs, issue: (message: string, source: t
     const conflicts = song.cues.some(cue => {
       if (cue.buttonId !== cell.buttonId || cue.bar < 1) return false;
       const barStart = count({ bar: cue.bar, beat: 0 });
-      if (cue.cueBeat === null) return barStart < end && barStart + beats > start;
+      if (cue.cueBeat === null) return barStart <= end && barStart + beats > start;
       const cueAt = barStart + cue.cueBeat;
-      return cueAt >= start && cueAt < end;
+      return cueAt >= start && cueAt <= end;
     });
     if (conflicts) {
       issue('An ordinary cue in the same button row must fall outside the paired playback press window.', cell.source);
@@ -264,7 +264,7 @@ function resolveEdgeCues(song: EdgeCueInputs, issue: (message: string, source: t
   placed.sort((a, b) => a.at - b.at || a.pair.buttonId.localeCompare(b.pair.buttonId));
   const endByButton = new Map<typeof ButtonSchema.Type, number>();
   for (const { pair, at, source } of placed) {
-    if (at < (endByButton.get(pair.buttonId) ?? -1)) {
+    if (at <= (endByButton.get(pair.buttonId) ?? -1)) {
       issue('Paired playback intervals cannot overlap in one button row.', source);
       continue;
     }

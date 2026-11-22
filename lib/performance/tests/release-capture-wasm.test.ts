@@ -22,7 +22,7 @@ const source = {
     ['Section', '', 'Verse'],
     ['Bar', 'Lead-in', '1', '2', '3', '4', '5', '6'],
     ['AF - Girls'],
-    ['R2', '', '', '4ru(drunk)', '1cx(drunk)+1ru(girls) 2cx(girls)', '4pp(drunk+girls)', '2pp(drunk+girls) 4pp(drunk+girls)'],
+    ['R2', '', '', '4ru(drunk)', '1cx(drunk)+1ru(girls) 2cx(girls)', '4pp(drunk+girls)', '2pp(drunk+girls) 4pp(drunk+girls)', '3p(drunk)'],
   ],
   notes: {},
 };
@@ -98,7 +98,7 @@ async function compiledFixture() {
   return song;
 }
 
-for (const rate of [44100, 48000]) test(`release captures actual word lengths and ordered taps overlap at ${rate} Hz`, async () => {
+for (const rate of [44100, 48000]) test(`release captures actual word lengths and beat-specific taps overlap at ${rate} Hz`, async () => {
   const song = await compiledFixture(), native = engine(encodeCompiledProgram(song), rate);
   const { beatFrames, faults, render, until, frame } = runAudio(native, rate);
   const { edge } = physical(native, 1);
@@ -119,7 +119,7 @@ for (const rate of [44100, 48000]) test(`release captures actual word lengths an
     const firstStart = frame();
     edge(0);
     assert.deepEqual(native.state().recording, { id: 'R2', status: 'recording' });
-    advance(.88, .15);
+    advance(1.02, .15);
     foreignEdge(1, 1); foreignEdge(2, 0);
     assert.equal(native.compiledTake(0).ready, false, 'another binding cannot cut this source');
     const firstFrames = frame() - firstStart;
@@ -138,19 +138,30 @@ for (const rate of [44100, 48000]) test(`release captures actual word lengths an
     assert.notEqual(firstFrames, secondFrames);
 
     const tap = () => { edge(1); edge(0); };
-    until(4, 3); advance(.75);
+    const hears = (level: number) => render(64).some(sample => Math.abs(sample - level) < .001);
+    until(4, 3); advance(.70);
     tap();
-    assert(render(64).some(sample => Math.abs(sample - .15) < .001), 'an early first press plays the first word');
+    assert(hears(0), 'a press earlier than a quarter beat cannot play the first word');
+    advance(.10);
     tap();
-    assert(render(64).some(sample => Math.abs(sample - .42) < .001), 'the second word starts while the first is sounding');
+    assert(hears(.15), 'a press inside the early window plays the first word');
     tap();
-    assert(render(64).some(sample => Math.abs(sample - .42) < .001), 'a third hit leaves existing playback alone');
-    until(5, 2);
+    assert(hears(.15), 'another press in the first window plays neither word again');
+    until(4, 4); advance(.50);
     tap();
-    assert(render(64).some(sample => Math.abs(sample - .15) < .001), 'the 2/3 pair resets to the first word');
-    advance(.4);
+    assert(hears(.15), 'a press between windows does not advance to the second word');
+    advance(.27);
     tap();
-    assert(render(64).some(sample => Math.abs(sample - .42) < .001), 'the 2/3 pair also overlaps words');
+    assert(hears(.42), 'the second word starts near its own beat while the first is sounding');
+    until(5, 2); advance(.30);
+    tap();
+    assert(hears(0), 'a press more than a quarter beat late misses the first word of 2/3');
+    until(5, 3); advance(.22);
+    tap();
+    assert(hears(.27), 'the second word stays on beat 3 even when beat 2 was missed');
+    until(6, 2); advance(.80);
+    tap();
+    assert(hears(.15), 'an unpaired word hit has the same quarter-beat tolerance');
     assert.deepEqual(faults, []);
   } finally { native.dispose(); }
 });

@@ -172,3 +172,5 @@ sequence survive, a repeated sequence is rejected, and the original producer
 can release the control. Changing the binding table retires the old lease
 and preserves the allocator watermark. The separate authenticated server
 fixture verifies continuous LED image ordering through actual song changes.
+
+The source sync at `46d87f6` retained 4,096 held-mask pairs, 24,576 delivery images, and all ten source mutants. Quarter-beat word playback changes cue admission after a press is delivered. The WASM word tests separately exercise the musical result of those presses.
