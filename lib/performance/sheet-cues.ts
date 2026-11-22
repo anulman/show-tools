@@ -1,5 +1,5 @@
 /** Versioned Sheets ingestion syntax. Musical execution belongs to C++. */
-export type CueOperation = 'cr' | 'cx' | 'r' | 'c' | 'x' | 'p' | 'g' | 'h';
+export type CueOperation = 'cr' | 'cx' | 'ru' | 'r' | 'c' | 'x' | 'pp' | 'p' | 'g' | 'h';
 export type CueExecution = { kind: 'now' } | { kind: 'next-bar' } | { kind: 'beat'; beat: number; barOffset: 0 | 1 };
 export interface SheetCue {
   group?: number;
@@ -19,7 +19,7 @@ function position(text: string, anchor: number, beats: number): number | null {
 }
 function operation(text: string): CueOperation | null {
   switch (text) {
-    case 'cr': case 'cx': case 'r': case 'c': case 'x': case 'p': case 'g': case 'h': return text;
+    case 'cr': case 'cx': case 'ru': case 'r': case 'c': case 'x': case 'pp': case 'p': case 'g': case 'h': return text;
     default: return null;
   }
 }
@@ -33,10 +33,10 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
     const tokens: string[] = word.match(/(?:[^+()]|\([^()]*\))+/g) ?? [];
     if (tokens.join('+') !== word) return { kind: 'invalid', token: word, message: 'A group needs an action on each side of +.' };
     let sharedPress: number | null = null;
-    const grouped = tokens.length > 1 || /\([^()]*\+/.test(word);
+    const grouped = tokens.length > 1 || /x\([^()]*\+/.test(word);
     if (grouped) group++;
     for (const [tokenIndex, token] of tokens.entries()) {
-      const match = /^(?:\(([1-9]\d*)\))?([1-9]\d*(?:[e&a])?|[e&a])?(cr|cx|r|c|x|p|g|h)(?:\(([A-Za-z][A-Za-z0-9_-]*(?:\+[A-Za-z][A-Za-z0-9_-]*)*)\))?(b|[1-9]\d*(?:[e&a])?|[e&a])?$/.exec(token);
+      const match = /^(?:\(([1-9]\d*)\))?([1-9]\d*(?:[e&a])?|[e&a])?(cr|cx|ru|r|c|x|pp|p|g|h)(?:\(([A-Za-z][A-Za-z0-9_-]*(?:\+[A-Za-z][A-Za-z0-9_-]*)*)\))?(b|[1-9]\d*(?:[e&a])?|[e&a])?$/.exec(token);
       if (!match) return { kind: 'invalid', token, message: 'Expected [press] operation [(source)] [execution], separated by whitespace.' };
       if (match[1] && match[2] && /^\d/.test(match[2])) return { kind: 'invalid', token, message: 'Use one numeric press anchor.' };
       if (match[1]) anchor = Number(match[1]) - 1;
@@ -57,6 +57,14 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
         execution = { kind: 'beat', beat, barOffset: pressBeat !== null && beat < pressBeat ? 1 : 0 };
       }
       const names = match[4]?.split('+') ?? [null];
+      if (op === 'pp') {
+        if (pressBeat === null || execution.kind !== 'now' || grouped || names.length !== 2 || names[0] === names[1])
+          return { kind: 'invalid', token, message: 'Use a count and two distinct names, for example 4pp(drunk+girls).' };
+        actions.push({ operation: op, pressBeat, sourceName: names.join('+'), execution });
+        continue;
+      }
+      if (op === 'ru' && (pressBeat === null || execution.kind !== 'now' || names.length !== 1 || names[0] === null))
+        return { kind: 'invalid', token, message: 'Use a release count and one name, for example 4ru(drunk).' };
       if (names.length > 1 && op !== 'x') return { kind: 'invalid', token, message: 'A source list is supported only for stop.' };
       for (const sourceName of names) actions.push({ operation: op, pressBeat, sourceName, execution, ...(grouped ? { group } : {}) });
     }

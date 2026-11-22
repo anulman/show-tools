@@ -30,7 +30,7 @@ function encodeProgram(song: CompiledSong): Float64Array {
   const kinds: Record<CompiledSong['cues'][number]['kind'], number> = { arm: PF.ARM, commit: PF.COMMIT, 'commit-arm': PF.COMMIT_ARM, stop: PF.STOP, play: PF.PLAY };
   const profileRows = song.takes.flatMap((take, index) => take.profile === undefined || take.profile === indexOf(voices, take.voiceId) ? [] : [index, take.profile]);
   const profiles = profileRows.length ? [PF.COMPILED_PROFILES_MAGIC, profileRows.length / PF.COMPILED_PROFILES_FIELDS, ...profileRows] : [];
-  const legacy = song.inputBindings === undefined && !profileRows.length && song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && song.cues.every(cue =>
+  const legacy = song.inputBindings === undefined && !song.releaseCapturePairs?.length && !song.playbackPairs?.length && !profileRows.length && song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && song.cues.every(cue =>
     !cue.captureReplacement && cue.launchPolicy === 'autoplay' && cue.playbackMode === 'loop' && cue.groupId === null && cue.sourceName === null
     && (cue.execution.kind !== 'beat' || !cue.execution.barOffset));
   const cueFields = legacy ? PF.COMPILED_LEGACY_CUE_FIELDS : PF.COMPILED_CUE_FIELDS;
@@ -68,7 +68,12 @@ function encodeProgram(song: CompiledSong): Float64Array {
   const autoSustains = sustains.length ? [PF.COMPILED_SUSTAIN_MAGIC, sustains.length, ...sustains] : [];
   const inputRows = inputBindingRows(song.inputBindings ?? []);
   const inputs = song.inputBindings === undefined ? [] : [INPUT_PACKET_MAGIC, inputRows.length, ...inputRows.flat()];
-  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes, ...profiles, ...autoSustains, ...inputs];
+  const edges = song.releaseCapturePairs?.length || song.playbackPairs?.length ? [PF.COMPILED_EDGE_MAGIC,
+    song.releaseCapturePairs?.length ?? 0, song.playbackPairs?.length ?? 0,
+    ...(song.releaseCapturePairs ?? []).flatMap(pair => [indexOf(takes, pair.firstTakeId), indexOf(takes, pair.secondTakeId)]),
+    ...(song.playbackPairs ?? []).flatMap(pair => [CONTROL_IDS.indexOf(pair.buttonId), pair.first.bar, pair.first.beat, indexOf(selections, pair.firstSelectionId), indexOf(selections, pair.secondSelectionId)]),
+  ] : [];
+  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes, ...profiles, ...autoSustains, ...edges, ...inputs];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
     || cueRows.length !== song.cues.length * cueFields || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
   if (song.meter.denominator !== (song.meter.numerator === 6 ? 8 : 4)) throw new Error('This native build supports 4/4 and 6/8 compiled programs.');
