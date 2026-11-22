@@ -13,7 +13,7 @@ import { DEFAULT_BUTTON_BINDINGS, decodeInputBindings } from '../../performance/
 import type { LiveEffectDefinition, VoiceEffectConfiguration } from '../../performance/model.js';
 import { decodeSessionProfile } from '../session-profile.js';
 import { serveProfile } from '../server.js';
-import { decodeDeskBootstrap, decodeDeskPublication } from '../session-schema.js';
+import { decodeDeskBootstrap, decodeDeskPublication, decodeSongPreview } from '../session-schema.js';
 import { installedPackage, sessionProfile, until } from './session-fixture.js';
 import { buildSessionBundles } from '../../../scripts/session-bundles.js';
 
@@ -86,7 +86,14 @@ test('a Standby chart publish updates the running desk and survives restart', as
       assert.equal(app.controller.snapshot().revision, session.view.revision);
     }
     const list = () => fetch(origin + '/api/songs', { headers }).then(response => response.json());
+    const preview = async () => {
+      const response = await fetch(origin + '/api/songs/dance-yrself-clean', { headers });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      return decodeSongPreview(await response.json());
+    };
     const before = (await list()).songs[0];
+    assert.equal((await preview()).packageDigest, before.packageDigest);
     const accepted = await publish(musicXml);
     assert.equal(accepted.result.outcome, 'accepted', JSON.stringify(accepted.result.error));
     assert.equal(accepted.result.view.song.chart.title, title);
@@ -104,6 +111,10 @@ test('a Standby chart publish updates the running desk and survives restart', as
     const after = (await list()).songs[0];
     assert.equal(after.title, title);
     assert.notEqual(before.packageDigest, after.packageDigest);
+    const previewAfterPublish = await preview();
+    assert.equal(previewAfterPublish.packageDigest, after.packageDigest);
+    assert.equal(previewAfterPublish.song.chart.title, title);
+    assert.equal(app.controller.snapshot().revision, accepted.result.view.revision);
     assert.equal(await readFile(path, 'utf8'), baseline);
     await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
 
@@ -121,6 +132,7 @@ test('a Standby chart publish updates the running desk and survives restart', as
     assert.equal(app.controller.snapshot().song.chart.title, title);
     assert.equal(app.controller.snapshot().audio.kind, 'off');
     assert.deepEqual((await list()).songs[0], after);
+    assert.deepEqual(await preview(), previewAfterPublish);
   } finally { await stream?.cancel(); await app.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -284,6 +296,20 @@ test('installed catalog switches all three songs while stopped without replacing
     const songs = await (await fetch(`${profile.origin}/api/songs`, { headers })).json();
     assert.deepEqual(songs.songs.map((value: { id: string }) => value.id), ['dance-yrself-clean', 'drunk-girls', 'tribulations']);
     assert.equal((await fetch(`${profile.origin}/api/songs`)).status, 401);
+    const previewPath = `${profile.origin}/api/songs/drunk-girls`;
+    assert.equal((await fetch(previewPath)).status, 401);
+    assert.equal((await fetch(previewPath, { headers: { ...headers, origin: 'https://other.example' } })).status, 403);
+    assert.equal((await fetch(`${profile.origin}/api/songs/i-can-change`, { headers })).status, 404);
+    const beforePreview = app.controller.snapshot();
+    const previewResponse = await fetch(previewPath, { headers });
+    assert.equal(previewResponse.status, 200);
+    const preview = decodeSongPreview(await previewResponse.json());
+    assert.equal(preview.song.id, 'drunk-girls');
+    assert.equal(preview.song.compiled?.authoredCues, undefined);
+    assert.equal(preview.packageDigest, songs.songs[1].packageDigest);
+    assert.deepEqual(preview.defaultVoiceEffects, defaults.get('drunk-girls'));
+    assert.equal(app.controller.snapshot(), beforePreview);
+    await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
     const bootstrap = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
     let sequence = 0;
     const post = async (route: string, body: object) => (await fetch(`${profile.origin}${route}`, { method: 'POST', headers,

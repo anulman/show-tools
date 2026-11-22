@@ -3,7 +3,7 @@ import { once } from 'node:events';
 import { connect } from 'node:net';
 import { get, request } from 'node:http';
 import song from '../../../songs/dance-yrself-clean.js';
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -176,6 +176,61 @@ test('keeps Hardware Desk assets current and verifies offline Browser build pins
   }
 });
 
+
+test('serves only registered preview documents and keeps preview Browser assets isolated', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'gateway-preview-'));
+  const mount = join(directory, 'preview/tanstack');
+  const pin = 'c'.repeat(64);
+  const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: directory }, deskFixture());
+  try {
+    await mkdir(join(mount, 'assets'), { recursive: true });
+    await mkdir(join(mount, 'browser'));
+    await Promise.all([
+      writeFile(join(mount, '_shell.html'), '<title>Preview</title>'),
+      writeFile(join(mount, 'assets/main.js'), 'export const preview = true;'),
+      writeFile(join(mount, 'browser/sw.js'), 'offline preview worker'),
+      writeFile(join(mount, 'browser/manifest.webmanifest'), '{}'),
+      writeFile(join(mount, 'offline-manifest.json'), JSON.stringify({ cacheId: pin })),
+      writeFile(join(directory, 'outside.js'), 'outside preview'),
+    ]);
+    await symlink(join(directory, 'outside.js'), join(mount, 'assets/outside.js'));
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const address = server.address();
+    assert(address && typeof address !== 'string');
+    const base = `http://127.0.0.1:${address.port}/preview/tanstack`;
+    for (const route of ['', '/', '/01-dance-yrself-clean', '/browser', '/browser/03-i-can-change/']) {
+      const response = await fetch(base + route + '?remote');
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      assert.equal(await response.text(), '<title>Preview</title>');
+    }
+    const head = await fetch(base + '/04-tribulations', { method: 'HEAD' });
+    assert.equal(head.status, 200);
+    assert.equal(await head.text(), '');
+    const asset = await fetch(base + '/assets/main.js?__show_tools_build=' + pin);
+    assert.equal(asset.status, 200);
+    assert.equal(asset.headers.get('content-type'), 'text/javascript; charset=utf-8');
+    assert.equal(await asset.text(), 'export const preview = true;');
+    assert.equal((await fetch(base + '/browser/?__show_tools_build=' + 'b'.repeat(64))).status, 409);
+    assert.equal((await fetch(base + '/offline-manifest.json')).status, 200);
+    assert.equal((await fetch(base + '/browser/manifest.webmanifest')).headers.get('content-type'), 'application/manifest+json');
+    for (const route of ['/02-tribulations', '/assets/missing.js', '/assets/outside.js', '/assets/%2e%2e%2fsw.js', '/_shell.html', '/sw.js']) {
+      assert.equal((await fetch(base + route)).status, 404, route);
+    }
+    for (const route of ['/', '/01-dance-yrself-clean', '/assets/main.js', '/browser']) {
+      assert.equal((await fetch(base + route, { headers: { 'Service-Worker': 'script' } })).status, 404, route);
+    }
+    const worker = await fetch(base + '/browser/sw.js', { headers: { 'Service-Worker': 'script' } });
+    assert.equal(worker.status, 200);
+    assert.equal(worker.headers.get('service-worker-allowed'), null, 'default scope stays in /browser/');
+    assert.equal(await worker.text(), 'offline preview worker');
+  } finally {
+    server.closeAllConnections();
+    if (server.listening) await new Promise<void>(done => server.close(() => done()));
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('streams a full compiled song and bounds a slow observer', async () => {
   assert.ok(song.compiled);

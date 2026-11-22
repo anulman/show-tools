@@ -1,11 +1,19 @@
 import type { SongScript } from '../lib/performance/model.js';
 
-export const SONGS: readonly { id: string; title: string; load: () => Promise<{ default: SongScript }> }[] = [
-  { id: 'dance-yrself-clean', title: '01 · Dance Yrself Clean', load: () => import('./dance-yrself-clean.js') },
-  { id: 'drunk-girls', title: '02 · Drunk Girls', load: () => import('./drunk-girls.js') },
-  { id: 'i-can-change', title: '03 · I Can Change · not ready', load: () => import('./i-can-change.js') },
-  { id: 'tribulations', title: '04 · Tribulations', load: () => import('./tribulations.js') },
-];
+import { SET_SONGS, type SongId } from './routes.js';
+
+const loaders = {
+  'dance-yrself-clean': () => import('./dance-yrself-clean.js'),
+  'drunk-girls': () => import('./drunk-girls.js'),
+  'i-can-change': () => import('./i-can-change.js'),
+  tribulations: () => import('./tribulations.js'),
+} satisfies Record<SongId, () => Promise<{ default: SongScript }>>;
+
+export const SONGS = SET_SONGS.map(({ id, number, title }) => ({
+  id,
+  title: `${String(number).padStart(2, '0')} · ${title}${id === 'i-can-change' ? ' · not ready' : ''}`,
+  load: loaders[id],
+}));
 
 export async function loadSong(id: string): Promise<SongScript> {
   const entry = SONGS.find(song => song.id === id);

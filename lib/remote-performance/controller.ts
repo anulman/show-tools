@@ -12,14 +12,14 @@ import type { Observation } from './gateway.js';
 import { SongSchema, NativeEventSchema } from './native-schema.js';
 import { prepareInstalledPackage, type validateInstalledPackage } from './prepare.js';
 import type { SessionProfile } from './session-profile.js';
-import type { InstalledSong, InstalledSongCatalog } from './song-catalog.js';
+import type { InstalledSongCatalog } from './song-catalog.js';
 import type { ChartOverrides } from './chart-overrides.js';
 import { prepareSongBindings, type SongBindingAuthority } from './song-bindings.js';
 import type { InputBindings } from '../performance/input-bindings.js';
 import { chartMetadata } from '../performance/chart.js';
 import { requireLegacyMonitorInactive } from './legacy-monitor.js';
 import { MAX_DEMO_BYTES, AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
-  type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome, type NativeEngineRetirementProof } from './session-schema.js';
+  type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome, type NativeEngineRetirementProof, type SongPreview } from './session-schema.js';
 
 const performance = Schema.decodeUnknownSync(NativePerformanceSchema);
 const outcome = Schema.decodeUnknownSync(NativeOutcomeSchema);
@@ -53,7 +53,7 @@ export class PersistentDesk implements DeskController {
   private configuration: { kind: 'idle' } | { kind: 'preparing'; done: Promise<void> } = { kind: 'idle' };
   constructor(private readonly profile: SessionProfile, private installed: InstalledPackage,
     private readonly songs?: { catalog: InstalledSongCatalog; bindings: SongBindingAuthority; charts?: ChartOverrides;
-      chartChoices?: Map<string, Pick<InstalledSong, 'id' | 'title' | 'packageDigest'>> }) {
+      chartPreviews?: Map<string, SongPreview> }) {
     this.view = { serverEpoch: Schema.decodeUnknownSync(ServerEpochSchema)(randomUUID()), revision: revision('0'),
       song: Schema.decodeUnknownSync(SongSchema)(installed.song), defaultVoiceEffects: installed.defaultVoiceEffects, audio: { kind: 'off' } };
     this.eventChart = chartMetadata(this.view.song.chart);
@@ -61,7 +61,18 @@ export class PersistentDesk implements DeskController {
   }
   songChoices() {
     if (!this.songs) throw new Error('No installed song catalog is configured');
-    return this.songs.catalog.choices.map(choice => this.songs?.chartChoices?.get(choice.id) ?? choice);
+    return this.songs.catalog.choices.map(choice => {
+      const override = this.songs?.chartPreviews?.get(choice.id);
+      return override ? { id: choice.id, title: override.song.chart.title, packageDigest: override.packageDigest } : choice;
+    });
+  }
+  songPreview(id: string): SongPreview | undefined {
+    const context = this.songs;
+    if (!context?.catalog.choices.some(choice => choice.id === id)) return;
+    const override = context.chartPreviews?.get(id);
+    if (override) return override;
+    const { installed, packageDigest } = context.catalog.get(id);
+    return { song: installed.song, defaultVoiceEffects: installed.defaultVoiceEffects, packageDigest };
   }
   private async configure(expectedRevision: string, prepare: () => Promise<{ installed: InstalledPackage; commit: () => void }>, selecting?: string): Promise<AudioDecision> {
     const rejected = (error: string): AudioDecision => ({ outcome: 'rejected', error, view: this.view });
@@ -137,7 +148,7 @@ export class PersistentDesk implements DeskController {
       const prepared = await prepareSongBindings(entry, context.bindings.read().bindings, musicXml);
       return { installed: prepared.installed, commit: () => {
         charts.save(entry.id, musicXml);
-        context.chartChoices?.set(entry.id, { id: entry.id, title: prepared.installed.song.chart.title, packageDigest: prepared.packageDigest });
+        context.chartPreviews?.set(entry.id, { song: prepared.installed.song, defaultVoiceEffects: prepared.installed.defaultVoiceEffects, packageDigest: prepared.packageDigest });
       } };
     });
   }
