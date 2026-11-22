@@ -76,7 +76,7 @@ test('cancelling foreground capture reaps its owned reader', async () => {
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 
-test('the deterministic CLI captures two named controls, saves their exact map and restores only its managed unit', async () => {
+for (const withDial of [false, true]) test(`setup saves two named controls ${withDial ? 'and a musical dial' : 'without a dial'} in one maintenance window`, async () => {
   const f = await fixture();
   const config = join(f.directory, 'peripheral.json');
   const session = join(f.directory, 'session.json');
@@ -84,7 +84,7 @@ test('the deterministic CLI captures two named controls, saves their exact map a
   const runner = '/release/bin/show-tools-peripheral';
   const actions: string[][] = [];
   let active = true;
-  const answers = ['blue,yellow', '', '', '1', '2', 'yes'];
+  const answers = ['blue,yellow', '', '', ...(withDial ? [''] : []), '1', '2', 'yes'];
   const output: string[] = [];
   const command = async (args: readonly string[]) => {
     actions.push([...args]);
@@ -96,14 +96,22 @@ test('the deterministic CLI captures two named controls, saves their exact map a
   await writeFile(session, JSON.stringify(sessionProfile(f.directory)), { mode: 0o600 });
   await writeFile(unit, renderPeripheralUnit(runner, config), { mode: 0o600 });
   try {
-    await runCommissioningCli(['--config', config, '--session-profile', session, '--helper', '/release/native/peripheral/peripheral-host', '--bench-dir', f.directory, '--runner', runner], {
+    await runCommissioningCli([...(withDial ? ['--with-dial', '--start'] : []), '--config', config, '--session-profile', session, '--helper', '/release/native/peripheral/peripheral-host', '--bench-dir', f.directory, '--runner', runner], {
+      captureAxis: async () => {
+        assert(withDial);
+        assert.equal(active, false);
+        return { source: { interfaceNumber: 1, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] }, type: 2, code: 1, evidencePath: '/tmp/synthetic-dial' };
+      },
       unitPath: unit, stagingRoot: f.directory, command, webService: inactiveWeb(), checkListenerAbsent: async () => {}, audioOff: async () => {},
       io: { question: async () => { const answer = answers.shift(); if (answer === undefined) throw Error('unexpected question'); return answer; }, write: value => output.push(value) },
     });
     const saved = JSON.parse(await readFile(config, 'utf8'));
     assert.deepEqual(saved.inputMap.switches.map((value: { controlId: string; code: number }) => [value.controlId, value.code]), [['blue', 30], ['yellow', 31]]);
     assert.deepEqual(saved.inputMap.leds.map((value: { sdkChannel: number }) => value.sdkChannel), [0, 1]);
-    assert.equal(saved.inputMap.axis, undefined);
+    assert.equal(saved.inputMap.axis?.code, withDial ? 1 : undefined);
+    assert.deepEqual(saved.jiggle, withDial ? { minimumTravel: 4, minimumReversal: 2 } : null);
+    assert.equal(saved.bindingRevision, 1);
+    assert.equal(answers.length, 0);
     assert.equal(actions.filter(args => args[0] === 'stop').length, 1);
     assert.equal(actions.filter(args => args[0] === 'start').length, 1);
     assert(output.join('').includes('ARMED: press and fully release blue three times'));

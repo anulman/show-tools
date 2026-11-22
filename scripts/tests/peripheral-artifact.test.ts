@@ -89,6 +89,6 @@ test('installed peripheral command is bundled and relocatable without checkout d
     const preview = JSON.parse(execFileSync(setup, ['--dry-run', '--config', '/dev/null'], shell));
     assert.equal(preview.profilePath, '/dev/null'); assert.equal(preview.planOnly, true);
     await writeFile(join(moved, 'bin/show-tools-peripheral'), '#!/bin/sh\nprintf \'%s\\n\' "$@"\n');
-    assert.equal(execFileSync(setup, [], shell), 'setup\n--stop-performance\n--start\n');
+    assert.equal(execFileSync(setup, [], shell), 'setup\n--with-dial\n--stop-performance\n--start\n');
   } finally { await rm(directory, { recursive: true, force: true }); await rm(moved, { recursive: true, force: true }); }
 });
