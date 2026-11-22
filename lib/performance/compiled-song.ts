@@ -869,9 +869,11 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     if (commitIndex >= 0) cues[commitIndex] = { ...cues[commitIndex], selectionId: selections.at(-1)?.id ?? null };
     const fullSelection = selections.at(-1);
     if (fullSelection) selectionPhrases.set(fullSelection.id, take.phrase);
-    if (commitIndex >= 0 && cues[commitIndex].source.text.trim() === 'clb') {
+    const commitText = cues[commitIndex]?.source.text.trim();
+    const storeSlices = commitText === 'cxb' && mapping.variantRules.some(rule => rule.voiceId === take.voiceId && rule.sampledOnly);
+    if (commitText === 'clb' || storeSlices) {
       if (take.begin.beat !== 0 || take.captureEnd.beat !== 0 || take.retention !== 'variant') {
-        issue('capture-slices', 'Commit-last-bar requires a whole-bar retained-variant capture.', cues[commitIndex].source);
+        issue('capture-slices', 'Bar slices require a whole-bar retained-variant capture.', cues[commitIndex].source);
         continue;
       }
       for (let bar = take.begin.bar; bar < take.captureEnd.bar; bar++) {
@@ -884,7 +886,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
         const control = mapping.controls.find(control => control.voiceId === take.voiceId);
         selectionPhrases.set(selection.id, column && control ? normalizedPhrase(at(source.values, control.arrangementRow, column)) : '');
       }
-      cues[commitIndex] = { ...cues[commitIndex], selectionId: selections.at(-1)?.id ?? null };
+      if (!storeSlices) cues[commitIndex] = { ...cues[commitIndex], selectionId: selections.at(-1)?.id ?? null };
     }
   }
   const playback: CompiledSong['playback'] = [];
