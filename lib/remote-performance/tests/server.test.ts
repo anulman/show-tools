@@ -57,15 +57,19 @@ test('a Standby chart publish updates the running desk and survives restart', as
     stream = reader;
     let publicationBuffer = '';
     const publication = async () => {
-      while (!publicationBuffer.includes('\n\n')) {
-        const received = await reader.read();
-        assert.equal(received.done, false);
-        publicationBuffer += received.value;
+      for (;;) {
+        while (!publicationBuffer.includes('\n\n')) {
+          const received = await reader.read();
+          assert.equal(received.done, false);
+          publicationBuffer += received.value;
+        }
+        const boundary = publicationBuffer.indexOf('\n\n');
+        const frame = publicationBuffer.slice(0, boundary);
+        publicationBuffer = publicationBuffer.slice(boundary + 2);
+        if (frame.startsWith(':')) continue;
+        assert.ok(frame.startsWith('data: '));
+        return decodeDeskPublication(JSON.parse(frame.slice(6)));
       }
-      const boundary = publicationBuffer.indexOf('\n\n');
-      const result = decodeDeskPublication(JSON.parse(publicationBuffer.slice(6, boundary)));
-      publicationBuffer = publicationBuffer.slice(boundary + 2);
-      return result;
     };
     assert.equal((await publication()).type, 'desk');
     let sequence = 0;
