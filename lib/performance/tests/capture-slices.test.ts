@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { readMusicXmlSong, writeMusicXmlSong } from '../musicxml-song.js';
+import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { decodeCompiledSong } from '../compiled-song.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { NativePerformance } from '../wasm-performance.js';
@@ -13,7 +14,10 @@ async function fixture() {
 }
 
 test('latest DYC retains complete Cowbell parents and selects explicit whole-bar slices', async () => {
-  const { song, report } = await fixture();
+  const { song, report, source, mapping } = await fixture();
+  assert(source && mapping);
+  const reimported = await importSheetMusicXml({ source, mapping });
+  assert.deepEqual((await readMusicXmlSong(reimported.xml)).song, song);
   assert(song.executable);
   assert.equal(song.takes.length, 5);
   const parents = song.takes.filter(take => take.voiceId === 'cowbell');
