@@ -137,6 +137,18 @@ class Delegation(unittest.TestCase):
                 with self.assertRaises(check.Rejected):
                     check.validate_input_map(changed)
 
+    def test_only_the_peripheral_lan_gateway_can_be_admitted(self):
+        for key, value in (
+            ('origin', 'https://proxmox.tail54fc55.ts.net:8443'),
+            ('connectAddress', '192.168.2.9'),
+            ('caFile', None),
+        ):
+            with self.subTest(key=key):
+                grant = copy.deepcopy(self.grant)
+                grant['target']['gateway'][key] = value
+                with self.assertRaisesRegex(check.Rejected, 'unsupported peripheral target'):
+                    check.validate_grant(check.canonical(grant), self.checker, self.signer)
+
     def test_null_legacy_and_unpaired_led_assignments_cannot_be_admitted(self):
         for replacement in (None, {'buttonKey': 'escape', 'sdkChannel': 0}):
             grant = copy.deepcopy(self.grant)

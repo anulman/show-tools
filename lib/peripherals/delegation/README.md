@@ -11,6 +11,8 @@ The fixed installed files are:
 | `/etc/homelab/delegations/show-tools-peripheral.allowed_signers` | root:root 0644 | Existing public key/principal, distinct `show-tools-peripheral-deploy-v1` namespace |
 | `/home/anulman/.local/state/show-tools-mailbox/authorization-peripheral.jsonl` | 1000:1000 0600 | Independent inode-bound genesis and append-only claim/outcome history |
 
+The peripheral gateway is the LAN HTTPS ingress at `https://show-tools.home.arpa` via `192.168.2.22` with the pinned local CA path. The caller verifies the hostname, certificate chain and exact profile tuple. The WEB backend address and the retired Tailnet address are outside this grant.
+
 The application files are exactly `/home/anulman/.config/show-tools/peripheral.json` and `/home/anulman/.config/systemd/user/show-tools-peripheral.service`, both UID/GID 1000 mode 0600. The runner and helper are `bin/show-tools-peripheral` and `native/peripheral/peripheral-host` inside an already-staged immutable `session-<source-prefix>` release. There is no arbitrary target, grant path, executable path, command, module import, or new global CLI wrapper in the admission interface.
 
 ## Deliberate new policy
