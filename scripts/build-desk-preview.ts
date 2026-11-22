@@ -4,12 +4,12 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
-import { TANSTACK_DESK_PATH } from '../lib/remote-performance/desk-paths.js';
+import { TANSTACK_ASSET_PATH, TANSTACK_DESK_PATH, TANSTACK_STATIC_PATH } from '../lib/remote-performance/desk-paths.js';
 import { SET_SONGS, songRoute } from '../songs/routes.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const workspace = join(root, 'ui/desk-start');
-const preview = join(root, 'dist', TANSTACK_DESK_PATH);
+const preview = join(root, 'dist', TANSTACK_STATIC_PATH);
 const legacyManifest = JSON.parse(await readFile(join(root, 'dist/ui/practice/offline-manifest.json'), 'utf8'));
 if (!/^[a-f0-9]{64}$/.test(legacyManifest.cacheId) || !Array.isArray(legacyManifest.files)) {
   throw new Error('Build the existing Desk assets before building the TanStack preview.');
@@ -41,7 +41,7 @@ for (const entry of copy.filter(entry => entry.isFile()).sort((left, right) => j
   const file = join(entry.parentPath, entry.name);
   const path = relative(preview, file);
   hash.update(path).update('\0').update(await readFile(file)).update('\0');
-  if (path.startsWith('assets/')) builtPaths.push(TANSTACK_DESK_PATH + path);
+  if (path.startsWith(TANSTACK_ASSET_PATH.slice(1))) builtPaths.push(TANSTACK_DESK_PATH + path);
 }
 
 const cacheId = hash.digest('hex');
@@ -62,4 +62,4 @@ await build({
     DESK_PREVIEW_SONG_PATHS: JSON.stringify(browserRoutes),
   },
 });
-process.stdout.write(`Built TanStack Desk preview at ${TANSTACK_DESK_PATH}\n`);
+process.stdout.write(`Built TanStack Desk at ${TANSTACK_DESK_PATH}\n`);

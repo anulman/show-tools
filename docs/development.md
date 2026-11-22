@@ -300,9 +300,9 @@ Local browser disposal releases monitoring, microphone acquisition and output co
 
 Use [the session CLI guide](implementation/session-cli.md) for `./show-tools session start`, `stop`, `status`, and `audio on|off|status`. Help and status acquire no device or CDP process. CLI process tests use an isolated XDG configuration directory and fake service manager; controller/server tests use actual synthetic native processes and Unix/loopback sockets. Verify a second page and reload during an existing performance, cancellation during startup, native faults with the web still available, parent death, and take retention across transport Stop versus loss across Terminate. Actual systemd and ALSA checks remain target deployment evidence.
 
-### Run the TanStack Desk preview
+### Run the TanStack Performance Desk
 
-Install the preview dependencies and build the existing Desk with the preview:
+Install the preview dependencies and build the Performance Desk:
 
 ```sh
 npm ci
@@ -311,11 +311,11 @@ npm run build:desk-preview
 npm --prefix ui/desk-start run typecheck
 ```
 
-The result includes the existing `/ui/live/` and `/ui/browser/` entries. A session gateway serving this build also serves `/preview/tanstack/` and numbered routes such as `/preview/tanstack/01-dance-yrself-clean`. The preview's Browser mode uses `/preview/tanstack/browser/` and has its own offline cache. Use a fixture profile with a loopback bind address and the fake native host for repeatable QA.
+A session gateway serving this build handles `/` and numbered routes such as `/01-dance-yrself-clean`. Browser mode uses `/browser/` and has its own offline cache. The previous Live, Browser, and preview bookmarks redirect to the matching TanStack route. Use a fixture profile with a loopback bind address and the fake native host for repeatable QA.
 
-Pass `--desk-preview` to the [Linux release builder](implementation/elitedesk-install.md) to include both entries in a staged release. The preview adds no production Node service. The existing gateway serves the static shell and authenticated APIs.
+Pass `--desk-preview` to the [Linux release builder](implementation/elitedesk-install.md) to include the TanStack Desk in a staged release. The Desk adds no production Node service. The existing gateway serves the static shell and authenticated APIs.
 
-For Live QA, compare the original and preview on the same server. Refresh a numbered path, try an unavailable song, and open a different chart in a second tab during a run. Use **Select on Desk** when you intend to change the shared song. Verify that the next installed chart loads without changing the song. Check recording and sample download in Standby, hardware and browser controls, Tuner, chart publishing, Sheets following, and a Browser-mode reload offline. Keep the original Live entry until the preview passes manual QA.
+For Live QA, compare the TanStack Desk with the previous release using a fixture profile. Refresh a numbered path, try an unavailable song, and open a different chart in a second tab during a run. Use **Select on Desk** when you intend to change the shared song. Verify that the next installed chart loads without changing the song. Check recording and sample download in Standby, hardware and browser controls, Tuner, chart publishing, Sheets following, and a Browser-mode reload offline.
 
 ### Publish a chart without a code release
 

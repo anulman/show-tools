@@ -8,7 +8,7 @@ function section(start: string, end: string) {
 }
 
 export const template = {
-  header: section('<header class="topline">', '</header>').replace('href="./"', 'href="/preview/tanstack/"'),
+  header: section('<header class="topline">', '</header>').replace('href="./"', 'href="/"'),
   song: section('</header>', '</main>').replace('href="./README.md"', 'href="/ui/practice/README.md"'),
   dialogs: section('</main>', '<script type="module"'),
 };

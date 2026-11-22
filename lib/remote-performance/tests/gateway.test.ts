@@ -177,48 +177,60 @@ test('keeps Hardware Desk assets current and verifies offline Browser build pins
 });
 
 
-test('serves only registered preview documents and keeps preview Browser assets isolated', async () => {
+test('serves registered root songs, redirects legacy bookmarks and isolates Browser assets', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'gateway-preview-'));
   const mount = join(directory, 'preview/tanstack');
   const pin = 'c'.repeat(64);
   const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(token), staticRoot: directory }, deskFixture());
   try {
-    await mkdir(join(mount, 'assets'), { recursive: true });
+    await mkdir(join(mount, 'desk-assets'), { recursive: true });
     await mkdir(join(mount, 'browser'));
     await Promise.all([
       writeFile(join(mount, '_shell.html'), '<title>Preview</title>'),
-      writeFile(join(mount, 'assets/main.js'), 'export const preview = true;'),
+      writeFile(join(mount, 'desk-assets/main.js'), 'export const preview = true;'),
+      writeFile(join(mount, 'desk-assets/browser._songId-abc.js'), 'export const mode = "browser";'),
       writeFile(join(mount, 'browser/sw.js'), 'offline preview worker'),
       writeFile(join(mount, 'browser/manifest.webmanifest'), '{}'),
       writeFile(join(mount, 'offline-manifest.json'), JSON.stringify({ cacheId: pin })),
       writeFile(join(directory, 'outside.js'), 'outside preview'),
     ]);
-    await symlink(join(directory, 'outside.js'), join(mount, 'assets/outside.js'));
+    await symlink(join(directory, 'outside.js'), join(mount, 'desk-assets/outside.js'));
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
     const address = server.address();
     assert(address && typeof address !== 'string');
-    const base = `http://127.0.0.1:${address.port}/preview/tanstack`;
-    for (const route of ['', '/', '/01-dance-yrself-clean', '/browser', '/browser/03-i-can-change/']) {
+    const base = `http://127.0.0.1:${address.port}`;
+    for (const route of ['/', '/01-dance-yrself-clean', '/browser', '/browser/03-i-can-change/']) {
       const response = await fetch(base + route + '?remote');
       assert.equal(response.status, 200);
       assert.equal(response.headers.get('cache-control'), 'no-store');
       assert.equal(await response.text(), '<title>Preview</title>');
     }
+    for (const [before, after] of [
+      ['/ui/live/?remote', '/?remote'],
+      ['/ui/browser/', '/browser/'],
+      ['/ui/practice/?browser', '/browser/?browser'],
+      ['/preview/tanstack/04-tribulations', '/04-tribulations'],
+    ]) {
+      const response = await fetch(base + before, { redirect: 'manual' });
+      assert.equal(response.status, 302);
+      assert.equal(response.headers.get('location'), after);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+    }
     const head = await fetch(base + '/04-tribulations', { method: 'HEAD' });
     assert.equal(head.status, 200);
     assert.equal(await head.text(), '');
-    const asset = await fetch(base + '/assets/main.js?__show_tools_build=' + pin);
+    const asset = await fetch(base + '/desk-assets/main.js?__show_tools_build=' + pin);
     assert.equal(asset.status, 200);
     assert.equal(asset.headers.get('content-type'), 'text/javascript; charset=utf-8');
     assert.equal(await asset.text(), 'export const preview = true;');
+    assert.equal((await fetch(base + '/desk-assets/browser._songId-abc.js')).status, 200);
     assert.equal((await fetch(base + '/browser/?__show_tools_build=' + 'b'.repeat(64))).status, 409);
-    assert.equal((await fetch(base + '/offline-manifest.json')).status, 200);
     assert.equal((await fetch(base + '/browser/manifest.webmanifest')).headers.get('content-type'), 'application/manifest+json');
-    for (const route of ['/02-tribulations', '/assets/missing.js', '/assets/outside.js', '/assets/%2e%2e%2fsw.js', '/_shell.html', '/sw.js']) {
+    for (const route of ['/02-tribulations', '/desk-assets/missing.js', '/desk-assets/outside.js', '/desk-assets/%2e%2e%2fsw.js', '/_shell.html', '/sw.js', '/preview/tanstack/_shell.html', '/ui/live/sw.js']) {
       assert.equal((await fetch(base + route)).status, 404, route);
     }
-    for (const route of ['/', '/01-dance-yrself-clean', '/assets/main.js', '/browser']) {
+    for (const route of ['/', '/01-dance-yrself-clean', '/desk-assets/main.js', '/browser']) {
       assert.equal((await fetch(base + route, { headers: { 'Service-Worker': 'script' } })).status, 404, route);
     }
     const worker = await fetch(base + '/browser/sw.js', { headers: { 'Service-Worker': 'script' } });

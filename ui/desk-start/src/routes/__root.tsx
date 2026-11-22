@@ -33,5 +33,5 @@ export const Route = createRootRouteWithContext<DeskRouterContext>()({
   }),
   shellComponent: Document,
   component: Root,
-  notFoundComponent: () => <main className="desk"><p>Song not found.</p><a href="/preview/tanstack/">Open Performance Desk</a></main>,
+  notFoundComponent: () => <main className="desk"><p>Song not found.</p><a href="/">Open Performance Desk</a></main>,
 });

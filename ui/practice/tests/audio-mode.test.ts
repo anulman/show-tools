@@ -45,7 +45,7 @@ test('leaving active hardware only disposes the client and navigates', async () 
 });
 
 test('nested preview song routes share the existing asset directory', () => {
-  for (const path of ['/preview/tanstack', '/preview/tanstack/01-dance-yrself-clean', '/preview/tanstack/browser/04-tribulations']) {
+  for (const path of ['/', '/01-dance-yrself-clean', '/browser/04-tribulations']) {
     const base = practiceAssetBase(`https://desk.test${path}`);
     assert.equal(new URL('./songs/drunk-girls.musicxml', base).href, 'https://desk.test/ui/practice/songs/drunk-girls.musicxml');
   }

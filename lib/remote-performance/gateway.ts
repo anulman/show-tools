@@ -1,7 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { MAX_CHART_BYTES } from './chart-overrides.js';
 import { DESK_HEARTBEAT_MS } from './event-liveness.js';
-import { BROWSER_DESK_PATH, HARDWARE_DESK_PATH, PRACTICE_ASSET_PATH, TANSTACK_DESK_PATH, isDeskEntry } from './desk-paths.js';
+import { BROWSER_DESK_PATH, HARDWARE_DESK_PATH, PRACTICE_ASSET_PATH, TANSTACK_ASSET_PATH, TANSTACK_STATIC_PATH, isDeskEntry, isTanstackDeskDocument } from './desk-paths.js';
 import type { TunerState } from '../tuner/model.js';
 import { createReadStream } from 'node:fs';
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -10,7 +10,6 @@ import { createServer as createHttpsServer } from 'node:https';
 import { extname, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Schema } from 'effect';
-import { songForRoute } from '../../songs/routes.js';
 import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type DeskView, type AudioDecision, type NativeOutcome, type NativeTarget, type SongPreview } from './session-schema.js';
 import { decodeClientInputCommand, isPriorityCommand, TambourineAudition, type ClientInputCommand } from './commands.js';
 import { InputBindingsSchema, decodeInputBindings, decodeInputAttach, type InputBindings, type InputAttach } from '../performance/input-bindings.js';
@@ -267,19 +266,18 @@ const contentTypes: Record<string, string> = {
   '.webmanifest': 'application/manifest+json',
 };
 
-const previewPath = TANSTACK_DESK_PATH.slice(0, -1);
-const previewManifestPath = previewPath + '/offline-manifest.json';
-const previewBrowserWorker = previewPath + '/browser/sw.js';
+const deskShell = TANSTACK_STATIC_PATH + '/_shell.html';
+const deskManifest = TANSTACK_STATIC_PATH + '/offline-manifest.json';
+const deskWorkerPath = '/browser/sw.js';
 
-function previewFile(path: string, serviceWorker: boolean): string | undefined {
-  if (serviceWorker) return path === previewBrowserWorker ? path : undefined;
-  if (path === previewBrowserWorker || path === previewManifestPath || path === previewPath + '/browser/manifest.webmanifest') return path;
-  if (path.includes('//')) return;
-  const segments = path.slice(previewPath.length).split('/').filter(Boolean);
-  if (segments.some(segment => segment === '.' || segment === '..' || !/^[A-Za-z0-9._-]+$/.test(segment))) return;
-  if (segments[0] === 'assets' && segments.length > 1 && !path.endsWith('/')) return path;
-  if (segments[0] === 'browser') segments.shift();
-  if (segments.length === 0 || (segments.length === 1 && songForRoute(segments[0]))) return previewPath + '/_shell.html';
+function tanstackFile(path: string, serviceWorker: boolean): string | undefined {
+  if (path === deskWorkerPath) return TANSTACK_STATIC_PATH + path;
+  if (serviceWorker) return;
+  if (isTanstackDeskDocument(path)) return deskShell;
+  if (path === '/browser/manifest.webmanifest') return TANSTACK_STATIC_PATH + path;
+  if (path.startsWith(TANSTACK_ASSET_PATH) && /^[A-Za-z0-9_.-]+\.[A-Za-z0-9]+$/.test(path.slice(TANSTACK_ASSET_PATH.length))) {
+    return TANSTACK_STATIC_PATH + path;
+  }
 }
 
 export interface SongActions {
@@ -531,15 +529,26 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
     const pin = pins[0];
     if (pins.length > 1 || (pin !== undefined && !/^[a-f0-9]{64}$/.test(pin)))
       return json(response, 400, { error: 'Invalid build identity' });
-    const preview = relative === previewPath || relative.startsWith(previewPath + '/');
-    if (preview) {
-      const file = previewFile(relative, request.headers['service-worker'] === 'script');
-      if (!file) return json(response, 404, { error: 'Not found' });
-      relative = file;
-    }
+    const root = await realpath(config.staticRoot);
+    const worker = request.headers['service-worker'] === 'script';
+    const previousPreview = relative === TANSTACK_STATIC_PATH || relative.startsWith(TANSTACK_STATIC_PATH + '/');
     const browserEntry = isDeskEntry(relative, BROWSER_DESK_PATH);
     const selectedBrowser = !url.searchParams.has('remote') && (browserEntry || url.searchParams.has('browser'));
-    if (pin === undefined && (browserEntry || isDeskEntry(relative, HARDWARE_DESK_PATH) || isDeskEntry(relative, PRACTICE_ASSET_PATH))) {
+    const legacyEntry = browserEntry || isDeskEntry(relative, HARDWARE_DESK_PATH) || isDeskEntry(relative, PRACTICE_ASSET_PATH);
+    const deskInstalled = (relative === '/' || legacyEntry || previousPreview)
+      && await stat(resolve(root, '.' + deskShell)).then(file => file.isFile(), () => false);
+    const deskFile = relative === '/' && !deskInstalled ? undefined : tanstackFile(relative, worker);
+    const deskAsset = deskFile !== undefined;
+    if (!worker && pin === undefined && deskInstalled && (legacyEntry || previousPreview)) {
+      const destination = previousPreview ? relative.slice(TANSTACK_STATIC_PATH.length) || '/' : selectedBrowser ? '/browser/' : '/';
+      if (isTanstackDeskDocument(destination)) {
+        response.writeHead(302, { location: destination + url.search, 'cache-control': 'no-store' });
+        return response.end();
+      }
+    }
+    if ((worker && isTanstackDeskDocument(relative) && (relative !== '/' || deskInstalled)) || previousPreview || (!deskFile && relative.startsWith(TANSTACK_ASSET_PATH))) return json(response, 404, { error: 'Not found' });
+    if (deskFile) relative = deskFile;
+    if (pin === undefined && legacyEntry) {
       const destination = selectedBrowser ? BROWSER_DESK_PATH : HARDWARE_DESK_PATH;
       if (relative !== destination && relative !== destination + 'index.html') {
         response.writeHead(302, { location: destination + url.search, 'cache-control': 'no-store' });
@@ -554,11 +563,10 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         return json(response, 404, { error: 'Not found' });
       relative = PRACTICE_ASSET_PATH + asset;
     }
-		const root = await realpath(config.staticRoot);
     if (pin !== undefined) {
       try {
-        const manifest = await realpath(resolve(root, '.' + (preview ? previewManifestPath : PRACTICE_ASSET_PATH + 'offline-manifest.json')));
-        const manifestRoot = preview ? resolve(root, '.' + previewPath) : root;
+        const manifest = await realpath(resolve(root, '.' + (deskAsset ? deskManifest : PRACTICE_ASSET_PATH + 'offline-manifest.json')));
+        const manifestRoot = deskAsset ? resolve(root, '.' + TANSTACK_STATIC_PATH) : root;
         if (!manifest.startsWith(manifestRoot + sep)) return json(response, 409, { error: 'Requested build is unavailable' });
         const value: unknown = JSON.parse(await readFile(manifest, 'utf8'));
         if (!value || typeof value !== 'object' || !('cacheId' in value) || value.cacheId !== pin)
@@ -570,9 +578,9 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 		if (!file.startsWith(root + sep)) return json(response, 404, { error: 'Not found' });
 		try {
       const actual = await realpath(file);
-      const assetRoot = preview ? resolve(root, '.' + previewPath) : root;
+      const assetRoot = deskAsset ? resolve(root, '.' + TANSTACK_STATIC_PATH) : root;
       if (!actual.startsWith(assetRoot + sep) || (live && actual === resolve(root, '.' + PRACTICE_ASSET_PATH + 'sw.js'))
-        || (preview && actual === resolve(root, '.' + previewBrowserWorker) && relative !== previewBrowserWorker) || !(await stat(actual)).isFile())
+        || (deskAsset && actual === resolve(root, '.' + TANSTACK_STATIC_PATH + deskWorkerPath) && relative !== TANSTACK_STATIC_PATH + deskWorkerPath) || !(await stat(actual)).isFile())
         return json(response, 404, { error: 'Not found' });
 			response.writeHead(200, { 'content-type': contentTypes[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
 			if (request.method === 'HEAD') return response.end();
