@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { test } from 'node:test';
@@ -78,13 +78,18 @@ test('cancelling foreground capture reaps its owned reader', async () => {
 
 for (const withDial of [false, true]) test(`setup saves two named controls ${withDial ? 'and a musical dial' : 'without a dial'} in one maintenance window`, async () => {
   const f = await fixture();
+  if (withDial) {
+    const motion = await motionFixture(false, 'opposite');
+    try { await copyFile(join(motion.directory, 'raw_motion.py'), join(f.directory, 'raw_motion.py')); }
+    finally { await rm(motion.directory, { recursive: true, force: true }); }
+  }
   const config = join(f.directory, 'peripheral.json');
   const session = join(f.directory, 'session.json');
   const unit = join(f.directory, 'show-tools-peripheral.service');
   const runner = '/release/bin/show-tools-peripheral';
   const actions: string[][] = [];
   let active = true;
-  const answers = ['blue,yellow', '', '', ...(withDial ? [''] : []), '1', '2', 'yes'];
+  const answers = ['blue,yellow', '', '', ...(withDial ? ['', ''] : []), '1', '2', 'yes'];
   const output: string[] = [];
   const command = async (args: readonly string[]) => {
     actions.push([...args]);
@@ -97,11 +102,6 @@ for (const withDial of [false, true]) test(`setup saves two named controls ${wit
   await writeFile(unit, renderPeripheralUnit(runner, config), { mode: 0o600 });
   try {
     await runCommissioningCli([...(withDial ? ['--with-dial', '--start'] : []), '--config', config, '--session-profile', session, '--helper', '/release/native/peripheral/peripheral-host', '--bench-dir', f.directory, '--runner', runner], {
-      captureAxis: async () => {
-        assert(withDial);
-        assert.equal(active, false);
-        return { source: { interfaceNumber: 1, eventTypes: [0, 2], keyCodes: [], relativeAxes: [1] }, type: 2, code: 1, evidencePath: '/tmp/synthetic-dial' };
-      },
       unitPath: unit, stagingRoot: f.directory, command, webService: inactiveWeb(), checkListenerAbsent: async () => {}, audioOff: async () => {},
       io: { question: async () => { const answer = answers.shift(); if (answer === undefined) throw Error('unexpected question'); return answer; }, write: value => output.push(value) },
     });
@@ -116,6 +116,7 @@ for (const withDial of [false, true]) test(`setup saves two named controls ${wit
     assert.equal(actions.filter(args => args[0] === 'start').length, 1);
     assert(output.join('').includes('ARMED: press and fully release blue three times'));
     assert(output.join('').includes('Saved 2 switch identities'));
+    if (withDial) assert.match(output.join(''), /clockwise 20, counterclockwise -20/);
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 
@@ -201,7 +202,7 @@ async function motionFixture(multiple = false, mode: 'balanced' | 'opposite' | '
   await writeFile(reader, `import argparse,json,os,pathlib,time
 p=argparse.ArgumentParser()
 for n in ('directory','trial','direction','capture-seconds'):p.add_argument('--'+n,required=True)
-a=p.parse_args();d=pathlib.Path(a.directory)
+p.add_argument('--diagnostic-only',action='store_true')\na=p.parse_args();d=pathlib.Path(a.directory)
 f=os.open(d/'trial.ndjson',os.O_WRONLY|os.O_CREAT|os.O_EXCL,0o600)
 def record(v,public=False):
  os.write(f,(json.dumps(v)+'\\n').encode())

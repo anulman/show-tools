@@ -370,35 +370,58 @@ export async function captureAxis({ chooseAxis, ...options }: MotionCaptureOptio
   return { source: axis.source, type: 2, code: axis.code, evidencePath, observations: axes, direction: options.direction };
 }
 
-export async function checkDialMotion({ profilePath, io, ...capture }: Omit<MotionCaptureOptions, 'direction' | 'captureSeconds' | 'onArmed'> & {
-  profilePath: string; io: CommissioningIo;
-}) {
+type DialObservation = Awaited<ReturnType<typeof observeMotion>>;
+type DialDirectionsOptions = Omit<MotionCaptureOptions, 'direction' | 'onArmed'> & { io: CommissioningIo };
+
+export function matchingDialAxes(clockwise: Pick<DialObservation, 'attachment' | 'axes'>, counterclockwise: Pick<DialObservation, 'attachment' | 'axes'>) {
+  if (clockwise.attachment !== counterclockwise.attachment) throw new Error('USB attachment changed between the two dial captures.');
+  const matches = clockwise.axes.flatMap(cw => counterclockwise.axes.filter(ccw => cw.code === ccw.code && cw.device === ccw.device
+    && sourceSignature(cw.source) === sourceSignature(ccw.source) && Math.sign(cw.delta) === -Math.sign(ccw.delta) && cw.delta !== 0)
+    .map(ccw => ({ axis: cw, counterclockwiseDelta: ccw.delta })));
+  if (!matches.length) throw new Error('No common axis reported opposite signed motion.');
+  return matches;
+}
+
+async function observeDialDirections({ io, ...capture }: DialDirectionsOptions, verifyProfile?: () => Promise<void>, firstDirection: MotionDirection = 'clockwise') {
+  const turn = async (direction: MotionDirection) => {
+    await io.question(`Leave all buttons released and the dial still. Press Enter to prepare the ${direction} turn. `);
+    await verifyProfile?.();
+    const observation = await observeMotion({ ...capture, direction,
+      onArmed: (direction, seconds) => io.write(`ARMED: turn the dial ${direction} briefly, then let it settle. Capture lasts ${seconds} seconds.\n`) }, 'diagnostic');
+    if (observation.outsideWindow) io.write(`Outside the capture window: ${observation.outsideWindow} motion records excluded.\n`);
+    io.write(`Capture evidence: ${observation.evidencePath}\n`);
+    await verifyProfile?.();
+    return observation;
+  };
+  const first = await turn(firstDirection);
+  const second = await turn(firstDirection === 'clockwise' ? 'counterclockwise' : 'clockwise');
+  const [clockwise, counterclockwise] = firstDirection === 'clockwise' ? [first, second] : [second, first];
+  const matches = matchingDialAxes(clockwise, counterclockwise);
+  for (const { axis, counterclockwiseDelta } of matches)
+    io.write(`Interface ${axis.interfaceNumber}, relative axis ${axis.code}: clockwise ${axis.delta}, counterclockwise ${counterclockwiseDelta}.\n`);
+  return { axes: matches.map(match => match.axis), evidencePath: clockwise.evidencePath };
+}
+
+export async function captureVerifiedDial({ chooseAxis, firstDirection, ...options }: DialDirectionsOptions & {
+  chooseAxis: (axes: readonly ObservedMotionAxis[]) => Promise<number>;
+  firstDirection?: MotionDirection;
+}): Promise<CapturedMotionAxis> {
+  const { axes, evidencePath } = await observeDialDirections(options, undefined, firstDirection);
+  const selected = axes.length === 1 ? 0 : await chooseAxis(axes);
+  if (!Number.isInteger(selected) || selected < 0 || selected >= axes.length)
+    throw new Error('Choose one of the axes verified in both directions.');
+  const axis = axes[selected];
+  return { source: axis.source, type: 2, code: axis.code, evidencePath, observations: axes, direction: 'clockwise' };
+}
+
+export async function checkDialMotion({ profilePath, ...capture }: Omit<DialDirectionsOptions, 'captureSeconds'> & { profilePath: string }) {
   const original = await profileSnapshot(profilePath);
   if (!original) throw new Error('Capture and save the button map before checking the dial.');
   const profile = decodePeripheralBridgeConfig(JSON.parse(original.toString('utf8')));
   if (profile.inputMap.axis || profile.jiggle !== null) throw new Error('This check requires a profile without a dial mapping and with jiggle disabled.');
-  const verifyProfile = async () => {
+  await observeDialDirections({ ...capture, captureSeconds: 5 }, async () => {
     if (!(await profileSnapshot(profilePath))?.equals(original)) throw new Error('Peripheral profile changed during the dial check.');
-  };
-  const turn = async (direction: MotionDirection) => {
-    await io.question(`Leave all buttons released and the dial still. Press Enter to prepare the ${direction} turn. `);
-    await verifyProfile();
-    const observation = await observeMotion({ ...capture, direction, captureSeconds: 5,
-      onArmed: (direction, seconds) => io.write(`ARMED: turn the dial ${direction} briefly, then let it settle. Capture lasts ${seconds} seconds.\n`) }, 'diagnostic');
-    if (observation.outsideWindow) io.write(`Outside the capture window: ${observation.outsideWindow} motion records excluded.\n`);
-    io.write(`Capture evidence: ${observation.evidencePath}\n`);
-    await verifyProfile();
-    return observation;
-  };
-  const clockwise = await turn('clockwise');
-  const counterclockwise = await turn('counterclockwise');
-  if (clockwise.attachment !== counterclockwise.attachment) throw new Error('USB attachment changed between the two dial captures.');
-  const matches = clockwise.axes.flatMap(cw => counterclockwise.axes.filter(ccw => cw.code === ccw.code && cw.device === ccw.device
-    && sourceSignature(cw.source) === sourceSignature(ccw.source) && Math.sign(cw.delta) === -Math.sign(ccw.delta) && cw.delta !== 0)
-    .map(ccw => ({ interfaceNumber: cw.interfaceNumber, code: cw.code, clockwiseDelta: cw.delta, counterclockwiseDelta: ccw.delta })));
-  if (!matches.length) throw new Error('No common axis reported opposite signed motion.');
-  for (const axis of matches)
-    io.write(`Interface ${axis.interfaceNumber}, relative axis ${axis.code}: clockwise ${axis.clockwiseDelta}, counterclockwise ${axis.counterclockwiseDelta}.\n`);
+  });
 }
 
 export async function profileSnapshot(path: string): Promise<Buffer | null> {
@@ -480,8 +503,6 @@ async function commissionHardwareUnderLock({ profilePath, baseProfile, service, 
     if (includeAxis) {
       if (!captureAxis) throw new Error('Dial capture is unavailable in this installation. Install the reviewed motion reader before using setup with the dial.');
       await audioOff();
-      signal?.throwIfAborted();
-      await io.question('Leave the dial still. Press Enter when ready for dial capture. ');
       signal?.throwIfAborted();
       axis = await captureAxis();
       signal?.throwIfAborted();

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { assembleInstallationMap, motionFromEvidence, commissionDial, commissionHardware, profileSnapshot, saveCommissionedProfile, switchFromEvidence, type CapturedSwitch, type PeripheralBaseProfile } from '../commissioning.js';
+import { assembleInstallationMap, matchingDialAxes, motionFromEvidence, commissionDial, commissionHardware, profileSnapshot, saveCommissionedProfile, switchFromEvidence, type CapturedSwitch, type PeripheralBaseProfile } from '../commissioning.js';
 
 const source = { interfaceNumber: 0, eventTypes: [0, 1], keyCodes: [30, 31], relativeAxes: [] };
 const base: PeripheralBaseProfile = { version: 2, origin: 'http://127.0.0.1:8443', tokenFile: '/home/test/token',
@@ -201,6 +201,17 @@ test('zero net dial displacement remains valid nonzero motion with direction rev
   assert.equal(axes.length, 1); assert.equal(axes[0].delta, 0); assert.equal(axes[0].samples, 4);
   assert.equal(axes[0].positiveCounts, 10); assert.equal(axes[0].negativeCounts, 10);
   assert.throws(() => motionFromEvidence({ values: motionEvidence(), direction: 'counterclockwise', trialId: 'motion-synthetic', exitCode: 0 }), /did not complete/);
+});
+
+test('bootstrap matches only opposite motion from the same attachment and qualified axis', () => {
+  const [baseAxis] = motionFromEvidence({ values: motionEvidence(), direction: 'clockwise', trialId: 'motion-synthetic', exitCode: 0 });
+  const clockwise = { attachment: 'same-usb', axes: [{ ...baseAxis, delta: 804 }] };
+  const opposite = { ...baseAxis, delta: -2467 };
+  const counterclockwise = { attachment: 'same-usb', axes: [opposite] };
+  assert.deepEqual(matchingDialAxes(clockwise, counterclockwise), [{ axis: clockwise.axes[0], counterclockwiseDelta: -2467 }]);
+  assert.throws(() => matchingDialAxes(clockwise, { ...counterclockwise, attachment: 'reattached' }), /attachment changed/);
+  for (const axis of [{ ...opposite, delta: 2467 }, { ...opposite, delta: 0 }, { ...opposite, code: 0 }])
+    assert.throws(() => matchingDialAxes(clockwise, { ...counterclockwise, axes: [axis] }), /No common axis/);
 });
 
 test('dial reports must match actual durable raw samples and source capabilities', () => {

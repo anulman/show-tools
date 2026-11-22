@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { parseArgs, promisify } from 'node:util';
 import { decodePeripheralBridgeConfig } from './bridge.js';
-import { ARCADE_SWITCH_IDS, INPUT_ONLY_SWITCH_IDS, captureAxis, captureSwitch, checkDialMotion, commissionDial, decodeMotionDirection, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo,
+import { ARCADE_SWITCH_IDS, INPUT_ONLY_SWITCH_IDS, captureAxis, captureSwitch, captureVerifiedDial, checkDialMotion, commissionDial, decodeMotionDirection, commissionHardware, profileSnapshot, type CapturedAxis, type CommissioningIo, type ObservedMotionAxis,
   type CommissioningService, type CommissioningMaintenance, type PeripheralBaseProfile } from './commissioning.js';
 import { renderPeripheralUnit } from './service-unit.js';
 import { decodeSessionProfile } from '../remote-performance/session-profile.js';
@@ -34,7 +34,7 @@ Setup asks for LED outputs on the four arcade buttons. Pedal and mushroom are in
 --check-knob records read-only dial motion in both directions.
 Only the verified profile web service and show-tools-peripheral.service are controlled.
 Add --start to button setup to start a previously inactive service after saving.
---with-dial captures the dial and buttons in one setup. show-tools-config uses it by default.
+--with-dial checks both dial directions and saves the dial and buttons in one setup. show-tools-config uses it by default.
 New musical dial mappings start at 4 travel and 2 reversal counts.
 --dial adds the observed relative-Y source without recapturing the button map.
 Add --jiggle-travel N --jiggle-reversal N to save explicit motion thresholds,
@@ -254,14 +254,16 @@ export async function runCommissioningCli(args: readonly string[], options: Comm
         jiggle = { minimumTravel: Number(travel), minimumReversal: Number(reversal) };
       }
       axisCapture = capture ? () => capture({ benchDirectory, stagingRoot, io }) : async () => {
-        const captured = await captureAxis({ readerPath: join(benchDirectory, 'raw_motion.py'), publisherPath: join(benchDirectory, 'publish_marker.py'),
-          stagingRoot, direction, captureSeconds, signal,
-          onArmed: (direction, seconds) => io.write(`ARMED: turn only the dial ${direction} for ${seconds} seconds.\n`),
-          chooseAxis: async axes => {
+        const observer = { readerPath: join(benchDirectory, 'raw_motion.py'), publisherPath: join(benchDirectory, 'publish_marker.py'),
+          stagingRoot, captureSeconds, signal, chooseAxis: async (axes: readonly ObservedMotionAxis[]) => {
             for (const [index, axis] of axes.entries()) io.write(`${index + 1}. Interface ${axis.interfaceNumber}, relative axis ${axis.code}, ${axis.samples} samples, signed delta ${axis.delta}.\n`);
             const answer = (await io.question('Choose the dial axis by its listed number: ')).trim();
             return /^[1-9][0-9]*$/.test(answer) ? Number(answer) - 1 : -1;
-          } });
+          } };
+        const captured = values['with-dial']
+          ? await captureVerifiedDial({ ...observer, io, firstDirection: direction })
+          : await captureAxis({ ...observer, direction,
+            onArmed: (direction, seconds) => io.write(`ARMED: turn only the dial ${direction} for ${seconds} seconds.\n`) });
         for (const axis of captured.observations) io.write(`Observed relative axis ${axis.code} on interface ${axis.interfaceNumber}: ${axis.samples} nonzero samples, signed delta ${axis.delta}, positive counts ${axis.positiveCounts}, negative counts ${axis.negativeCounts}.\n`);
         return captured;
       };
