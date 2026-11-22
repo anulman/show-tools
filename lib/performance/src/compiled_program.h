@@ -107,7 +107,7 @@ class Program {
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   struct EdgeCapturePair { int button = -1, takes[2]{}, arms[2]{}; bool used = false; };
-  struct EdgePlaybackPair { int button = -1, selections[2]{}, takes[2]{}, next = 0; double at = 0; };
+  struct EdgePlaybackPair { int button = -1, selections[2]{}, takes[2]{}; bool fired[2]{}; double at = 0; };
   struct EdgeCapture { int pair = -1, step = 0; uint64_t source = 0, hold = 0; };
   EdgeCapturePair edge_capture_pairs_[PF_COMPILED_MAX_TAKES / 2];
   std::unique_ptr<EdgePlaybackPair[]> edge_playback_pairs_;
