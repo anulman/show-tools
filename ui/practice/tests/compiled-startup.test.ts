@@ -7,14 +7,14 @@ import { CONTROL_IDS } from '../../../lib/performance/model.js';
 import { encodeCompiledProgram } from '../../../lib/performance/compiled-native.js';
 import { sourceForVM } from '../../../scripts/source-for-vm.js';
 import song from '../../../songs/dance-yrself-clean.js';
-import { initialVoiceEffects } from '../voice-effects.js';
+import { initialVoiceEffects } from '../../../lib/performance/vocal-effects.js';
 
 const module = await WebAssembly.compile(await readFile(new URL('../wasm/manual-clock.wasm', import.meta.url)));
 const sources = await Promise.all(['../runtime/beat-worklet.js', '../runtime/performance-worklet.js', '../practice-worklet.ts']
   .map(async path => (await sourceForVM(new URL(path, import.meta.url))).replace(/^import .*;\n/gm, '').replace(/export class /g, 'class ')));
 
 for (const sampleRate of [44100, 48000]) test(`complete DYC worklet prepares its initial venue and five parent captures at ${sampleRate} Hz`, () => {
-  const configurations = initialVoiceEffects().map(configuration => configuration.profile === 0
+  const configurations = initialVoiceEffects(song.compiled).map(configuration => configuration.profile === 0
     ? { ...configuration, effects: [{ kind: 'slapback', delayMs: 140, feedback: .2, wet: .4 }] } satisfies typeof configuration : configuration);
   const messages: { type: string; message?: string }[] = [];
   const processors = new Map<string, new (options: unknown) => { native: NativePerformance; process(inputs: unknown, outputs: unknown): boolean }>();

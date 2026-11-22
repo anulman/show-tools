@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.js';
-import { effectSummary, initialVoiceEffects } from '../voice-effects.js';
+import { effectSummary } from '../voice-effects.js';
+import { initialVoiceEffects } from '../../../lib/performance/vocal-effects.js';
+import song from '../../../songs/dance-yrself-clean.js';
 import { DEFAULT_LIVE_PROFILE, ROTATION_LIVE_PROFILE, VOICE_PROFILE_COUNT } from '../../../lib/performance/model.js';
 
 test('Space leaves focused disclosures, actions and links to their native keyboard behavior', () => {
@@ -13,7 +15,7 @@ test('Space leaves focused disclosures, actions and links to their native keyboa
 });
 
 test('capture voices start dry while live vocals retain their approved independent stacks', () => {
-  const configurations = initialVoiceEffects();
+  const configurations = initialVoiceEffects(song.compiled);
   assert.equal(configurations.length, VOICE_PROFILE_COUNT);
   assert.equal(new Set(configurations.map(configuration => configuration.profile)).size, VOICE_PROFILE_COUNT);
   const backup = configurations.find(configuration => configuration.profile === ROTATION_LIVE_PROFILE);
@@ -34,7 +36,7 @@ test('effect summaries retain the supplied processing order and parameter units'
 });
 
 test('legacy dry preparation includes no hidden default or backup effect stages', () => {
-  const configurations = initialVoiceEffects('dry');
+  const configurations = initialVoiceEffects();
   assert.equal(configurations.length, VOICE_PROFILE_COUNT);
   assert(configurations.every(configuration => configuration.effects.length === 0));
 });
