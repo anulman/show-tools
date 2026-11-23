@@ -122,6 +122,8 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
   const home = (mode === 'browser' ? '/browser' : '') + firstSongPath;
   const header = template.header.replace('href="./"', 'href="' + home + '"');
   const previewing = requested?.previewOnly || (mode === 'hardware' && !!(requestedId && active && requestedId !== active.id));
+  const activeSong = mode === 'hardware' && requested?.previewOnly && SET_SONGS.find(song => song.id === active?.id);
+  const activeSlug = activeSong && songRoute(activeSong.id);
   return (
     <DeskState.Provider value={{ active, runtime }}>
       {mode === 'browser' && <link rel="manifest" href={TANSTACK_DESK_PATH + 'browser/manifest.webmanifest'} />}
@@ -136,6 +138,9 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
             })}
           </ul>
         </details>}
+        {activeSlug && activeSong && <p>
+          <Link to="/$songId" params={{ songId: activeSlug }}>Back to {activeSong.title}</Link>
+        </p>}
         {error && <p role="alert">{error}</p>}
         <Outlet />
         <div hidden={previewing} inert={previewing} style={{ display: previewing ? 'none' : 'contents' }} dangerouslySetInnerHTML={{ __html: template.song }} />
