@@ -19,7 +19,9 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   assert.equal(loaded[1].chart.bars[16].partial, false, 'starred section changes are not partial bars');
   assert.equal(loaded[1].compiled.executable, true);
   for (const index of [2, 4, 5, 6]) {
-    assert.equal(loaded[index].compiled?.executable, false);
+    assert.equal(loaded[index].compiled?.executable, true);
+    assert.deepEqual(loaded[index].compiled.cues, []);
+    assert.deepEqual(loaded[index].compiled.takes, []);
     assert.ok(loaded[index].source?.values.some(row => row[0] === 'AF - Vocals' && row.slice(1).some(Boolean)));
   }
   assert.equal(loaded[3].compiled.executable, true);

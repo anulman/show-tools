@@ -75,6 +75,54 @@ test('an unarmed physical mushroom press terminates audio without a browser', as
   } finally { await fixture.dispose(); }
 });
 
+test('unfinished songs run rehearsal transport and acknowledge physical pads without executing draft cues', async () => {
+  const [{ loadSong }, { SET_SONGS }, { DEFAULT_BUTTON_BINDINGS }] = await Promise.all([
+    import('../../../songs/index.js'), import('../../../songs/routes.js'), import('../../performance/input-bindings.js'),
+  ]);
+  for (const entry of SET_SONGS.filter(song => song.rehearsal)) {
+    const song = await loadSong(entry.id);
+    assert(song.compiled);
+    const directory = await mkdtemp(join(tmpdir(), 'rehearsal-'));
+    const compiled = { ...song.compiled, inputBindings: DEFAULT_BUTTON_BINDINGS };
+    const controller = new PersistentDesk(sessionProfile(directory), installedPackage(compiled).installed);
+    try {
+      controller.setAudio('on');
+      const audio = await until(() => {
+        const current = controller.snapshot().audio;
+        if (current.kind === 'fault') throw new Error(current.error);
+        return current.kind === 'ready' ? current : undefined;
+      });
+      const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
+      const command = (command: string, args: object) => controller.command(target, { command, args });
+      const routing = audio.performance.state.inputRouting;
+      assert(routing);
+      const identity = { producer: 0, session: routing.sessionHighWatermark + 1, bindingGeneration: routing.bindingGeneration };
+      assert.equal((await command('inputAttach', { ...identity, kind: 'physical', releasedMask: 33, heldMask: 0 })).outcome, 'applied');
+      assert.equal((await command('setClick', { enabled: true })).outcome, 'applied');
+      assert.equal((await command('start', { bpm: song.chart.bpm, startBar: 1, endBar: song.practice.endBar, countInBars: 0 })).outcome, 'applied');
+      const inputs: string[] = [];
+      const unsubscribe = controller.subscribe(publication => {
+        if (publication.type !== 'event' || publication.event.identifiedInput?.controlId !== 'blue') return;
+        inputs.push(publication.event.identifiedInput.edge);
+      });
+      try {
+        for (const [sequence, value] of [[1, 1], [2, 0]]) {
+          assert.equal((await command('inputEvent', { ...identity, sequence, input: 0, value })).outcome, 'applied');
+        }
+        await until(() => inputs.length === 2 ? true : undefined);
+        assert.deepEqual(inputs, ['press', 'release']);
+        const active = controller.snapshot().audio;
+        assert.equal(active.kind, 'ready');
+        assert.equal(active.performance.state.phase, 'playing');
+        assert.equal(active.performance.state.click, true);
+        assert(active.performance.state.channels.every(channel => channel.status === 'empty'));
+        await command('inputEvent', { ...identity, sequence: 3, input: 5, value: 1 });
+        await until(() => controller.snapshot().audio.kind === 'off' ? true : undefined);
+      } finally { unsubscribe(); }
+    } finally { await controller.close(); await rm(directory, { recursive: true, force: true }); }
+  }
+});
+
 test('failed startup reaps before fault and never automatically retries', async () => {
   const fixture = await desk();
   try {

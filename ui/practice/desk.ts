@@ -563,6 +563,11 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   function panic() { return stopPerformance('panic'); }
 
   function receivePerformanceEvent(event: PracticeEvent) {
+    const input = event.identifiedInput;
+    if (input?.kind === 'physical' && input.edge === 'press' && song?.compiled?.voices.length === 0 && acceptsRouteInput()) {
+      const binding = remoteDesk?.snapshot().song.compiled?.inputBindings?.find(binding => binding.controlId === input.controlId);
+      if (binding?.target.kind === 'cue-rows') for (const row of binding.target.rows) flash(row);
+    }
     if (event.type === 'control' && event.applied && event.control?.id === 'mushroom') {
       preparationAbort?.abort(new Error('Audio preparation canceled'));
       phoneMotionAbort?.abort(); transportGeneration++; chartFollower?.stop();
