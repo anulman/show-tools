@@ -1,6 +1,6 @@
 import { PeripheralMaintenanceBusy, withPeripheralMaintenance } from '../peripherals/maintenance.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { MAX_CHART_BYTES } from './chart-overrides.js';
+import { MAX_CHART_BYTES, type PublishedChart } from './chart-overrides.js';
 import { DESK_HEARTBEAT_MS } from './event-liveness.js';
 import { BROWSER_DESK_PATH, HARDWARE_DESK_PATH, PRACTICE_ASSET_PATH, TANSTACK_ASSET_PATH, TANSTACK_STATIC_PATH, isDeskEntry, isTanstackDeskDocument } from './desk-paths.js';
 import type { TunerState } from '../tuner/model.js';
@@ -249,13 +249,17 @@ function json(response: ServerResponse, status: number, value: unknown) {
 	response.end(JSON.stringify(value));
 }
 
+class BodyTooLarge extends Error {}
+// A JSON string can use six wire bytes per decoded character (Unicode escape).
+const MAX_CHART_BODY = MAX_CHART_BYTES * 6 + MAX_BODY;
+
 async function readBody(request: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
 	const chunks: Buffer[] = [];
 	let length = 0;
 	for await (const chunk of request) {
 		const bytes = Buffer.from(chunk);
 		length += bytes.length;
-		if (length > limit) throw new Error('Body too large');
+		if (length > limit) throw new BodyTooLarge();
 		chunks.push(bytes);
 	}
 	return JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -288,6 +292,8 @@ export interface SongActions {
   select(id: string, expectedRevision: string): Promise<AudioDecision>;
   bindings(expectedRevision: string, values: InputBindings): Promise<AudioDecision>;
   publishChart?(expectedRevision: string, xml: string): Promise<AudioDecision>;
+  readChart?(id: string): Promise<PublishedChart | undefined>;
+  publishInstalledChart?(id: string, xml: string, expectedChartVersion: string): Promise<PublishedChart>;
 }
 const configurationFields = { ...requestFields, expectedRevision: Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/)) };
 const decodeSongSelection = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields, songId: Schema.NonEmptyString.check(Schema.isMaxLength(256)) }), { onExcessProperty: 'error' });
@@ -295,6 +301,11 @@ const decodeButtonBindings = Schema.decodeUnknownSync(Schema.Struct({ ...configu
 
 const decodeChartUpdate = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields,
   musicXml: Schema.NonEmptyString }), { onExcessProperty: 'error' });
+
+const decodeInstalledChartUpdate = Schema.decodeUnknownSync(Schema.Struct({
+  musicXml: Schema.NonEmptyString,
+  expectedChartVersion: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+}), { onExcessProperty: 'error' });
 
 function deskWireSong(song: DeskView['song']): DeskView['song'] {
   const { compiled } = song;
@@ -440,6 +451,36 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         return preview ? json(response, 200, { ...preview, song: deskWireSong(preview.song) })
           : json(response, 404, { error: 'Song is not installed' });
       }
+      if ((request.method === 'GET' || request.method === 'PUT') && path.startsWith('/api/charts/')) {
+        if (request.method === 'PUT' && request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
+        let id: string;
+        try { id = decodeURIComponent(path.slice('/api/charts/'.length)); }
+        catch { return json(response, 400, { error: 'Invalid song ID' }); }
+        if (!id || !songs?.choices().some(choice => choice.id === id) || !songs.readChart)
+          return json(response, 404, { error: 'Song is not installed' });
+        if (request.method === 'GET') {
+          try {
+            const chart = await songs.readChart(id);
+            return chart ? json(response, 200, chart) : json(response, 404, { error: 'Song is not installed' });
+          } catch { return json(response, 409, { error: 'Chart is unavailable' }); }
+        }
+        const publish = songs.publishInstalledChart;
+        if (!publish) return json(response, 404, { error: 'Chart updates are unavailable' });
+        if (receivingChart) return json(response, 409, { error: 'A chart upload is already in progress' });
+        receivingChart = true;
+        try {
+          let body: ReturnType<typeof decodeInstalledChartUpdate>;
+          try { body = decodeInstalledChartUpdate(await readBody(request, MAX_CHART_BODY)); }
+          catch (error) { return json(response, error instanceof BodyTooLarge ? 413 : 400, { error: 'Invalid chart body' }); }
+          if (Buffer.byteLength(body.musicXml) > MAX_CHART_BYTES) return json(response, 413, { error: 'MusicXML exceeds 4 MiB' });
+          const run = () => publish(id, body.musicXml, body.expectedChartVersion);
+          const chart = await (config.peripheralProfile ? withPeripheralMaintenance(config.peripheralProfile, run) : run());
+          return json(response, 200, chart);
+        } catch (error) {
+          return json(response, 409, { error: error instanceof PeripheralMaintenanceBusy ? 'Peripheral maintenance is in progress'
+            : error instanceof Error ? error.message : 'Chart publication failed' });
+        } finally { receivingChart = false; }
+      }
       if ((request.method === 'GET' || request.method === 'HEAD') && path === '/api/demo-recording') {
         const demo = await controller.openDemo?.().catch(() => null);
         if (!demo) return json(response, 404, { error: 'No completed demo' });
@@ -487,11 +528,11 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         let body: ReturnType<typeof decodeCommand> | ReturnType<typeof decodeAudio> | ReturnType<typeof decodeSongSelection>
           | ReturnType<typeof decodeButtonBindings> | ReturnType<typeof decodeChartUpdate>;
         try {
-          const input = await readBody(request, chart ? MAX_CHART_BYTES * 2 + MAX_BODY : MAX_BODY);
+          const input = await readBody(request, chart ? MAX_CHART_BODY : MAX_BODY);
           body = chart ? decodeChartUpdate(input) : path === '/api/audio' ? decodeAudio(input) : path === '/api/song' ? decodeSongSelection(input)
             : path === '/api/button-bindings' ? decodeButtonBindings(input) : decodeCommand(input);
           if ('musicXml' in body && Buffer.byteLength(body.musicXml) > MAX_CHART_BYTES) return json(response, 413, { error: 'MusicXML exceeds 4 MiB' });
-        } catch { return json(response, 400, { error: 'Invalid body' }); }
+        } catch (error) { return json(response, error instanceof BodyTooLarge ? 413 : 400, { error: 'Invalid body' }); }
         finally { if (chart) receivingChart = false; }
 				const session = sessions.get(body.sessionId);
 				if (!session) return json(response, 409, { error: 'Session expired' });

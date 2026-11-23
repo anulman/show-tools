@@ -9,6 +9,7 @@ import { compiledProgramBytes } from '../performance/compiled-native.js';
 import { DEFAULT_BUTTON_BINDINGS, decodeInputBindings, type InputBindings } from '../performance/input-bindings.js';
 import { readMusicXmlSong, writeMusicXmlSong } from '../performance/musicxml-song.js';
 import { stableMusicXmlJson } from '../performance/score-xml.js';
+import { chartSource, type ChartSource } from './chart-overrides.js';
 import { encodeInitialProfiles } from './commands.js';
 import { validateInstalledPackage } from './prepare.js';
 import type { InstalledSong } from './song-catalog.js';
@@ -38,6 +39,7 @@ export interface ButtonBindingRecord {
 export interface PreparedSongBindings {
   readonly songId: string;
   readonly sourceDigest: string;
+  readonly chart: ChartSource;
   readonly bindings: InputBindings;
   readonly musicXml: string;
   readonly manifest: Buffer;
@@ -126,7 +128,7 @@ export async function prepareSongBindings(entry: InstalledSong, input: unknown, 
       : { startBar: 1, endBar: canonical.song.chart.annotatedThroughBar }, takeCount: canonical.song.takes.length,
     packetSha256: hash(packet), profilesSha256: hash(encodeInitialProfiles(configurations)) }));
   const installed = validateInstalledPackage(manifest, packet, configurations);
-  return { songId: entry.id, sourceDigest: compiled.source.digest, bindings: acknowledged, musicXml,
+  return { songId: entry.id, sourceDigest: compiled.source.digest, chart: chartSource(entry.id, sourceBytes, override !== undefined), bindings: acknowledged, musicXml,
     manifest, packet, effects, installed,
     packageDigest: hash(Buffer.from(JSON.stringify({ format: 'show-tools-authored-song-v1',
       sourceSha256: hash(Buffer.from(musicXml)), manifestSha256: hash(manifest), packetSha256: hash(packet), effectsSha256: hash(effects) }))) };
