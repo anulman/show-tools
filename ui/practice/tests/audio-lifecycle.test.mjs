@@ -6,7 +6,8 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { PF } from '../../../lib/performance/wasm-abi.ts';
 import { webcrypto } from 'node:crypto';
-import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.ts';
+import { createVoiceEffectsEditor } from '../voice-effects.ts';
+import { chorus, initialVoiceEffects, slapback } from '../../../lib/performance/vocal-effects.ts';
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
 import { audioMode, canChangeAudioMode, changeAudioMode } from '../audio-mode.ts';
 
@@ -201,7 +202,8 @@ function voiceEditorHarness() {
   const roots = new Map(), applied = [];
   const editor = createVoiceEffectsEditor(profile => applied.push(profile));
   // Explicit non-default stacks exercise field validation for otherwise dry capture voices.
-  for (const profile of [0, 1]) editor.setEffects(profile, [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }]);
+  for (const profile of [0, 1]) editor.setEffects(profile, [slapback()]);
+  editor.setEffects(5, [slapback(), chorus()]);
   const original = globalThis.document;
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
@@ -630,17 +632,22 @@ test('Space on an effect disclosure, action button or link never toggles transpo
   assert.equal(panics, 1);
 });
 
-for (const id of ['i-can-change']) {
-  test(`${id} starts with dry identity processing in every profile, including hidden live routes`, async () => {
-    const song = await loadSong(id);
-    assert.equal(song.compiled, undefined, 'this source has no compiled per-voice capture support');
-    const h = startupHarness(undefined, { loadedSong: song, voiceConfigurations: initialVoiceEffects() });
-    await h.controls.startPractice();
-    assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), initialVoiceEffects('dry'));
-    assert(h.audio.configuredEffects.every(configuration => configuration.effects.length === 0));
-    assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
-  });
-}
+test('timing-only sessions start with dry identity processing in every profile', async () => {
+  const h = startupHarness(undefined, { compiled: false, voiceConfigurations: initialVoiceEffects() });
+  await h.controls.startPractice();
+  assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), initialVoiceEffects('dry'));
+  assert(h.audio.configuredEffects.every(configuration => configuration.effects.length === 0));
+  assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
+});
+
+test('an unfinished chart cannot prepare audio or start transport', async () => {
+  const song = await loadSong('i-can-change');
+  const h = startupHarness(undefined, { loadedSong: song, catalogSave: async () => assert.fail('Unexpected draft save') });
+  await assert.rejects(h.controls.ensureAudio(), /Audio is unavailable/);
+  await assert.rejects(h.controls.startPractice(), /Audio is unavailable/);
+  assert.deepEqual(h.creationOptions, []);
+  assert.deepEqual(h.commands, []);
+});
 
 for (const action of ['startPractice', 'applyVoiceEffects']) {
   test(`${action} persists voice drafts before configuring audio`, async () => {
@@ -675,7 +682,7 @@ test('Drunk Girls loads the complete executable pickup and numbered timeline', a
   const song = await loadSong('drunk-girls');
   assert.equal(song.compiled?.executable, true);
   assert.equal(song.chart.bars.length, 137);
-  assert.equal(song.chart.bars[0].label, 'Pickup 0');
+  assert.equal(song.chart.bars[0].label, 'Pickup');
   assert.equal(song.chart.bars[9].label, '1');
   assert.equal(song.practice.endBar, 137);
 });

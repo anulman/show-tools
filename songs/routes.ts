@@ -1,11 +1,15 @@
 const setList = [
-  { number: 1, id: 'dance-yrself-clean', title: 'Dance Yrself Clean' },
-  { number: 2, id: 'drunk-girls', title: 'Drunk Girls' },
-  { number: 3, id: 'i-can-change', title: 'I Can Change' },
-  { number: 4, id: 'tribulations', title: 'Tribulations' },
+  { number: 1, id: 'dance-yrself-clean', title: 'Dance Yrself Clean', previewOnly: false },
+  { number: 2, id: 'drunk-girls', title: 'Drunk Girls', previewOnly: false },
+  { number: 3, id: 'i-can-change', title: 'I Can Change', previewOnly: true },
+  { number: 4, id: 'tribulations', title: 'Tribulations', previewOnly: false },
+  { number: 5, id: 'daft-punk', title: 'Daft Punk Is Playing at My House', previewOnly: true },
+  { number: 6, id: 'all-i-want', title: 'All I Want', previewOnly: true },
+  { number: 7, id: 'you-wanted-a-hit', title: 'You Wanted a Hit', previewOnly: true },
 ] as const;
 
 export type SetSong = (typeof setList)[number];
+export type PreviewSong = Extract<SetSong, { previewOnly: true }>;
 export type SongId = SetSong['id'];
 export const SET_SONGS = setList;
 

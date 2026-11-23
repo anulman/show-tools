@@ -1,6 +1,6 @@
-import { Outlet, useBlocker, useRouter, useRouterState } from '@tanstack/react-router';
+import { Link, Outlet, useBlocker, useRouter, useRouterState } from '@tanstack/react-router';
 import { useEffect, useRef, useState } from 'react';
-import { nextSetSong, songForRoute, songRoute } from '../../../songs/routes.js';
+import { nextSetSong, SET_SONGS, songForRoute, songRoute } from '../../../songs/routes.js';
 import { TANSTACK_DESK_PATH } from '../../../lib/remote-performance/desk-paths.js';
 import type { AudioMode } from '../../practice/audio-mode.js';
 import { DeskState, type DeskMount, type SongObservation } from './desk-state';
@@ -45,7 +45,7 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
       workerURL: mode === 'browser' ? new URL(TANSTACK_DESK_PATH + 'browser/sw.js', location.origin) : undefined,
       allowSongInput: songId => {
         const requestedSong = routeSong(router.state.location.pathname);
-        return !requestedSong || requestedSong.id === songId;
+        return !requestedSong || (!requestedSong.previewOnly && requestedSong.id === songId);
       },
       onModeChange: next => {
         const slug = routeSong(router.state.location.pathname);
@@ -115,14 +115,27 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
     if (slug) void router.preloadRoute({ to: mode === 'hardware' ? '/$songId' : '/browser/$songId', params: { songId: slug } });
   }, [active?.id, active?.digest, active?.installedIds, mode, ready, requestedId, router]);
 
+  useEffect(() => {
+    if (requested?.previewOnly) document.title = requested.title + ' · Performance Desk';
+  }, [active?.id, pathname, requested]);
+
   const home = (mode === 'browser' ? '/browser' : '') + firstSongPath;
   const header = template.header.replace('href="./"', 'href="' + home + '"');
-  const previewing = mode === 'hardware' && !!(requestedId && active && requestedId !== active.id);
+  const previewing = requested?.previewOnly || (mode === 'hardware' && !!(requestedId && active && requestedId !== active.id));
   return (
     <DeskState.Provider value={{ active, runtime }}>
       {mode === 'browser' && <link rel="manifest" href={TANSTACK_DESK_PATH + 'browser/manifest.webmanifest'} />}
       <main id="practice-desk" className="desk">
         <header className="topline" dangerouslySetInnerHTML={{ __html: header }} />
+        {mode === 'hardware' && <details className="chart-preview-menu">
+          <summary>Chart previews</summary>
+          <ul>
+            {SET_SONGS.filter(song => song.previewOnly).map(song => {
+              const slug = songRoute(song.id);
+              return slug && <li key={song.id}><Link to="/$songId" params={{ songId: slug }}>{song.title}</Link></li>;
+            })}
+          </ul>
+        </details>}
         {error && <p role="alert">{error}</p>}
         <Outlet />
         <div hidden={previewing} inert={previewing} style={{ display: previewing ? 'none' : 'contents' }} dangerouslySetInnerHTML={{ __html: template.song }} />

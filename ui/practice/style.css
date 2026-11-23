@@ -193,3 +193,11 @@
   min-width:3ch;
   background-size:75% .65em;
 }
+
+.chart-preview-menu{margin-bottom:14px}
+.chart-preview-menu ul{display:flex;flex-wrap:wrap;gap:8px 18px;list-style:none;padding:0}
+.chart-preview-menu a{text-decoration:underline}
+.chart-preview-scroll{overflow:auto;margin-top:16px}
+.chart-preview-table{border-collapse:collapse;font-size:13px}
+.chart-preview-table th,.chart-preview-table td{border:1px solid var(--line);padding:6px 9px;white-space:nowrap}
+.chart-preview-table th[scope=row]{position:sticky;left:0;background:#f6f8f0;text-align:left}

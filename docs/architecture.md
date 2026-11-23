@@ -87,6 +87,8 @@ The Performance Desk imports complete MusicXML songs, inspects derived instructi
 
 An operator can publish a complete MusicXML export for the selected song from Desk Settings in Standby. The gateway validates the song and worksheet identities, compiles the replacement with the global button assignments and saved effect defaults, then atomically promotes the chart in a private folder beside the authoring database. The running web service publishes the new chart to connected desks. App bundles continue to supply the baseline catalog. The saved chart is reapplied on restart.
 
+The numbered Desk routes also open draft MusicXML charts in a read-only view. A draft uses the bundled chart for its arrangement and has no transport or capture controls. Opening it leaves the hardware gateway on its selected playable song.
+
 The hardware gateway publishes runtime song data to the browser and peripheral bridge. Canonical MusicXML and installed song packages retain typed authoring commands. Desk status, bootstrap, and event responses omit those commands so the resident peripheral bridge can consume runtime state across cue-language revisions.
 
 The [bound Sheets exporter](implementation/sheets-musicxml.md) reads the configured chart through a thin Apps Script adapter and downloads the complete canonical song. Selected rows choose optional musician handouts rather than remove other semantic parts. The rebuilt installer still needs operator installation and Google authorization verification.

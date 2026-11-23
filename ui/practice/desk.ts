@@ -261,6 +261,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
 
   async function ensureAudio(initialEffects?: readonly VoiceEffectConfiguration[], unlock = false) {
     mountSignal.throwIfAborted();
+    if (song?.compiled?.executable === false) throw new Error('Audio is unavailable for this chart preview.');
     if (audio) {
       if (unlock && !(audio instanceof RemoteSession)) await audio.tracker.resume();
       return audio;
@@ -482,6 +483,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
 
   async function startPractice() {
     if (songChanging() || voiceCatalog.busy || starting || isRunning() || effectsApplying || auditionTimer !== undefined || outputCapture === 'starting' || outputCapture === 'stopping') return;
+    if (song?.compiled?.executable === false) throw new Error('Audio is unavailable for this chart preview.');
     if (!chart) throw new Error('The song chart is still loading. Try again in a moment.');
     const bpm = Number(elements.bpm.value);
     const startBar = Number(elements['start-section'].value);
@@ -911,7 +913,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     elements['practice-desk'].dataset.phase = state.phase;
     elements['practice-desk'].dataset.bar = state.bar === null ? '' : String(state.bar);
     elements['practice-desk'].dataset.beat = state.beat === null ? '' : String(state.beat);
-    elements['phase-label'].textContent = inCountIn ? `COUNT-IN · ${state.countInRemaining ?? '…'} TO GO` : state.phase === 'playing' ? 'PLAYING' : state.phase === 'ended' ? 'RANGE COMPLETE' : 'READY TO PLAY';
+    elements['phase-label'].textContent = inCountIn ? `COUNT-IN · ${state.countInRemaining ?? '…'} TO GO` : state.phase === 'playing' ? 'PLAYING' : state.phase === 'ended' ? 'RANGE COMPLETE' : song?.compiled?.executable === false ? 'CHART PREVIEW' : 'READY TO PLAY';
     elements['range-label'].textContent = `BARS ${chartBarLabel(chart, running ? state.startBar ?? 1 : Number(elements['start-section'].value))}–${running ? chartBarLabel(chart, state.endBar ?? chart.bars.length) : elements['end-bar'].value}`;
     elements['bar-number'].textContent = inCountIn ? 'IN' : currentBar?.label ?? String(displayBar).padStart(2, '0');
     elements['bar-number'].classList.toggle('pickup', Boolean(currentBar?.label && !/^\d/.test(currentBar.label)));
