@@ -8,8 +8,9 @@ const NodeFiles = Schema.Struct({ readFile: Schema.declare((value): value is (ur
 
 export async function readBundledMusicXml(id: string, assetBase?: URL): Promise<string> {
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)) throw new Error('Invalid bundled song identity.');
-  const source = new URL(`./${id}.musicxml`, import.meta.url);
-  if (source.protocol === 'file:') {
+  const directory = new URL('.', import.meta.url);
+  if (directory.protocol === 'file:') {
+    const source = new URL(`${id}.musicxml`, directory);
     const moduleName = 'node:fs/promises';
     const module: unknown = await import(moduleName);
     return Schema.decodeUnknownSync(NodeFiles)(module).readFile(source, 'utf8');

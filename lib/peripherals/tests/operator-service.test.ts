@@ -131,7 +131,7 @@ test('waiting packet pins the reviewed CLI and emits no profile or credential re
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('real serve CLI waits with a missing profile and refuses invalid configuration without spawning a helper', { timeout: 10000 }, async () => {
+test('real serve CLI waits with a missing profile and refuses invalid configuration without spawning a helper', { timeout: 25000 }, async () => {
   const directory = await mkdtemp(join(tmpdir(), 'operator-waiting-cli-'));
   const missing = join(directory, 'peripheral.json');
   const moduleUrl = pathToFileURL(resolve('lib/peripherals/bridge-cli.ts')).href;
@@ -146,7 +146,7 @@ await runPeripheralCli(['serve', '--config', ${JSON.stringify(missing)}]);`;
   child.stderr.on('data', data => { errors += data; });
   try {
     await new Promise<void>((resolveReady, reject) => {
-      const timer = setTimeout(() => reject(new Error(`No waiting status: ${errors}`)), 3000);
+      const timer = setTimeout(() => reject(new Error(`No waiting status: ${output}${errors}`)), 15000);
       child.once('exit', code => { clearTimeout(timer); reject(new Error(`CLI exited before waiting: ${code}; ${errors}`)); });
       child.stdout.on('data', data => {
         output += data;

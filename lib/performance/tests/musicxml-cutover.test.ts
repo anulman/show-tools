@@ -107,7 +107,7 @@ test('every bundled song exposes the canonical instructions, metadata and source
     const xml = await readFile(new URL(`../../../songs/${entry.id}.musicxml`, import.meta.url), 'utf8');
     const document = await readMusicXmlSong(xml);
     const { default: script } = await entry.load();
-    assert.deepEqual(script.compiled, document.song.executable ? document.song : undefined);
+    assert.deepEqual(script.compiled, document.song);
     assert.deepEqual(script.chart, document.song.chart);
     assert.deepEqual(script.voiceMetadata, document.voices ?? undefined);
     assert.deepEqual(script.source, musicXmlSourceView(document));
@@ -119,11 +119,14 @@ test('every bundled song exposes the canonical instructions, metadata and source
 test('displayed commands cannot silently enter the timing-only practice path', async () => {
   const { musicXmlSongScript } = await import('../../../songs/load-musicxml.js');
   const xml = await readFile(new URL('../../../songs/i-can-change.musicxml', import.meta.url), 'utf8');
-  const blank = await readMusicXmlSong(xml);
+  const document = await readMusicXmlSong(xml);
+  const blank = { ...document, song: { ...document.song, diagnostics: [], parts: [] } };
   assert.equal(musicXmlSongScript(blank).compiled, undefined);
-  const edited = xml.replace('<measure number="1">', '<measure number="1"><direction><direction-type><words id="command-R1-1">rb</words></direction-type></direction>');
-  const document = await readMusicXmlSong(edited);
-  const script = musicXmlSongScript(document);
+  const [first, ...rest] = blank.song.chart.bars;
+  const edited = { ...blank, song: { ...blank.song, chart: { ...blank.song.chart,
+    bars: [{ ...first, cues: { ...first.cues, R1: 'rb' } }, ...rest],
+  } } };
+  const script = musicXmlSongScript(edited);
   assert.equal(script.chart.bars[0].cues.R1, 'rb');
   assert.equal(script.compiled?.executable, false);
 });
