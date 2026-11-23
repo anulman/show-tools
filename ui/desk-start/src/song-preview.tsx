@@ -10,20 +10,20 @@ import { DeskState } from './desk-state';
 export async function loadDeskRoute(slug: string, mode: AudioMode, context: DeskRouterContext, signal: AbortSignal) {
   const entry = songForRoute(slug);
   if (!entry) throw notFound();
-  if (entry.previewOnly) {
-    const { loadSongPreview } = await import('../../../songs/index.js');
-    const { song: { chart, source }, archive } = await loadSongPreview(entry.id);
-    return { kind: 'draft', entry, chart, source, archive } as const;
-  }
-  if (mode === 'browser') {
+  const { current, song } = context.runtime;
+  const [arrangement, preview] = await Promise.all([
+    entry.rehearsal ? import('../../../songs/index.js').then(async ({ loadSongPreview }) => {
+      const { song: { chart, source }, archive } = await loadSongPreview(entry.id);
+      return { chart, source, archive };
+    }) : undefined,
+    mode === 'hardware' && song?.id !== entry.id && song?.installedIds?.includes(entry.id)
+      ? current?.previewSong(entry.id, signal) : undefined,
+  ]);
+  if (mode === 'browser' && !entry.rehearsal) {
     const { loadSong } = await import('../../../songs/index.js');
     await loadSong(entry.id);
-    return { kind: 'song', entry, preview: undefined } as const;
   }
-  const { current, song } = context.runtime;
-  const preview = song?.id !== entry.id && song?.installedIds?.includes(entry.id)
-    ? await current?.previewSong(entry.id, signal) : undefined;
-  return { kind: 'song', entry, preview } as const;
+  return { entry, arrangement, preview };
 }
 
 type RouteData = Awaited<ReturnType<typeof loadDeskRoute>>;
@@ -49,9 +49,8 @@ export function ChartPreview({
   }
   const rows = source?.values.flatMap((cells, index) => cells[0] ? [{ id: index, label: cells[0], cells }] : []);
   return (
-    <section aria-label="Chart preview">
-      <h1>{chart.title}</h1>
-      <p role="status">Chart preview · Audio and performance cues are unavailable while this chart is in progress.</p>
+    <details className="utility">
+      <summary>Arrangement · Draft cues</summary>
       <p>{chart.bpm} BPM · {chart.bars.length} charted bars</p>
       <label className="field">
         <span>Section</span>
@@ -68,11 +67,11 @@ export function ChartPreview({
           </tr>)}</tbody>
         </table>
       </div>}
-    </section>
+    </details>
   );
 }
 
-export function SongPreview({ data }: { data: Extract<RouteData, { kind: 'song' }> }) {
+export function SongPreview({ data }: { data: RouteData }) {
   const { active, runtime } = useContext(DeskState);
   const [failure, setFailure] = useState('');
   const [selecting, setSelecting] = useState(false);

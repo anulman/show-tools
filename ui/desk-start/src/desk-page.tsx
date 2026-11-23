@@ -26,7 +26,7 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
   const pathname = useRouterState({ select: state => state.location.pathname });
   const requested = routeSong(pathname);
   const requestedId = requested?.id;
-  const initialSong = useRef(requested?.previewOnly ? undefined : requestedId);
+  const initialSong = useRef(requestedId);
   const previousPath = useRef(pathname);
   const [active, setActive] = useState<SongObservation>();
   const [runtime, setRuntime] = useState<DeskMount>();
@@ -46,7 +46,7 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
       workerURL: mode === 'browser' ? new URL(TANSTACK_DESK_PATH + 'browser/sw.js', location.origin) : undefined,
       allowSongInput: songId => {
         const requestedSong = routeSong(router.state.location.pathname);
-        return !requestedSong || (!requestedSong.previewOnly && requestedSong.id === songId);
+        return !requestedSong || requestedSong.id === songId;
       },
       onModeChange: next => {
         const slug = routeSong(router.state.location.pathname);
@@ -104,25 +104,21 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
   }, [runtime, active?.digest, active?.id, router]);
 
   useEffect(() => {
-    if (mode === 'browser' && runtime && requestedId && !requested?.previewOnly && active && requestedId !== active.id)
+    if (mode === 'browser' && runtime && requestedId && active && requestedId !== active.id)
       void runtime.requestBrowserSong(requestedId).catch(reason => setError(reason instanceof Error ? reason.message : String(reason)));
-  }, [active?.id, mode, requested?.previewOnly, requestedId, runtime]);
+  }, [active?.id, mode, requestedId, runtime]);
 
   useEffect(() => {
     if (!active || !ready) return;
     const from = requestedId ?? active.id;
-    const next = nextSetSong(from, SET_SONGS.filter(song => song.previewOnly || active.installedIds?.includes(song.id)).map(song => song.id));
+    const next = nextSetSong(from, active.installedIds ?? []);
     const slug = next && songRoute(next.id);
     if (slug) void router.preloadRoute({ to: mode === 'hardware' ? '/$songId' : '/browser/$songId', params: { songId: slug } });
   }, [active?.id, active?.digest, active?.installedIds, mode, ready, requestedId, router]);
 
-  useEffect(() => {
-    if (requested?.previewOnly) document.title = requested.title + ' · Performance Desk';
-  }, [active?.id, pathname, requested]);
-
   const home = (mode === 'browser' ? '/browser' : '') + firstSongPath;
   const header = template.header.replace('href="./"', 'href="' + home + '"');
-  const previewing = requested?.previewOnly || (mode === 'hardware' && !!(requestedId && active && requestedId !== active.id));
+  const previewing = mode === 'hardware' && !!(requestedId && active && requestedId !== active.id);
   async function chooseSong(id: string) {
     const entry = SET_SONGS.find(song => song.id === id);
     const slug = entry && songRoute(entry.id);
@@ -130,7 +126,7 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
     setError('');
     setSelecting(true);
     try {
-      if (mode === 'hardware' && !entry.previewOnly && runtime && active && active.id !== id && active.installedIds?.includes(id)) {
+      if (mode === 'hardware' && runtime && active && active.id !== id && active.installedIds?.includes(id)) {
         await runtime.selectSong(id);
         return;
       }
@@ -152,7 +148,7 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
           <select id="desk-song-select" aria-label="Song" value={requestedId ?? active?.id ?? SET_SONGS[0].id}
             disabled={selecting} onChange={event => void chooseSong(event.target.value)}>
             {SET_SONGS.map(song => <option key={song.id} value={song.id}>
-              {String(song.number).padStart(2, '0')} · {song.title}{song.previewOnly ? ' · Chart preview' : ''}
+              {String(song.number).padStart(2, '0')} · {song.title}{song.rehearsal ? ' · Rehearsal' : ''}
             </option>)}
           </select>
           <div className="desk-header-tools" dangerouslySetInnerHTML={{ __html: header }} />

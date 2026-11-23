@@ -102,13 +102,15 @@ test('a displayed performance command cannot contradict its executable applicati
 
 test('every bundled song exposes the canonical instructions, metadata and source view', async () => {
   const { SONGS } = await import('../../../songs/index.js');
+  const { rehearsalProgram } = await import('../../../songs/rehearsal.js');
   const { musicXmlSourceView } = await import('../musicxml-source-view.js');
   for (const entry of SONGS) {
     const xml = await readFile(new URL(`../../../songs/${entry.id}.musicxml`, import.meta.url), 'utf8');
     const document = await readMusicXmlSong(xml);
     const { default: script } = await entry.load();
-    assert.deepEqual(script.compiled, document.song);
-    assert.deepEqual(script.chart, document.song.chart);
+    const expected = document.song.executable ? document.song : rehearsalProgram(document.song);
+    assert.deepEqual(script.compiled, expected);
+    assert.deepEqual(script.chart, expected.chart);
     assert.deepEqual(script.voiceMetadata, document.voices ?? undefined);
     assert.deepEqual(script.source, musicXmlSourceView(document));
     assert.equal(script.program.controls, undefined);

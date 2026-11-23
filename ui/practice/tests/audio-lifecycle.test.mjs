@@ -18,7 +18,7 @@ function prepareUIContext(context) {
   if (context.HTMLElement) context.HTMLElement.prototype.after ??= () => {};
   vm.createContext(context);
 }
-import { SONGS, loadSong } from '../../../songs/index.ts';
+import { SONGS, loadSong, loadSongPreview } from '../../../songs/index.ts';
 import { PracticeAudio } from '../audio.js';
 import { BeatTracker } from '../runtime/beat-tracker.js';
 import { NativePerformance } from '../../../lib/performance/wasm-performance.ts';
@@ -641,7 +641,7 @@ test('timing-only sessions start with dry identity processing in every profile',
 });
 
 test('an unfinished chart cannot prepare audio or start transport', async () => {
-  const song = await loadSong('i-can-change');
+  const { song } = await loadSongPreview('i-can-change');
   const h = startupHarness(undefined, { loadedSong: song, catalogSave: async () => assert.fail('Unexpected draft save') });
   await assert.rejects(h.controls.ensureAudio(), /Audio is unavailable/);
   await assert.rejects(h.controls.startPractice(), /Audio is unavailable/);

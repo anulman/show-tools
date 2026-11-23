@@ -25,7 +25,7 @@ ELF = b"\x7fELF\x02\x01" + bytes(12) + b"\x3e\x00"
 def package(source=SOURCE, omit=None, schema=2, runtime=ELF):
     files = {path: b"fixture" for path in stage.REQUIRED}
     entries = []
-    for identity in ("dance-yrself-clean", "drunk-girls", "tribulations"):
+    for identity in ("dance-yrself-clean", "drunk-girls", "i-can-change", "tribulations", "daft-punk", "all-i-want", "you-wanted-a-hit"):
         path = "songs/" + identity
         data = {"manifest.json": json.dumps({"id": identity}).encode(), "song.pfp": b"fixture packet", "effects.json": b"[]", "source.musicxml": b"<score-partwise/>"}
         hashes = {name: hashlib.sha256(value).hexdigest() for name, value in data.items()}

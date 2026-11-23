@@ -8,6 +8,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { readSongCatalog } from './build-song-catalog.js';
+import { SET_SONGS } from '../songs/routes.js';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const required = Schema.NonEmptyString;
@@ -51,7 +52,7 @@ const nativeBytes = await readFile(join(native, 'native_alsa_host'));
 if (nativeBytes.length < 20 || nativeBytes.readUInt32BE(0) !== 0x7f454c46 || nativeBytes[4] !== 2 || nativeBytes[5] !== 1 || nativeBytes.readUInt16LE(18) !== 62) throw new Error('Expected a Linux x86-64 ELF native host');
 const nodeBytes = await readFile(join(runtime, 'bin/node'));
 if (sha256(nodeBytes) !== '94efd062ed066c1a0b332e18249859c905e920eeada5df55d24c99b919629a90') throw new Error('Expected the reviewed official Node22.23.4 Linux x64 executable');
-if (catalog.catalog.entries.map(entry => entry.id).sort().join(',') !== 'dance-yrself-clean,drunk-girls,tribulations') throw new Error('Release requires exactly DYC, Drunk Girls, and Tribulations');
+if (catalog.catalog.entries.map(entry => entry.id).sort().join(',') !== SET_SONGS.map(entry => entry.id).sort().join(',')) throw new Error('Release requires all seven set songs');
 await mkdir(output);
 execFileSync('bash', ['lib/beat-tracker/scripts/build-manual-wasm.sh'], { cwd: root, stdio: 'inherit' });
 execFileSync(process.execPath, ['--import', 'tsx', 'scripts/build-ui.ts'], { cwd: root, stdio: 'inherit' });
@@ -82,7 +83,7 @@ await buildSessionBundles(root, output);
 const tracked = new Set(git('ls-files', '-z').split('\0').filter(Boolean));
 for (const name of benchFiles) if (!tracked.has(`lib/peripherals/bench/${name}`)) throw new Error(`Bench source is not committed: ${name}`);
 const reviewSources = new Set(git('ls-files', '-z', '--', 'lib', 'scripts/build-session-release.ts',
-  'scripts/build-song-catalog.ts', 'scripts/tests/build-song-catalog.test.ts', 'scripts/session-bundles.ts', 'scripts/peripheral-artifact.ts', 'scripts/build-peripheral-artifact.ts',
+  'scripts/build-song-catalog.ts', 'scripts/build-rehearsal-catalog.ts', 'scripts/tests/build-song-catalog.test.ts', 'scripts/session-bundles.ts', 'scripts/peripheral-artifact.ts', 'scripts/build-peripheral-artifact.ts',
   'scripts/stage-session-release.py', 'scripts/tests/stage-session-release.test.py',
   'scripts/build-ui.ts', 'scripts/generate-sampler-abi.ts', 'scripts/wasm-exports.ts', '.github/workflows/native-host.yml', '.github/workflows/peripherals.yml',
   'package.json', 'package-lock.json', ...(options['desk-preview'] ? ['scripts/build-desk-preview.ts', 'ui/desk-start', 'ui/practice', 'ui/tuner', 'songs'] : [])).split('\0').filter(Boolean));
@@ -138,6 +139,6 @@ await writeFile(join(output, 'release.json'), JSON.stringify({ schemaVersion: 2,
 await writeFile(join(output, 'SHA256SUMS'), [...files.map(file => `${file.sha256}  ${file.path}`),
   `${sha256(await readFile(join(output, 'release.json')))}  release.json`].join('\n') + '\n');
 const archive = `${output}.tar.gz`;
-execFileSync('tar', ['-czf', archive, '-C', dirname(output), output.slice(dirname(output).length + 1)], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
+execFileSync('tar', ['--format', 'ustar', '-czf', archive, '-C', dirname(output), output.slice(dirname(output).length + 1)], { env: { ...process.env, COPYFILE_DISABLE: '1' } });
 await writeFile(`${archive}.sha256`, `${sha256(await readFile(archive))}  ${archive.slice(dirname(archive).length + 1)}\n`);
 process.stdout.write(JSON.stringify({ directory: output, archive, sourceRevision, files: files.length }) + '\n');

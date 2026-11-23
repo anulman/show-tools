@@ -8,6 +8,8 @@ export const Route = createFileRoute('/$songId')({
 
 function HardwareSong() {
   const data = Route.useLoaderData();
-  if (data.kind === 'draft') return <ChartPreview key={data.entry.id} chart={data.chart} source={data.source} archive={data.archive} />;
-  return <SongPreview key={data.entry.id} data={data} />;
+  return <>
+    <SongPreview key={data.entry.id} data={data} />
+    {data.arrangement && <ChartPreview key={data.entry.id} {...data.arrangement} />}
+  </>;
 }

@@ -8,5 +8,5 @@ export const Route = createFileRoute('/browser/$songId')({
 
 function BrowserSong() {
   const data = Route.useLoaderData();
-  return data.kind === 'draft' ? <ChartPreview key={data.entry.id} chart={data.chart} source={data.source} archive={data.archive} /> : null;
+  return data.arrangement ? <ChartPreview key={data.entry.id} {...data.arrangement} /> : null;
 }
