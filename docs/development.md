@@ -326,6 +326,10 @@ For Live QA, compare the TanStack Desk with the previous release using a fixture
 
 Exports must match the selected song and worksheet. Publish accepts MusicXML up to 4 MiB, uses the saved global hardware bindings and effect defaults, and rejects charts with compiler errors. Publish an earlier valid export to restore that revision. Keep the worksheet or earlier exports for recovery. The server stores the published charts in the private `<authoringDatabase>.charts` directory alongside the database. Back up that directory with the authoring data if those uploads are your only copies.
 
+For an installed song, authenticated `GET /api/charts/<id>` returns `songId`, `musicXml`, and `chartVersion`. To publish for the next load, send `PUT /api/charts/<id>` with the configured Desk `Origin` and a JSON body containing `musicXml` and the `expectedChartVersion` from GET. The XML must match the song and worksheet and fit within 4 MiB. On a version conflict, read the current chart and compare it before publishing again.
+
+Named publication updates future previews and leaves the loaded session on its current chart and takes. Explicitly load the song to use the new chart under the normal song selection rules. To reload the active song through the UI, switch songs and back while stopped. The Standby **Publish chart** action takes effect immediately and asks you to reload first if a named publication changed the chart since it was loaded.
+
 Build a relocatable Linux release after CI has produced the matching native artifact:
 
 ```sh

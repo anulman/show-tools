@@ -218,6 +218,14 @@ test('killing the foreground server also releases its real owned fake native hos
     }
     const bootstrap = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
     assert.equal(bootstrap.view.audio.kind, 'off');
+    const named = `${profile.origin}/api/charts/dance-yrself-clean`;
+    const before = await (await fetch(named, { headers })).json();
+    const publish = (musicXml: string) => fetch(named, { method: 'PUT', headers,
+      body: JSON.stringify({ musicXml, expectedChartVersion: before.chartVersion }) });
+    assert.equal((await publish('<invalid/>')).status, 409);
+    const published = await publish('\uFEFF' + before.musicXml);
+    assert.equal(published.status, 200);
+    assert.deepEqual(await published.json(), await (await fetch(named, { headers })).json());
     await fetch(`${profile.origin}/api/audio`, { method: 'POST', headers, body: JSON.stringify({ sessionId: bootstrap.sessionId, sequence: 1, goal: 'on' }) });
     for (let count = 0; ; count++) {
       const status = await (await fetch(`${profile.origin}/api/status`, { headers })).json();

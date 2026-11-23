@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { chmod, mkdir, mkdtemp, open, rm, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { chmod, mkdir, mkdtemp, open, readFile, rm, stat } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { Effect, Fiber, Schema, Stream } from 'effect';
 import { NodeServices } from '@effect/platform-node';
@@ -10,10 +10,11 @@ import { NativeInstrument } from './instrument.js';
 import { isPriorityCommand } from './commands.js';
 import type { Observation } from './gateway.js';
 import { SongSchema, NativeEventSchema } from './native-schema.js';
+import { prepareChart } from './prepare-chart.js';
 import { prepareInstalledPackage, type validateInstalledPackage } from './prepare.js';
 import type { SessionProfile } from './session-profile.js';
 import type { InstalledSongCatalog } from './song-catalog.js';
-import type { ChartOverrides } from './chart-overrides.js';
+import { chartSource, MAX_CHART_BYTES, type ChartOverrides, type ChartSource, type PublishedChart } from './chart-overrides.js';
 import { prepareSongBindings, type SongBindingAuthority } from './song-bindings.js';
 import type { InputBindings } from '../performance/input-bindings.js';
 import { chartMetadata } from '../performance/chart.js';
@@ -49,15 +50,18 @@ export class PersistentDesk implements DeskController {
     return this.retirements.get(JSON.stringify([target.attempt, target.hostEpoch])) ?? null;
   }
 
+  private publishingChart?: Promise<PublishedChart>;
+  private loadedChart?: ChartSource;
   private configurationRevision = 0n;
   private configuration: { kind: 'idle' } | { kind: 'preparing'; done: Promise<void> } = { kind: 'idle' };
   constructor(private readonly profile: SessionProfile, private installed: InstalledPackage,
     private readonly songs?: { catalog: InstalledSongCatalog; bindings: SongBindingAuthority; charts?: ChartOverrides;
-      chartPreviews?: Map<string, SongPreview> }) {
+      chartPreviews?: Map<string, SongPreview>; initialChart?: ChartSource }) {
     this.view = { serverEpoch: Schema.decodeUnknownSync(ServerEpochSchema)(randomUUID()), revision: revision('0'),
       song: Schema.decodeUnknownSync(SongSchema)(installed.song), defaultVoiceEffects: installed.defaultVoiceEffects, audio: { kind: 'off' } };
     this.eventChart = chartMetadata(this.view.song.chart);
     this.demoPath = join(profile.runtimeRoot, 'demo-latest.wav');
+    this.loadedChart = songs?.initialChart;
   }
   songChoices() {
     if (!this.songs) throw new Error('No installed song catalog is configured');
@@ -74,9 +78,46 @@ export class PersistentDesk implements DeskController {
     const { installed, packageDigest } = context.catalog.get(id);
     return { song: installed.song, defaultVoiceEffects: installed.defaultVoiceEffects, packageDigest };
   }
-  private async configure(expectedRevision: string, prepare: () => Promise<{ installed: InstalledPackage; commit: () => void }>, selecting?: string): Promise<AudioDecision> {
+  private async chartSource(id: string) {
+    const context = this.songs;
+    if (!context?.catalog.choices.some(choice => choice.id === id)) return;
+    const entry = context.catalog.get(id);
+    const override = await context.charts?.read(id);
+    const musicXml = override ?? await readFile(join(dirname(entry.paths.manifest), 'source.musicxml'), 'utf8');
+    return chartSource(id, musicXml, override !== undefined);
+  }
+  async readChart(id: string): Promise<PublishedChart | undefined> {
+    const source = await this.chartSource(id);
+    if (!source) return;
+    const { overridden: _, ...chart } = source;
+    return chart;
+  }
+  async publishInstalledChart(id: string, musicXml: string, expectedChartVersion: string): Promise<PublishedChart> {
+    if (this.closing || this.publishingChart || this.configuration.kind !== 'idle') throw new Error('Wait for the current desk operation to finish');
+    if (!musicXml || Buffer.byteLength(musicXml) > MAX_CHART_BYTES) throw new Error('MusicXML must be nonempty and at most 4 MiB');
+    const context = this.songs;
+    const charts = context?.charts;
+    if (!context || !charts) throw new Error('Chart updates are unavailable on this desk');
+    const publish = async () => {
+      const current = await this.readChart(id);
+      if (!current) throw new Error('Song is not installed');
+      if (current.chartVersion !== expectedChartVersion) throw new Error('Chart changed. Reload before saving');
+      const bindings = context.bindings.read();
+      const { chartVersion, ...preview } = await prepareChart({ entry: context.catalog.get(id), bindings: bindings.bindings, musicXml });
+      const latest = await this.readChart(id);
+      if (this.closing || latest?.chartVersion !== expectedChartVersion || context.bindings.read().revision !== bindings.revision)
+        throw new Error('Chart or bindings changed. Reload before saving');
+      await charts.save(id, musicXml);
+      context.chartPreviews?.set(id, preview);
+      return { songId: id, musicXml, chartVersion };
+    };
+    this.publishingChart = publish();
+    try { return await this.publishingChart; }
+    finally { this.publishingChart = undefined; }
+  }
+  private async configure(expectedRevision: string, prepare: () => Promise<{ installed: InstalledPackage; commit: () => void | Promise<void>; chart?: ChartSource }>, selecting?: string): Promise<AudioDecision> {
     const rejected = (error: string): AudioDecision => ({ outcome: 'rejected', error, view: this.view });
-    if (this.closing || this.configuration.kind !== 'idle') return rejected('Wait for the current desk operation to finish');
+    if (this.closing || this.publishingChart || this.configuration.kind !== 'idle') return rejected('Wait for the current desk operation to finish');
     const audio = this.view.audio;
     const stopped = audio.kind === 'ready' && (audio.performance.state.phase === 'idle' || audio.performance.state.phase === 'ended');
     const attempt = selecting && stopped ? this.attempt : undefined;
@@ -86,11 +127,12 @@ export class PersistentDesk implements DeskController {
     const seen = BigInt(expectedRevision);
     if (attempt ? seen < this.configurationRevision || seen > BigInt(this.view.revision) : expectedRevision !== this.view.revision)
       return rejected('Desk changed. Reload its current state before saving');
-    if (selecting === this.view.song.id) return { outcome: 'accepted', view: this.view };
     let finish!: () => void;
     const done = new Promise<void>(resolve => { finish = resolve; });
     this.configuration = { kind: 'preparing', done };
     try {
+      if (selecting === this.view.song.id && (!this.loadedChart || this.loadedChart.chartVersion === (await this.readChart(selecting))?.chartVersion))
+        return { outcome: 'accepted', view: this.view };
       const candidate = await prepare();
       const song = Schema.decodeUnknownSync(SongSchema)(candidate.installed.song);
       if (this.closing) return rejected('Desk is shutting down; configuration was not committed');
@@ -113,8 +155,10 @@ export class PersistentDesk implements DeskController {
           throw error;
         }
       }
-      candidate.commit();
+      const committed = candidate.commit();
+      if (committed) await committed;
       this.installed = candidate.installed;
+      if (candidate.chart) this.loadedChart = candidate.chart;
       this.view = { ...this.view, song, defaultVoiceEffects: candidate.installed.defaultVoiceEffects };
       this.eventChart = chartMetadata(song.chart);
       this.update(nextAudio);
@@ -126,8 +170,8 @@ export class PersistentDesk implements DeskController {
     return this.configure(expectedRevision, async () => {
       if (!this.songs) throw new Error('No installed song catalog is configured');
       const entry = this.songs.catalog.get(songId), authored = this.songs.bindings.read();
-      const installed = (await prepareSongBindings(entry, authored.bindings, await this.songs.charts?.read(songId))).installed;
-      return { installed, commit: () => {} };
+      const prepared = await prepareSongBindings(entry, authored.bindings, await this.songs.charts?.read(songId));
+      return { installed: prepared.installed, chart: prepared.chart, commit: () => {} };
     }, songId);
   }
   configureButtonBindings(expectedRevision: string, input: InputBindings): Promise<AudioDecision> {
@@ -135,19 +179,25 @@ export class PersistentDesk implements DeskController {
       const context = this.songs;
       if (!context) throw new Error('No installed song catalog is configured');
       const entry = context.catalog.get(this.view.song.id), current = context.bindings.read();
-      const prepared = await prepareSongBindings(entry, input, await context.charts?.read(entry.id));
+      const source = this.loadedChart;
+      const prepared = await prepareSongBindings(entry, input, source?.overridden ? source.musicXml : undefined);
       return { installed: prepared.installed, commit: () => { context.bindings.save(prepared.bindings, current.revision); } };
     });
   }
   publishChart(musicXml: string, expectedRevision: string): Promise<AudioDecision> {
     return this.configure(expectedRevision, async () => {
+      if (!musicXml || Buffer.byteLength(musicXml) > MAX_CHART_BYTES) throw new Error('MusicXML must be nonempty and at most 4 MiB');
       const context = this.songs;
       const charts = context?.charts;
       if (!context || !charts) throw new Error('Chart updates are unavailable on this desk');
       const entry = context.catalog.get(this.view.song.id);
+      const expectedChartVersion = this.loadedChart?.chartVersion;
+      if (!expectedChartVersion || (await this.readChart(entry.id))?.chartVersion !== expectedChartVersion)
+        throw new Error('Chart changed since this song was loaded. Load its current chart before saving');
       const prepared = await prepareSongBindings(entry, context.bindings.read().bindings, musicXml);
-      return { installed: prepared.installed, commit: () => {
-        charts.save(entry.id, musicXml);
+      if ((await this.readChart(entry.id))?.chartVersion !== expectedChartVersion) throw new Error('Chart changed. Reload before saving');
+      return { installed: prepared.installed, chart: prepared.chart, commit: async () => {
+        await charts.save(entry.id, musicXml);
         context.chartPreviews?.set(entry.id, { song: prepared.installed.song, defaultVoiceEffects: prepared.installed.defaultVoiceEffects, packageDigest: prepared.packageDigest });
       } };
     });
@@ -342,6 +392,7 @@ export class PersistentDesk implements DeskController {
   async close() {
     this.closing = true;
     if (this.configuration.kind === 'preparing') await this.configuration.done;
+    await this.publishingChart?.catch(() => {});
     const attempt = this.attempt;
     if (attempt) { this.stop(attempt); await attempt.done; if (this.attempt) throw new Error('Native cleanup did not confirm exit'); }
     await rm(this.demoPath, { force: true });

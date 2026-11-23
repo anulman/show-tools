@@ -34,27 +34,29 @@ export async function serveProfile(input: SessionProfile) {
   const charts = new ChartOverrides(chartDirectory);
   const bindings = SongBindingAuthority.open(database);
   const chartPreviews = new Map<string, SongPreview>();
-  let installed;
+  let initial;
   try {
     const authored = bindings.read();
     for (const choice of catalog.choices) {
       const override = await charts.read(choice.id);
       if (override === undefined && choice.id !== catalog.initialSongId) continue;
       const prepared = await prepareSongBindings(catalog.get(choice.id), authored.bindings, override);
-      if (choice.id === catalog.initialSongId) installed = prepared.installed;
+      if (choice.id === catalog.initialSongId) initial = prepared;
       if (override !== undefined) chartPreviews.set(choice.id, {
         song: prepared.installed.song, defaultVoiceEffects: prepared.installed.defaultVoiceEffects, packageDigest: prepared.packageDigest,
       });
     }
-    if (!installed) throw new Error('Initial chart preparation did not produce a song');
+    if (!initial) throw new Error('Initial chart preparation did not produce a song');
   } catch (error) { bindings.close(); throw error; }
-  const controller = new PersistentDesk(profile, installed, { catalog, bindings, charts, chartPreviews });
+  const controller = new PersistentDesk(profile, initial.installed, { catalog, bindings, charts, chartPreviews, initialChart: initial.chart });
   const server = createGateway({ host: profile.host, port: profile.port, origin: profile.origin,
     token: Buffer.from(tokenFile.toString('utf8').trim()), staticRoot: root, tls, ...(profile.peripheralProfile ? { peripheralProfile: profile.peripheralProfile } : {}) }, controller, {
       choices: () => controller.songChoices(), preview: id => controller.songPreview(id),
       select: (id, expected) => controller.selectSong(id, expected),
       bindings: (expected, values) => controller.configureButtonBindings(expected, values),
       publishChart: (expected, xml) => controller.publishChart(xml, expected),
+      readChart: id => controller.readChart(id),
+      publishInstalledChart: (id, xml, expected) => controller.publishInstalledChart(id, xml, expected),
     });
   try {
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(profile.port, profile.host, () => { server.removeListener('error', reject); resolve(); }); });
