@@ -20,8 +20,9 @@ export async function loadDeskRoute(slug: string, mode: AudioMode, context: Desk
     await loadSong(entry.id);
     return { kind: 'song', entry, preview: undefined } as const;
   }
-  const preview = context.runtime.installedIds?.includes(entry.id)
-    ? await context.runtime.current?.previewSong(entry.id, signal) : undefined;
+  const { current, song } = context.runtime;
+  const preview = song?.id !== entry.id && song?.installedIds?.includes(entry.id)
+    ? await current?.previewSong(entry.id, signal) : undefined;
   return { kind: 'song', entry, preview } as const;
 }
 

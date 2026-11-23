@@ -1155,6 +1155,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     mountSignal.throwIfAborted();
     if (songChanging()) return;
     if ((remote ? remoteDesk?.snapshot().song.id : song?.id) === id) return;
+    if (remote && elements['song-select'].disabled) throw new Error('Wait for the hardware Desk to finish before switching songs.');
     if (remote && isRunning()) {
       if (!window.confirm('Switching songs stops the current performance and clears its captured samples. Continue?')) {
         elements['song-select'].value = remoteDesk?.snapshot().song.id ?? id;

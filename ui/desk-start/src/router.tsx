@@ -1,10 +1,10 @@
 import { createRouter } from '@tanstack/react-router';
 import { routeTree } from './routeTree.gen';
 import { TANSTACK_DESK_PATH } from '../../../lib/remote-performance/desk-paths.js';
-import type { DeskMount } from './desk-state';
+import type { DeskMount, SongObservation } from './desk-state';
 
 export interface DeskRouterContext {
-  runtime: { current?: DeskMount; installedIds?: readonly string[] };
+  runtime: { current?: DeskMount; song?: SongObservation };
 }
 
 export function getRouter() {
