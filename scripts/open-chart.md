@@ -66,6 +66,7 @@ export SHOW_TOOLS_CHROMIUM_APP="/Applications/Google Chrome.app"
 | `SHOW_TOOLS_CHROMIUM_APP` | Discovered browser | Chromium-compatible macOS app bundle or executable path. |
 | `SHOW_TOOLS_CDP_PORT` | `9222` | Debugging port shared by the launcher and helper. |
 | `SHOW_TOOLS_CDP_PROFILE` | `show-tools-sheets-cdp` under `${TMPDIR:-/tmp}` | Dedicated browser profile directory. |
+| `SHOW_TOOLS_SHEETS_COPY_URL` | Unset | Open and follow an offline copy of the set-list workbook. The copy must preserve the original worksheet IDs and chart layouts. |
 | `SHOW_TOOLS_PRACTICE_ORIGIN` | `http://127.0.0.1:8082` | Additional browser practice origin allowed by the local helper. |
 | `SHOW_TOOLS_DESK_ORIGIN` | Unset | Exact hardware desk HTTPS origin for direct following. |
 | `SHOW_TOOLS_DESK_TOKEN_FILE` | `~/.config/show-tools/desk-token` | Owner-only file containing the hardware desk token. |

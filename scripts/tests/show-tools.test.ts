@@ -303,6 +303,41 @@ test('bare sheets opens the configured set list on reused CDP, while skip-open p
   }
 });
 
+test('a copied set list opens and receives chart selections for the source workbook', async () => {
+  const source = 'abcdefghijklmnopqrstuvxyz';
+  const copy = 'zyxwvutsrqponmlkjihgfedcba';
+  const copyURL = `https://docs.google.com/spreadsheets/d/${copy}/edit`;
+  const controller = new AbortController();
+  const output = logs();
+  let ready = () => {};
+  const waiting = new Promise<void>(done => { ready = done; });
+  const selected: unknown[] = [];
+  const running = runSheets({ ...command, open: true }, {
+    env: { ...env, SHOW_TOOLS_SET_LIST_URL: `https://docs.google.com/spreadsheets/d/${source}/edit`,
+      SHOW_TOOLS_SHEETS_COPY_URL: copyURL },
+    port: 0, signal: controller.signal, inspect: async () => 'Chrome/reused', launch: noLaunch,
+    log: message => { output.log(message); if (message.startsWith('Waiting')) ready(); },
+    openList: async (_address, url) => { assert.equal(url, copyURL); },
+    select: async (_address, input) => {
+      const selection = parseChartSelection(input);
+      selected.push(selection);
+      return { ok: true, selectedRange: selection.range, url: copyURL };
+    },
+  });
+  try {
+    await Promise.race([waiting, running.then(() => assert.fail('exited before readiness'))]);
+    const request = { spreadsheetId: source, sheetId: 102, range: 'D:D', activate: false };
+    const unrelated = { ...request, spreadsheetId: 'otherWorkbookId0123456789' };
+    for (const selection of [request, unrelated]) {
+      const response = await fetch(`${helperURL(output.messages)}/open`, { method: 'POST',
+        headers: { Origin: env.SHOW_TOOLS_PRACTICE_ORIGIN, 'Content-Type': 'application/json' },
+        body: JSON.stringify(selection) });
+      assert.equal(response.status, 200);
+    }
+    assert.deepEqual(selected, [{ ...request, spreadsheetId: copy }, unrelated]);
+  } finally { controller.abort(); await running; }
+});
+
 test('invalid set-list URL fails before starting a helper or touching CDP', async () => {
   for (const url of ['https://example.com/spreadsheets/d/abcdefghijklmnopqrstuvxyz/edit',
     'https://docs.google.com/document/d/abcdefghijklmnopqrstuvxyz/edit']) {
