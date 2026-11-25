@@ -11,10 +11,10 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   assert.deepEqual(loaded.map(song => song.practice.endBar), [218, 137, 16, 160]);
   assert.deepEqual(loaded.map(song => playableBars(song.chart)), [218, 137, 169, 160]);
   assert.equal(loaded[0].chart.sections[0].label, 'Instrumental A1');
-  assert.equal(loaded[1].chart.sections[0].label, 'Lead-in');
+  assert.equal(loaded[1].chart.sections[0].label, 'Intro');
   assert.equal(loaded[2].chart.sections[0].label, 'Intro 1');
-  assert.equal(loaded[1].chart.bars[0].label, 'Pickup 0');
-  assert.equal(loaded[1].chart.bars[8].label, 'Pickup 8');
+  assert.equal(loaded[1].chart.bars[0].label, 'Pickup');
+  assert.equal(loaded[1].chart.bars[8].label, '0.8');
   assert.equal(loaded[1].chart.bars[9].label, '1', 'numbered bar 1 follows nine full pickup measures');
   assert.equal(loaded[1].chart.bars[16].partial, false, 'starred section changes are not partial bars');
   assert.equal(loaded[1].compiled.executable, true);

@@ -670,7 +670,7 @@ test('Drunk Girls loads the complete executable pickup and numbered timeline', a
   const song = await loadSong('drunk-girls');
   assert.equal(song.compiled?.executable, true);
   assert.equal(song.chart.bars.length, 137);
-  assert.equal(song.chart.bars[0].label, 'Pickup 0');
+  assert.equal(song.chart.bars[0].label, 'Pickup');
   assert.equal(song.chart.bars[9].label, '1');
   assert.equal(song.practice.endBar, 137);
 });

@@ -416,15 +416,23 @@ test('canonical Drunk Girls pickup loop restarts in 0.8 and crosses numbered one
   assert(song.executable); assert.equal(song.chart.bars.length, 137);
   assert.equal(song.chart.bars[8].label, '0.8'); assert.equal(song.chart.bars[9].label, '1');
   assert.equal(song.terminalStops?.[0].text, 'x');
+  assert.equal(song.releaseCapturePairs?.length, 2);
+  assert.equal(song.playbackPairs?.length ?? 0, 0);
+  const hold = song.cues.find(cue => cue.source.a1 === 'BF22' && cue.playbackMode === 'held');
+  const selection = song.selections.find(entry => entry.id === hold?.selectionId);
+  assert.equal(hold?.sourceName, 'b');
+  assert.equal(selection?.window.kind, 'sustain');
+  assert.equal(song.takes.find(take => take.id === selection?.takeIds[0])?.sourceName, 'b');
   const native = engine(Array.from(encodeCompiledProgram(song)));
   try {
     native.prepareLiveEffects([]); native.setMicrophone(true);
     native.start({ runId: 'dg-pickup', bpm: 144, countInBars: 1, startBar: 1, endBar: 10 });
-    until(native, 9); render(native, 1); native.setMicrophone(false);
-    const guitar = native.compiledTake(6);
-    assert(guitar.ready); assert(Math.abs(guitar.frames - 98333) <= 1); assert.equal(guitar.period, 106667);
-    assert(render(native, 100, 0).every(value => value === 0), 'virtual source rest preserves the 3& pickup offset');
-    until(native, 9, 3); render(native, 1668, 0);
+    until(native, 9, 3);
+    const guitarIndex = song.takes.findIndex(take => take.voiceId === 'guitar');
+    assert(!native.compiledTake(guitarIndex).ready, 'capture continues through the last pickup');
+    render(native, 1668); native.setMicrophone(false);
+    const guitar = native.compiledTake(guitarIndex);
+    assert(guitar.ready); assert(Math.abs(guitar.frames - 106667) <= 1); assert.equal(guitar.period, 106667);
     assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'captured source begins again at 0.8 beat 3&');
     until(native, 10); assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'numbered one keeps the ongoing eight-bar loop');
   } finally { native.dispose(); }
@@ -479,7 +487,7 @@ test('Drunk Girls layers the recorded final eighth only at four-bar repeat seams
   // Use sections 0.1–0.4 in a local copy of the Guitar row.
   edited.values[20][3] = 'r4&';
   edited.values[20][7] = 'cb~1..4^&';
-  edited.values[20][10] = '';
+  edited.values[20][11] = '';
   edited.values[20][43] = 'p4&';
   const { xml } = await importSheetMusicXml({ source: edited, mapping });
   const { song } = await readMusicXmlSong(xml);
