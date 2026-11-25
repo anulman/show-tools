@@ -7,6 +7,8 @@ import { Schema } from 'effect';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import { importSheetMusicXml, renderMusicXmlReview } from '../sheet-musicxml.js';
 import { parseSongSource } from '../song-source.js';
+import { readMusicXmlSong, writeMusicXmlSong } from '../musicxml-song.js';
+import { terseCaptureInput } from './fixtures/terse-capture.js';
 import { decodeSongMapping } from '../compiled-song.js';
 import { runSheetsMusicXmlImport } from '../../../scripts/import-sheet-musicxml.js';
 
@@ -138,4 +140,41 @@ test('complete-master import rejects numbered bars beyond a stale mapping instea
   values[input.mapping.barRow - 1][220] = '219';
   values[input.mapping.sectionRow - 1][220] = 'New section';
   await assert.rejects(importSheetMusicXml({ source: { ...input.source, range: 'A1:HM30', values }, mapping: input.mapping }), /bar 219.*outside.*1-218/);
+});
+
+test('the bound Tail stop leaves room for its final tuned note and survives standalone MusicXML', async () => {
+  const { source, mapping } = terseCaptureInput();
+  const values = source.values.map(row => [...row, '']);
+  values[4][12] = 'Tail';
+  values[12][12] = '1(E3)';
+  values[20][12] = '1';
+  values[23][0] = 'Big red button';
+  values[23][12] = '1x(all)';
+  const tailSource = { ...source, range: 'A1:M24', values };
+  const tailMapping = {
+    ...mapping,
+    tail: { stopAllCell: 'M24' },
+    tunedNotes: {
+      capture: { profile: 3, slots: [0, 1, 2, 3, 4, 5, 6, 7], root: 52, scale: 'major' },
+      toleranceMs: 100,
+      bindings: [{ buttonId: 'L2', slot: 0 }],
+    },
+  };
+  const { xml, report } = await importSheetMusicXml({ source: tailSource, mapping: tailMapping });
+  assert.ok(report.nativeCompilationExecutable, JSON.stringify(report.compilerDiagnostics));
+  assert.equal(report.measureCount, 11);
+  assert.equal(report.annotations.boundaryCues?.some(cue => cue.position === 'tail') ?? false, false);
+  assert.equal(report.parts.find(part => part.labelCell === 'A13')?.cells.at(-1)?.text, '1(E3)');
+
+  const first = await readMusicXmlSong(xml);
+  const standalone = await readMusicXmlSong(await writeMusicXmlSong({ song: first.song, report: first.report }));
+  assert.equal(standalone.source, null);
+  assert.deepEqual(standalone.song.tail, { bar: 11, source: { sheetId: source.sheetId, a1: 'M24', text: '1x(all)', note: '' } });
+  assert.equal(standalone.song.chart.bars.at(-1)?.label, 'Tail');
+  assert.deepEqual(standalone.song.noteBanks?.find(bank => bank.buttonId === 'L2')?.notes.at(-1), { slot: 0, at: { bar: 11, beat: 0 } });
+
+  values[23][12] = '2x(all)';
+  const changed = await importSheetMusicXml({ source: tailSource, mapping: tailMapping });
+  assert.equal(changed.report.nativeCompilationExecutable, false);
+  assert.ok(changed.report.compilerDiagnostics.some(diagnostic => diagnostic.code === 'tail-stop' && diagnostic.source.a1 === 'M24'));
 });

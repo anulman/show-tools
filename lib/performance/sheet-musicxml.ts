@@ -94,10 +94,11 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
         return { cell, bar: bar.bar, text, reading };
       }) })),
   });
+  const tailColumn = song.tail && song.chart.bars[song.tail.bar - 1]?.column;
   const boundaryCues: NonNullable<MusicXmlReport['annotations']['boundaryCues']> = report.parts.flatMap(part =>
     (source.values[mapping.barRow - 1] ?? []).flatMap((label, index) => {
       const position = label.trim() === 'Lead-in' || index + 1 === mapping.leadInColumn ? 'lead-in'
-        : label.trim() === 'Tail' ? 'tail' : null;
+        : label.trim() === 'Tail' && index + 1 !== tailColumn ? 'tail' : null;
       const row = Number(part.labelCell.replace(/^[A-Z]+/, ''));
       const text = source.values[row - 1]?.[index] ?? '';
       return position && text.trim() ? [{ partId: part.id, cell: `${columnName(index + 1)}${row}`, position, text }] : [];

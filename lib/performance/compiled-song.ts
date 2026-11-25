@@ -38,6 +38,17 @@ const AuthoredCueSchema = Schema.Struct({
     execution: Schema.Union([Schema.Struct({ kind: Schema.Literal('now') }), Schema.Struct({ kind: Schema.Literal('next-bar') }),
       Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite, barOffset: Schema.Literals([0, 1]) })]) })),
 });
+const KnobActionFields = {
+  voiceIds: list(Schema.NonEmptyString),
+  action: Schema.Literals(['stop', 'resume']),
+  execution: Schema.Literals(['now', 'next-bar']),
+};
+const KnobCueSchema = Schema.Struct({
+  ...KnobActionFields,
+  at: PointSchema,
+  direction: Schema.Literals(['cw', 'ccw']),
+  source: SourceRefSchema,
+});
 const CueWindowSchema = Schema.Struct({ earlyMs: Finite, lateMs: Finite, ties: Schema.Literal('reject') });
 const TunerTargetSchema = Schema.Struct({
   root: Schema.Int,
@@ -62,6 +73,8 @@ export const SongMappingSchema = Schema.Struct({
   startBar: Schema.Int, endBar: Schema.Int,
   inputBindings: Schema.optionalKey(InputBindingsSchema),
   terminalStops: Schema.optionalKey(list(Schema.String)),
+  tail: Schema.optionalKey(Schema.Struct({ stopAllCell: Schema.NonEmptyString })),
+  knobCues: Schema.optionalKey(list(Schema.Struct({ ...KnobActionFields, cell: Schema.String }))),
   prelude: Schema.optionalKey(list(Schema.Struct({ label: Schema.NonEmptyString, counts: Schema.Int }))),
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String, playbackMode: Schema.optionalKey(Schema.Literals(['loop', 'one-shot'])) })),
@@ -135,6 +148,8 @@ export const CompiledSongSchema = Schema.Struct({
   noteBanks: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, toleranceMs: Finite, notes: list(Schema.Struct({ slot: Schema.Int, at: PointSchema })), capture: Schema.optionalKey(NoteBankCaptureSchema) }))),
   externalSamples: Schema.optionalKey(list(Schema.Struct({ slot: Schema.Int, voiceId: Schema.String, begin: PointSchema, end: PointSchema, asset: Schema.optionalKey(ExternalSampleAssetSchema) }))),
   terminalStops: Schema.optionalKey(list(SourceRefSchema)),
+  tail: Schema.optionalKey(Schema.Struct({ bar: Schema.Int, source: SourceRefSchema })),
+  knobCues: Schema.optionalKey(list(KnobCueSchema)),
   authoredCues: Schema.optionalKey(list(AuthoredCueSchema)),
   releaseCapturePairs: Schema.optionalKey(list(ReleaseCapturePairSchema)),
   playbackPairs: Schema.optionalKey(list(PlaybackPairSchema)),
@@ -368,6 +383,9 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     || !Number.isSafeInteger(bar.column) || bar.column < 1)
     || song.chart.annotatedThroughBar < 1 || song.chart.annotatedThroughBar > bars) throw new Error('Invalid executable measure map.');
   if (song.terminalStops?.some(stop => stop.text.trim() !== 'x') || new Set(song.terminalStops?.map(stop => stop.a1)).size !== (song.terminalStops?.length ?? 0)) throw new Error('Invalid terminal stops.');
+  if (song.tail && (song.tail.bar !== bars || song.chart.bars.at(-1)?.label !== 'Tail'
+    || song.tail.source.sheetId !== song.source.sheetId || song.tail.source.text.trim() !== '1x(all)'
+    || coordinate(song.tail.source.a1).column !== song.chart.bars.at(-1)?.column)) throw new Error('Invalid executable Tail.');
   const labels = song.chart.bars.filter(bar => bar.label !== undefined);
   if (labels.length && (labels.length !== bars || new Set(labels.map(bar => bar.label)).size !== bars)) throw new Error('Invalid executable measure labels.');
   if ([song.cueWindow.earlyMs, song.cueWindow.lateMs].some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error('Invalid executable cue window; use 0 through 100 milliseconds.');
@@ -501,6 +519,16 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     }
   }
   if (song.playback.some(p => p.bar < 1 || p.bar > bars || !song.selections.some(s => s.id === p.selectionId && s.voiceId === p.voiceId))) throw new Error('Invalid executable playback reference.');
+  let previousKnobCue = -1;
+  for (const cue of song.knobCues ?? []) {
+    const parsed = parseKnobCue(cue.source.text, beats);
+    const position = pointCount(cue.at, beats);
+    if (!validPoint(cue.at, false) || position <= previousKnobCue || !parsed || parsed.beat !== cue.at.beat || parsed.direction !== cue.direction
+      || cue.source.sheetId !== song.source.sheetId || coordinate(cue.source.a1).column !== song.chart.bars[cue.at.bar - 1]?.column
+      || !cue.voiceIds.length || new Set(cue.voiceIds).size !== cue.voiceIds.length || cue.voiceIds.some(id => !song.voices.some(voice => voice.id === id))
+      || (cue.execution === 'next-bar' && cue.at.bar >= bars)) throw new Error('Invalid authored knob cue.');
+    previousKnobCue = position;
+  }
   if (song.noteBanks) {
     const buttons = new Set<string>(), captureSlots = new Set<number>();
     const authoredCapture = song.noteBanks.find(bank => bank.capture?.target)?.capture;
@@ -610,6 +638,14 @@ export function parseArrangementHits(text: string, beatsPerBar = 4): number[] | 
   }
   return hits.every((beat, i) => beat >= 0 && beat < beatsPerBar && (i === 0 || beat > hits[i - 1])) ? hits : null;
 }
+function parseKnobCue(text: string, beats: number) {
+  const match = /^(.*?)s\((cw|ccw)\)$/.exec(text.trim());
+  if (!match) return null;
+  const hits = parseArrangementHits(match[1], beats);
+  if (hits?.length !== 1) return null;
+  const direction: typeof KnobCueSchema.Type.direction = match[2] === 'cw' ? 'cw' : 'ccw';
+  return { beat: hits[0], direction };
+}
 function normalizedPhrase(text: string): string { return text.trim().replace(/'/g, '').replace(/\s+/g, ' '); }
 
 export async function compileSheetsSong(sourceInput: unknown, mappingInput: unknown): Promise<CompiledSong> {
@@ -650,8 +686,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   const columns = new Map<number, number>();
   const barRow = source.values[mapping.barRow - 1] ?? [];
   const prelude = mapping.prelude ?? [];
-  const offset = prelude.length, finalBar = mapping.endBar + offset;
-  if (new Set(prelude.map(measure => measure.label)).size !== offset || finalBar > 4096)
+  const offset = prelude.length, numberedFinalBar = mapping.endBar + offset;
+  if (new Set(prelude.map(measure => measure.label)).size !== offset || numberedFinalBar > 4096)
     issue('prelude', 'Prelude labels must be unique and the complete timeline may contain at most 4096 measures.', ref(mapping.barRow, 1));
   for (const [index, measure] of prelude.entries()) {
     const matches = barRow.flatMap((label, column) => label.trim() === measure.label ? [column + 1] : []);
@@ -668,6 +704,20 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     if (columns.has(bar)) issue('duplicate-bar', `Bar ${sourceBar} occurs more than once.`, ref(mapping.barRow, index + 1));
     else columns.set(bar, index + 1);
   });
+  let tail: CompiledSong['tail'];
+  if (mapping.tail) {
+    const address = coordinate(mapping.tail.stopAllCell);
+    const location = ref(address.row, address.column);
+    if (location.text.trim() !== '1x(all)' || !/^big red button$/i.test(at(source.values, address.row, 1).trim())
+      || barRow[address.column - 1]?.trim() !== 'Tail' || barRow.filter(label => label.trim() === 'Tail').length !== 1
+      || address.column <= Math.max(...columns.values()) || numberedFinalBar >= 4096) {
+      issue('tail-stop', 'Bind the Big red button cell containing 1x(all) in the single Tail column after the numbered chart.', location);
+    } else {
+      tail = { bar: numberedFinalBar + 1, source: location };
+      columns.set(tail.bar, address.column);
+    }
+  }
+  const finalBar = tail?.bar ?? numberedFinalBar;
   for (let bar = 1; bar <= Math.min(finalBar, 4096); bar++) if (!columns.has(bar)) issue('missing-bar', `Measure ${bar} is missing.`, ref(mapping.barRow, 1));
   const chronological = [...columns].sort(([a], [b]) => a - b);
   if (chronological.some(([, column], index) => index > 0 && column <= chronological[index - 1][1]))
@@ -700,11 +750,12 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     let label = '';
     for (let c = previousColumn + 1; c <= column; c++) if (sectionRow[c - 1]?.trim()) label = sectionRow[c - 1].trim();
     previousColumn = column;
+    if (bar === tail?.bar) label = 'Tail';
     if (label) { section = { id: `section-${bar}`, label, startBar: bar, endBar: bar }; sections.push(section); }
     if (!section) { issue('section', 'The first compiled bar needs a section label.', ref(mapping.sectionRow, column)); section = { id: `section-${bar}`, label: 'Unresolved section', startBar: bar, endBar: bar }; sections.push(section); }
     section.endBar = bar;
     if (barRow[column - 1]?.includes('(part)')) issue('partial-bar', 'Specify the short measure length before compiling this range.', ref(mapping.barRow, column));
-    bars.push({ bar, ...(offset ? { label: barRow[column - 1].trim() } : {}), column, sectionId: section.id, section: section.label, partial: barRow[column - 1]?.includes('(part)') ?? false, cues: padRow(column) });
+    bars.push({ bar, ...(offset || tail ? { label: barRow[column - 1].trim() } : {}), column, sectionId: section.id, section: section.label, partial: barRow[column - 1]?.includes('(part)') ?? false, cues: padRow(column) });
   }
   const nameFor = (button: typeof ButtonSchema.Type) => {
     const control = mapping.controls.find(c => c.buttonId === button);
@@ -870,11 +921,30 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   if (playableNoteBanks.reduce((count, bank) => count + bank.notes.length, 0) > PF.MAX_EVENTS)
     issue('tuned-note-limit', `This song exceeds the native limit of ${PF.MAX_EVENTS} manual note events.`, ref(1, 1));
   for (const override of mapping.overrides) if (!usedOverrides.has(override.a1)) issue('unused-override', 'The override does not identify a nonempty control cell inside the compiled range.', { sheetId: source.sheetId, a1: override.a1, text: '', note: '' });
+  const knobCues: NonNullable<CompiledSong['knobCues']> = [];
+  const boundKnobCells = new Set<string>();
+  for (const { cell, voiceIds, action, execution } of mapping.knobCues ?? []) {
+    const { row, column } = coordinate(cell);
+    const location = ref(row, column);
+    const bar = chronological.find(([, cueColumn]) => cueColumn === column)?.[0];
+    const gesture = parseKnobCue(location.text, mapping.meter.numerator);
+    if (boundKnobCells.has(location.a1) || !/^knob$/i.test(ref(row, 1).text.trim()) || !bar || !gesture
+      || !voiceIds.length || new Set(voiceIds).size !== voiceIds.length || voiceIds.some(id => !mapping.controls.some(control => control.voiceId === id))
+      || (execution === 'next-bar' && bar >= finalBar)) {
+      issue('knob-cue-binding', 'Bind a single timed clockwise or counterclockwise cue to mapped voices inside the chart.', location);
+      continue;
+    }
+    boundKnobCells.add(location.a1);
+    knobCues.push({ at: { bar, beat: gesture.beat }, direction: gesture.direction, voiceIds, action, execution, source: location });
+  }
+  knobCues.sort((left, right) => pointCount(left.at, mapping.meter.numerator) - pointCount(right.at, mapping.meter.numerator));
+  if (knobCues.some((cue, index) => index > 0 && samePoint(cue.at, knobCues[index - 1].at)))
+    issue('knob-cue-binding', 'Only one knob cue can occupy a given chart position.', ref(mapping.barRow, 1));
   const mappedRows = new Set(mapping.controls.map(c => c.cueRow));
   if (mapping.rotationRule) mappedRows.add(mapping.rotationRule.row);
   for (const row of mapping.notationVersion === 'dyc-v1' ? [17, 22, 23, 24] : source.values.flatMap((cells, index) => /^(knob|big red button|pedal|phone|L1|L2|R1|R2)$/i.test(cells[0]?.trim() ?? '') ? [index + 1] : [])) {
     if (mappedRows.has(row)) continue;
-    const nonempty = [[0, mapping.leadInColumn], ...columns].filter(([, c]) => at(source.values, row, c).trim());
+    const nonempty = [[0, mapping.leadInColumn], ...columns].filter(([, c]) => { const cell = ref(row, c); return cell.text.trim() && !boundKnobCells.has(cell.a1) && cell.a1 !== tail?.source.a1; });
     if (!nonempty.length) continue;
     const deferred = mapping.deferredRows.find(d => d.row === row);
     for (const [, column] of nonempty) issue(deferred ? 'deferred-control' : 'unbound-control', deferred?.reason ?? 'This control row needs an explicit executable binding or operator-approved deferral.', ref(row, column), deferred ? 'info' : 'error', row === 17 ? 'Filters / Video / Performance Engine' : 'Performance Engine');
@@ -1121,6 +1191,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     mappingDigest: await digest(mapping), chart, voices,
     ...(mapping.inputBindings === undefined ? {} : { inputBindings: mapping.inputBindings }),
     ...(terminalStops.length ? { terminalStops } : {}),
+    ...(tail === undefined ? {} : { tail }),
+    ...(knobCues.length ? { knobCues } : {}),
     ...(releaseCapturePairs.length ? { releaseCapturePairs } : {}),
     ...(playbackPairs.length ? { playbackPairs } : {}),
     ...(sourceProfiles.length ? { sourceProfiles } : {}),
@@ -1135,7 +1207,9 @@ export function inspectCompiledSong(input: unknown): string {
   const song = decodeCompiledSong(input);
   const lines = [`${song.title} (${song.id})`, `Schema ${song.schemaVersion} · ${song.notationVersion} · ${song.executable ? 'executable' : 'BLOCKED'}`,
     `Source ${song.source.sheetName} / gid ${song.source.sheetId} / ${song.source.digest}`, `Range ${song.chart.bars[0]?.bar ?? '?'}..${song.chart.bars.at(-1)?.bar ?? '?'} · ${song.meter.numerator}/${song.meter.denominator}`];
+  for (const cue of song.knobCues ?? []) lines.push(`KNOB CUE\t${cue.source.a1}\t${cue.direction}\t${cue.action} ${cue.voiceIds.join(', ')}\t${cue.execution}`);
   for (const stop of song.terminalStops ?? []) lines.push(`TERMINAL STOP\t${stop.a1}\t${stop.text}\ttransport end; no extra measure`);
+  if (song.tail) lines.push(`TAIL\t${song.tail.source.a1}\t${song.tail.source.text}\tstop backing playback at Tail count 1`);
   for (const part of song.parts) lines.push(`PART\t${part.source.a1}\t${part.name}\t${part.id}\tprofile ${part.profile}\t${part.role.kind}${part.role.kind === 'pad' ? ` ${part.role.buttonId}` : ''}`);
   if (song.rotation) {
     lines.push(`ROTATION\t${song.rotation.voiceId}\trelease after ${song.rotation.inactivityBeats} counted beats of inactivity after accepted jiggle; gate at written end; natural tails`);

@@ -94,6 +94,7 @@ elements['musical-input-select'].addEventListener('change', () => inputPolicy.se
 const voiceAvatars = new Map<number, { root: HTMLElement; name: string }>();
 const liveVoiceStates = new Map<number, HTMLSpanElement>();
 const rotationControls: HTMLButtonElement[] = [];
+let chartKnobCue: HTMLElement | undefined;
 let effectsApplying = false;
 const voiceEffects = createVoiceEffectsEditor(profile => { void act(() => applyVoiceEffects(profile)); }, scheduleAuditionEffect);
 const auditionButtons: { button: HTMLButtonElement; profile: number }[] = [];
@@ -660,7 +661,7 @@ function makePads() {
 }
 
 function mountVoiceRows() {
-  voiceEffects.reset(!remote && song?.compiled ? 'compiled' : 'dry'); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0;
+  voiceEffects.reset(!remote && song?.compiled ? 'compiled' : 'dry'); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0; chartKnobCue = undefined;
   for (const pad of pads.values()) {
     const avatar = requiredElement('.performance-avatar', HTMLElement, pad.button);
     avatar.hidden = true; delete avatar.dataset.avatar;
@@ -691,13 +692,19 @@ function mountVoiceRows() {
     const status = document.createElement('span'); status.className = 'voice-state'; status.textContent = 'STANDBY';
     liveVoiceStates.set(part.profile, status); tools.append(status);
     if (remote) addAuditionButton(tools, part.profile, part.name);
-    if (part.role.kind === 'rotation-live') {
+    const chartKnob = part.role.kind === 'default-live' && Boolean(song?.compiled?.knobCues?.length);
+    if (part.role.kind === 'rotation-live' || chartKnob) {
       const rotations = document.createElement('div'); rotations.className = 'rotation-controls';
       for (const [value, text] of [[-1, '↶'], [1, '↷']] satisfies readonly [number, string][]) {
         const button = document.createElement('button'); button.type = 'button'; button.className = 'rotation'; button.textContent = text;
         button.setAttribute('aria-label', `Rotate ${value > 0 ? 'clockwise' : 'counterclockwise'}`);
         button.title = 'Knob rotation'; button.disabled = true;
-        button.addEventListener('click', () => { void act(() => rotate(value)); }); rotations.append(button); rotationControls.push(button);
+        button.addEventListener('click', () => { void act(() => rotate(chartKnob ? value * 4 : value)); }); rotations.append(button); rotationControls.push(button);
+      }
+      if (chartKnob) {
+        chartKnobCue = document.createElement('span');
+        chartKnobCue.className = 'voice-state';
+        tools.append(chartKnobCue);
       }
       tools.append(rotations);
     }
@@ -966,8 +973,13 @@ function renderSongVoices(observed: DisplayState | undefined, effectsLocked: boo
     label.dataset.activity = preview === profile ? 'live' : applied?.activity || 'standby';
     if (applied?.rotationEligible) label.textContent += applied.rotationRemainingBeats > 0 ? ` · ${applied.rotationRemainingBeats.toFixed(2)} BEAT` : ' · KNOB CUE';
   }
-  const canRotate = audio && isRunning() && observed?.voiceEffects?.some(voice => voice.rotationEligible);
+  const canRotate = audio && isRunning() && (song?.compiled?.knobCues?.length || observed?.voiceEffects?.some(voice => voice.rotationEligible));
   for (const button of rotationControls) button.disabled = !canRotate;
+  if (chartKnobCue) {
+    const cue = song?.compiled?.knobCues?.find(cue => cue.at.bar === state.bar);
+    chartKnobCue.textContent = cue ? `KNOB · ${cue.source.text}` : '';
+    chartKnobCue.hidden = !cue;
+  }
 }
 function renderPads(displayBar: number, observed?: DisplayState) {
   const inCountIn = observed?.phase === 'count-in';
@@ -1208,7 +1220,7 @@ elements['start-section'].addEventListener('change', () => {
 for (const element of [elements['count-in'], elements['end-bar']]) element.addEventListener('change', () => render(state));
 
 window.addEventListener('wheel', event => {
-  if (!inputPolicy.allowsDomInput() || !audio || !isRunning() || !song?.compiled?.rotation || !Number.isFinite(event.deltaY) || event.deltaY === 0
+  if (!inputPolicy.allowsDomInput() || !audio || !isRunning() || (!song?.compiled?.rotation && !song?.compiled?.knobCues?.length) || !Number.isFinite(event.deltaY) || event.deltaY === 0
     || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
   const target = event.target instanceof Element ? event.target : null;
   if (target?.closest('input,select,textarea,[contenteditable=true],details[open]')

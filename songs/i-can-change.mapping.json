@@ -12,6 +12,7 @@
   "leadInColumn": 4,
   "startBar": 1,
   "endBar": 168,
+  "tail": { "stopAllCell": "FQ24" },
   "meter": { "numerator": 4, "denominator": 4 },
   "controls": [
     { "buttonId": "L1", "voiceId": "tom-toms", "cueRow": 21, "arrangementRow": 12, "nameNoteCell": "A12" },
@@ -33,6 +34,12 @@
       { "buttonId": "R2", "slot": 4 }
     ]
   },
+  "knobCues": [
+    { "cell": "P19", "voiceIds": ["disco-beat", "tom-toms"], "action": "resume", "execution": "next-bar" },
+    { "cell": "BP19", "voiceIds": ["disco-beat", "tom-toms"], "action": "resume", "execution": "next-bar" },
+    { "cell": "EI19", "voiceIds": ["tom-toms"], "action": "stop", "execution": "now" },
+    { "cell": "EJ19", "voiceIds": ["tom-toms"], "action": "resume", "execution": "now" }
+  ],
   "liveParts": [{ "id": "vocals", "labelCell": "A10", "role": "default-live" }],
   "cueWindow": { "earlyMs": 25, "lateMs": 25, "ties": "reject" },
   "capturePolicies": [

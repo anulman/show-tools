@@ -123,7 +123,8 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   if (needed > fields) return nullptr;
   int rotation_count = 0, window_count = 0, external_count = 0, note_count = 0, profile_count = 0, sustain_count = 0, intro_count = 0, overlap_count = 0; double rotation_inactivity = .25;
   uint64_t rotation_offset = 0, window_offset = 0, external_offset = 0, note_offset = 0, profile_offset = 0, sustain_offset = 0, intro_offset = 0, overlap_offset = 0, cursor = needed;
-  uint64_t edge_offset = 0;
+  uint64_t edge_offset = 0, knob_offset = 0;
+  int knob_count = 0, tail_bar = 0;
   int edge_captures = 0, edge_playbacks = 0;
   bool input_extension = false;
   performance_input::Binding input_bindings[PF_INPUT_SWITCHES];
@@ -167,6 +168,16 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       edge_offset = cursor;
       edge_captures = int(data[cursor + 1]); edge_playbacks = int(data[cursor + 2]);
       cursor += 3 + uint64_t(edge_captures) * PF_COMPILED_EDGE_CAPTURE_FIELDS + uint64_t(edge_playbacks) * PF_COMPILED_EDGE_PLAYBACK_FIELDS;
+    } else if (data[cursor] == PF_COMPILED_KNOB_MAGIC) {
+      if (data[1] != PF_COMPILED_VERSION || knob_offset || fields - cursor < 2
+        || !whole(data[cursor + 1], PF_MAX_EVENTS) || data[cursor + 1] < 1) return nullptr;
+      knob_offset = cursor; knob_count = int(data[cursor + 1]);
+      cursor += 2 + uint64_t(knob_count) * PF_COMPILED_KNOB_FIELDS;
+    } else if (data[cursor] == PF_COMPILED_TAIL_MAGIC) {
+      if (data[1] != PF_COMPILED_VERSION || tail_bar || fields - cursor < 3
+        || data[cursor + 1] != 1 || data[cursor + 2] != data[3]) return nullptr;
+      tail_bar = int(data[cursor + 2]);
+      cursor += 3;
     } else if (data[cursor] == PF_INPUT_MAGIC) {
       if (data[1] != PF_COMPILED_VERSION || input_extension || fields - cursor < 2
         || !whole(data[cursor + 1], PF_INPUT_SWITCHES)) return nullptr;
@@ -194,6 +205,23 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   program->early_ = data[6]; program->late_ = data[7]; program->take_count_ = int(data[8]); program->cue_count_ = int(data[9]);
   program->member_count_ = int(data[10]); program->playback_count_ = int(data[11]);
   for (int button = 0; button < PF_CHANNELS; ++button) program->binding_[button] = int(data[12 + button]);
+  program->tail_bar_ = tail_bar;
+  program->knob_count_ = knob_count;
+  if (knob_count) {
+    program->knob_cues_.reset(new (std::nothrow) KnobCue[knob_count]);
+    if (!program->knob_cues_) return nullptr;
+  }
+  for (int id = 0; id < knob_count; ++id) {
+    const double* row = data + knob_offset + 2 + id * PF_COMPILED_KNOB_FIELDS;
+    if (!whole(row[0], program->end_) || row[0] < 1 || !point(row[1], program->beats_)
+      || (row[2] != 1 && row[2] != -1) || !whole(row[3], (1u << PF_CHANNELS) - 1) || row[3] < 1
+      || !whole(row[4], 1) || !whole(row[5], 1) || (row[5] && row[0] == program->end_)) return nullptr;
+    auto& cue = program->knob_cues_[id];
+    cue.bar = int(row[0]); cue.at = (cue.bar - 1) * program->beats_ + row[1];
+    cue.direction = int(row[2]); cue.voices = uint32_t(row[3]);
+    cue.resume = row[4] != 0; cue.next_bar = row[5] != 0;
+    if (id && program->knob_cues_[id - 1].at >= cue.at) return nullptr;
+  }
   program->rotation_count_ = rotation_count; program->rotation_inactivity_ = rotation_inactivity;
   program->rotation_windows_.reset(new (std::nothrow) RotationWindow[rotation_count]);
   if (!program->rotation_windows_) return nullptr;
@@ -611,6 +639,7 @@ void Program::start(int start_bar, int count_in_beats, double frame, double bpm,
   start_ = start_bar; phase_ = count_in_beats ? PF_COUNT_IN : PF_PLAYING; bar_ = count_in_beats ? 0 : start_bar;
   if (start_ > 1) reset_reachable_takes(count_in_beats != 0);
   for (int id = 0; id < note_count_; ++id) notes_[id].played = false;
+  for (int id = 0; id < knob_count_; ++id) knob_cues_[id].state = KnobCue::State::waiting;
   anchor_frame_ = frame; anchor_position_ = (start_bar - 1) * beats_ - count_in_beats - 1;
   query_position_ = anchor_position_; query_frame_ = frame;
   for (int id = 0; id < cue_count_; ++id) { cues_[id].used = false; cues_[id].announced = false; cues_[id].occurred_frame = std::numeric_limits<double>::quiet_NaN(); }
@@ -872,6 +901,29 @@ int Program::rotate(double value, double frame, double bpm) noexcept {
     return PF_OK;
   }
   if (!value) return PF_OK;
+  const double tolerance = PF_COMPILED_KNOB_WINDOW_MS * rate_ / 1000.;
+  double nearest = std::numeric_limits<double>::infinity();
+  int focused = -1;
+  for (int id = 0; id < knob_count_; ++id) {
+    const auto& cue = knob_cues_[id];
+    if (cue.state != KnobCue::State::waiting || cue.bar < start_ || cue.bar + cue.next_bar > run_end_) continue;
+    const double distance = std::abs(frame - frame_at(cue.at));
+    if (distance > tolerance + epsilon) continue;
+    if (distance < nearest - epsilon) { focused = id; nearest = distance; }
+    else if (std::abs(distance - nearest) <= epsilon) focused = -1;
+  }
+  if (focused >= 0) {
+    auto& cue = knob_cues_[focused];
+    const int window = rotation_count_ + focused;
+    if (gesture_window_ != window) { clear_gesture(); gesture_window_ = window; }
+    if ((value > 0 ? 1 : -1) != cue.direction) { clear_gesture(); return PF_OK; }
+    if (meaningful_motion(value, frame)) {
+      if (cue.next_bar) cue.state = KnobCue::State::scheduled;
+      else apply_knob_cue(cue);
+      clear_gesture();
+    }
+    return PF_OK;
+  }
   for (int id = 0; id < rotation_count_; ++id) if (frame >= frame_at(rotation_windows_[id].begin) && frame < frame_at(rotation_windows_[id].end)) {
     if (gesture_window_ != id) { clear_gesture(); gesture_window_ = id; }
     if (meaningful_motion(value, frame)) rotation_deadline_frame_ = std::min(frame + rotation_inactivity_ * rate_ * 60 / bpm, frame_at(rotation_windows_[id].end));
@@ -879,6 +931,40 @@ int Program::rotate(double value, double frame, double bpm) noexcept {
   }
   clear_gesture();
   return PF_OK;
+}
+void Program::apply_knob_cue(KnobCue& cue) noexcept {
+  for (int voice = 0; voice < PF_CHANNELS; ++voice) if (cue.voices & (1u << voice)) set_backing_voice(voice, cue.resume);
+  cue.state = KnobCue::State::applied;
+}
+void Program::set_backing_voice(int voice, bool resume) noexcept {
+  if (!resume) {
+    stop_voice(voice, false);
+    for (int id = 0; id < take_count_; ++id)
+      if (takes_[id].voice == voice) suppressed_[takes_[id].profile] = true;
+    return;
+  }
+  int selection = selection_[voice];
+  if (!selection_ready(selection, voice)) {
+    double latest = -std::numeric_limits<double>::infinity();
+    for (int id = 0; id < cue_count_; ++id) {
+      const auto& cue = cues_[id];
+      if (cue.voice != voice || (cue.kind != PF_COMMIT && cue.kind != PF_COMMIT_ARM)
+        || cue.launch != PF_AUTOPLAY || cue.mode != PF_LOOP_MODE || cue.selection < 0) continue;
+      const double end = takes_[cue.commit].end;
+      if (end <= query_position_ && end >= latest && selection_ready(cue.selection, voice)) {
+        latest = end; selection = cue.selection;
+      }
+    }
+  }
+  if (!selection_ready(selection, voice)) return;
+  for (int profile = 0; profile < PF_VOICE_PROFILES; ++profile)
+    if (selection_profile(selection, profile)) suppressed_[profile] = false;
+  bool already_playing = true;
+  for (int member = 0; member < member_count_; ++member) if (members_[member].selection == selection) {
+    const auto& take = takes_[members_[member].take];
+    if (take.active_selection != selection || take.playback[take.latest]->state() != patches::PlaybackState::playing) already_playing = false;
+  }
+  if (!already_playing) select(voice, selection, false, PF_LOOP_MODE, true, false, true);
 }
 int Program::profile_activity(int profile) const noexcept {
   int selected = rotation_remaining() > 0 ? backup_route : live_route_ < 0 ? default_route : live_route_;
@@ -1258,7 +1344,7 @@ bool Program::start_intro_loop(Take& take, const SelectionWindow& window, bool c
   const uint32_t pickup_end = window.overlap_final_eighth ? uint32_t(window.finish[bank]) : 0;
   return take.playback[bank]->start_intro_loop(uint32_t(window.repeat_frame[bank]), uint32_t(window.cut[bank]), capture_handoff, pickup_end);
 }
-bool Program::select(int voice, int selection, bool automatic, int mode, bool retrigger, bool additive) noexcept {
+bool Program::select(int voice, int selection, bool automatic, int mode, bool retrigger, bool additive, bool resume_intro) noexcept {
   if (!selection_ready(selection, voice)) return false;
   if (!automatic) overlap_launch_[voice] = {};
   if (automatic) for (int profile = 0; profile < PF_VOICE_PROFILES; ++profile) if (selection_profile(selection, profile) && suppressed_[profile]) return false;
@@ -1310,11 +1396,13 @@ bool Program::select(int voice, int selection, bool automatic, int mode, bool re
     clock = follow_grid ? LoopClock{first_count, duration, 0, first_frame, period, continue_warp} : LoopClock{};
     if (view && view->repeat_begin >= 0) clock.repeat_begin = view->repeat_begin;
     if (continue_warp && follow_grid) clock.phase = clock.wrap(prior_phase);
-    if (retrigger && follow_grid && (!view || view->repeat_begin < 0)) {
+    const bool intro = view && view->repeat_begin >= 0;
+    if (retrigger && follow_grid && (resume_intro || !intro)) {
       const double counts = query_position_ - take.begin;
-      if (follows_changed_tempo(take, take.latest, bpm_)) {
+      const bool warped = follows_changed_tempo(take, take.latest, bpm_);
+      if (warped || intro) {
         clock.phase = clock.wrap(counts);
-        clock.warped = true;
+        clock.warped = warped;
         const auto& grid = take.grid[take.latest];
         const double source_phase = grid.interpolate(clock.first_count + clock.phase, false, rate_ * 60 / grid.initial_bpm)
           - clock.first_frame;
@@ -1694,6 +1782,8 @@ void Program::beat(int phase, int bar, int beat, int count_remaining, double fra
   if (wrap) {
     cancel_edge_capture(); reset_edge_pairs();
     for (int id = 0; id < note_count_; ++id) notes_[id].played = false;
+    for (int id = 0; id < knob_count_; ++id) knob_cues_[id].state = KnobCue::State::waiting;
+    clear_gesture();
     rotation_deadline_frame_ = -1;
     apply_pending(boundary_frame(frame), bpm, live);
     captures_cancelled_ = false;
@@ -1713,7 +1803,11 @@ void Program::beat(int phase, int bar, int beat, int count_remaining, double fra
     take.grid[active_capture_.bank].add(anchor_position_, take.cache[active_capture_.bank]->length());
   }
   apply_pending(boundary_frame(frame), bpm, live);
-  if (phase == PF_PLAYING && beat == 1) for (int id = 0; id < playback_count_; ++id) if (playback_[id].bar == bar) select(playback_[id].voice, playback_[id].selection, true);
+  if (phase != PF_PLAYING || beat != 1) return;
+  for (int id = 0; id < playback_count_; ++id) if (playback_[id].bar == bar) select(playback_[id].voice, playback_[id].selection, true);
+  for (int id = 0; id < knob_count_; ++id)
+    if (knob_cues_[id].state == KnobCue::State::scheduled && knob_cues_[id].bar + 1 == bar) apply_knob_cue(knob_cues_[id]);
+  if (bar == tail_bar_) for (int voice = 0; voice < PF_CHANNELS; ++voice) stop_voice(voice, true);
 }
 void Program::render(const float* input, float* left, float* right, float* live_left, float* live_right,
   uint32_t frames, double frame, double bpm, bool live, patches::Rack& default_rack, patches::Rack& backup_rack) noexcept {

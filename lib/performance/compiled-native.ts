@@ -30,7 +30,7 @@ function encodeProgram(song: CompiledSong): Float64Array {
   const kinds: Record<CompiledSong['cues'][number]['kind'], number> = { arm: PF.ARM, commit: PF.COMMIT, 'commit-arm': PF.COMMIT_ARM, stop: PF.STOP, play: PF.PLAY };
   const profileRows = song.takes.flatMap((take, index) => take.profile === undefined || take.profile === indexOf(voices, take.voiceId) ? [] : [index, take.profile]);
   const profiles = profileRows.length ? [PF.COMPILED_PROFILES_MAGIC, profileRows.length / PF.COMPILED_PROFILES_FIELDS, ...profileRows] : [];
-  const legacy = song.inputBindings === undefined && !song.releaseCapturePairs?.length && !song.playbackPairs?.length && !profileRows.length && song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && song.cues.every(cue =>
+  const legacy = song.inputBindings === undefined && !song.releaseCapturePairs?.length && !song.playbackPairs?.length && !profileRows.length && song.notationVersion === 'dyc-v1' && !song.externalSamples?.length && !song.noteBanks?.length && !song.knobCues?.length && !song.tail && song.cues.every(cue =>
     !cue.captureReplacement && cue.launchPolicy === 'autoplay' && cue.playbackMode === 'loop' && cue.groupId === null && cue.sourceName === null
     && (cue.execution.kind !== 'beat' || !cue.execution.barOffset));
   const cueFields = legacy ? PF.COMPILED_LEGACY_CUE_FIELDS : PF.COMPILED_CUE_FIELDS;
@@ -80,7 +80,14 @@ function encodeProgram(song: CompiledSong): Float64Array {
     ...(song.releaseCapturePairs ?? []).flatMap(pair => [indexOf(takes, pair.firstTakeId), indexOf(takes, pair.secondTakeId)]),
     ...(song.playbackPairs ?? []).flatMap(pair => [CONTROL_IDS.indexOf(pair.buttonId), pair.first.bar, pair.first.beat, indexOf(selections, pair.firstSelectionId), indexOf(selections, pair.secondSelectionId)]),
   ] : [];
-  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...introLoops, ...external, ...notes, ...profiles, ...autoSustains, ...edges, ...inputs];
+  const knob = song.knobCues?.length ? [PF.COMPILED_KNOB_MAGIC, song.knobCues.length,
+    ...song.knobCues.flatMap(cue => [
+      cue.at.bar, cue.at.beat, cue.direction === 'cw' ? 1 : -1,
+      cue.voiceIds.reduce((mask, id) => mask | (1 << indexOf(voices, id)), 0),
+      cue.action === 'resume' ? 1 : 0, cue.execution === 'next-bar' ? 1 : 0,
+    ])] : [];
+  const tail = song.tail ? [PF.COMPILED_TAIL_MAGIC, 1, song.tail.bar] : [];
+  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...introLoops, ...external, ...notes, ...profiles, ...autoSustains, ...edges, ...knob, ...tail, ...inputs];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
     || cueRows.length !== song.cues.length * cueFields || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
   if (song.meter.denominator !== (song.meter.numerator === 6 ? 8 : 4)) throw new Error('This native build supports 4/4 and 6/8 compiled programs.');
