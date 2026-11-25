@@ -87,7 +87,7 @@ class Program {
   struct InstrumentNote { int button = 0; uint32_t slot = 0; double at = 0, tolerance = 0; bool played = false; };
   std::unique_ptr<InstrumentNote[]> notes_;
   int note_count_ = 0;
-  int play_note(int button) noexcept;
+  InstrumentNote* due_note(int button) noexcept;
   int launch_external(uint32_t slot, bool audition = false) noexcept;
   struct ExternalWindow { uint32_t slot = 0; double begin = 0, end = 0; };
   struct ExternalSample { std::unique_ptr<patches::Stereo[]> pcm; uint32_t frames = 0, capacity = 0; double midi = -1; };
@@ -122,6 +122,9 @@ class Program {
   Program() = default;
   int resolve(int button, double frame, double bpm) noexcept;
   int recoverable_playback(int button, double frame, double bpm) const noexcept;
+  bool prior_capture_loop(const Cue& cue) const noexcept;
+  bool restart_pickup(const Cue& arm) const noexcept;
+  void reset_reachable_takes(bool count_in) noexcept;
   int press_buttons(uint32_t rows, uint64_t owner, double frame, double bpm, bool microphone, bool report_rows, uint64_t source) noexcept;
   int press_selected(int cue, double frame, double bpm, bool microphone, bool recovering) noexcept;
   bool reservation_available(int take, int button, int committing) const noexcept;

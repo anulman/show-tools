@@ -608,13 +608,45 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
 }
 void Program::start(int start_bar, int count_in_beats, double frame, double bpm, int end_bar) noexcept {
   stop(); reset_edge_pairs(); bpm_ = bpm; run_end_ = end_bar > 0 ? end_bar : end_; captures_cancelled_ = false;
-  for (int id = 0; id < note_count_; ++id) notes_[id].played = false; start_ = start_bar; phase_ = count_in_beats ? PF_COUNT_IN : PF_PLAYING; bar_ = count_in_beats ? 0 : start_bar;
+  start_ = start_bar; phase_ = count_in_beats ? PF_COUNT_IN : PF_PLAYING; bar_ = count_in_beats ? 0 : start_bar;
+  if (start_ > 1) reset_reachable_takes(count_in_beats != 0);
+  for (int id = 0; id < note_count_; ++id) notes_[id].played = false;
   anchor_frame_ = frame; anchor_position_ = (start_bar - 1) * beats_ - count_in_beats - 1;
   query_position_ = anchor_position_; query_frame_ = frame;
   for (int id = 0; id < cue_count_; ++id) { cues_[id].used = false; cues_[id].announced = false; cues_[id].occurred_frame = std::numeric_limits<double>::quiet_NaN(); }
   std::fill(suppressed_, suppressed_ + PF_VOICE_PROFILES, false);
   for (int voice = 0; voice < PF_CHANNELS; ++voice) { gated_[voice] = held_[voice] = -1; button_down_[voice] = false; input_owner_[voice] = 0; }
 
+}
+bool Program::restart_pickup(const Cue& arm) const noexcept {
+  if (start_ <= 1 || arm.kind != PF_ARM || arm.edge_capture || arm.bar != start_ - 1) return false;
+  const double seam = (start_ - 1) * beats_;
+  return takes_[arm.take].begin >= seam - 1 && takes_[arm.take].begin <= seam;
+}
+void Program::reset_reachable_takes(bool count_in) noexcept {
+  const double seam = (start_ - 1) * beats_, end = run_end_ * beats_;
+  for (int id = 0; id < cue_count_; ++id) {
+    const auto& arm = cues_[id];
+    if (arm.kind != PF_ARM && arm.kind != PF_COMMIT_ARM) continue;
+    auto& take = takes_[arm.take];
+    if (take.latest < 0 || take.end > end || take.end <= seam || available_bank(arm.take) < 0) continue;
+    if (arm.bar < start_ && !(count_in && restart_pickup(arm))) continue;
+    if (arm.edge_capture) {
+      // Both clips in a release pair depend on the first arm.
+      bool pair_reachable = false;
+      for (int pair_id = 0; pair_id < edge_capture_count_; ++pair_id) {
+        const auto& pair = edge_capture_pairs_[pair_id];
+        if (pair.takes[0] != arm.take && pair.takes[1] != arm.take) continue;
+        pair_reachable = takes_[pair.takes[0]].begin >= seam && takes_[pair.takes[1]].end <= end
+          && available_bank(pair.takes[0]) >= 0 && available_bank(pair.takes[1]) >= 0;
+        break;
+      }
+      if (!pair_reachable) continue;
+    }
+    if (arm.kind == PF_COMMIT_ARM && takes_[arm.commit].begin < seam) continue;
+    for (auto& cache : take.cache) cache->reset_for_capture();
+    take.latest = take.active_selection = -1;
+  }
 }
 void Program::stop() noexcept {
   pause_tuning_bank();
@@ -880,6 +912,11 @@ int Program::resolve(int button, double frame, double bpm) noexcept {
   if (tied) return -PF_CUE_AMBIGUOUS;
   return found < 0 ? -PF_CUE_LATE : found;
 }
+bool Program::prior_capture_loop(const Cue& cue) const noexcept {
+  return cue.bar < start_ && (cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM)
+    && cue.launch == PF_AUTOPLAY && cue.mode == PF_LOOP_MODE && cue.selection >= 0
+    && takes_[cue.commit].end <= (start_ - 1) * beats_ && selection_ready(cue.selection, cue.voice);
+}
 int Program::recoverable_playback(int button, double frame, double bpm) const noexcept {
   if (phase_ != PF_PLAYING) return -1;
   const double now = position(frame, bpm);
@@ -888,18 +925,22 @@ int Program::recoverable_playback(int button, double frame, double bpm) const no
   bool tied = false;
   for (int id = 0; id < cue_count_; ++id) {
     const Cue& cue = cues_[id];
-    if (cue.button != button || cue.bar < start_ || cue.bar > bar_ || !cue.playback_intent()) continue;
-    const double at = (cue.bar - 1) * beats_ + std::max(0., cue.cue);
+    if (cue.button != button || cue.bar > bar_) continue;
+    const bool prior_capture = prior_capture_loop(cue);
+    if (!cue.playback_intent() && !prior_capture) continue;
+    const double at = prior_capture ? takes_[cue.commit].end : (cue.bar - 1) * beats_ + std::max(0., cue.cue);
     if (at > now + epsilon || at < latest_at) continue;
     if (at > latest_at) { latest = id; latest_at = at; tied = false; }
     else if (cue.group < 0 || cue.group != cues_[latest].group) tied = true;
   }
   if (latest < 0) return -1;
   if (tied) return -PF_CUE_AMBIGUOUS;
+  if (prior_capture_loop(cues_[latest]) && !cues_[latest].used) return latest;
   const int group = cues_[latest].group;
   for (int id = 0; id < cue_count_; ++id) {
     const Cue& cue = cues_[id];
-    if ((id == latest || (group >= 0 && cue.group == group)) && cue.recoverable() && !cue.used) return id;
+    if ((id == latest || (group >= 0 && cue.group == group)) && cue.recoverable() && !cue.used
+      && (cue.bar >= start_ || cue.kind == PF_PLAY)) return id;
   }
   return -1;
 }
@@ -1005,6 +1046,7 @@ int Program::press_buttons(uint32_t rows, uint64_t owner, double frame, double b
   query_position_ = position(frame, bpm); query_frame_ = frame;
   int selected[PF_CHANNELS]{-1, -1, -1, -1}, result = PF_OK;
   bool recovering[PF_CHANNELS]{};
+  InstrumentNote* due_notes[PF_CHANNELS]{};
   auto admit = [&](int button, int cue = -1) {
     input_owner_[button] = owner; button_down_[button] = true;
     if (cue >= 0 && pending_[cue].cue >= 0) pending_[cue].owner = owner;
@@ -1019,14 +1061,17 @@ int Program::press_buttons(uint32_t rows, uint64_t owner, double frame, double b
     if (edge >= 0) { rows &= ~(1u << button); report(button, -1, edge); continue; }
     selected[button] = resolve(button, frame, bpm);
     if (selected[button] == -PF_CUE_LATE) {
-      const int recovered = recoverable_playback(button, frame, bpm);
-      if (recovered != -1) { selected[button] = recovered; recovering[button] = recovered >= 0; }
+      due_notes[button] = due_note(button);
+      if (!due_notes[button]) {
+        const int recovered = recoverable_playback(button, frame, bpm);
+        if (recovered != -1) { selected[button] = recovered; recovering[button] = recovered >= 0; }
+      }
     }
   }
   for (int pass = 0; pass < 2; ++pass) for (int id = 0; id < cue_count_; ++id) {
     const Cue& cue = cues_[id]; int chosen = selected[cue.button];
     if (chosen < 0 || (chosen != id && (cue.group < 0 || cue.group != cues_[chosen].group))) continue;
-    if (recovering[cue.button] && !cue.recoverable()) continue;
+    if (recovering[cue.button] && !cue.recoverable() && (chosen != id || !prior_capture_loop(cue))) continue;
     bool commits = cue.kind == PF_COMMIT || cue.kind == PF_COMMIT_ARM;
     if (commits != (pass == 0)) continue;
     const bool fresh = !cue.used && pending_[id].cue != id;
@@ -1039,10 +1084,16 @@ int Program::press_buttons(uint32_t rows, uint64_t owner, double frame, double b
       report(button, -1, -selected[button]);
       continue;
     }
-    const bool gated = gated_[button] >= 0;
-    int code = gated ? gate_press(button, frame, microphone) : play_note(button);
-    if (gated && code == PF_OK) admit(button);
-    if (!report_rows && !gated && code == PF_OK) for (int id = 0; id < cue_count_; ++id)
+    const bool gated = !due_notes[button] && gated_[button] >= 0;
+    int code = PF_OK;
+    if (auto* note = due_notes[button]) {
+      code = launch_external(note->slot);
+      if (code == PF_OK) note->played = true;
+    } else if (gated) {
+      code = gate_press(button, frame, microphone);
+      if (code == PF_OK) admit(button);
+    }
+    if (!report_rows && !due_notes[button] && !gated && code == PF_OK) for (int id = 0; id < cue_count_; ++id)
       if (cues_[id].button == button && !cues_[id].used && cues_[id].playback_intent() && !cues_[id].recoverable()
         && cue_on_current_bar(cues_[id])) { code = PF_CUE_LATE; break; }
     report(button, -1, code);
@@ -1090,6 +1141,11 @@ int Program::press_selected(int found, double frame, double bpm, bool microphone
   double now = position(frame, bpm);
   Cue& cue = cues_[found];
   if (cue.used || (pending_[found].cue == found && !pending_[found].automatic)) return PF_OK;
+  if (recovering && prior_capture_loop(cue)) {
+    if (!select(cue.voice, cue.selection, false, PF_LOOP_MODE, true)) return PF_NO_SAMPLE;
+    cue.used = true;
+    return PF_OK;
+  }
   for (int id = 0; id < cue_count_; ++id) if (pending_[id].cue >= 0 && !pending_[id].automatic && cues_[id].button == button && (cue.group < 0 || cues_[id].group != cue.group)) return PF_CAPTURE_BUSY;
   if (cue.kind == PF_ARM || cue.kind == PF_COMMIT_ARM) {
     if (captures_cancelled_) return PF_OK;
@@ -1103,7 +1159,7 @@ int Program::press_selected(int found, double frame, double bpm, bool microphone
   double target = now;
   if (cue.timing == 1) target = cue.bar * beats_;
   if (cue.timing == 2) target = (cue.bar - 1 + cue.bar_offset) * beats_ + cue.execute;
-  if (cue.kind == PF_PLAY && cue.mode == PF_LOOP_MODE && cue.timing == 0 && cue.selection >= 0) {
+  if (cue.kind == PF_PLAY && cue.mode == PF_LOOP_MODE && cue.timing == 0 && cue.selection >= 0 && cue.bar >= start_) {
     for (int member = 0; member < member_count_; ++member) if (members_[member].selection == cue.selection) {
       const Take& take = takes_[members_[member].take];
       const double measure = recovering ? cue.bar - 1 : std::floor(now / beats_);
@@ -1536,11 +1592,12 @@ void Program::apply_pending(double frame, double bpm, bool live) noexcept {
     Cue& arm = cues_[button];
     const bool lead_in_without_count = arm.bar == 0 && arm.timing == 1 && start_ == 1 && bar_ == 1 && phase_ == PF_PLAYING
       && frame == boundary_frame(frame_at(0));
+    const bool resumed_pickup = phase_ == PF_COUNT_IN && restart_pickup(arm) && now >= (start_ - 1) * beats_ - 1;
     if (live && !captures_cancelled_ && arm.kind == PF_ARM && !arm.edge_capture && !arm.used && pending_[button].cue < 0
-      && (cue_on_current_bar(arm) || lead_in_without_count)) {
+      && (cue_on_current_bar(arm) || lead_in_without_count || resumed_pickup)) {
       const double admission = (arm.bar - 1) * beats_ + std::max(0., arm.cue);
       const double boundary = takes_[arm.take].begin;
-      const bool pickup = arm.bar == 0 && arm.timing == 2;
+      const bool pickup = (arm.bar == 0 && arm.timing == 2) || resumed_pickup;
       const bool can_arm = pickup ? phase_ == PF_COUNT_IN && frame <= boundary_frame(frame_at(boundary))
         : arm.bar == 0 || frame >= boundary_frame(frame_at(admission));
       if (can_arm && takes_[arm.take].end <= run_end_ * beats_)
@@ -1833,18 +1890,15 @@ bool Program::set_bend_parameters(double velocity_per_semitone, double stale_ms)
   bend_velocity_per_semitone_ = velocity_per_semitone; bend_stale_ms_ = stale_ms;
   return true;
 }
-int Program::play_note(int button) noexcept {
-  if (phase_ != PF_PLAYING) return PF_OK;
+Program::InstrumentNote* Program::due_note(int button) noexcept {
+  if (phase_ != PF_PLAYING) return nullptr;
   for (int id = 0; id < note_count_; ++id) {
     auto& note = notes_[id]; if (note.button != button || note.played) continue;
     double tolerance = note.tolerance * bpm_ / 60000;
     if (note.at + tolerance < query_position_) { note.played = true; continue; }
-    if (note.at - tolerance > query_position_) return PF_OK;
-    int result = launch_external(note.slot);
-    if (result == PF_OK) note.played = true;
-    return result;
+    return note.at - tolerance <= query_position_ ? &note : nullptr;
   }
-  return PF_OK;
+  return nullptr;
 }
 bool Program::prepare_external_sample(uint32_t slot, const float* left, const float* right, uint32_t frames) noexcept {
   if (phase_ != PF_IDLE || slot >= 64 || !left || !frames || frames > rate_ * 30) return false;

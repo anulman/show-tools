@@ -599,3 +599,115 @@ for (const rate of [44100, 48000]) for (const beats of [4, 6]) {
     } finally { native.dispose(); }
   });
 }
+
+test('a timed note takes precedence over a missed stop on the same pad', () => {
+  const program = [PF.COMPILED_MAGIC, PF.COMPILED_VERSION, 4, 3, 120, 3, 25, 25, 0, 1, 0, 0, 0, 1, 2, 3,
+    0, 0, 1, 0, PF.STOP, 0, 0, -1, -1, -1, 0, 0, 0, 0, -1, 0,
+    PF.COMPILED_NOTES_MAGIC, 1, 0, 0, 2, 0, 25];
+  const native = engine(program);
+  try {
+    native.prepareExternalSample(0, new Float32Array(64).fill(.25));
+    for (const startBar of [1, 2]) {
+      native.start({ runId: 'note-after-stop-' + startBar, bpm: 120, countInBars: 0, startBar, endBar: 3 });
+      until(native, 2, 1, 0);
+      native.control({ id: 'L1' });
+      assert(render(native, 64, 0).mixed[0].every(value => value === .25));
+      native.stop();
+    }
+  } finally { native.dispose(); }
+});
+
+test('Dance Yrself Clean resumes with completed samples and recovers earlier loops on a press', async () => {
+  const { song } = await readMusicXmlSong(await readFile(new URL('../../../songs/dance-yrself-clean.musicxml', import.meta.url), 'utf8'));
+  const native = engine(Array.from(encodeCompiledProgram(song)));
+  const ready = () => song.takes.filter((_, index) => native.compiledTake(index).ready).map(take => take.voiceId);
+  try {
+    native.prepareLiveEffects([]);
+    native.setMicrophone(true);
+    native.start({ runId: 'missing-dyc-sample', bpm: 240, countInBars: 0, startBar: 69, endBar: 86 });
+    until(native, 69);
+    assert.throws(() => native.control({ id: 'R1' }), /Capture or load a sample/);
+    native.stop();
+
+    native.start({ runId: 'dyc-capture', bpm: 240, countInBars: 1, startBar: 1, endBar: 86 });
+    until(native, 45, 1, .25, 256);
+    until(native, 85, 2, .25, 256);
+    native.stop();
+    assert.deepEqual(ready(), ['whistle', 'bing-bong', 'drums-claps', 'cowbell', 'cowbell']);
+
+    native.start({ runId: 'verse-b1', bpm: 240, countInBars: 0, startBar: 85, endBar: 93 });
+    assert.deepEqual(ready(), ['whistle', 'bing-bong', 'drums-claps', 'cowbell', 'cowbell']);
+    native.stop();
+
+    native.start({ runId: 'chorus-a-redux', bpm: 240, countInBars: 0, startBar: 69, endBar: 86 });
+    assert.deepEqual(ready(), ['whistle', 'bing-bong', 'drums-claps', 'cowbell']);
+    assert.equal(native.compiledTake(4).frames, 0);
+    until(native, 69, 1, 0);
+    assert(render(native, 64, 0).mixed[0].every(value => value === 0));
+    for (const id of ['L1', 'L2', 'R1', 'R2'] as const) native.control({ id });
+    assert.deepEqual(native.state().compiledTakes?.map(take => take.playback), ['playing', 'playing', 'playing', 'playing', 'idle']);
+    assert(render(native, 64, 0).mixed[0].some(value => Math.abs(value) > .1));
+  } finally { native.dispose(); }
+});
+
+test('Drunk Girls keeps the word and guitar recordings and recaptures the reachable lead and day lines', async () => {
+  const { song } = await readMusicXmlSong(await readFile(new URL('../../../songs/drunk-girls.musicxml', import.meta.url), 'utf8'));
+  const native = engine(Array.from(encodeCompiledProgram(song)));
+  const ready = () => song.takes.filter((_, index) => native.compiledTake(index).ready).map(take => take.sourceName);
+  const raw = (frame: number) => .25 * Math.sin(2 * Math.PI * 220 * frame / 8000);
+  function wordPair(id: 'L1' | 'R2', bar: number) {
+    until(native, bar, 4, .25, 32);
+    native.control({ id });
+    render(native, 64, raw);
+    native.releaseChannel(id);
+    until(native, bar + 1, 1, .25, 32);
+    native.control({ id });
+    render(native, 64, raw);
+    native.releaseChannel(id);
+    render(native, 1000, raw);
+    native.control({ id });
+    native.releaseChannel(id);
+  }
+  try {
+    native.prepareLiveEffects([]);
+    native.setMicrophone(true);
+    native.start({ runId: 'dg-capture', bpm: 240, countInBars: 0, startBar: 1, endBar: 124 });
+    wordPair('R2', 13);
+    wordPair('L1', 21);
+    until(native, 75, 1, .25, 256);
+    until(native, 121, 1, .25, 256);
+    native.stop();
+    assert.deepEqual(ready(), ['lead', 'day', 'd1', 'g', 'd2', 'b', 'guitar']);
+
+    native.start({ runId: 'verse-words', bpm: 240, countInBars: 0, startBar: 74, endBar: 86 });
+    until(native, 74);
+    assert.deepEqual(ready(), ['lead', 'day', 'd1', 'g', 'd2', 'b', 'guitar']);
+    native.control({ id: 'R2' });
+    native.releaseChannel('R2');
+    assert.equal(native.state().compiledTakes?.[3].playback, 'playing', 'the retained Girls word answers its later cue');
+    assert(render(native, 64, 0).mixed[0].some(value => Math.abs(value) > .1));
+    native.control({ id: 'L2' });
+    assert.equal(native.state().compiledTakes?.[6].playback, 'playing', 'the guitar plays from the reached loop cue');
+    until(native, 77, 4);
+    native.control({ id: 'L1' });
+    native.releaseChannel('L1');
+    assert.equal(native.state().compiledTakes?.[4].playback, 'playing', 'the retained Drunk/Boys pair survives the restart');
+    native.stop();
+
+    native.start({ runId: 'chorus-2', bpm: 240, countInBars: 1, startBar: 98, endBar: 124 });
+    assert.deepEqual(ready(), ['d1', 'g', 'd2', 'b', 'guitar']);
+    until(native, 98, 1, .125);
+    assert(native.compiledTake(0).frames > 0, 'lead pickup re-arms on the last count-in beat');
+    until(native, 102, 2, .125);
+    assert(native.compiledTake(0).ready);
+    until(native, 121, 1, .125, 256);
+    native.stop();
+    assert.deepEqual(ready(), ['lead', 'day', 'd1', 'g', 'd2', 'b', 'guitar']);
+
+    native.start({ runId: 'chorus-redux', bpm: 240, countInBars: 1, startBar: 114, endBar: 124 });
+    assert.deepEqual(ready(), ['lead', 'd1', 'g', 'd2', 'b', 'guitar']);
+    until(native, 114);
+    native.control({ id: 'R1' });
+    assert.equal(native.state().compiledTakes?.[0].playback, 'playing', 'lead is reusable after its last recording opportunity');
+  } finally { native.dispose(); }
+});

@@ -49,6 +49,8 @@ The [clock C interface](../lib/beat-tracker/include/beat_tracker.h) supplies pha
 
 The performance engine adds song count-in, bar and beat, practice ranges, loop wrapping, chart-action resolution, manual-hit loop resumption, automatic variant selection, channel lights, and control deduplication. It also synthesizes the click. `pf_start()` selects manual tempo and applies the supplied BPM itself. A native caller does not need JavaScript to make those decisions or start the clock.
 
+Stop silences playback and leaves completed takes available. On a mid-song Start, the engine keeps takes completed by the restart point and clears takes it can record again within the selected range. The final beat of a count-in can carry an authored pickup from the preceding bar. Earlier loops wait for a press before re-entering at the current chart position.
+
 Physical pedal taps queue a tempo change for the next bar line, including during count-in. Compiled captures index their source frames by chart position. Rhythmic loops use that index to keep their authored length in beats and preserve pitch when tempo changes, including for overdubs recorded at different tempos. One-shots and gated samples use their authored playback modes and continue to use their captured audio duration.
 
 All components link into the same WASM module. The browser's `manual-clock.wasm` filename is retained, but the file now contains the complete performance engine. PCM and musical state stay in its heap.
