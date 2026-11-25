@@ -103,7 +103,7 @@ class Program {
   std::unique_ptr<patches::Stereo[]> note_capture_scratch_;
 
   struct RotationWindow { double begin = 0, end = 0; };
-  struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2], scan_initial[2]; bool automatic = false; double repeat_begin = -1; int64_t repeat_frame[2]{-1, -1}; uint32_t scan_begin[2]{}; double quality[2]{}; };
+  struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2], scan_initial[2]; bool automatic = false, overlap_final_eighth = false; double repeat_begin = -1; int64_t repeat_frame[2]{-1, -1}; uint32_t scan_begin[2]{}; double quality[2]{}; };
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   struct EdgeCapturePair { int button = -1, takes[2]{}, arms[2]{}; bool used = false; };
@@ -135,6 +135,7 @@ class Program {
   bool selection_profiles_overlap(int first, int second) const noexcept;
   bool selection_profile(int selection, int profile) const noexcept;
   bool selection_ready(int selection, int voice) const noexcept;
+  bool start_intro_loop(Take& take, const SelectionWindow& window, bool capture_handoff) noexcept;
   void observe_sustain(SelectionWindow& window) noexcept;
   void observe_windows(double frame) noexcept;
   bool select(int voice, int selection, bool automatic, int mode = PF_LOOP_MODE, bool retrigger = false, bool additive = false) noexcept;
@@ -170,6 +171,8 @@ class Program {
   std::unique_ptr<Member[]> members_;
   std::unique_ptr<PlaybackCue[]> playback_;
   std::unique_ptr<Pending[]> pending_;
+  struct OverlapLaunch { int selection = -1; double position = 0; };
+  OverlapLaunch overlap_launch_[PF_CHANNELS]{};
   std::unique_ptr<Due[]> due_;
   std::unique_ptr<patches::Rack> voices_[PF_VOICE_PROFILES], tails_[PF_VOICE_PROFILES];
   bool detached_tail_[PF_VOICE_PROFILES]{};

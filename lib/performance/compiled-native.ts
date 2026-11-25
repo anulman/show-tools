@@ -60,10 +60,13 @@ function encodeProgram(song: CompiledSong): Float64Array {
     return [index, 0, selection.window.endCount, counts];
   });
   const windows = windowRows.length ? [PF.COMPILED_WINDOW_MAGIC, windowRows.length / PF.COMPILED_WINDOW_FIELDS, ...windowRows] : [];
-  const introLoopRows = song.selections.flatMap((selection, index) => selection.window.kind === 'intro-loop'
-    ? [index, selection.window.repeatBeginCount, selection.window.endCount] : []);
-  const introLoops = introLoopRows.length
-    ? [PF.COMPILED_INTRO_LOOP_MAGIC, introLoopRows.length / PF.COMPILED_INTRO_LOOP_FIELDS, ...introLoopRows] : [];
+  const introLoops = [false, true].flatMap(overlap => {
+    const rows = song.selections.flatMap((selection, index) => selection.window.kind === 'intro-loop'
+      && Boolean(selection.window.overlapFinalEighth) === overlap
+      ? [index, selection.window.repeatBeginCount, selection.window.endCount] : []);
+    return rows.length ? [overlap ? PF.COMPILED_OVERLAP_LOOP_MAGIC : PF.COMPILED_INTRO_LOOP_MAGIC,
+      rows.length / PF.COMPILED_INTRO_LOOP_FIELDS, ...rows] : [];
+  });
   const external = song.externalSamples?.length ? [PF.COMPILED_EXTERNAL_MAGIC, song.externalSamples.length,
     ...song.externalSamples.flatMap(sample => [sample.slot, sample.begin.bar, sample.begin.beat, sample.end.bar, sample.end.beat])] : [];
   const notes = song.noteBanks?.length ? [PF.COMPILED_NOTES_MAGIC, song.noteBanks.reduce((count, bank) => count + bank.notes.length, 0),

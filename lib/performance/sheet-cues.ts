@@ -7,7 +7,7 @@ export interface SheetCue {
   pressBeat: number | null;
   sourceName: string | null;
   execution: CueExecution;
-  repeatBars?: { first: number; last: number };
+  repeatBars?: { first: number; last: number; overlapFinalEighth?: true };
 }
 export type CueParse = { kind: 'parsed'; actions: SheetCue[] } | { kind: 'invalid'; token: string; message: string };
 const fractions: Readonly<Record<string, number>> = { e: .25, '&': .5, a: .75 };
@@ -37,7 +37,7 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
     const grouped = tokens.length > 1 || /x\([^()]*\+/.test(word);
     if (grouped) group++;
     for (const [tokenIndex, token] of tokens.entries()) {
-      const match = /^(?:\(([1-9]\d*)\))?([1-9]\d*(?:[e&a])?|[e&a])?(cr|cx|ru|r|c|x|pp|p|g|h)(?:\(([A-Za-z][A-Za-z0-9_-]*(?:\+[A-Za-z][A-Za-z0-9_-]*)*)\))?(b|[1-9]\d*(?:[e&a])?|[e&a])?(?:~([1-9]\d*)\.\.([1-9]\d*))?$/.exec(token);
+      const match = /^(?:\(([1-9]\d*)\))?([1-9]\d*(?:[e&a])?|[e&a])?(cr|cx|ru|r|c|x|pp|p|g|h)(?:\(([A-Za-z][A-Za-z0-9_-]*(?:\+[A-Za-z][A-Za-z0-9_-]*)*)\))?(b|[1-9]\d*(?:[e&a])?|[e&a])?(?:~([1-9]\d*)\.\.([1-9]\d*)(\^&)?)?$/.exec(token);
       if (!match) return { kind: 'invalid', token, message: 'Expected [press] operation [(source)] [execution], separated by whitespace.' };
       if (match[1] && match[2] && /^\d/.test(match[2])) return { kind: 'invalid', token, message: 'Use one numeric press anchor.' };
       if (match[1]) anchor = Number(match[1]) - 1;
@@ -57,7 +57,8 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
         if (beat === null) return { kind: 'invalid', token, message: 'Execution is outside this measure.' };
         execution = { kind: 'beat', beat, barOffset: pressBeat !== null && beat < pressBeat ? 1 : 0 };
       }
-      const repeatBars = match[6] ? { first: Number(match[6]), last: Number(match[7]) } : undefined;
+      const repeatBars: SheetCue['repeatBars'] = match[6]
+        ? { first: Number(match[6]), last: Number(match[7]), ...(match[8] ? { overlapFinalEighth: true } : {}) } : undefined;
       if (repeatBars && ((op !== 'c' && op !== 'cx') || !Number.isSafeInteger(repeatBars.last) || repeatBars.first > repeatBars.last))
         return { kind: 'invalid', token, message: 'Use an inclusive recorded-bar range on c or cx, for example c4&~2..3.' };
       const names = match[4]?.split('+') ?? [null];

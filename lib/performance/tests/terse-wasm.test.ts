@@ -4,6 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { terseCaptureFixture } from './fixtures/terse-capture.js';
 import { prepareDeclaredExternalAssets } from '../external-assets.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
+import { compileSheetsSong } from '../compiled-song.js';
+import { importSheetMusicXml } from '../sheet-musicxml.js';
+import { readMusicXmlSong } from '../musicxml-song.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
 import tribulations from '../../../songs/tribulations.js';
@@ -467,5 +470,79 @@ test('Tribulations uses the same four recorded samples for Audition and chart pl
       assert.deepEqual(render(native, 2048, 0), auditions[slot]);
       native.stop();
     }
+  } finally { native.dispose(); }
+});
+
+test('Drunk Girls layers the recorded final eighth only at four-bar repeat seams', async () => {
+  const { source, mapping } = await readMusicXmlSong(await readFile(new URL('../../../songs/drunk-girls.musicxml', import.meta.url), 'utf8'));
+  assert(source && mapping);
+  const edited = { ...source, values: source.values.map(row => [...row]) };
+  // Use sections 0.1–0.4 in a local copy of the Guitar row.
+  edited.values[20][3] = 'r4&';
+  edited.values[20][7] = 'cb~1..4^&';
+  edited.values[20][10] = '';
+  edited.values[20][43] = 'p4&';
+  const { xml } = await importSheetMusicXml({ source: edited, mapping });
+  const { song } = await readMusicXmlSong(xml);
+  assert(song.executable, JSON.stringify(song.diagnostics));
+  const guitar = song.takes.find(take => take.voiceId === 'guitar');
+  assert(guitar);
+  assert.deepEqual([guitar.begin, guitar.captureEnd], [{ bar: 1, beat: 3.5 }, { bar: 6, beat: 0 }]);
+  assert.deepEqual(song.selections.find(selection => selection.id === song.cues.find(cue => cue.source.a1 === 'H21')?.selectionId)?.window,
+    { kind: 'intro-loop', repeatBeginCount: 0, endCount: 16, overlapFinalEighth: true });
+
+  const invalid = structuredClone(edited);
+  invalid.values[20][7] = 'c4&~1..4^&';
+  const rejected = await compileSheetsSong(invalid, mapping);
+  assert(!rejected.executable);
+  assert(rejected.diagnostics.some(issue => issue.code === 'repeat-range' && issue.source.a1 === 'H21'));
+
+  const sampleRate = 14400;
+  const native = engine(Array.from(encodeCompiledProgram(song)), undefined, sampleRate);
+  let frame = 0, framesPerCount = 0;
+  function renderUntil(count: number, input: (elapsedCounts: number) => number = () => 0) {
+    const end = Math.ceil(count * framesPerCount);
+    let last: number | undefined;
+    while (frame < end) {
+      const size = Math.min(end - frame, 512);
+      const pcm = Float32Array.from({ length: size }, (_, index) => input((frame + index) / framesPerCount));
+      const out = [new Float32Array(size), new Float32Array(size)];
+      native.process(pcm, out, size, [new Float32Array(size), new Float32Array(size)]);
+      last = out[0].at(-1);
+      frame += size;
+      for (const event of native.events()) assert.notEqual(event.type, 'fault', event.error ?? 'native fault');
+    }
+    return last;
+  }
+  function start(bpm: number, startBar: number, endBar: number) {
+    frame = 0; framesPerCount = sampleRate * 60 / bpm;
+    native.start({ runId: `overlap-${startBar}`, bpm, countInBars: 0, startBar, endBar, loop: false, automatic: false });
+  }
+  function check(count: number, expected: number) {
+    const actual = renderUntil(count);
+    assert(actual !== undefined && Math.abs(actual - expected) < 1e-6, `count ${count}: expected ${expected}, got ${actual}`);
+  }
+  try {
+    native.prepareLiveEffects([]); native.setMicrophone(true);
+    start(144, 1, 15);
+    renderUntil(21, elapsed => elapsed < 5 ? .125 : elapsed < 20.5 ? .25 : .375);
+    assert.equal(native.compiledTake(song.takes.indexOf(guitar)).frames, framesPerCount * 16.5);
+    check(24.25, 0);
+    check(24.65, .125);
+    check(25.25, .25);
+    check(40.4, .25);
+    check(40.65, .5);
+    check(41.25, .25);
+    check(56.65, .5);
+    native.stop();
+
+    start(180, 41, 51);
+    renderUntil(2);
+    native.control({ id: 'L2' });
+    check(4.65, .125);
+    check(5.25, .25);
+    check(20.65, .5);
+    check(21.25, .25);
+    check(36.65, .5);
   } finally { native.dispose(); }
 });

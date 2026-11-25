@@ -34,7 +34,7 @@ const ActionFields = {
 const AuthoredCueSchema = Schema.Struct({
   bar: Schema.Int, buttonId: ButtonSchema, voiceId: Schema.String, source: SourceRefSchema,
   actions: list(Schema.Struct({ group: Schema.optionalKey(Schema.Int), operation: Schema.Literals(['cr', 'cx', 'ru', 'r', 'c', 'x', 'pp', 'p', 'g', 'h']), pressBeat: Schema.NullOr(Finite), sourceName: Schema.NullOr(Schema.String),
-    repeatBars: Schema.optionalKey(Schema.Struct({ first: Schema.Int, last: Schema.Int })),
+    repeatBars: Schema.optionalKey(Schema.Struct({ first: Schema.Int, last: Schema.Int, overlapFinalEighth: Schema.optionalKey(Schema.Literal(true)) })),
     execution: Schema.Union([Schema.Struct({ kind: Schema.Literal('now') }), Schema.Struct({ kind: Schema.Literal('next-bar') }),
       Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite, barOffset: Schema.Literals([0, 1]) })]) })),
 });
@@ -95,7 +95,7 @@ const SelectionWindowSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literal('sustain') }),
   Schema.Struct({ kind: Schema.Literal('prefix'), endCount: Finite }),
   Schema.Struct({ kind: Schema.Literal('slice'), beginCount: Finite, endCount: Finite, loopCounts: Finite }),
-  Schema.Struct({ kind: Schema.Literal('intro-loop'), repeatBeginCount: Finite, endCount: Finite }),
+  Schema.Struct({ kind: Schema.Literal('intro-loop'), repeatBeginCount: Finite, endCount: Finite, overlapFinalEighth: Schema.optionalKey(Schema.Literal(true)) }),
 ]);
 const ReleaseCapturePairSchema = Schema.Struct({ firstTakeId: Schema.String, secondTakeId: Schema.String });
 const PlaybackPairSchema = Schema.Struct({
@@ -141,6 +141,12 @@ function cueBoundary(cue: CompiledCue): typeof PointSchema.Type {
     : { bar: (cue.bar === 0 && cue.kind === 'arm' && cue.execution.kind === 'beat' ? 0 : Math.max(1, cue.bar)) + (cue.execution.kind === 'beat' ? cue.execution.barOffset ?? 0 : 0), beat: cue.execution.kind === 'beat' ? cue.execution.beat : cue.cueBeat ?? 0 };
 }
 function pointCount(point: typeof PointSchema.Type, beats: number): number { return (point.bar - 1) * beats + point.beat; }
+function validRepeatCapture(take: CompiledTake, beats: number, endCount: number, overlapFinalEighth = false): boolean {
+  if (!take.captureEnd) return false;
+  const captured = pointCount(take.captureEnd, beats) - pointCount(take.begin, beats);
+  if (overlapFinalEighth) return take.begin.beat === beats - .5 && take.captureEnd.beat === 0 && captured === endCount + .5;
+  return take.begin.beat === take.captureEnd.beat && (take.begin.beat === 0 || take.begin.beat >= beats - 1) && endCount <= captured;
+}
 function samePoint(a: typeof PointSchema.Type, b: typeof PointSchema.Type): boolean { return a.bar === b.bar && a.beat === b.beat; }
 function loopCounts(take: CompiledTake, beats: number): number | null { return take.loopEnd ? pointCount(take.loopEnd, beats) - pointCount(take.begin, beats) : null; }
 function overlappingCaptures(takes: readonly CompiledTake[], beats: number) {
@@ -400,13 +406,12 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     }
     if (selection.window.kind === 'intro-loop') {
       const take = song.takes.find(take => take.id === selection.takeIds[0]);
-      const { repeatBeginCount, endCount } = selection.window;
+      const { repeatBeginCount, endCount, overlapFinalEighth } = selection.window;
       if (selection.takeIds.length !== 1 || !take?.captureEnd || take.phraseAnchorTakeId !== take.id
         || song.takes.some(other => other.id !== take.id && other.groupId === take.groupId)
-        || take.begin.beat !== take.captureEnd.beat || (take.begin.beat !== 0 && take.begin.beat < beats - 1)
         || repeatBeginCount < 0 || endCount <= repeatBeginCount
         || [repeatBeginCount, endCount].some(count => !Number.isInteger(count / beats))
-        || endCount > pointCount(take.captureEnd, beats) - pointCount(take.begin, beats)
+        || !validRepeatCapture(take, beats, endCount, overlapFinalEighth)
         || song.playback.some(cue => cue.selectionId === selection.id)
         || song.cues.some(cue => cue.selectionId === selection.id && cue.kind !== 'stop' && cue.playbackMode !== 'loop')
       ) throw new Error('Invalid executable intro and repeat range.');
@@ -812,7 +817,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
           if (cue.sourceName !== null && activeName !== null && cue.sourceName !== activeName) issue('capture-source-mismatch', `This commit names ${cue.sourceName}, but the active recording is ${activeName}.`, cue.source);
           const end = cueBoundary(cue);
           const sourceBinding = mapping.sourceBindings?.find(binding => binding.sourceName === open?.sourceName);
-          const periodCounts = sourceBinding?.loopCounts;
+          const repeatBars = repeatBarsByCue.get(cue.id);
+          const periodCounts = repeatBars?.overlapFinalEighth ? undefined : sourceBinding?.loopCounts;
           const absoluteLoopEnd = periodCounts === undefined ? null : pointCount(open.begin, mapping.meter.numerator) + periodCounts;
           const loopEnd = absoluteLoopEnd !== null ? { bar: Math.floor(absoluteLoopEnd / mapping.meter.numerator) + 1, beat: absoluteLoopEnd % mapping.meter.numerator } : cue.captureTail === 'silence-to-bar-end' ? { bar: end.bar + 1, beat: 0 } : end;
           const begin = open.begin;
@@ -820,9 +826,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
           const sourceName = open.sourceName ?? cue.sourceName ?? defaultSource;
           const sourceVoiceId = mapping.sourceBindings?.find(binding => binding.buttonId === control.buttonId && binding.sourceName === sourceName)?.voiceId ?? control.voiceId;
           const boundProfile = mapping.sourceBindings?.find(binding => binding.buttonId === control.buttonId && binding.sourceName === sourceName)?.profile;
-          const repeatBars = repeatBarsByCue.get(cue.id);
           const phraseStart = begin.bar + Number(Boolean(repeatBars && begin.beat >= mapping.meter.numerator - 1));
-          const phraseBars = repeatBars ? end.bar - begin.bar : loopEnd.bar - begin.bar + Number(loopEnd.beat > 0);
+          const phraseBars = repeatBars ? end.bar - phraseStart + Number(end.beat > 0) : loopEnd.bar - begin.bar + Number(loopEnd.beat > 0);
           const final: CompiledTake = { ...open, ...(periodCounts === undefined ? {} : { periodCounts }), ...(boundProfile === undefined ? {} : { profile: boundProfile }), sourceVoiceId, sourceName: open.sourceName ?? cue.sourceName ?? defaultSource, captureEnd: end, loopEnd, commitCueId: cue.id,
             phrase: Array.from({ length: Math.max(0, phraseBars) }, (_, offset) => {
               const column = columns.get(phraseStart + offset);
@@ -896,10 +901,12 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       const beats = mapping.meter.numerator;
       const endCount = repeatBars.last * beats;
       const singleTake = !takes.some(other => other.id !== take.id && other.groupId === take.groupId);
-      const sameSeam = take.begin.beat === take.captureEnd.beat && (take.begin.beat === 0 || take.begin.beat >= beats - 1);
-      if (!singleTake || !sameSeam || commit.playbackMode !== 'loop' || endCount > pointCount(take.captureEnd, beats) - pointCount(take.begin, beats)) {
-        issue('repeat-range', 'Repeat ranges require one loop take, matching barline or pickup seams, and complete recorded bars inside the capture.', commit.source);
-      } else window = { kind: 'intro-loop', repeatBeginCount: (repeatBars.first - 1) * beats, endCount };
+      if (!singleTake || commit.playbackMode !== 'loop' || !validRepeatCapture(take, beats, endCount, repeatBars.overlapFinalEighth)) {
+        issue('repeat-range', repeatBars.overlapFinalEighth
+          ? 'The ^& overlap needs one loop take from the final eighth before section 1 through the downbeat after the last repeated bar.'
+          : 'Repeat ranges require one loop take, matching barline or pickup seams, and complete recorded bars inside the capture.', commit.source);
+      } else window = { kind: 'intro-loop', repeatBeginCount: (repeatBars.first - 1) * beats, endCount,
+        ...(repeatBars.overlapFinalEighth ? { overlapFinalEighth: true } : {}) };
     }
     selections.push({ id: `${take.voiceId}/selection-${selections.filter(s => s.voiceId === take.voiceId).length + 1}`, voiceId: take.voiceId,
       groupId: take.groupId,
@@ -1077,7 +1084,7 @@ export function inspectCompiledSong(input: unknown): string {
   }
   for (const selection of song.selections) if (selection.window.kind === 'sustain') lines.push(`SUSTAIN PREPARATION\t${selection.id}\tperiodic source analysis: 80 ms windows; 50..1200 Hz; reject nonperiodic source`);
   for (const selection of song.selections) if (selection.window.kind === 'prefix') lines.push(`SOURCE WINDOW\t${selection.id}\t${selection.takeIds[0]}\t0..${selection.window.endCount} counts, exclusive\toriginal source and loop period retained`);
-  for (const selection of song.selections) if (selection.window.kind === 'intro-loop') lines.push(`INTRO LOOP	${selection.id}	${selection.takeIds[0]}	starts at 0; repeats ${selection.window.repeatBeginCount}..${selection.window.endCount} counts, exclusive`);
+  for (const selection of song.selections) if (selection.window.kind === 'intro-loop') lines.push(`INTRO LOOP	${selection.id}	${selection.takeIds[0]}	starts at 0; repeats ${selection.window.repeatBeginCount}..${selection.window.endCount} counts, exclusive${selection.window.overlapFinalEighth ? '; layer the final eighth on each repeat' : ''}`);
   for (const selection of song.selections) if (selection.window.kind === 'slice') lines.push(`SOURCE SLICE\t${selection.id}\t${selection.takeIds[0]}\t${selection.window.beginCount}..${selection.window.endCount} counts, exclusive\tloop ${selection.window.loopCounts} counts; captured DSP history retained`);
   for (const diagnostic of song.diagnostics) lines.push(`${diagnostic.severity.toUpperCase()} ${diagnostic.code}\t${diagnostic.source.a1}\t${JSON.stringify(diagnostic.source.text)}\t${diagnostic.message}\towner ${diagnostic.owner}`);
   return lines.join('\n') + '\n';

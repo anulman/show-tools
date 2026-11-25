@@ -32,13 +32,14 @@ function plan(takes: readonly CompiledTake[], chart: CompiledSong['chart'], sele
     const take = takes[0];
     const pickup = take.begin.beat > 0;
     const first = take.begin.bar + Number(pickup);
-    const last = first + (count(take.captureEnd ?? take.begin, beats) - count(take.begin, beats)) / beats - 1;
+    const capturedCounts = count(take.captureEnd ?? take.begin, beats) - count(take.begin, beats);
+    const last = first + Math.floor(capturedCounts / beats) - 1;
     const from = intro.window.repeatBeginCount / beats + 1;
     const through = intro.window.endCount / beats;
     const source = first === last ? `bar ${chartBarLabel(chart, first)}` : `bars ${chartBarLabel(chart, first)}–${chartBarLabel(chart, last)}`;
     const entry = from === 1 ? '' : from === 2 ? ' · play section 1 once' : ` · play sections 1–${from - 1} once`;
     const repeat = from === through ? `section ${from}` : `sections ${from}–${through}`;
-    return `Record ${source}${pickup ? ' with pickup' : ''}${entry} · repeat ${repeat}`;
+    return `Record ${source}${pickup ? ' with pickup' : ''}${entry} · repeat ${repeat}${intro.window.overlapFinalEighth ? ' · doubled pickup at the seam' : ''}`;
   }
 
   if (takes.every(take => take.retention === 'variant')) {

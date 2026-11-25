@@ -110,7 +110,7 @@ class Playback {
   bool start_at_capture_end(bool loop) noexcept;
   bool start_window(bool loop, uint32_t begin, uint32_t end, uint32_t period, const Rack& initial) noexcept;
   bool start_window_at_capture_end(bool loop, uint32_t begin, uint32_t end, uint32_t period) noexcept;
-  bool start_intro_loop(uint32_t repeat_frame, uint32_t end_frame, bool capture_handoff) noexcept;
+  bool start_intro_loop(uint32_t repeat_frame, uint32_t end_frame, bool capture_handoff, uint32_t pickup_end_frame = 0) noexcept;
   bool set_window(uint32_t begin, uint32_t end, uint32_t period) noexcept;
   bool set_source_end(uint32_t exclusive_frame) noexcept;
   void clear_source_end() noexcept { source_end_ = UINT32_MAX; }
@@ -133,7 +133,7 @@ class Playback {
   PlaybackState state_ = PlaybackState::idle;
   double phase_ = 0, rate_ = 1;
   uint32_t source_end_ = UINT32_MAX;
-  uint32_t source_begin_ = 0, window_period_ = 0, repeat_phase_ = 0;
+  uint32_t source_begin_ = 0, window_period_ = 0, repeat_phase_ = 0, pickup_end_frame_ = 0;
   uint64_t release_remaining_ = 0, iteration_ = 0;
   void finish() noexcept;
   bool loop_ = false;
@@ -142,6 +142,7 @@ class Playback {
     double outgoing = 0, incoming = 0, last_phase = 0;
     uint32_t hop = 0, elapsed = 0;
   } grains_;
+  Stereo repeat_tail(double phase) const noexcept;
   Stereo grain_sample(double phase) const noexcept;
   double grain_start(double desired, double outgoing, uint32_t hop) const noexcept;
 };

@@ -121,8 +121,8 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   uint64_t needed = PF_COMPILED_HEADER_FIELDS + uint64_t(data[8]) * PF_COMPILED_TAKE_FIELDS + uint64_t(data[9]) * cue_fields
     + uint64_t(data[10]) * PF_COMPILED_MEMBER_FIELDS + uint64_t(data[11]) * PF_COMPILED_PLAYBACK_FIELDS;
   if (needed > fields) return nullptr;
-  int rotation_count = 0, window_count = 0, external_count = 0, note_count = 0, profile_count = 0, sustain_count = 0, intro_count = 0; double rotation_inactivity = .25;
-  uint64_t rotation_offset = 0, window_offset = 0, external_offset = 0, note_offset = 0, profile_offset = 0, sustain_offset = 0, intro_offset = 0, cursor = needed;
+  int rotation_count = 0, window_count = 0, external_count = 0, note_count = 0, profile_count = 0, sustain_count = 0, intro_count = 0, overlap_count = 0; double rotation_inactivity = .25;
+  uint64_t rotation_offset = 0, window_offset = 0, external_offset = 0, note_offset = 0, profile_offset = 0, sustain_offset = 0, intro_offset = 0, overlap_offset = 0, cursor = needed;
   uint64_t edge_offset = 0;
   int edge_captures = 0, edge_playbacks = 0;
   bool input_extension = false;
@@ -138,10 +138,13 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       if (window_offset || fields - cursor < PF_COMPILED_WINDOW_HEADER_FIELDS || !whole(data[cursor + 1], PF_MAX_EVENTS)) return nullptr;
       window_offset = cursor; window_count = int(data[cursor + 1]);
       cursor += PF_COMPILED_WINDOW_HEADER_FIELDS + uint64_t(window_count) * PF_COMPILED_WINDOW_FIELDS;
-    } else if (data[cursor] == PF_COMPILED_INTRO_LOOP_MAGIC) {
-      if (intro_offset || fields - cursor < 2 || !whole(data[cursor + 1], data[8])) return nullptr;
-      intro_offset = cursor; intro_count = int(data[cursor + 1]);
-      cursor += 2 + uint64_t(intro_count) * PF_COMPILED_INTRO_LOOP_FIELDS;
+    } else if (data[cursor] == PF_COMPILED_INTRO_LOOP_MAGIC || data[cursor] == PF_COMPILED_OVERLAP_LOOP_MAGIC) {
+      const bool overlap = data[cursor] == PF_COMPILED_OVERLAP_LOOP_MAGIC;
+      auto& offset = overlap ? overlap_offset : intro_offset;
+      auto& count = overlap ? overlap_count : intro_count;
+      if (offset || fields - cursor < 2 || !whole(data[cursor + 1], data[8])) return nullptr;
+      offset = cursor; count = int(data[cursor + 1]);
+      cursor += 2 + uint64_t(count) * PF_COMPILED_INTRO_LOOP_FIELDS;
     } else if (data[cursor] == PF_COMPILED_SUSTAIN_MAGIC) {
       if (sustain_offset || fields - cursor < 2 || !whole(data[cursor + 1], PF_COMPILED_MAX_TAKES)) return nullptr;
       sustain_offset = cursor; sustain_count = int(data[cursor + 1]); cursor += 2 + sustain_count;
@@ -373,14 +376,16 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       if (program->members_[previous].take == member.take || program->takes_[program->members_[previous].take].voice != program->takes_[member.take].voice || program->takes_[program->members_[previous].take].anchor != program->takes_[member.take].anchor) return nullptr;
     }
   }
-  const int fixed_windows = window_count + intro_count;
+  const int overlap_start = window_count + intro_count;
+  const int fixed_windows = overlap_start + overlap_count;
   program->window_count_ = fixed_windows + sustain_count;
   program->selection_windows_.reset(new (std::nothrow) SelectionWindow[program->window_count_]);
   if (!program->selection_windows_) return nullptr;
   for (int id = 0; id < fixed_windows; ++id) {
     const bool intro = id >= window_count;
+    const bool overlap = id >= overlap_start;
     const double* row = intro
-      ? data + intro_offset + 2 + (id - window_count) * PF_COMPILED_INTRO_LOOP_FIELDS
+      ? data + (overlap ? overlap_offset : intro_offset) + 2 + (id - (overlap ? overlap_start : window_count)) * PF_COMPILED_INTRO_LOOP_FIELDS
       : data + window_offset + PF_COMPILED_WINDOW_HEADER_FIELDS + id * PF_COMPILED_WINDOW_FIELDS;
     const double begin = intro ? 0 : row[1], end = row[2], period = intro ? end : row[3];
     if (!whole(row[0], PF_MAX_EVENTS - 1) || !std::isfinite(begin) || !std::isfinite(end) || !std::isfinite(period)
@@ -390,6 +395,7 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     auto& window = program->selection_windows_[id];
     window.selection = int(row[0]); window.begin = begin; window.end = end; window.period = period;
     if (intro) window.repeat_begin = row[1];
+    window.overlap_final_eighth = overlap;
     for (int previous = 0; previous < id; ++previous) if (program->selection_windows_[previous].selection == window.selection) return nullptr;
     for (int member = 0; member < program->member_count_; ++member) if (program->members_[member].selection == window.selection) {
       if (window.take >= 0) return nullptr;
@@ -398,7 +404,8 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     if (window.take < 0) return nullptr;
     const Take& take = program->takes_[window.take];
     if (window.end > take.end - take.begin || window.begin + window.period > take.loop_end - take.begin) return nullptr;
-    if (intro && (std::fmod(take.end - take.begin, double(program->beats_)) != 0
+    if (overlap && (take.end - take.begin != window.end + .5 || std::fmod(take.end, double(program->beats_)) != 0)) return nullptr;
+    if (intro && !overlap && (std::fmod(take.end - take.begin, double(program->beats_)) != 0
       || !(std::fmod(take.end, double(program->beats_)) == 0 || std::fmod(take.end, double(program->beats_)) >= program->beats_ - 1))) return nullptr;
     if (intro) for (int other = 0; other < program->take_count_; ++other)
       if (other != window.take && program->takes_[other].anchor == take.anchor) return nullptr;
@@ -622,6 +629,7 @@ void Program::stop() noexcept {
     } else take.cache[active_capture_.bank]->reset_for_capture();
   }
   for (auto& voice : external_playback_) voice = {};
+  for (auto& launch : overlap_launch_) launch = {};
   active_capture_ = {}; live_route_ = -1; monitor_route_ = default_route; rotation_deadline_frame_ = -1; clear_gesture(); phase_ = PF_IDLE;
 
   for (int button = 0; button < PF_CHANNELS; ++button) { gated_[button] = held_[button] = -1; button_down_[button] = false; input_owner_[button] = 0; } error_ = PF_OK;
@@ -1046,6 +1054,7 @@ void Program::release_owner(uint64_t owner) noexcept {
   for (int button = 0; button < PF_CHANNELS; ++button) if (input_owner_[button] == owner) release(button);
 }
 void Program::stop_selection(int selection, bool hard) noexcept {
+  for (auto& launch : overlap_launch_) if (launch.selection == selection) launch = {};
   for (int member = 0; member < member_count_; ++member) if (members_[member].selection == selection) {
     for (auto& playback : takes_[members_[member].take].playback) {
       playback->set_semitones(0);
@@ -1180,12 +1189,21 @@ bool Program::play_take(int id, double gain) noexcept {
   return true;
 }
 void Program::stop_voice(int voice, bool hard) noexcept {
+  overlap_launch_[voice] = {};
   for (int id = 0; id < take_count_; ++id) if (takes_[id].voice == voice) for (auto& playback : takes_[id].playback) {
     if (hard) playback->reset(); else playback->stop();
   }
 }
+bool Program::start_intro_loop(Take& take, const SelectionWindow& window, bool capture_handoff) noexcept {
+  const int bank = take.latest;
+  if (window.repeat_frame[bank] < 0 || window.cut[bank] <= window.repeat_frame[bank]
+    || (window.overlap_final_eighth && window.finish[bank] <= window.repeat_frame[bank])) return false;
+  const uint32_t pickup_end = window.overlap_final_eighth ? uint32_t(window.finish[bank]) : 0;
+  return take.playback[bank]->start_intro_loop(uint32_t(window.repeat_frame[bank]), uint32_t(window.cut[bank]), capture_handoff, pickup_end);
+}
 bool Program::select(int voice, int selection, bool automatic, int mode, bool retrigger, bool additive) noexcept {
   if (!selection_ready(selection, voice)) return false;
+  if (!automatic) overlap_launch_[voice] = {};
   if (automatic) for (int profile = 0; profile < PF_VOICE_PROFILES; ++profile) if (selection_profile(selection, profile) && suppressed_[profile]) return false;
   bool playing = false;
   for (int id = 0; id < take_count_; ++id) if (takes_[id].voice == voice && selection_profile(selection, takes_[id].profile)) for (const auto& playback : takes_[id].playback) if (playback->state() == patches::PlaybackState::playing) playing = true;
@@ -1212,7 +1230,7 @@ bool Program::select(int voice, int selection, bool automatic, int mode, bool re
       duration = view->end;
       period = uint32_t(view->cut[bank]);
       if (!continuing || take.active_selection != selection) {
-        if (!player->start_intro_loop(uint32_t(view->repeat_frame[bank]), period, false)) return false;
+        if (!start_intro_loop(take, *view, false)) return false;
       }
     } else if (view) {
       const int bank = take.latest;
@@ -1328,19 +1346,19 @@ int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_
   take.latest = active_capture_.bank; take.clock[take.latest] = {}; active_capture_ = {};
   SelectionWindow* committed_view = nullptr;
   for (int window = 0; window < window_count_; ++window) if (selection_windows_[window].selection == cue.selection) committed_view = &selection_windows_[window];
-  if (cue.launch == PF_AUTOPLAY && committed_view && committed_view->repeat_begin >= 0) {
-    const int bank = take.latest;
-    if (committed_view->repeat_frame[bank] < 0 || committed_view->cut[bank] <= committed_view->repeat_frame[bank]
-      || !take.playback[bank]->start_intro_loop(uint32_t(committed_view->repeat_frame[bank]), uint32_t(committed_view->cut[bank]), true))
-      return error_ = PF_ACTION_FAILED;
+  const bool delayed_launch = cue.launch == PF_AUTOPLAY && committed_view && committed_view->overlap_final_eighth;
+  const bool play_now = cue.launch == PF_AUTOPLAY && !delayed_launch;
+  if (delayed_launch) overlap_launch_[cue.voice] = {cue.selection, take.end + beats_ - .5};
+  if (play_now && committed_view && committed_view->repeat_begin >= 0) {
+    if (!start_intro_loop(take, *committed_view, true)) return error_ = PF_ACTION_FAILED;
     take.active_selection = cue.selection;
-  } else if (cue.launch == PF_AUTOPLAY && committed_view) {
+  } else if (play_now && committed_view) {
     int bank = take.latest;
     if (committed_view->start[bank] < 0 || committed_view->cut[bank] <= committed_view->start[bank]
       || committed_view->finish[bank] <= committed_view->start[bank]
       || !take.playback[bank]->start_window_at_capture_end(true, uint32_t(committed_view->start[bank]), uint32_t(committed_view->cut[bank]),
         uint32_t(committed_view->finish[bank] - committed_view->start[bank]))) return error_ = PF_ACTION_FAILED;
-  } else if (cue.launch == PF_AUTOPLAY) {
+  } else if (play_now) {
     auto& player = *take.playback[take.latest];
     const auto& recording = *take.cache[take.latest];
     bool started;
@@ -1351,22 +1369,22 @@ int Program::finish_capture(const Cue& cue, const CommitPlan& plan, bool starts_
     else started = player.start_at_capture_end(true);
     if (!started) return error_ = PF_ACTION_FAILED;
   }
-  if (cue.launch == PF_AUTOPLAY && cue.mode == PF_LOOP_MODE) {
+  if (play_now && cue.mode == PF_LOOP_MODE) {
     const int bank = take.latest;
     take.clock[bank] = {take.begin, take.loop_end - take.begin, 0, 0, take.cache[bank]->period(), false};
   }
-  // END playback owns this source epoch. Related monitor clones retire, while
-  // other voices and unrelated detached histories keep their own tails.
-  if (tail_generation_[take.profile] == completed_generation) { drain_[take.profile] = 0; tail_generation_[take.profile] = 0; }
+  // Immediate playback takes over the capture rack tail. A delayed launch keeps the monitor tail audible.
+  if (!delayed_launch && tail_generation_[take.profile] == completed_generation) { drain_[take.profile] = 0; tail_generation_[take.profile] = 0; }
   voices_[take.profile]->reset();
-  if (cue.launch == PF_AUTOPLAY && cue.selection >= 0) {
+  if (play_now && cue.selection >= 0) {
     if (!select(cue.voice, cue.selection, false, cue.mode)) return error_ = PF_ACTION_FAILED;
-  } else if (cue.launch == PF_AUTOPLAY && !play_take(cue.commit)) return error_ = PF_ACTION_FAILED;
+  } else if (play_now && !play_take(cue.commit)) return error_ = PF_ACTION_FAILED;
   if (!starts_next && live_route_ == take.profile && !has_capture()) switch_route(-1, true);
   return PF_OK;
 }
 int Program::begin_capture(const Cue& cue, int bank, double frame) noexcept {
   Take& take = takes_[cue.take];
+  if (cue.replacement_capture) overlap_launch_[take.voice] = {};
   if (cue.replacement_capture) for (int previous = 0; previous < take_count_; ++previous)
     if (takes_[previous].profile == take.profile && previous != cue.commit) for (auto& playback : takes_[previous].playback) playback->stop();
   if (!take.cache[bank]->reset_for_capture() || !take.cache[bank]->begin(*voices_[take.profile])) return error_ = PF_ACTION_FAILED;
@@ -1494,8 +1512,8 @@ void Program::observe_windows(double frame) noexcept {
     if (window.take == active_capture_.take && window.cut[active_capture_.bank] < 0
       && frame >= boundary_frame(frame_at(takes_[window.take].begin + window.end)))
       window.cut[active_capture_.bank] = takes_[window.take].cache[active_capture_.bank]->length();
-    if (window.repeat_begin < 0 && window.take == active_capture_.take && window.finish[active_capture_.bank] < 0
-      && frame >= boundary_frame(frame_at(takes_[window.take].begin + window.begin + window.period)))
+    if ((window.repeat_begin < 0 || window.overlap_final_eighth) && window.take == active_capture_.take && window.finish[active_capture_.bank] < 0
+      && frame >= boundary_frame(frame_at(takes_[window.take].begin + (window.overlap_final_eighth ? window.repeat_begin + .5 : window.begin + window.period))))
       window.finish[active_capture_.bank] = takes_[window.take].cache[active_capture_.bank]->length();
   }
 }
@@ -1602,6 +1620,13 @@ void Program::apply_pending(double frame, double bpm, bool live) noexcept {
         if (outcome_ && automatic.cue != action.cue) outcome_(outcome_context_, frame, cue.button, action.cue, result);
       } else if (observer_) observer_(observer_context_, frame);
     }
+  }
+  if (phase_ == PF_PLAYING) for (int voice = 0; voice < PF_CHANNELS; ++voice) {
+    const auto launch = overlap_launch_[voice];
+    if (launch.selection < 0 || launch.position >= run_end_ * beats_ || frame < boundary_frame(frame_at(launch.position))) continue;
+    overlap_launch_[voice] = {};
+    if (!select(voice, launch.selection, false)) { stop(); error_ = PF_ACTION_FAILED; return; }
+    if (observer_) observer_(observer_context_, frame);
   }
 }
 void Program::beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm, bool live) noexcept {
