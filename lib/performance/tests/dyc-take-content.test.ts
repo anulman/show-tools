@@ -130,7 +130,8 @@ for (const rate of [44100, 48000]) for (const countInBars of [1, 2]) for (const 
 });
 
 test('stored pickup take keeps its ending while playback skips it and wraps at a new tempo', async () => {
-  const { source, mapping } = terseCaptureInput();
+  const { source: fixture, mapping } = terseCaptureInput();
+  const source = { ...fixture, values: fixture.values.map(row => [...row]) };
   for (const control of mapping.controls) source.values[control.cueRow - 1].fill('', 1);
   source.values[19][1] = 'r4&';
   source.values[19][5] = 'cx4&~2..3';
@@ -159,8 +160,8 @@ test('stored pickup take keeps its ending while playback skips it and wraps at a
       engine.process(pcm, mixed, size, [new Float32Array(size), new Float32Array(size)]);
       frame += size;
       for (const event of engine.events()) {
-        assert.notEqual(event.type, 'fault', event.error);
-        if (event.type === 'control') assert(event.applied, event.error);
+        assert.notEqual(event.type, 'fault', event.error ?? 'native playback fault');
+        if (event.type === 'control') assert(event.applied, event.error ?? 'native cue rejected');
       }
       if (frame === end) return mixed[0].at(-1);
     }
