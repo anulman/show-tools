@@ -20,7 +20,7 @@
     { "buttonId": "R2", "voiceId": "tuned-b3", "cueRow": 23, "arrangementRow": 23, "nameNoteCell": "A23" }
   ],
   "tunedNotes": {
-    "capture": { "profile": 1, "slots": [0, 1, 2, 3, 4, 5, 6, 7], "root": 52, "scale": "major" },
+    "capture": { "profile": 1, "slots": [0, 1, 2, 3, 4, 5, 6, 7], "root": 52, "scale": "major", "requiredBeforeStart": true },
     "toleranceMs": 100,
     "bindings": [
       { "buttonId": "L2", "slot": 0 },

@@ -28,3 +28,11 @@ export const TunerCommandSchema = Schema.Union([
   Schema.Struct({ kind: Schema.Literals(['cue', 'play-scale', 'silence', 'confirm', 'close']), expectedRevision: uint32 }),
   Schema.Struct({ kind: Schema.Literal('listen'), expectedRevision: uint32, enabled: Schema.Boolean }),
 ]);
+
+export const RequiredTuningBankSchema = Schema.Struct({
+  profile: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 })),
+  slots: Schema.Array(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 63 }))).check(Schema.isMinLength(8), Schema.isMaxLength(13)),
+  target: Schema.Struct({ root, scale }),
+}).check(Schema.makeFilter(({ slots, target }) =>
+  slots.length === (target.scale === 'chromatic' ? 13 : 8) && new Set(slots).size === slots.length
+  || 'Use one distinct sample slot per target pitch'));

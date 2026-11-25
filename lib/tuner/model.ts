@@ -30,7 +30,14 @@ export type TunerCommand = { readonly expectedRevision: number } & (
   | { readonly kind: 'cue' | 'play-scale' | 'silence' | 'confirm' | 'close' }
   | { readonly kind: 'listen'; readonly enabled: boolean }
 );
+export interface RequiredTuningBank {
+  readonly profile: number;
+  readonly slots: readonly number[];
+  readonly target: { readonly root: number; readonly scale: TunerScale };
+}
+
 export interface TunerPort {
+  beginRequiredBank?(capture: RequiredTuningBank): Promise<TunerState>;
   prepareBank?(options: TuningBankOptions): Promise<TuningBankState>;
   snapshot(): TunerState;
   subscribe(listener: (state: TunerState) => void): () => void;

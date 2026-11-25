@@ -202,6 +202,7 @@ export class RemoteSession {
   constructor(private readonly desk: RemoteDesk, private readonly target: NativeTarget, performance: NativePerformance, private chart: ChartMetadata) {
     this.latest = performance;
     this.tuner = {
+      beginRequiredBank: async capture => { await this.command('beginRequiredTuning', capture); return this.tuner.snapshot(); },
       snapshot: () => { if (!this.valid) throw new Error('Hardware audio session is stale.'); return this.latest.tuner; },
       subscribe: listener => { if (!this.valid) throw new Error('Hardware audio session is stale.'); this.tunerListeners.add(listener); listener(this.latest.tuner); return () => { this.tunerListeners.delete(listener); }; },
       command: async command => { await this.command('tuner', command); if (!this.valid) throw new Error('Hardware audio session is stale.'); return this.latest.tuner; },

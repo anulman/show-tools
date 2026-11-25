@@ -1,6 +1,6 @@
 import { PerformanceProcessor } from './runtime/performance-worklet.js';
 import type { ChannelId, ChannelSettings, Control, LiveEffectDefinition, VoiceEffectConfiguration, StartOptions } from '../../lib/performance/model.js';
-import type { TunerCommand, TuningBankOptions } from '../../lib/tuner/model.js';
+import type { RequiredTuningBank, TunerCommand, TuningBankOptions } from '../../lib/tuner/model.js';
 import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
 
 type PracticeMessage = { id: number } & (
@@ -12,6 +12,7 @@ type PracticeMessage = { id: number } & (
   | { command: 'practice.jiggle'; payload: { minimumTravel: number; minimumReversal: number } }
   | { command: 'practice.external-wav'; payload: { slot: number; bytes: Uint8Array } }
   | { command: 'practice.tuning-bank'; payload: { options: TuningBankOptions } }
+  | { command: 'practice.required-tuning'; payload: { capture: RequiredTuningBank } }
   | { command: 'practice.tuner'; payload: { command: TunerCommand } }
   | { command: 'practice.effects'; payload: { effects: readonly LiveEffectDefinition[] } }
   | { command: 'practice.voice-effects'; payload: { configurations: readonly VoiceEffectConfiguration[] } }
@@ -83,6 +84,7 @@ export class PracticeProcessor extends PerformanceProcessor {
         case 'practice.jiggle': this.native.setJiggleThresholds(message.payload.minimumTravel, message.payload.minimumReversal); break;
         case 'practice.external-wav': this.native.prepareExternalWav(message.payload.slot, message.payload.bytes); break;
         case 'practice.tuning-bank': this.native.prepareTuningBank(message.payload.options); break;
+        case 'practice.required-tuning': this.native.beginRequiredTuningBank(message.payload.capture); break;
         case 'practice.tuner': this.native.tunerCommand(message.payload.command); break;
         case 'practice.effects': this.native.prepareLiveEffects(message.payload.effects); break;
         case 'practice.voice-effects': this.native.prepareVoiceEffects(message.payload.configurations); break;

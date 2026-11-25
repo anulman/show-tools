@@ -6,7 +6,7 @@ type ScaleSelection = Extract<WithoutRevision<TunerCommand>, { kind: 'configure'
 type NoteCapture = TuningBankOptions & { target?: Omit<ScaleSelection, 'kind'> };
 type TunerAction = WithoutRevision<TunerCommand> | { kind: 'prepare-bank'; capture: NoteCapture };
 export type TunerCaptureBank = { readonly id: string; readonly label: string; readonly capture: NoteCapture };
-type TunerPanelOptions = { connect: () => Promise<TunerPort>; banks?: readonly TunerCaptureBank[] };
+type TunerPanelOptions = { connect: () => Promise<TunerPort>; banks?: readonly TunerCaptureBank[]; required?: { rotate: (delta: number) => void } };
 export type TunerPanel = {
   setSession(port: TunerPort | null): void;
   close(): Promise<void>;
@@ -135,6 +135,14 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
   const dial = createTunerDial();
   const measurement = element('p', 'tuner-measurement', 'No pitch detected');
   sungCard.append(sungHeader, dial.element, sungNote, pitchStatus, measurement);
+  if (options.required) {
+    const { rotate } = options.required;
+    for (const control of [fields, audition, actions, bankCard, listen, connection]) control.remove();
+    const gesture = element('div', 'tuner-actions');
+    gesture.append(element('p', 'tuner-muted', 'Listen to each reference, then sing it steadily. Turn the knob clockwise and back to lock the note.'));
+    gesture.append(button('Turn clockwise', () => rotate(1)), button('Turn counterclockwise', () => rotate(-1)));
+    scaleCard.append(gesture);
+  }
   panel.append(intro, connection, error, scaleCard, sungCard);
   root.append(panel);
 
@@ -175,7 +183,8 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
     confirm.disabled ||= !current || state?.complete === true;
     reset.disabled ||= !state?.targets.length;
     target.textContent = current ? noteLabel(current) : '—';
-    progress.textContent = state?.complete ? 'Scale complete. Reset to practice again.' : current && state ? `Note ${state.step + 1} of ${state.targets.length}` : 'Set a scale to begin.';
+    progress.textContent = state?.complete ? (options.required ? 'Scale captured. Starting the song…' : 'Scale complete. Reset to practice again.')
+      : current && state ? `Note ${state.step + 1} of ${state.targets.length}` : options.required ? 'Preparing the tuning scale…' : 'Set a scale to begin.';
     confirm.textContent = state && state.step === state.targets.length - 1 ? 'Confirm & finish' : 'Confirm';
     const preview = state?.preview;
     const previewNote = state && preview && preview.kind !== 'silent' ? state.targets[preview.step] : undefined;

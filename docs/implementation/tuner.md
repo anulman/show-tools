@@ -10,6 +10,8 @@ A reference note lasts 1.5 seconds with a native envelope. Whole-scale playback 
 
 PF owns the utility independently of song transport. Separate tuner readback leaves historical song-event snapshots unchanged. Every tuner mutation checks its observed control revision. Pitch telemetry does not change that revision. Start, Stop, Panic, and microphone loss close tuning and invalidate earlier controls. Activating the tuner requires stopped transport. The browser also prevents tuning during demo output recording because that recording includes the reference bus.
 
+A chart with `requiredBeforeStart` opens the tuner from Start. The engine plays one reference, gates detection until it decays, and captures the sung pitch. A clockwise turn followed by a counterclockwise turn locks each stable note and cues the next reference. The count-in starts after the last note. Stop or Close cancels an incomplete bank. Restarting later in the same audio session reuses a completed bank. Starting again at the first bar records a fresh bank.
+
 A mounted view borrows an injected session capability. Opening the view is inert. Closing it stops tuning without terminating the shared audio session. Hardware mode uses the existing native owner and its PCM handles while the song remains Prepared. Utility activity is an additional reason to process audio, not a song Start.
 
 ## Scale dial

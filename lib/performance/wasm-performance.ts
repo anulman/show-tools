@@ -8,7 +8,7 @@ import { decodeNativeState, decodeNativeTempo, decodeNativeVoices, decodeNativeL
 import type { InputAttach, InputEvent, InputRevoke } from './input-bindings.js';
 import { ST } from '../sampler/wasm-abi.js';
 import { decodeTunerState, tunerCommandValues } from '../tuner/observation.js';
-import type { TunerCommand, TuningBankOptions, TuningBankState } from '../tuner/model.js';
+import type { RequiredTuningBank, TunerCommand, TuningBankOptions, TuningBankState } from '../tuner/model.js';
 
 import type { TakeAudioRequest } from './take-audio.js';
 const BLOCK = 8192;
@@ -376,6 +376,19 @@ export class NativePerformance {
       this.call('pf_prepare_tuning_bank', this.handle, profile, pointer, slots.length, Math.ceil(clipMs * this.sampleRate / 1000), Math.ceil(stableMs * this.sampleRate / 1000), confidence, toleranceCents);
     } finally { this.invoke('free', pointer); }
     return this.tuningBankState();
+  }
+  beginRequiredTuningBank({ profile, slots, target: { root, scale } }: RequiredTuningBank) {
+    if (!Number.isInteger(profile) || profile < 0 || profile >= PF.VOICE_PROFILES
+      || slots.length !== (scale === 'chromatic' ? 13 : 8) || new Set(slots).size !== slots.length
+      || slots.some(slot => !Number.isInteger(slot) || slot < 0 || slot >= 64)) throw new Error('Invalid required tuning bank');
+    const [, , , scaleCode] = tunerCommandValues({ kind: 'configure', root, scale, expectedRevision: 0 });
+    const pointer = this.call('malloc', slots.length * 8);
+    if (!pointer) throw new Error('Performance WASM memory limit reached');
+    try {
+      new Float64Array(this.memory.buffer, pointer, slots.length).set(slots);
+      this.call('pf_begin_tuning_bank', this.handle, profile, pointer, slots.length, root, scaleCode);
+    } finally { this.invoke('free', pointer); }
+    return this.tunerState();
   }
   tuningBankState(): TuningBankState {
     const info = this.query('pf_tuning_bank_info');

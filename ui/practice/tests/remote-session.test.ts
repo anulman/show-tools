@@ -258,11 +258,12 @@ for (const reason of ['off', 'fault', 'disconnected']) {
         },
       } };
       const root = new Node();
+      const tuningStart = new AbortController();
       const context = vm.createContext({ root, audio: session, tunerSession: session, tunerPort: null, tunerPanel: null,
         document: { createElement: () => new Node() }, isRunning: () => false, starting: false, outputCapture: 'idle',
         connected: reason !== 'disconnected', status: { kind: reason === 'fault' ? 'fault' : 'off' },
         createTunerDial: () => ({ element: new Node(), update() {}, dispose() { dialDisposals++; } }),
-        transportGeneration: 0, phoneMotionAbort: undefined, releasePresses() {}, chartFollower: null, renderHardwareUnavailable() {} });
+        transportGeneration: 0, phoneMotionAbort: undefined, tuningStart, releasePresses() {}, chartFollower: null, renderHardwareUnavailable() {} });
       vm.runInContext(`${panelSource}\n${wrapper}\n
         tunerPort = sharedTuner(audio);
         tunerPanel = mountTuner(root, { connect: async () => tunerPort });
@@ -272,6 +273,7 @@ for (const reason of ['off', 'fault', 'disconnected']) {
       const closing = pendingClose ? vm.runInContext('tunerPanel.close()', context) : null;
       if (pendingClose) await new Promise(resolve => setImmediate(resolve));
       vm.runInContext('disconnect()', context);
+      assert.equal(tuningStart.signal.aborted, true);
       const closed = closing ?? vm.runInContext('tunerPanel.close()', context);
       const result = await Promise.race([Promise.resolve(closed).then(() => 'closed'),
         new Promise(resolve => setTimeout(() => resolve('timeout'), 100))]);

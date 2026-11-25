@@ -796,6 +796,7 @@ double Program::rotation_remaining() const noexcept {
   return frames > 0 ? frames * bpm_ / (rate_ * 60) : 0;
 }
 void Program::clear_gesture() noexcept {
+  tuning_turn_armed_ = false;
   gesture_direction_ = 0; gesture_window_ = -1; gesture_travel_ = gesture_reversal_ = 0; gesture_bucket_end_ = -1;
 }
 void Program::jiggle_thresholds(int travel, int reversal) noexcept {
@@ -1796,10 +1797,26 @@ bool Program::lock_tuning_note(uint32_t step, double midi) noexcept {
   pause_tuning_bank(); voices_[note_capture_profile_]->reset();
   return true;
 }
-bool Program::tuning_motion(double value, double frame) noexcept {
-  if (!tuning_bank_ready(note_capture_step_)) return false;
+bool Program::tuning_motion(double value, double frame, bool require_reversal) noexcept {
+  if (!value || !tuning_bank_ready(note_capture_step_)) return false;
   query_frame_ = frame; query_position_ = position(frame, bpm_);
-  return meaningful_motion(value, frame) && value > 0;
+  if (!require_reversal) return meaningful_motion(value, frame) && value > 0;
+  if (!tuning_turn_armed_ && value < 0) {
+    clear_gesture();
+    return false;
+  }
+  if (!meaningful_motion(value, frame)) return false;
+  if (value < 0) return tuning_turn_armed_;
+  tuning_turn_armed_ = true;
+  return false;
+}
+void Program::discard_tuning_bank() noexcept {
+  for (uint32_t id = 0; id < note_capture_count_; ++id) {
+    auto& sample = external_samples_[note_capture_slots_[id]];
+    sample.frames = 0;
+    sample.midi = -1;
+  }
+  cancel_tuning_bank();
 }
 void Program::tuning_bank_info(double* out) const noexcept {
   if (!out) return;

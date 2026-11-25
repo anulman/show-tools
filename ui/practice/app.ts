@@ -35,6 +35,7 @@ import { createMusicalInputProducer } from './peripheral-input.js';
 import { createMusicalInputPolicy } from './musical-input-policy.js';
 import { mountTuner, type TunerPanel } from '../tuner/panel.js';
 import type { TunerPort } from '../../lib/tuner/model.js';
+import { matchesTuningBank, recordRequiredTuningBank } from '../tuner/required-bank.js';
 
 function requiredElement<T extends Element>(selector: string, constructor: { new(): T }, root: ParentNode = document): T {
   const element = root.querySelector(selector);
@@ -112,6 +113,8 @@ let audio: PerformanceSession | undefined;
 let tunerPanel: TunerPanel | undefined;
 let tunerSession: PerformanceSession | undefined;
 let tunerPort: TunerPort | undefined;
+let tuningStart: AbortController | undefined;
+const tunedSessions = new WeakSet<PerformanceSession>();
 const tunerDialog = requiredElement('#tuner-dialog', HTMLDialogElement);
 let remoteDesk: RemoteDesk | undefined;
 let remoteDemoChanging = false;
@@ -305,7 +308,53 @@ requiredElement('#open-tuner', HTMLButtonElement).addEventListener('click', () =
   syncTunerSession();
   tunerDialog.showModal();
 });
+async function tuneBeforeStart(instance: PerformanceSession, startBar: number) {
+  const capture = song?.compiled?.noteBanks?.find(bank => bank.capture?.requiredBeforeStart)?.capture;
+  if (!capture?.target) return;
+  const bank = { profile: capture.profile, slots: capture.slots, target: capture.target };
+  if (startBar > 1 && tunedSessions.has(instance)) {
+    const current = instance.tuner.snapshot();
+    if (current.complete && matchesTuningBank(current, bank)) return;
+  }
+  tunedSessions.delete(instance);
+  const controller = new AbortController();
+  tuningStart = controller;
+  tunerPanel?.dispose();
+  const port = instance.tuner;
+  tunerSession = instance;
+  tunerPort = port;
+  const panel = mountTuner(requiredElement('#tuner-root', HTMLElement), {
+    connect: async () => port,
+    required: { rotate: direction => {
+      if (audio === instance) void act(() => rotate(direction * 4));
+    } },
+  });
+  tunerPanel = panel;
+  panel.setSession(port);
+  if (!tunerDialog.open) tunerDialog.showModal();
+  try {
+    await recordRequiredTuningBank(port, bank, controller.signal);
+    tunedSessions.add(instance);
+  } catch (cause) {
+    if (instance === audio) {
+      await Promise.resolve().then(() =>
+        port.command({ kind: 'close', expectedRevision: port.snapshot().revision })).catch(() => {});
+    }
+    if (!controller.signal.aborted) throw cause;
+    return false;
+  } finally {
+    if (tuningStart === controller) tuningStart = undefined;
+    if (tunerPanel === panel) {
+      panel.dispose();
+      tunerPanel = undefined;
+      tunerSession = undefined;
+      tunerPort = undefined;
+      if (tunerDialog.open) tunerDialog.close();
+    }
+  }
+}
 function dismissTuner() {
+  if (tuningStart) { tuningStart.abort(); return; }
   void act(async () => {
     await tunerPanel?.close();
     tunerPanel = undefined;
@@ -434,7 +483,7 @@ async function applyVoiceEffects(profile: number, audition = false) {
 }
 
 async function rotate(value: number, source: 'keyboard' | 'pointer' = 'pointer') {
-  if (!audio || !isRunning()) return;
+  if (!audio || (!isRunning() && !tuningStart)) return;
   await (source === 'keyboard' ? keyboardProducer : pointerProducer).event(5, value);
 }
 
@@ -459,7 +508,9 @@ async function startPractice() {
     if (!instance) throw new Error('Enable hardware audio first.');
     starting = true;
     render(state);
+    const generation = ++transportGeneration;
     try {
+      if (await tuneBeforeStart(instance, startBar) === false || generation !== transportGeneration) return;
       await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar, loop: elements.loop.checked, automatic: false });
     } finally { starting = false; render(state); }
     return;
@@ -480,6 +531,10 @@ async function startPractice() {
     if (generation !== transportGeneration) return;
     microphoneGeneration = await instance.enableMicrophone();
     if (generation !== transportGeneration) { await instance.disableMicrophone(microphoneGeneration); return; }
+    if (await tuneBeforeStart(instance, startBar) === false || generation !== transportGeneration) {
+      await instance.disableMicrophone(microphoneGeneration);
+      return;
+    }
     if (outputCapture === 'idle') { await toggleOutputRecording(); startedRecording = true; }
     if (generation !== transportGeneration) { finishOutputRecording(); await instance.disableMicrophone(microphoneGeneration); return; }
     await instance.setClick(elements.click.checked);
@@ -494,6 +549,7 @@ async function startPractice() {
 }
 
 async function stopPerformance(command: 'stop' | 'panic', commandId?: string) {
+  tuningStart?.abort();
   preparationAbort?.abort(new Error('Audio preparation canceled'));
   phoneMotionAbort?.abort();
   transportGeneration++;
@@ -527,6 +583,7 @@ function panic() { return stopPerformance('panic'); }
 
 function receivePerformanceEvent(event: PracticeEvent) {
   if (event.type === 'control' && event.applied && event.control?.id === 'mushroom') {
+    tuningStart?.abort();
     preparationAbort?.abort(new Error('Audio preparation canceled'));
     phoneMotionAbort?.abort(); transportGeneration++; chartFollower?.stop();
     finishOutputRecording(); releasePresses();
@@ -1218,9 +1275,9 @@ document.addEventListener('visibilitychange', () => {
   phoneMotionAbort?.abort();
 });
 window.addEventListener('beforeunload', event => {
-  if (isRunning() && !changingAudioMode) { event.preventDefault(); event.returnValue = ''; }
+  if ((isRunning() || tuningStart) && !changingAudioMode) { event.preventDefault(); event.returnValue = ''; }
 });
-window.addEventListener('pagehide', () => { retirePageInputs(); phoneMotionAbort?.abort(); preparationAbort?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
+window.addEventListener('pagehide', () => { retirePageInputs(); phoneMotionAbort?.abort(); preparationAbort?.abort(); tuningStart?.abort(); if (recorder?.state === 'recording') recorder.stop(); });
 
 makePads();
 for (const entry of SONGS) {
@@ -1248,6 +1305,7 @@ async function switchSong(id: string, imported?: CompiledSong, source?: SongSour
   if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
   chartFollower?.stop();
   phoneMotionAbort?.abort();
+  tuningStart?.abort();
   tunerPanel?.dispose(); tunerPanel = undefined; tunerSession = undefined; tunerPort = undefined;
   if (tunerDialog.open) tunerDialog.close();
   const generation = ++songGeneration;
@@ -1501,6 +1559,7 @@ if (remote) {
         const connected = desk.connection.kind === 'connected';
         renderHardwareAudio();
         if (!connected || status.kind !== 'ready') {
+          tuningStart?.abort();
           audio = undefined;
           phoneMotionAbort?.abort();
           syncTunerSession();
@@ -1518,6 +1577,7 @@ if (remote) {
         elements.click.disabled = false;
         elements.mushroom.disabled = false;
         if (audio !== session) {
+          tuningStart?.abort();
           audio = session;
           syncRemoteTransport(session.snapshot());
           for (const voice of session.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);

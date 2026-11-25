@@ -248,6 +248,47 @@ void verify_tambourine_retrigger_during_drain() {
   require(retrigger.samples[0] != 0 && retrigger.samples[1] != 0);
 }
 
+void verify_start_during_tuning_utility_drain() {
+  constexpr double rate = 8000;
+  native_host::Instrument instrument({rate, 32, 30, 128, true});
+  native_host::AlsaRun run;
+  StatefulDevice device;
+  const auto packet = compiled_packet();
+  native_host::Profiles dry{}; dry.revisions.fill(1);
+  require(instrument.prepare(packet.data(), packet.size(), dry));
+  std::array<double, PF_TUNER_FIELDS> tuner{};
+  const std::array<double, 8> slots{0, 1, 2, 3, 4, 5, 6, 7};
+  pf_tuner_info(instrument.engine(), tuner.data());
+  require(instrument.begin_required_tuning(uint32_t(tuner[PF_TUNER_REVISION]), 0, slots.data(), slots.size(), 52, 0) == 0);
+  require(run.utility(instrument, device) == 0 && run.active());
+
+  std::array<float, 128> input{};
+  std::array<double, 32> bank{};
+  uint32_t frame = 0;
+  for (int midi : {52, 54, 56, 57, 59, 61, 63, 64}) {
+    const double phase_step = 2 * std::acos(-1.) * 440 * std::pow(2., (midi - 69) / 12.) / rate;
+    for (int block = 0; block < 200; ++block) {
+      for (auto& sample : input) sample = float(.2 * std::sin(phase_step * frame++));
+      device.read();
+      require(instrument.render(input.data(), input.size()) == 0);
+      while (instrument.pending()) require(instrument.write(StatefulDevice::write, &device) > 0);
+    }
+    pf_tuning_bank_info(instrument.engine(), bank.data());
+    require(bank[5]);
+    require(instrument.control(5, 4) == 0 && instrument.control(5, -2) == 0);
+  }
+  pf_tuner_info(instrument.engine(), tuner.data());
+  require(tuner[PF_TUNER_COMPLETE] && !instrument.audio_needed());
+
+  device.hold_drain = true;
+  require(run.complete(instrument, device) == 0 && device.drains == 1 && !run.can_activate());
+  require(run.start(instrument, device, {120, 1, 1, 4, 0, 0}) == 0);
+  require(run.active() && run.can_activate() && device.drops == 1 && device.prepares == 2);
+  require(instrument.lifecycle() == native_host::Lifecycle::Running);
+  pf_tuning_bank_info(instrument.engine(), bank.data());
+  require(bank[1] == slots.size());
+}
+
 struct Engine {
   pf_engine* value = pf_create(8000, PF_PRACTICE, 32, 30, 4);
   Engine() {
@@ -267,6 +308,7 @@ int main() {
   verify_idle_monitor();
   verify_tambourine_audition();
   verify_tambourine_retrigger_during_drain();
+  verify_start_during_tuning_utility_drain();
   native_host::Instrument instrument({8000, 32, 30, 509, true});
   native_host::Profiles profiles{}; profiles.revisions.fill(1);
   auto packet = compiled_packet();

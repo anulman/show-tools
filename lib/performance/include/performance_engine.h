@@ -25,7 +25,7 @@ enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_A
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
   PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
   PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24, PF_INVALID_INPUT = 25, PF_STALE_INPUT = 26 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 16, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 17, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
 enum pf_input_kind { PF_INPUT_PHYSICAL = 0, PF_INPUT_KEYBOARD = 1, PF_INPUT_POINTER = 2 };
 enum pf_input_target { PF_INPUT_CUES = 0, PF_INPUT_TEMPO = 1, PF_INPUT_PANIC = 2 };
 enum pf_input_limits { PF_INPUT_PRODUCERS = 32, PF_INPUT_SWITCHES = 6, PF_INPUT_MAGIC = 0x50464931,
@@ -110,6 +110,8 @@ int pf_configure_compiled(pf_engine* engine, const double* data, uint32_t fields
 int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t bytes);
 int pf_prepare_tuning_bank(pf_engine* engine, uint32_t profile, const double* slots, uint32_t count,
   uint32_t clip_frames, uint32_t stable_frames, double confidence, double tolerance_cents);
+int pf_begin_tuning_bank(pf_engine* engine, uint32_t profile, const double* slots, uint32_t count,
+  int root, int scale);
 void pf_tuning_bank_info(const pf_engine* engine, double* out);
 int pf_set_bend_parameters(pf_engine* engine, double velocity_per_semitone, double stale_ms);
 int pf_prepare_external_wav(pf_engine* engine, uint32_t slot, const uint8_t* bytes, uint32_t length);

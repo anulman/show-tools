@@ -58,7 +58,7 @@ struct Observation {
   std::array<double,PF_INPUT_INFO_FIELDS> inputs{};
 };
 struct Request { uint64_t connection=0, order=0; uint32_t sequence=0; uint16_t op=0; std::array<double,6> args{}; Bytes manifest,packet; std::array<uint8_t,32> digest{}; std::array<uint32_t,6> counts{},revisions{}; std::vector<pf_effect_definition> effects;
-std::vector<ExternalWave> waves; size_t wire_bytes=0; int status=1,code=0; Observation observation; };
+std::vector<ExternalWave> waves; std::array<double,13> tuning_slots{}; size_t wire_bytes=0; int status=1,code=0; Observation observation; };
 void observe(Instrument& instrument,Observation& out,uint64_t revision) {
   out={}; out.revision=revision; auto* e=instrument.engine(); if(!e)return;
   pf_snapshot(e,out.state.data());
@@ -80,6 +80,7 @@ int64_t discard(void*,const float*,uint32_t frames) { return frames; }
 }
 namespace {
 constexpr uint16_t audition_tambourine = 23;
+constexpr uint16_t begin_required_tuning = 24;
 bool parse(Request& request,const Bytes& data) {
   if(data.size()<34)return false;
   request.op=u16(data.data()+32);
@@ -123,6 +124,25 @@ bool parse(Request& request,const Bytes& data) {
     const double slot=request.args[1]=left==16?f64(p+8):-1;
     return velocity>=-1 && velocity<=127 && std::floor(velocity)==velocity &&
       slot>=-1 && slot<64 && std::floor(slot)==slot && (slot==-1 || velocity>0);
+  }
+  if(request.op==begin_required_tuning) {
+    if(left%8 || left<13*8 || left>18*8)return false;
+    auto integer=[](double value,double minimum,double maximum) { return value>=minimum && value<=maximum && std::floor(value)==value; };
+    auto& args=request.args;
+    for(size_t index=0;index<5;++index)args[index]=f64(p+index*8);
+    if(!integer(args[0],0,9007199254740991.) || !integer(args[1],0,UINT32_MAX) || !integer(args[2],0,PF_VOICE_PROFILES-1)
+      || !integer(args[3],0,115) || !integer(args[4],0,2))return false;
+    const size_t count=args[4]==2 ? 13 : 8;
+    if(left!=(5+count)*8)return false;
+    args[5]=double(count);
+    std::array<bool,64> seen{};
+    for(size_t index=0;index<count;++index) {
+      const double slot=f64(p+(5+index)*8);
+      if(!integer(slot,0,63) || seen[size_t(slot)])return false;
+      seen[size_t(slot)]=true;
+      request.tuning_slots[index]=slot;
+    }
+    return true;
   }
   if(request.op==18) {
     if(left!=32)return false;
@@ -282,6 +302,16 @@ void owner(Shared& shared,InstrumentConfig config,uint32_t block,float input_lev
 #ifdef NATIVE_ALSA_HOST
           if(rc>=0 && int(a[0])!=PF_TUNER_CLOSE && int(a[0])!=PF_TUNER_SILENCE &&
              device_fault("prepare tuner",alsa_run.utility(instrument,*device)))rc=-1;
+#endif
+          break;
+        case begin_required_tuning:
+          if(a[0]!=double(run))break;
+#ifdef NATIVE_ALSA_HOST
+          if(!alsa_run.can_activate())break;
+#endif
+          rc=instrument.begin_required_tuning(uint32_t(a[1]),uint32_t(a[2]),r->tuning_slots.data(),uint32_t(a[5]),int(a[3]),int(a[4]));
+#ifdef NATIVE_ALSA_HOST
+          if(rc>=0 && device_fault("prepare tuning capture",alsa_run.utility(instrument,*device)))rc=-1;
 #endif
           break;
         case 22: rc=instrument.audition(int(a[0])); break;

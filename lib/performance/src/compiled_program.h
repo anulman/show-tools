@@ -50,9 +50,10 @@ class Program {
   bool tuning_bank_configured() const noexcept { return note_capture_count_ > 0; }
   bool tuning_bank_ready(uint32_t step) const noexcept;
   bool lock_tuning_note(uint32_t step, double midi) noexcept;
-  bool tuning_motion(double value, double frame) noexcept;
+  bool tuning_motion(double value, double frame, bool require_reversal) noexcept;
   void pause_tuning_bank() noexcept;
   void cancel_tuning_bank() noexcept { pause_tuning_bank(); note_capture_count_ = 0; }
+  void discard_tuning_bank() noexcept;
   void tuning_bank_info(double* out) const noexcept;
   bool set_bend_parameters(double velocity_per_semitone, double stale_ms) noexcept;
   bool prepare_external_sample(uint32_t slot, const float* left, const float* right, uint32_t frames) noexcept;
@@ -162,6 +163,7 @@ class Program {
   int rotation_count_ = 0, monitor_route_ = PF_VOICE_PROFILES;
   double rotation_inactivity_ = .25, rotation_deadline_frame_ = -1;
   int minimum_travel_ = 4, minimum_reversal_ = 2, gesture_direction_ = 0, gesture_window_ = -1;
+  bool tuning_turn_armed_ = false;
   double gesture_travel_ = 0, gesture_reversal_ = 0, gesture_bucket_end_ = -1;
   void clear_gesture() noexcept;
   bool meaningful_motion(double value, double frame) noexcept;

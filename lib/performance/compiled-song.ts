@@ -43,12 +43,13 @@ const TunerTargetSchema = Schema.Struct({
   root: Schema.Int,
   scale: Schema.Literals(['major', 'natural-minor', 'chromatic']),
 });
-const NoteCaptureFields = { profile: Schema.Int, slots: list(Schema.Int) };
+const NoteCaptureFields = { profile: Schema.Int, slots: list(Schema.Int), requiredBeforeStart: Schema.optionalKey(Schema.Literal(true)) };
 const NoteBankCaptureSchema = Schema.Struct({ ...NoteCaptureFields, target: Schema.optionalKey(TunerTargetSchema) });
 type NoteBankCapture = typeof NoteBankCaptureSchema.Type;
-function validNoteCapture({ profile, slots, target }: NoteBankCapture): boolean {
+function validNoteCapture({ profile, slots, target, requiredBeforeStart }: NoteBankCapture): boolean {
   return profile >= 0 && profile < PF.VOICE_PROFILES && slots.length > 0 && slots.length <= 13
     && new Set(slots).size === slots.length && slots.every(slot => slot >= 0 && slot < 64)
+    && (!requiredBeforeStart || target !== undefined)
     && (target === undefined || target.root >= 0 && target.root <= 115 && slots.length === (target.scale === 'chromatic' ? 13 : 8));
 }
 const OverrideSchema = Schema.Struct({
@@ -786,8 +787,9 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   const noteBanks: NonNullable<CompiledSong['noteBanks']> = [];
   let noteCapture: NoteBankCapture | undefined;
   if (tunedNotes) {
-    const { profile, slots, root, scale } = tunedNotes.capture;
-    noteCapture = { profile, slots, target: { root, scale } };
+    const { root, scale, ...capture } = tunedNotes.capture;
+    const { slots } = capture;
+    noteCapture = { ...capture, target: { root, scale } };
     if (mapping.notationVersion !== 'terse-v2' || !validNoteCapture(noteCapture) || tunedNotes.toleranceMs < 0 || tunedNotes.toleranceMs > 100
       || !tunedNotes.bindings.length || new Set(tunedNotes.bindings.map(binding => binding.buttonId)).size !== tunedNotes.bindings.length
       || tunedNotes.bindings.some(binding => {

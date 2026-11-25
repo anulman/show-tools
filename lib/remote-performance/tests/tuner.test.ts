@@ -8,6 +8,7 @@ import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import song from '../../../songs/dance-yrself-clean.js';
 import { compiledProgramBytes } from '../../performance/compiled-native.js';
+import { decodeCompiledSong } from '../../performance/compiled-song.js';
 import { encodeInitialProfiles } from '../commands.js';
 import { NativeInstrument } from '../instrument.js';
 import { prepareHost } from '../prepare.js';
@@ -83,6 +84,60 @@ test('stopped native tuner publishes telemetry and Panic clears tuning and fence
     const running = decodePublication(connected.snapshot());
     if (running.type !== 'session') throw new Error('Missing native session');
     assert.equal(running.state.phase, 'playing', 'Closing a sibling tuner view does not stop another controller\'s performance');
+  } finally {
+    instrument?.close();
+    host.kill('SIGKILL');
+    if (host.exitCode === null) await once(host, 'exit');
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('the loaded chart starts a recording scale through the native remote utility', { timeout: 20000 }, async () => {
+  const binary = resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host');
+  const directory = await mkdtemp(join(tmpdir(), 'remote-tune-'));
+  const socket = join(directory, 'socket');
+  const host = spawn(binary, [socket, '8000', '509', '32', '30', '.25', '--step']);
+  let instrument: NativeInstrument | undefined;
+  try {
+    for (let i = 0; i < 200; i++) {
+      if (host.exitCode !== null) throw new Error('Native host exited');
+      try { await stat(socket); break; } catch { await delay(10); }
+    }
+    const capture = { profile: 0, slots: [0, 1, 2, 3, 4, 5, 6, 7], target: { root: 52, scale: 'major' } };
+    const compiled = decodeCompiledSong({ ...song.compiled, noteBanks: [{
+      buttonId: 'R2', toleranceMs: 100, notes: [{ slot: 0, at: { bar: 1, beat: 0 } }],
+      capture: { ...capture, requiredBeforeStart: true },
+    }] });
+    const packet = Buffer.from(compiledProgramBytes(compiled));
+    const profiles = Array.from({ length: 6 }, (_, profile) => ({ profile, effects: [] }));
+    const hash = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
+    const manifest = Buffer.from(JSON.stringify({ id: song.id, description: song.description, compiled, practice: song.practice,
+      takeCount: compiled.takes.length, packetSha256: hash(packet), profilesSha256: hash(encodeInitialProfiles(profiles)) }));
+    await prepareHost(socket, manifest, packet, profiles);
+    const connected = new NativeInstrument(socket);
+    instrument = connected;
+    for (let i = 0; i < 500 && !connected.snapshot(); i++) await delay(10);
+    const begin = (args: object) => connected.command({ command: 'beginRequiredTuning', args });
+    assert.equal((await begin({ ...capture, slots: [...capture.slots].reverse() })).outcome, 'rejected');
+    const readback = () => {
+      const observation = decodePublication(connected.snapshot());
+      if (observation.type !== 'session') throw new Error('Missing native session');
+      return observation;
+    };
+    assert.equal((await begin(capture)).outcome, 'applied');
+    const { state, tuner } = readback();
+    assert.equal(state.phase, 'idle');
+    assert.equal(tuner.root, 52);
+    assert.equal(tuner.complete, false);
+    assert.equal(tuner.listening, true);
+    assert.deepEqual(tuner.preview, { kind: 'note', step: 0 });
+    assert.equal((await connected.command({ command: 'start', args: { countInBars: 0, startBar: 1, endBar: 2 } })).outcome, 'rejected');
+    assert.equal((await connected.command({ command: 'tuner', args: { kind: 'confirm', expectedRevision: tuner.revision } })).outcome, 'rejected');
+    assert.equal((await connected.command({ command: 'stop', args: {} })).outcome, 'applied');
+    const stopped = readback().tuner;
+    assert.equal(stopped.listening, false);
+    assert.deepEqual(stopped.preview, { kind: 'silent' });
   } finally {
     instrument?.close();
     host.kill('SIGKILL');
