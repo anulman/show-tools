@@ -400,7 +400,7 @@ test('immediate lead-in capture is blocked before runtime preparation', async ()
   const draft = await compileSheetsSong({ ...source, values }, mapping);
   assert.equal(draft.executable, false);
   assert(draft.diagnostics.some(diagnostic => diagnostic.code === 'lead-in-capture-capability' && diagnostic.source.a1 === 'B18'));
-  assert.throws(() => decodeCompiledSong({ ...baseline, cues: [{ ...baseline.cues[0], execution: { kind: 'now' } }, ...baseline.cues.slice(1)] }), /lead-in capture/);
+  assert.throws(() => decodeCompiledSong({ ...baseline, cues: [{ ...baseline.cues[0], execution: { kind: 'now' } }, ...baseline.cues.slice(1)] }), /Count-in capture/);
 });
 
 test('imported capture graph preserves each unique arm, commit, and boundary', async () => {

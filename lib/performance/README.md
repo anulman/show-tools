@@ -69,7 +69,9 @@ Compilation runs offline after fetch. `--draft` saves source-located diagnostics
 
 Add `--json` to receive one failure record on stdout. Invalid input and unresolved chart diagnostics exit with code 2 and include correction steps. Unexpected tooling failures exit with code 3 and request Chief intervention. Human failures go to stderr. Neither status permits a draft to become executable. The shared [failure policy](../../docs/implementation/deterministic-pipelines.md) defines these outcomes.
 
-Lead-in capture must execute at the next song bar. Immediate lead-in capture is rejected because its duration depends on the runtime count-in and is not represented by a song-bar take interval. Individual stops report native countdown and release feedback through the final audible tail, then extinguish the pad light.
+In the count-in column, `rb` starts recording at the first song bar. `r4&` starts on the last `4&` before bar 1, even with several count-in bars. A run without count-in skips that pickup capture.
+
+On a commit, `~2..3` repeats recorded bars 2 through 3 inclusive. The first launch starts at the capture head, plays section 1 once, then wraps from the end of section 3 to the start of section 2. A later play starts from the head again. `c4&~2..3` starts playback on commit, and `cx4&~2..3` stores the same playback plan for a later play cue. Match the start and commit seams and capture complete bars. For a `4&` seam, each pickup belongs to the following downbeat. Source after the repeat range stays in the take. Repeat ranges apply to single, unlayered loop takes. Individual stops report native countdown and release feedback through the final audible tail, then extinguish the pad light.
 
 After a venue edit retains an older take, the first new capture uses the refreshed spare bank. Recapturing again during the same transport run can exhaust current-revision banks. Arm then rejects nonfatally before changing the route or capture state; existing audio continues. Stop and prepare effects to refresh reusable banks before another capture. Callback processing never replaces or reallocates a bank.
 

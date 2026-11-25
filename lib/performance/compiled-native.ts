@@ -52,7 +52,7 @@ function encodeProgram(song: CompiledSong): Float64Array {
   const rotation = song.rotation ? [PF.COMPILED_ROTATION_MAGIC, song.rotation.windows.length, song.rotation.inactivityBeats,
     ...song.rotation.windows.flatMap(window => [window.begin.bar, window.begin.beat, window.end.bar, window.end.beat])] : [];
   const windowRows = song.selections.flatMap((selection, index) => {
-    if (selection.window.kind === 'full' || selection.window.kind === 'sustain') return [];
+    if (selection.window.kind === 'full' || selection.window.kind === 'sustain' || selection.window.kind === 'intro-loop') return [];
     if (selection.window.kind === 'slice') return [index, selection.window.beginCount, selection.window.endCount, selection.window.loopCounts];
     const take = song.takes.find(take => take.id === selection.takeIds[0]);
     if (!take?.loopEnd) throw new Error('Missing prefix capture period.');
@@ -60,6 +60,10 @@ function encodeProgram(song: CompiledSong): Float64Array {
     return [index, 0, selection.window.endCount, counts];
   });
   const windows = windowRows.length ? [PF.COMPILED_WINDOW_MAGIC, windowRows.length / PF.COMPILED_WINDOW_FIELDS, ...windowRows] : [];
+  const introLoopRows = song.selections.flatMap((selection, index) => selection.window.kind === 'intro-loop'
+    ? [index, selection.window.repeatBeginCount, selection.window.endCount] : []);
+  const introLoops = introLoopRows.length
+    ? [PF.COMPILED_INTRO_LOOP_MAGIC, introLoopRows.length / PF.COMPILED_INTRO_LOOP_FIELDS, ...introLoopRows] : [];
   const external = song.externalSamples?.length ? [PF.COMPILED_EXTERNAL_MAGIC, song.externalSamples.length,
     ...song.externalSamples.flatMap(sample => [sample.slot, sample.begin.bar, sample.begin.beat, sample.end.bar, sample.end.beat])] : [];
   const notes = song.noteBanks?.length ? [PF.COMPILED_NOTES_MAGIC, song.noteBanks.reduce((count, bank) => count + bank.notes.length, 0),
@@ -73,7 +77,7 @@ function encodeProgram(song: CompiledSong): Float64Array {
     ...(song.releaseCapturePairs ?? []).flatMap(pair => [indexOf(takes, pair.firstTakeId), indexOf(takes, pair.secondTakeId)]),
     ...(song.playbackPairs ?? []).flatMap(pair => [CONTROL_IDS.indexOf(pair.buttonId), pair.first.bar, pair.first.beat, indexOf(selections, pair.firstSelectionId), indexOf(selections, pair.secondSelectionId)]),
   ] : [];
-  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...external, ...notes, ...profiles, ...autoSustains, ...edges, ...inputs];
+  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...introLoops, ...external, ...notes, ...profiles, ...autoSustains, ...edges, ...inputs];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
     || cueRows.length !== song.cues.length * cueFields || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
   if (song.meter.denominator !== (song.meter.numerator === 6 ? 8 : 4)) throw new Error('This native build supports 4/4 and 6/8 compiled programs.');

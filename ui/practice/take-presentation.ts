@@ -10,7 +10,8 @@ function count(point: Point, beats: number) { return (point.bar - 1) * beats + p
 function range(take: CompiledTake, chart: CompiledSong['chart']): string {
   if (!take.captureEnd) return chartBarLabel(chart, take.begin.bar);
   const last = take.captureEnd.bar - Number(take.captureEnd.beat === 0);
-  return last === take.begin.bar ? chartBarLabel(chart, last) : `${chartBarLabel(chart, take.begin.bar)}–${chartBarLabel(chart, last)}`;
+  const first = take.begin.bar + Number(take.begin.beat >= chart.beatsPerBar - 1 && take.begin.beat === take.captureEnd.beat);
+  return last === first ? chartBarLabel(chart, last) : `${chartBarLabel(chart, first)}–${chartBarLabel(chart, last)}`;
 }
 function period(take: CompiledTake, beats: number): string {
   if (!take.loopEnd) return 'Loop length unresolved';
@@ -26,6 +27,20 @@ function plan(takes: readonly CompiledTake[], chart: CompiledSong['chart'], sele
   const beats = chart.beatsPerBar;
   const sourceRange = (take: CompiledTake) => range(take, chart);
   if (!takes.length) return '';
+  const intro = selections.find(selection => selection.window.kind === 'intro-loop');
+  if (takes.length === 1 && intro?.window.kind === 'intro-loop') {
+    const take = takes[0];
+    const pickup = take.begin.beat > 0;
+    const first = take.begin.bar + Number(pickup);
+    const last = first + (count(take.captureEnd ?? take.begin, beats) - count(take.begin, beats)) / beats - 1;
+    const from = intro.window.repeatBeginCount / beats + 1;
+    const through = intro.window.endCount / beats;
+    const source = first === last ? `bar ${chartBarLabel(chart, first)}` : `bars ${chartBarLabel(chart, first)}–${chartBarLabel(chart, last)}`;
+    const entry = from === 1 ? '' : from === 2 ? ' · play section 1 once' : ` · play sections 1–${from - 1} once`;
+    const repeat = from === through ? `section ${from}` : `sections ${from}–${through}`;
+    return `Record ${source}${pickup ? ' with pickup' : ''}${entry} · repeat ${repeat}`;
+  }
+
   if (takes.every(take => take.retention === 'variant')) {
     const views = barViewCount(selections, beats);
     if (views) return `${takes.length} captures · bars ${takes.map(sourceRange).join(' + ')} · ${views} reusable bar views`;
@@ -98,8 +113,14 @@ export function takePresentation(song: CompiledSong | undefined, channelId: Chan
     else summary = `Playing version ${descriptions.indexOf(active) + 1}/${takes.length} · bar ${range(active, song.chart)} · ${active.phrase}`;
   } else if (playing.length) {
     summary = `${playing.length} ${unit}${playing.length === 1 ? '' : 's'} playing`;
-    const length = period(playing[0].take, song.chart.beatsPerBar);
-    if (playing.every(reading => period(reading.take, song.chart.beatsPerBar) === length)) summary += ` · ${length}`;
+    const selectionIndex = playing[0].state?.selectionIndex;
+    const selected = selectionIndex == null ? undefined : song.selections[selectionIndex];
+    if (selected?.window.kind === 'intro-loop') {
+      summary += ` · ${(selected.window.endCount - selected.window.repeatBeginCount) / song.chart.beatsPerBar}-bar repeat`;
+    } else {
+      const length = period(playing[0].take, song.chart.beatsPerBar);
+      if (playing.every(reading => period(reading.take, song.chart.beatsPerBar) === length)) summary += ` · ${length}`;
+    }
   } else if (releasing.length) {
     summary = `Releasing · ${savedLabel}`;
   }
@@ -107,6 +128,7 @@ export function takePresentation(song: CompiledSong | undefined, channelId: Chan
     const index = reading.state?.selectionIndex;
     const selection = index === null || index === undefined ? undefined : song.selections[index];
     if (views && (!selection || selection.voiceId !== voice.id || !selection.takeIds.includes(reading.take.id))) return false;
+    if (selection?.window.kind === 'intro-loop') return false;
     if (selection?.window.kind === 'slice') return selection.window.endCount - selection.window.beginCount < selection.window.loopCounts;
     return reading.state && reading.state.sourceEndFrames !== null;
   })) summary += ' · Trimmed';

@@ -172,11 +172,11 @@ test('a cue-row connection persists separately from loaded command rows and nati
   const selected = h.voice('A10');
   const binding = h.data().document.bindings.find(binding => binding.voiceId === selected.id); assert(binding);
   const row = h.data().rows.find(row => row.labelCell === 'A10'); assert(row);
-  assert.deepEqual(h.data().commandRows?.get(row.key), [18]);
-  assert(h.data().cueRows?.some(cue => cue.labelCell === 'A19' && cue.sourceLabel === 'R2'));
-  await h.ui.onSave(selected, { ...binding, cueRow: { labelCell: 'A19', sourceLabel: 'R2' } }, h.data().document.revision);
-  assert.deepEqual(h.stored().bindings.find(binding => binding.voiceId === selected.id)?.cueRow, { labelCell: 'A19', sourceLabel: 'R2' });
-  assert.deepEqual(h.data().commandRows?.get(row.key), [18], 'saving an authoring connection never pretends the loaded native instructions changed');
+  assert.deepEqual(h.data().commandRows?.get(row.key), [20]);
+  assert(h.data().cueRows?.some(cue => cue.labelCell === 'A21' && cue.sourceLabel === 'R2'));
+  await h.ui.onSave(selected, { ...binding, cueRow: { labelCell: 'A21', sourceLabel: 'R2' } }, h.data().document.revision);
+  assert.deepEqual(h.stored().bindings.find(binding => binding.voiceId === selected.id)?.cueRow, { labelCell: 'A21', sourceLabel: 'R2' });
+  assert.deepEqual(h.data().commandRows?.get(row.key), [20], 'saving an authoring connection never pretends the loaded native instructions changed');
   assert.deepEqual(h.applied[0]?.find(configuration => configuration.profile === 2)?.effects, []);
 });
 

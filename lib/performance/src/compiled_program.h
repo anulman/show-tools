@@ -103,7 +103,7 @@ class Program {
   std::unique_ptr<patches::Stereo[]> note_capture_scratch_;
 
   struct RotationWindow { double begin = 0, end = 0; };
-  struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2], scan_initial[2]; bool automatic = false; uint32_t scan_begin[2]{}; double quality[2]{}; };
+  struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2], scan_initial[2]; bool automatic = false; double repeat_begin = -1; int64_t repeat_frame[2]{-1, -1}; uint32_t scan_begin[2]{}; double quality[2]{}; };
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   struct EdgeCapturePair { int button = -1, takes[2]{}, arms[2]{}; bool used = false; };

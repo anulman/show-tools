@@ -289,14 +289,14 @@ void Playback::finish() noexcept {
 bool Playback::start(bool loop, uint32_t start_frame) noexcept {
   if (start_frame >= take_.period_ || take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.initial_)) return false;
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
-  clear_source_end(); source_begin_ = 0; window_period_ = take_.period_; printed_history_valid_ = true;
+  clear_source_end(); source_begin_ = 0; window_period_ = take_.period_; repeat_phase_ = 0; printed_history_valid_ = true;
   grains_ = {}; phase_ = 0; rate_ = 1; iteration_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing;
   seek_phase(start_frame); return true;
 }
 bool Playback::start_at_capture_end(bool loop) noexcept {
   if (take_.state_ != TakeState::committed || !take_.length_ || !shadow_->copy_state(*take_.end_)) return false;
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
-  clear_source_end(); source_begin_ = 0; window_period_ = take_.period_; printed_history_valid_ = true;
+  clear_source_end(); source_begin_ = 0; window_period_ = take_.period_; repeat_phase_ = 0; printed_history_valid_ = true;
   grains_ = {}; phase_ = take_.length_; iteration_ = 1; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing; return true;
 }
 bool Playback::set_source_end(uint32_t exclusive_frame) noexcept {
@@ -307,7 +307,7 @@ bool Playback::start_window(bool loop, uint32_t begin, uint32_t end, uint32_t pe
   if (take_.state_ != TakeState::committed || begin > end || end > take_.length_ || !period || period < end - begin
     || !shadow_->copy_state(initial)) return false;
   if (state_ == PlaybackState::idle) ++take_.active_playbacks_;
-  source_begin_ = begin; source_end_ = end; window_period_ = period;
+  source_begin_ = begin; source_end_ = end; window_period_ = period; repeat_phase_ = 0;
   grains_ = {}; phase_ = 0; iteration_ = 0; loop_ = loop; release_remaining_ = 0; state_ = PlaybackState::playing;
   printed_history_valid_ = true; return true;
 }
@@ -318,12 +318,19 @@ bool Playback::set_window(uint32_t begin, uint32_t end, uint32_t period) noexcep
     grains_ = {};
   }
   if (window_period_ != period) phase_ = std::fmod(phase_, double(period));
-  source_begin_ = begin; source_end_ = end; window_period_ = period;
+  source_begin_ = begin; source_end_ = end; window_period_ = period; repeat_phase_ = 0;
   return true;
 }
 bool Playback::start_window_at_capture_end(bool loop, uint32_t begin, uint32_t end, uint32_t period) noexcept {
   if (end != take_.length_ || !start_window(loop, begin, end, period, *take_.end_)) return false;
   printed_history_valid_ = false; iteration_ = 1; return true;
+}
+bool Playback::start_intro_loop(uint32_t repeat_frame, uint32_t end_frame, bool capture_handoff) noexcept {
+  if (repeat_frame >= end_frame || !start_window(true, 0, end_frame, end_frame,
+      capture_handoff ? *take_.end_ : *take_.initial_)) return false;
+  repeat_phase_ = repeat_frame;
+  if (capture_handoff) printed_history_valid_ = false;
+  return true;
 }
 void Playback::set_semitones(double semitones) noexcept {
   if (!std::isfinite(semitones)) return;
@@ -346,7 +353,7 @@ Stereo Playback::next() noexcept {
   if (grains_.hop) grains_ = {};
   if (state_ == PlaybackState::playing && phase_ >= window_period_) {
     if (loop_) {
-      phase_ = std::fmod(phase_, double(window_period_));
+      phase_ = repeat_phase_ + std::fmod(phase_ - window_period_, double(window_period_ - repeat_phase_));
       if (iteration_ != std::numeric_limits<uint64_t>::max()) ++iteration_;
     } else stop();
   }
@@ -357,7 +364,7 @@ Stereo Playback::next() noexcept {
     Stereo source = suppressed ? Stereo{} : take_.read_source(source_frame);
     if (!suppressed && rate_ != 1) {
       uint32_t following = source_frame + 1;
-      if (following >= source_end_ || following >= source_begin_ + window_period_) following = source_begin_;
+      if (following >= source_end_ || following >= source_begin_ + window_period_) following = source_begin_ + repeat_phase_;
       Stereo after = take_.read_source(following);
       double fraction = phase_ - std::floor(phase_);
       source.left += float((after.left - source.left) * fraction);
@@ -427,7 +434,7 @@ Stereo Playback::next_warped(double source_phase, uint32_t grain_frames) noexcep
   if (!grains_.hop) {
     const double outgoing = phase_ >= window_period_ ? source_phase : phase_;
     grains_ = {outgoing, source_phase, source_phase, hop, 0};
-  } else if (source_phase + window_period_ / 2.0 < grains_.last_phase) {
+  } else if (source_phase + (window_period_ - repeat_phase_) / 2.0 < grains_.last_phase) {
     grains_ = {source_phase, source_phase, source_phase, hop, 0};
     if (iteration_ != std::numeric_limits<uint64_t>::max()) ++iteration_;
   } else if (grains_.elapsed == grains_.hop) {

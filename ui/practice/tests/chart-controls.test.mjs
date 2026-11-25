@@ -23,21 +23,21 @@ test('Dance Yrself Clean compiled pad routes retain source columns and lead-in t
   const cues = song.compiled.cues;
   const leadIn = cues.find(cue => cue.bar === 0 && cue.buttonId === 'R1');
   assert.equal(leadIn.kind, 'arm');
-  assert.equal(leadIn.source.a1, 'B18');
-  assert.deepEqual(leadIn.execution, { kind: 'next-bar' });
+  assert.equal(leadIn.source.a1, 'B20');
+  assert.deepEqual(leadIn.execution, { kind: 'beat', beat: 3.5 });
   assert.deepEqual(cues.filter(cue => cue.buttonId === 'R2' && (cue.bar <= 13 || cue.bar >= 78 && cue.bar <= 85))
     .map(cue => [cue.bar, cue.kind, cue.source.a1, cue.source.text, cue.execution]), [
-    [7, 'arm', 'I19', 'rb', { kind: 'next-bar' }],
-    [13, 'commit', 'O19', 'clb', { kind: 'now' }],
-    [78, 'arm', 'CB19', 'rb', { kind: 'next-bar' }],
-    [85, 'commit', 'CI19', 'clb', { kind: 'now' }],
+    [7, 'arm', 'I21', 'rb', { kind: 'next-bar' }],
+    [12, 'commit', 'N21', 'cxb', { kind: 'next-bar' }],
+    [78, 'arm', 'CB21', 'rb', { kind: 'next-bar' }],
+    [84, 'commit', 'CH21', 'cxb', { kind: 'next-bar' }],
   ]);
-  for (const [button, cells] of [['R1', ['B18', 'D18']], ['L2', ['F21', 'H21']]])
+  for (const [button, cells] of [['R1', ['B20', 'E20']], ['L2', ['F18', 'H18']]])
     assert.deepEqual(cues.filter(cue => cue.buttonId === button && ['arm', 'commit', 'commit-arm'].includes(cue.kind))
       .map(cue => cue.source.a1), cells, 'single-take rows retain their authored arm and finish without invented doubling');
   const stop = cues.find(cue => cue.bar === 76 && cue.buttonId === 'R1');
   assert.equal(stop.kind, 'stop');
-  assert.equal(stop.source.a1, 'BZ18');
+  assert.equal(stop.source.a1, 'BZ20');
   assert.deepEqual(stop.execution, { kind: 'next-bar' });
 });
 
@@ -87,11 +87,11 @@ test('current Cowbell chart retains two parents and eleven explicit recorded-bar
     assert.deepEqual(slices.map(view => [view.window.beginCount, view.window.endCount, view.window.loopCounts]),
       Array.from({ length: take.captureEnd.bar - take.begin.bar }, (_, index) => [index * 4, (index + 1) * 4, 4]));
     const commit = compiled.cues.find(cue => cue.id === take.commitCueId);
-    assert.equal(commit.source.text, 'clb');
-    assert.equal(commit.selectionId, slices.at(-1).id, 'commit loops the final completed bar');
+    assert.equal(commit.source.text, 'cxb');
+    assert.equal(commit.launchPolicy, 'store', 'commit keeps the capture available for a later playback cue');
   }
   assert.deepEqual(compiled.takes.filter(take => take.voiceId !== 'cowbell').map(take => [take.voiceId, take.begin.bar, take.captureEnd.bar]),
-    [['whistle', 45, 47], ['bing-bong', 5, 7], ['drums-claps', 1, 3]]);
+    [['whistle', 44, 47], ['bing-bong', 4, 6], ['drums-claps', 0, 3]]);
 });
 
 test('pad names are loaded from the selected chart notes, with no other song names leaking in', async () => {

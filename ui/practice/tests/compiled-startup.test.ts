@@ -36,7 +36,7 @@ for (const sampleRate of [44100, 48000]) test(`complete DYC worklet prepares its
     const initialHeap = native.memory.buffer;
     assert.equal(initialHeap.byteLength, 256 * 1024 * 1024, 'the complete song fits the fixed production heap');
     assert.deepEqual(song.compiled.takes.map(take => [take.voiceId, take.begin.bar, take.captureEnd?.bar]),
-      [['whistle', 45, 47], ['bing-bong', 5, 7], ['drums-claps', 1, 3], ['cowbell', 8, 13], ['cowbell', 79, 85]]);
+      [['whistle', 44, 47], ['bing-bong', 4, 6], ['drums-claps', 0, 3], ['cowbell', 8, 13], ['cowbell', 79, 85]]);
     assert.equal(native.state().compiledTakes?.length, 5);
     assert(native.state().compiledTakes?.every(take => !take.ready && take.frames === 0), 'prepared parents begin empty');
     assert.deepEqual(native.voiceEffects().map(({ profile, prepared, revision, effects }) => ({ profile, prepared, revision, effects })),
