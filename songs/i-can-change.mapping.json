@@ -23,7 +23,8 @@
     "capture": { "profile": 1, "slots": [0, 1, 2, 3, 4, 5, 6, 7], "root": 52, "scale": "major" },
     "toleranceMs": 100,
     "bindings": [
-      { "buttonId": "L2", "slot": 1 },
+      { "buttonId": "L2", "slot": 0 },
+      { "buttonId": "L1", "slot": 1 },
       { "buttonId": "R1", "patterns": [
         { "notation": "4", "slot": 2 },
         { "notation": "1&2&3&4&", "slot": 3 },
