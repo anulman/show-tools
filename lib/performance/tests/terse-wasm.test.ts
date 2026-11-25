@@ -411,11 +411,10 @@ test('live periodic preparation trims silence and sustains native h/g; silence, 
   }
 });
 
-test('canonical Drunk Girls pickup loop restarts at Pickup8 phase and crosses numbered one without resetting', async () => {
-  const { readMusicXmlSong } = await import('../musicxml-song.js');
+test('canonical Drunk Girls pickup loop restarts in 0.8 and crosses numbered one without resetting', async () => {
   const { song } = await readMusicXmlSong(await readFile(new URL('../../../songs/drunk-girls.musicxml', import.meta.url), 'utf8'));
   assert(song.executable); assert.equal(song.chart.bars.length, 137);
-  assert.equal(song.chart.bars[8].label, 'Pickup 8'); assert.equal(song.chart.bars[9].label, '1');
+  assert.equal(song.chart.bars[8].label, '0.8'); assert.equal(song.chart.bars[9].label, '1');
   assert.equal(song.terminalStops?.[0].text, 'x');
   const native = engine(Array.from(encodeCompiledProgram(song)));
   try {
@@ -426,7 +425,7 @@ test('canonical Drunk Girls pickup loop restarts at Pickup8 phase and crosses nu
     assert(guitar.ready); assert(Math.abs(guitar.frames - 98333) <= 1); assert.equal(guitar.period, 106667);
     assert(render(native, 100, 0).every(value => value === 0), 'virtual source rest preserves the 3& pickup offset');
     until(native, 9, 3); render(native, 1668, 0);
-    assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'captured source begins again at Pickup8 3&');
+    assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'captured source begins again at 0.8 beat 3&');
     until(native, 10); assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'numbered one keeps the ongoing eight-bar loop');
   } finally { native.dispose(); }
 });
