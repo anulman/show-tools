@@ -50,7 +50,9 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
   const source = parseSongSource(options.source), mapping = decodeSongMapping(options.mapping);
   if (!source.range.startsWith('A1:')) throw new MusicXmlValidationError('Canonical MusicXML import requires an A1-origin source.');
   const writtenBars = (source.values[mapping.barRow - 1] ?? []).flatMap((text, index) => /^\d+(?:\*| \(part\))?$/.test(text.trim()) ? [{ bar: Number.parseInt(text, 10), cell: `${columnName(index + 1)}${mapping.barRow}` }] : []);
-  const outside = writtenBars.find(entry => entry.bar < mapping.startBar || entry.bar > mapping.endBar);
+  const countInCell = `${columnName(mapping.leadInColumn)}${mapping.barRow}`;
+  const outside = writtenBars.find(entry => (entry.bar < mapping.startBar || entry.bar > mapping.endBar)
+    && !(entry.bar === 0 && entry.cell === countInCell));
   if (outside) throw new MusicXmlValidationError(`The complete worksheet contains bar ${outside.bar} at ${outside.cell} outside the import mapping ${mapping.startBar}-${mapping.endBar}. Update the mapping to cover the complete numbered chart before importing.`);
   for (const [r, row] of source.values.entries()) for (const [c, text] of row.entries()) {
     try { xml(text); } catch (error) { throw new MusicXmlValidationError(`${columnName(c + 1)}${r + 1}: ${error instanceof Error ? error.message : String(error)}`); }
@@ -94,7 +96,8 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
   });
   const boundaryCues: NonNullable<MusicXmlReport['annotations']['boundaryCues']> = report.parts.flatMap(part =>
     (source.values[mapping.barRow - 1] ?? []).flatMap((label, index) => {
-      const position = label.trim() === 'Lead-in' ? 'lead-in' : label.trim() === 'Tail' ? 'tail' : null;
+      const position = label.trim() === 'Lead-in' || index + 1 === mapping.leadInColumn ? 'lead-in'
+        : label.trim() === 'Tail' ? 'tail' : null;
       const row = Number(part.labelCell.replace(/^[A-Z]+/, ''));
       const text = source.values[row - 1]?.[index] ?? '';
       return position && text.trim() ? [{ partId: part.id, cell: `${columnName(index + 1)}${row}`, position, text }] : [];

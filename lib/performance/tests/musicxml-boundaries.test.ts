@@ -46,6 +46,18 @@ test('literal lead-in and tail cues retain source identity and full text at both
   assert.equal(report.parts.find(part => part.id === 'PA15')?.cells.length, 137);
 });
 
+test('the mapped count-in column can be numbered zero without adding a song measure', async () => {
+  const { source, mapping, original } = await guitarChart();
+  const values = source.values.map(row => [...row]);
+  values[mapping.barRow - 1][mapping.leadInColumn - 1] = '0';
+  const imported = await importSheetMusicXml({ source: { ...source, values }, mapping });
+  const song = (await readMusicXmlSong(imported.xml)).song;
+  assert.equal(song.chart.bars.length, original.song.chart.bars.length);
+  assert.deepEqual(song.chart.leadInCues, original.song.chart.leadInCues);
+  values[mapping.barRow - 1][mapping.leadInColumn - 2] = '0';
+  await assert.rejects(importSheetMusicXml({ source: { ...source, values }, mapping }), /bar 0 at B7 outside/);
+});
+
 test('Higher intensity is a separate whole-bar human-instrument feel and does not reinterpret AF Guitar', async () => {
   const { source, mapping } = await guitarChart();
   const values = source.values.map(row => [...row]);

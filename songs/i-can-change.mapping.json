@@ -1,0 +1,46 @@
+{
+  "mappingVersion": 6,
+  "notationVersion": "terse-v2",
+  "songId": "i-can-change",
+  "spreadsheetId": "1HZ6FipBtjaqPWAisDmjFY-Vvn_UtUfaH2gsNsY41USg",
+  "sheetId": 103,
+  "sheetName": "03 I Can Change",
+  "titleCell": "B1",
+  "bpmCell": "E9",
+  "sectionRow": 6,
+  "barRow": 7,
+  "leadInColumn": 4,
+  "startBar": 1,
+  "endBar": 168,
+  "meter": { "numerator": 4, "denominator": 4 },
+  "controls": [
+    { "buttonId": "L1", "voiceId": "tom-toms", "cueRow": 21, "arrangementRow": 12, "nameNoteCell": "A12" },
+    { "buttonId": "L2", "voiceId": "pad-synth", "cueRow": 20, "arrangementRow": 13, "nameNoteCell": "A13" },
+    { "buttonId": "R1", "voiceId": "disco-beat", "cueRow": 22, "arrangementRow": 11, "nameNoteCell": "A11" },
+    { "buttonId": "R2", "voiceId": "tuned-b3", "cueRow": 23, "arrangementRow": 23, "nameNoteCell": "A23" }
+  ],
+  "tunedNotes": {
+    "capture": { "profile": 1, "slots": [0, 1, 2, 3, 4, 5, 6, 7], "root": 52, "scale": "major" },
+    "toleranceMs": 100,
+    "bindings": [
+      { "buttonId": "L2", "slot": 1 },
+      { "buttonId": "R1", "patterns": [
+        { "notation": "4", "slot": 2 },
+        { "notation": "1&2&3&4&", "slot": 3 },
+        { "notation": "1&2&3&", "slot": 3 }
+      ] },
+      { "buttonId": "R2", "slot": 4 }
+    ]
+  },
+  "liveParts": [{ "id": "vocals", "labelCell": "A10", "role": "default-live" }],
+  "cueWindow": { "earlyMs": 25, "lateMs": 25, "ties": "reject" },
+  "capturePolicies": [
+    { "voiceId": "tom-toms", "retention": "variant", "gain": 1 },
+    { "voiceId": "disco-beat", "retention": "variant", "gain": 1 }
+  ],
+  "layerGroups": [],
+  "variantRules": [],
+  "variantReuses": [],
+  "overrides": [],
+  "deferredRows": []
+}

@@ -515,7 +515,8 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     }
     for (const bar of chart.bars) for (const button of buttons) {
       if (bar.cues[button] && !performance.cues.some(cue => cue.bar === bar.bar && cue.buttonId === button)
-        && !performance.authoredCues?.some(cell => cell.bar === bar.bar && cell.buttonId === button && cell.actions.some(action => action.operation === 'pp')))
+        && !performance.authoredCues?.some(cell => cell.bar === bar.bar && cell.buttonId === button && cell.actions.some(action => action.operation === 'pp'))
+        && !(performance.notationVersion === 'terse-v2' && performance.noteBanks?.some(bank => bank.buttonId === button && bank.notes.some(note => note.at.bar === bar.bar))))
         throw new MusicXmlValidationError(`MusicXML command ${button} at bar ${bar.bar} lacks a typed action.`);
     }
   }

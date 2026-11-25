@@ -39,6 +39,18 @@ const AuthoredCueSchema = Schema.Struct({
       Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite, barOffset: Schema.Literals([0, 1]) })]) })),
 });
 const CueWindowSchema = Schema.Struct({ earlyMs: Finite, lateMs: Finite, ties: Schema.Literal('reject') });
+const TunerTargetSchema = Schema.Struct({
+  root: Schema.Int,
+  scale: Schema.Literals(['major', 'natural-minor', 'chromatic']),
+});
+const NoteCaptureFields = { profile: Schema.Int, slots: list(Schema.Int) };
+const NoteBankCaptureSchema = Schema.Struct({ ...NoteCaptureFields, target: Schema.optionalKey(TunerTargetSchema) });
+type NoteBankCapture = typeof NoteBankCaptureSchema.Type;
+function validNoteCapture({ profile, slots, target }: NoteBankCapture): boolean {
+  return profile >= 0 && profile < PF.VOICE_PROFILES && slots.length > 0 && slots.length <= 13
+    && new Set(slots).size === slots.length && slots.every(slot => slot >= 0 && slot < 64)
+    && (target === undefined || target.root >= 0 && target.root <= 115 && slots.length === (target.scale === 'chromatic' ? 13 : 8));
+}
 const OverrideSchema = Schema.Struct({
   a1: Schema.String, notation: Schema.String, ...ActionFields,
 });
@@ -52,6 +64,14 @@ export const SongMappingSchema = Schema.Struct({
   prelude: Schema.optionalKey(list(Schema.Struct({ label: Schema.NonEmptyString, counts: Schema.Int }))),
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
   controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String, playbackMode: Schema.optionalKey(Schema.Literals(['loop', 'one-shot'])) })),
+  tunedNotes: Schema.optionalKey(Schema.Struct({
+    capture: Schema.Struct({ ...NoteCaptureFields, ...TunerTargetSchema.fields }),
+    toleranceMs: Finite,
+    bindings: list(Schema.Union([
+      Schema.Struct({ buttonId: ButtonSchema, slot: Schema.Int }),
+      Schema.Struct({ buttonId: ButtonSchema, patterns: list(Schema.Struct({ notation: Schema.NonEmptyString, slot: Schema.Int })) }),
+    ])),
+  })),
   sourceBindings: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, sourceName: Schema.String, voiceId: Schema.optionalKey(Schema.String), profile: Schema.optionalKey(Schema.Int), sourceCell: Schema.optionalKey(Schema.String), captureReplacement: Schema.optionalKey(Schema.Boolean), loopCounts: Schema.optionalKey(Finite), playbackMode: Schema.Literals(['loop', 'one-shot']), default: Schema.optionalKey(Schema.Boolean), sustain: Schema.optionalKey(Schema.Union([Schema.Struct({ beginCount: Finite, endCount: Finite, loopCounts: Finite }), Schema.Struct({ kind: Schema.Literal('periodic') })])) }))),
   liveParts: list(Schema.Struct({ id: Schema.String, labelCell: Schema.String, role: Schema.Literals(['default-live', 'rotation-live']) })),
   rotationRule: Schema.optionalKey(Schema.Struct({ row: Schema.Int, voiceId: Schema.String, inactivityBeats: Finite })),
@@ -111,7 +131,7 @@ export const CompiledSongSchema = Schema.Struct({
   sourceProfiles: Schema.optionalKey(list(Schema.Struct({ id: Schema.String, profile: Schema.Int, source: SourceRefSchema, name: Schema.String }))),
   parts: list(PartSchema), rotation: Schema.NullOr(RotationSchema),
   cueWindow: Schema.NullOr(CueWindowSchema),
-  noteBanks: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, toleranceMs: Finite, notes: list(Schema.Struct({ slot: Schema.Int, at: PointSchema })), capture: Schema.optionalKey(Schema.Struct({ profile: Schema.Int, slots: list(Schema.Int) })) }))),
+  noteBanks: Schema.optionalKey(list(Schema.Struct({ buttonId: ButtonSchema, toleranceMs: Finite, notes: list(Schema.Struct({ slot: Schema.Int, at: PointSchema })), capture: Schema.optionalKey(NoteBankCaptureSchema) }))),
   externalSamples: Schema.optionalKey(list(Schema.Struct({ slot: Schema.Int, voiceId: Schema.String, begin: PointSchema, end: PointSchema, asset: Schema.optionalKey(ExternalSampleAssetSchema) }))),
   terminalStops: Schema.optionalKey(list(SourceRefSchema)),
   authoredCues: Schema.optionalKey(list(AuthoredCueSchema)),
@@ -314,11 +334,28 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
         })) throw new Error('Authored cues disagree with native lowering.');
       }
     }
-    for (const bar of [{ bar: 0, cues: song.chart.leadInCues }, ...song.chart.bars]) for (const button of ['L1', 'L2', 'R1', 'R2'] satisfies (keyof typeof bar.cues)[]) {
-      const parsed = parseSheetCues(bar.cues[button], song.meter.numerator);
-      if (song.executable && parsed.kind === 'invalid') throw new Error('Invalid authored cue cannot execute.');
-      if (bar.cues[button] && !keys.has(`${bar.bar}/${button}`) && parseSheetCues(bar.cues[button], song.meter.numerator).kind === 'parsed') throw new Error('Authored cue cell is missing.');
+    const noteCells = new Map<string, number[]>();
+    if (song.executable && song.noteBanks?.some(bank => bank.capture?.target)) {
+      for (const bank of song.noteBanks) for (const note of bank.notes) {
+        const key = `${note.at.bar}/${bank.buttonId}`;
+        const beats = noteCells.get(key) ?? [];
+        beats.push(note.at.beat);
+        noteCells.set(key, beats);
+      }
     }
+    for (const bar of [{ bar: 0, cues: song.chart.leadInCues }, ...song.chart.bars]) for (const button of ['L1', 'L2', 'R1', 'R2'] satisfies (keyof typeof bar.cues)[]) {
+      const key = `${bar.bar}/${button}`, text = bar.cues[button];
+      const parsed = parseSheetCues(text, song.meter.numerator);
+      const beats = noteCells.get(key);
+      if (beats) {
+        const hits = parseArrangementHits(text, song.meter.numerator);
+        if (parsed.kind !== 'invalid' || !hits || hits.length !== beats.length || hits.some((hit, index) => hit !== beats[index]))
+          throw new Error('Authored rhythm disagrees with the manual note bank.');
+        noteCells.delete(key);
+      } else if (song.executable && parsed.kind === 'invalid') throw new Error('Invalid authored cue cannot execute.');
+      if (text && parsed.kind === 'parsed' && !keys.has(key)) throw new Error('Authored cue cell is missing.');
+    }
+    if (noteCells.size) throw new Error('Manual note bank points outside the authored chart.');
   }
   if (!song.executable) return song;
   if (song.diagnostics.some(d => d.severity === 'error') || !song.cueWindow) throw new Error('An executable song cannot contain unresolved errors or cue policy.');
@@ -465,13 +502,16 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   if (song.playback.some(p => p.bar < 1 || p.bar > bars || !song.selections.some(s => s.id === p.selectionId && s.voiceId === p.voiceId))) throw new Error('Invalid executable playback reference.');
   if (song.noteBanks) {
     const buttons = new Set<string>(), captureSlots = new Set<number>();
+    const authoredCapture = song.noteBanks.find(bank => bank.capture?.target)?.capture;
+    if (song.noteBanks.reduce((count, bank) => count + bank.notes.length, 0) > PF.MAX_EVENTS)
+      throw new Error('Manual note count exceeds the executable limit.');
     for (const bank of song.noteBanks) {
       if (buttons.has(bank.buttonId) || bank.toleranceMs < 0 || bank.toleranceMs > 100 || !bank.notes.length) throw new Error('Invalid manual note bank.');
       buttons.add(bank.buttonId);
       if (bank.capture) {
         const capture = bank.capture;
-        if (capture.profile < 0 || capture.profile >= 6 || !capture.slots.length || capture.slots.length > 13
-          || new Set(capture.slots).size !== capture.slots.length || capture.slots.some(slot => slot < 0 || slot > 63 || captureSlots.has(slot))
+        if (!validNoteCapture(capture) || capture.slots.some(slot => captureSlots.has(slot))
+          || (authoredCapture && capture !== authoredCapture)
           || bank.notes.some(note => !capture.slots.includes(note.slot))
           || capture.slots.some(slot => song.externalSamples?.some(sample => sample.slot === slot))) throw new Error('Invalid note bank capture order or slot ownership.');
         for (const slot of capture.slots) captureSlots.add(slot);
@@ -479,7 +519,10 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
       let previous = -1;
       for (const note of bank.notes) {
         const at = pointCount(note.at, beats);
-        if (note.slot < 0 || note.slot > 63 || !validPoint(note.at, false) || at <= previous) throw new Error('Invalid manual note order.');
+        if (note.slot < 0 || note.slot > 63 || !validPoint(note.at, false) || at <= previous)
+          throw new Error('Invalid manual note order.');
+        if (authoredCapture && !authoredCapture.slots.includes(note.slot))
+          throw new Error('Manual note slot is missing from the authored capture order.');
         previous = at;
       }
     }
@@ -739,8 +782,30 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
   const repeatBarsByCue = new Map<string, NonNullable<SheetCue['repeatBars']>>();
   const authoredCues: (typeof AuthoredCueSchema.Type)[] = [];
   const usedOverrides = new Set<string>();
+  const tunedNotes = mapping.tunedNotes;
+  const noteBanks: NonNullable<CompiledSong['noteBanks']> = [];
+  let noteCapture: NoteBankCapture | undefined;
+  if (tunedNotes) {
+    const { profile, slots, root, scale } = tunedNotes.capture;
+    noteCapture = { profile, slots, target: { root, scale } };
+    if (mapping.notationVersion !== 'terse-v2' || !validNoteCapture(noteCapture) || tunedNotes.toleranceMs < 0 || tunedNotes.toleranceMs > 100
+      || !tunedNotes.bindings.length || new Set(tunedNotes.bindings.map(binding => binding.buttonId)).size !== tunedNotes.bindings.length
+      || tunedNotes.bindings.some(binding => {
+        if (!mapping.controls.some(control => control.buttonId === binding.buttonId)) return true;
+        if ('slot' in binding) return !slots.includes(binding.slot);
+        return !binding.patterns.length || new Set(binding.patterns.map(pattern => pattern.notation)).size !== binding.patterns.length
+          || binding.patterns.some(pattern => !slots.includes(pattern.slot) || pattern.notation !== pattern.notation.trim()
+            || !parseArrangementHits(pattern.notation, mapping.meter.numerator)?.length);
+      })) {
+      issue('tuned-note-binding', 'Declare distinct mapped buttons, valid capture slots in scale order, unique rhythm assignments, and a tap window of 0 to 100 ms.', ref(1, 1));
+    } else {
+      for (const binding of tunedNotes.bindings) noteBanks.push({ buttonId: binding.buttonId, toleranceMs: tunedNotes.toleranceMs, notes: [] });
+    }
+  }
   for (const { buttonId, voiceId, cueRow } of mapping.controls) {
-    for (const [bar, column] of [[0, mapping.leadInColumn], ...[...columns].sort(([a], [b]) => a - b)]) {
+    const noteBank = noteBanks.find(bank => bank.buttonId === buttonId);
+    const binding = tunedNotes?.bindings.find(binding => binding.buttonId === buttonId);
+    for (const [bar, column] of [[0, mapping.leadInColumn], ...chronological]) {
       const location = ref(cueRow, column), text = location.text.trim();
       if (!text) continue;
       const override = mapping.overrides.find(o => o.a1 === location.a1);
@@ -753,8 +818,14 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       }
       if (!override && parsed.kind === 'invalid') {
         const hits = parseArrangementHits(text, mapping.meter.numerator);
-        if (hits?.length) issue('manual-tap-capability', `Manual tap positions ${hits.map(beat => beat + 1).join(', ')} are recognized, but this compiled runtime needs one-shot/sparse playback capability before loading that cue.`, location);
-        else issue('unknown-cue', `Define the exact cue and execution meaning of ${JSON.stringify(text)}.`, location);
+        if (hits?.length && noteBank && binding) {
+          const slot = 'slot' in binding ? binding.slot : binding.patterns.find(pattern => pattern.notation === text)?.slot;
+          if (bar === 0) issue('tuned-note-count-in', 'Tuned notes can be tapped once the song is playing.', location);
+          else if (slot === undefined) issue('tuned-note-pattern', 'Bind this rhythm to a captured note before this cue can execute.', location);
+          else for (const beat of hits) noteBank.notes.push({ slot, at: { bar, beat } });
+        } else if (hits?.length) {
+          issue('manual-tap-capability', `Manual tap positions ${hits.map(beat => beat + 1).join(', ')} need an explicit tuned-note binding before this cue can execute.`, location);
+        } else issue('unknown-cue', `Define the exact cue and execution meaning of ${JSON.stringify(text)}.`, location);
         continue;
       }
       if (mapping.notationVersion === 'terse-v2' && parsed.kind === 'parsed') authoredCues.push({ bar, buttonId, voiceId, source: location, actions: parsed.actions });
@@ -792,6 +863,10 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       }
     }
   }
+  const playableNoteBanks = noteBanks.filter(bank => bank.notes.length)
+    .map((bank, index) => index === 0 && noteCapture ? { ...bank, capture: noteCapture } : bank);
+  if (playableNoteBanks.reduce((count, bank) => count + bank.notes.length, 0) > PF.MAX_EVENTS)
+    issue('tuned-note-limit', `This song exceeds the native limit of ${PF.MAX_EVENTS} manual note events.`, ref(1, 1));
   for (const override of mapping.overrides) if (!usedOverrides.has(override.a1)) issue('unused-override', 'The override does not identify a nonempty control cell inside the compiled range.', { sheetId: source.sheetId, a1: override.a1, text: '', note: '' });
   const mappedRows = new Set(mapping.controls.map(c => c.cueRow));
   if (mapping.rotationRule) mappedRows.add(mapping.rotationRule.row);
@@ -1046,7 +1121,9 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     ...(terminalStops.length ? { terminalStops } : {}),
     ...(releaseCapturePairs.length ? { releaseCapturePairs } : {}),
     ...(playbackPairs.length ? { playbackPairs } : {}),
-    ...(sourceProfiles.length ? { sourceProfiles } : {}), parts, rotation, cueWindow: mapping.cueWindow, ...(mapping.notationVersion === 'terse-v2' ? { authoredCues } : {}), cues, takes, selections, playback, diagnostics,
+    ...(sourceProfiles.length ? { sourceProfiles } : {}),
+    ...(playableNoteBanks.length ? { noteBanks: playableNoteBanks } : {}),
+    parts, rotation, cueWindow: mapping.cueWindow, ...(mapping.notationVersion === 'terse-v2' ? { authoredCues } : {}), cues, takes, selections, playback, diagnostics,
     executable: !diagnostics.some(d => d.severity === 'error'),
   };
   return decodeCompiledSong(artifact);
@@ -1069,6 +1146,13 @@ export function inspectCompiledSong(input: unknown): string {
   }
   for (const pair of song.releaseCapturePairs ?? []) lines.push(`RELEASE CAPTURE\t${pair.firstTakeId}\t${pair.secondTakeId}`);
   for (const pair of song.playbackPairs ?? []) lines.push(`PAIRED PLAYBACK\t${pair.buttonId}\t${pair.first.bar}:${pair.first.beat + 1}\t${pair.firstSelectionId}\t${pair.secondSelectionId}`);
+  for (const bank of song.noteBanks ?? []) {
+    const counts = new Map<number, number>();
+    for (const note of bank.notes) counts.set(note.slot, (counts.get(note.slot) ?? 0) + 1);
+    const slots = [...counts].map(([slot, count]) => `slot ${slot}: ${count}`).join(', ');
+    lines.push(`MANUAL NOTES\t${bank.buttonId}\t${bank.notes.length} taps\t±${bank.toleranceMs} ms\t${slots}`);
+    if (bank.capture?.target) lines.push(`TUNING SCALE\tMIDI ${bank.capture.target.root} ${bank.capture.target.scale}\tslot order ${bank.capture.slots.join(', ')}`);
+  }
   for (const cue of song.cues) {
     const timing = cue.execution.kind === 'beat' ? `beat ${cue.execution.beat + 1}` : cue.execution.kind;
     lines.push(`${cue.source.a1}\t${cue.source.text}\t${cue.buttonId} -> ${cue.voiceId}\tbar ${cue.bar} cue ${cue.cueBeat === null ? 'column' : cue.cueBeat + 1}\t${cue.kind} ${timing}\tnew ${cue.takeId ?? '-'} commit ${cue.commitTakeId ?? '-'} selection ${cue.selectionId ?? '-'}\t${cue.captureTail} tempo-hit ${cue.tempoBeatHint ? 'actual press / hint 1' : '-'}`);
