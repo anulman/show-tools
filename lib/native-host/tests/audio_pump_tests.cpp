@@ -261,6 +261,12 @@ void verify_start_during_tuning_utility_drain() {
   pf_tuner_info(instrument.engine(), tuner.data());
   require(instrument.begin_required_tuning(uint32_t(tuner[PF_TUNER_REVISION]), 0, slots.data(), slots.size(), 52, 0) == 0);
   require(run.utility(instrument, device) == 0 && run.active());
+  std::array<double, PF_INPUT_INFO_FIELDS> routing{};
+  pf_input_info(instrument.engine(), routing.data());
+  const double generation = routing[PF_INPUT_GENERATION];
+  require(instrument.input_attach(0, 1, generation, PF_INPUT_PHYSICAL, 63, 0) == 0);
+  constexpr uint32_t musical_knob = 6;
+  double sequence = 0;
 
   std::array<float, 128> input{};
   std::array<double, 32> bank{};
@@ -275,7 +281,8 @@ void verify_start_during_tuning_utility_drain() {
     }
     pf_tuning_bank_info(instrument.engine(), bank.data());
     require(bank[5]);
-    require(instrument.control(5, 4) == 0 && instrument.control(5, -2) == 0);
+    require(instrument.input_event(0, 1, generation, ++sequence, musical_knob, 4) == 0);
+    require(instrument.input_event(0, 1, generation, ++sequence, musical_knob, -2) == 0);
   }
   pf_tuner_info(instrument.engine(), tuner.data());
   require(tuner[PF_TUNER_COMPLETE] && !instrument.audio_needed());
