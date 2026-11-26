@@ -44,6 +44,10 @@ struct Song {
 struct Pending { bool present = false; Cue cue; double target = 0; };
 struct Dedup { bool present = false; uint16_t id[200]{}; uint32_t length = 0; int control = 0; double value = 0; };
 struct ClockCommand { bool present = false; double client = 0, epoch = 0, native = 0; };
+struct RunRequest { double bpm; int count, start, end, loop, automatic; };
+struct VocalPreflight { RunRequest run{}; int stage = 0; };
+constexpr int waiting_reference = 1, playing_reference = 2, waiting_first_take = 3;
+
 bool integer(double value) { return std::isfinite(value) && std::floor(value) == value && std::abs(value) <= safe_frame; }
 bool flag(int value) { return value == 0 || value == 1; }
 bool whitespace(uint16_t value) {
@@ -69,6 +73,7 @@ struct pf_engine {
   std::unique_ptr<tuner::Engine> tuning;
   std::unique_ptr<patches::ShakePercussion> percussion;
   bool tambourine_armed = false, required_tuning = false;
+  VocalPreflight preflight;
   bt_tracker* tracker = nullptr;
   st_engine* sampler = nullptr;
   sq_engine* sequencer = nullptr;
@@ -120,8 +125,15 @@ bool recording(const pf_engine* engine, int id) {
   return data[ST_SLOT_RECORDING] != 0;
 }
 bool running(const pf_engine* engine) { return engine->phase == PF_COUNT_IN || engine->phase == PF_PLAYING; }
+bool preflight_waits_for_mushroom(const pf_engine* engine) {
+  return engine->preflight.stage > 0 && engine->preflight.stage % 2 == 1;
+}
+int active_preflight_step(const pf_engine* engine) {
+  const int stage = engine->preflight.stage;
+  return stage > waiting_first_take && stage % 2 == 0 ? (stage - waiting_first_take) / 2 : -1;
+}
 bool mushroom_recovers_capture(const pf_engine* engine) {
-  return running(engine) && !engine->restart_at_end && engine->compiled && engine->compiled->has_capture();
+  return !engine->preflight.stage && running(engine) && !engine->restart_at_end && engine->compiled && engine->compiled->has_capture();
 }
 bool live_active(const pf_engine* engine) { return engine->mode == PF_PRACTICE && engine->live_authorized && engine->microphone && engine->profiles[PF_DEFAULT_PROFILE].rack && running(engine); }
 void clear_live(pf_engine* engine) {
@@ -267,7 +279,8 @@ int advance_tuning_note(pf_engine* engine) {
   }
   return accepted(engine);
 }
-void silence(pf_engine* engine, int reason = 3) {
+void silence(pf_engine* engine, int reason = 3, bool keep_preflight = false) {
+  if (!keep_preflight) engine->preflight = {};
   bt_cancel_pedal_tempo(engine->tracker);
   engine->pedal_tempo_beat = -1;
   engine->restart_at_end = false;
@@ -425,7 +438,10 @@ void render_segment(pf_engine* engine, const float* input, float* left, float* r
     engine->compiled->publish_cue_entries(engine->end);
     if (engine->compiled->error() != PF_OK) {
       int error = engine->compiled->error(); engine->compiled->clear_error();
-      if (error != PF_LOOP_MISMATCH) { engine->phase = PF_IDLE; engine->count_remaining = 0; clear_live(engine); }
+      if (error != PF_LOOP_MISMATCH) {
+        engine->phase = PF_IDLE; engine->count_remaining = 0;
+        if (engine->preflight.stage) silence(engine); else clear_live(engine);
+      }
       fail(engine, error); emit(engine, PF_FAULT, start + count);
     }
   }
@@ -599,6 +615,7 @@ int pf_configure(pf_engine* engine, double bpm, int beats, int bars, int end, in
     cancel_required_tuning(engine);
     engine->tuning->close();
   }
+  if (engine->preflight.stage) silence(engine);
   reset_tambourine(engine);
   engine->compiled.reset();
   performance_input::Binding unbound[PF_INPUT_SWITCHES]; engine->inputs.replace(unbound);
@@ -776,30 +793,62 @@ void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out) 
   if (engine && engine->compiled) engine->compiled->take_info(take, out);
   else { std::fill(out, out + PF_TAKE_FIELDS, 0); out[PF_TAKE_SOURCE_END] = out[PF_TAKE_SELECTION] = -1; }
 }
-int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int loop, int automatic) {
-  if (!engine) return -1;
-  if (engine->phase == PF_PLAYING || engine->phase == PF_COUNT_IN) return fail(engine, PF_INVALID_START, "Stop before starting another run");
-  if (engine->required_tuning) return fail(engine, PF_INVALID_START, "Lock every note before starting");
-  if (!std::isfinite(bpm) || bpm < 40 || bpm > 240 || count < 0 || count > 4 || start < 1 || end < start || end > engine->song->bars || !flag(loop) || !flag(automatic)) return fail(engine, PF_INVALID_START);
+static int start_run(pf_engine* engine, const RunRequest& run, int preflight_step, bool reset_events) {
   double snapshot[BT_S_COUNT]; bt_snapshot(engine->tracker, snapshot);
   double sequence = engine->clock_sequence + 1;
   if (bt_command(engine->tracker, BT_SELECT_MANUAL, 0, snapshot[BT_S_FRAME], sequence, snapshot[BT_S_EPOCH]) != BT_OK) return fail(engine, PF_INVALID_START);
   engine->clock_sequence = sequence;
-  if (bt_command(engine->tracker, BT_APPLY_BPM, bpm, snapshot[BT_S_FRAME], ++engine->clock_sequence, snapshot[BT_S_EPOCH]) != BT_OK) return fail(engine, PF_INVALID_START);
+  if (bt_command(engine->tracker, BT_APPLY_BPM, run.bpm, snapshot[BT_S_FRAME], ++engine->clock_sequence, snapshot[BT_S_EPOCH]) != BT_OK) return fail(engine, PF_INVALID_START);
   engine->tempo_epoch = -1;
-  engine->bpm = bpm; engine->start = start; engine->end = end; engine->loop = loop; engine->automatic = automatic;
-  engine->event_head = engine->event_count = 0;
-  engine->sequence = 0; engine->count_beats = count * engine->beats_per_bar; engine->count_elapsed = 0; engine->count_remaining = count * engine->beats_per_bar; engine->position = -1;
-  engine->phase = count ? PF_COUNT_IN : PF_PLAYING; engine->bar = engine->beat = -1; engine->last_beat = engine->run_epoch = -1;
+  engine->bpm = run.bpm; engine->start = run.start; engine->end = run.end; engine->loop = run.loop; engine->automatic = run.automatic;
+  if (reset_events) { engine->event_head = engine->event_count = 0; engine->sequence = 0; }
+  engine->count_beats = run.count * engine->beats_per_bar; engine->count_elapsed = 0; engine->count_remaining = engine->count_beats; engine->position = -1;
+  engine->phase = run.count ? PF_COUNT_IN : PF_PLAYING; engine->bar = engine->beat = -1; engine->last_beat = engine->run_epoch = -1;
   engine->error_code = PF_OK; engine->error = ""; engine->trigger_count = 0;
-  silence(engine);
+  silence(engine, 3, preflight_step >= 0);
   ++engine->light_run;
   for (bool& suppressed : engine->suppressed) suppressed = false;
   engine->live_authorized = engine->mode == PF_PRACTICE && engine->microphone && bool(engine->profiles[PF_DEFAULT_PROFILE].rack);
-  if (engine->compiled) engine->compiled->start(start, engine->count_beats, engine->processed, bpm, end);
+  if (engine->compiled) engine->compiled->start(run.start, engine->count_beats, engine->processed, run.bpm, run.end, preflight_step);
   emit(engine, PF_STATE);
-  return 0;
+  return PF_OK;
 }
+static int start_preflight_step(pf_engine* engine) {
+  if (!engine->microphone) return fail(engine, PF_MICROPHONE_REQUIRED);
+  if (engine->preflight.stage == waiting_reference) {
+    engine->tuning->close();
+    if (!engine->tuning->configure(engine->compiled->preflight_reference_midi(), tuner::Scale::Chromatic)
+      || !engine->tuning->cue()) return fail(engine, PF_ACTION_FAILED, "Could not play the vocal reference");
+    engine->preflight.stage = playing_reference;
+    emit(engine, PF_STATE, engine->processed);
+    return accepted(engine);
+  }
+  const int step = (engine->preflight.stage - waiting_first_take) / 2;
+  const int bars = engine->compiled->preflight_bars(step);
+  if (!bars) return fail(engine, PF_INVALID_START, "Missing pre-flight take");
+  ++engine->preflight.stage;
+  if (start_run(engine, {engine->preflight.run.bpm, 1, 1, bars, 0, 0}, step, false) < 0) {
+    --engine->preflight.stage;
+    return -1;
+  }
+  return PF_OK;
+}
+int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int loop, int automatic) {
+  if (!engine) return -1;
+  if (running(engine) || engine->preflight.stage) return fail(engine, PF_INVALID_START, "Stop before starting another run");
+  if (engine->required_tuning) return fail(engine, PF_INVALID_START, "Lock every note before starting");
+  if (!std::isfinite(bpm) || bpm < 40 || bpm > 240 || count < 0 || count > 4 || start < 1 || end < start || end > engine->song->bars || !flag(loop) || !flag(automatic)) return fail(engine, PF_INVALID_START);
+  const RunRequest run{bpm, count, start, end, loop, automatic};
+  const int step = engine->compiled ? engine->compiled->first_missing_preflight_step() : -1;
+  if (step < 0) return start_run(engine, run, -1, true);
+  if (!engine->microphone) return fail(engine, PF_MICROPHONE_REQUIRED);
+  silence(engine);
+  engine->phase = PF_IDLE; engine->event_head = engine->event_count = 0; engine->sequence = 0;
+  engine->preflight = {run, engine->compiled->preflight_reference_midi() >= 0 ? waiting_reference : waiting_first_take + 2 * step};
+  emit(engine, PF_STATE, engine->processed);
+  return accepted(engine);
+}
+int pf_preflight_stage(const pf_engine* engine) { return engine ? engine->preflight.stage : 0; }
 void pf_stop(pf_engine* engine) {
   if (!engine) return;
   engine->phase = PF_IDLE; engine->count_remaining = 0;
@@ -808,6 +857,7 @@ void pf_stop(pf_engine* engine) {
 int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected, int value, int scale) {
   if (!engine || !engine->tuning) return -1;
   if (engine->tuning->snapshot().commandRevision != expected) return fail(engine, PF_COMMAND_CONFLICT, "Tuner changed. Refresh its state and retry.");
+  if (engine->preflight.stage) return fail(engine, PF_ACTION_FAILED, "The vocal setup owns the reference tone");
   if (command != PF_TUNER_CLOSE && command != PF_TUNER_SILENCE && running(engine)) return fail(engine, PF_ACTION_FAILED, "Stop the performance before using the tuner.");
   if (engine->required_tuning && command != PF_TUNER_CLOSE)
     return fail(engine, PF_ACTION_FAILED, "Sing the note and turn clockwise then counterclockwise to lock it");
@@ -855,6 +905,7 @@ int pf_tambourine_active(const pf_engine* engine) {
     ((engine->compiled && engine->compiled->external_audition_active()) || (engine->percussion && engine->percussion->active()));
 }
 int pf_audio_needed(const pf_engine* engine) {
+  if (engine && engine->preflight.stage) return 1;
   if (!engine || !engine->tuning) return 0;
   const auto state = engine->tuning->snapshot();
   return running(engine) || pf_tambourine_active(engine) || state.listening || state.previewKind != tuner::PreviewKind::Silent;
@@ -908,6 +959,7 @@ int pf_set_microphone(pf_engine* engine, int enabled) {
   if (!engine || !flag(enabled)) return fail(engine, PF_INVALID_PROGRAM, "Microphone state must be boolean");
   engine->microphone = enabled;
   if (!enabled) {
+    if (engine->preflight.stage) { engine->phase = PF_IDLE; engine->count_remaining = 0; silence(engine); }
     cancel_required_tuning(engine);
     engine->tuning->close();
     if (engine->compiled) engine->compiled->microphone_lost();
@@ -1103,10 +1155,10 @@ int pf_input_is_panic(const pf_engine* engine, uint32_t slot, double session, do
   const auto* producer = engine->inputs.producer(slot);
   if (!(producer->released & (1u << input)) || (producer->held & (1u << input))) return 0;
   if (producer->kind == PF_INPUT_PHYSICAL) {
-    if (input == performance_input::mushroom) return !mushroom_recovers_capture(engine);
+    if (input == performance_input::mushroom) return !preflight_waits_for_mushroom(engine) && !mushroom_recovers_capture(engine);
     return input < PF_INPUT_SWITCHES && engine->inputs.binding(input).kind == PF_INPUT_PANIC;
   }
-  return input == 4;
+  return input == 4 && !preflight_waits_for_mushroom(engine);
 }
 int pf_input_event(pf_engine* engine, uint32_t slot, double session, double generation,
   double sequence, uint32_t input, double value) {
@@ -1142,7 +1194,9 @@ int pf_input_event(pf_engine* engine, uint32_t slot, double session, double gene
       : performance_input::Binding{input < 4 || input == 7 ? PF_INPUT_CUES : input == 4 ? PF_INPUT_PANIC : PF_INPUT_TEMPO,
         input < 4 ? 1u << input : input == 7 ? 15u : 0u};
     producer->ownership[input] = engine->inputs.ownership();
-    if (producer->kind == PF_INPUT_PHYSICAL && input == performance_input::mushroom) {
+    const bool mushroom = input == (producer->kind == PF_INPUT_PHYSICAL ? performance_input::mushroom : 4u);
+    if (mushroom && preflight_waits_for_mushroom(engine)) return start_preflight_step(engine);
+    if (producer->kind == PF_INPUT_PHYSICAL && mushroom) {
       if (mushroom_recovers_capture(engine)) {
         engine->compiled->discard_capture();
         engine->restart_at_end = true;
@@ -1277,7 +1331,27 @@ int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
       }
     }
   }
-  if (stopped) { if (engine->phase != PF_ENDED) engine->phase = PF_IDLE; silence(engine); }
+  const int preflight_step = active_preflight_step(engine);
+  if (stopped && preflight_step >= 0 && engine->phase == PF_ENDED && !engine->error_code
+    && engine->compiled->preflight_ready(preflight_step)) {
+    const RunRequest run = engine->preflight.run;
+    const int next_step = engine->compiled->first_missing_preflight_step();
+    if (next_step < 0) {
+      engine->preflight = {};
+      if (start_run(engine, run, -1, false) == PF_OK) return 1;
+      engine->phase = PF_IDLE; silence(engine); emit(engine, PF_FAULT, when); return -1;
+    }
+    silence(engine, 3, true);
+    engine->preflight.stage = waiting_first_take + 2 * next_step;
+    engine->phase = PF_IDLE;
+    emit(engine, PF_STATE, when);
+    return 1;
+  }
+  if (stopped) {
+    if (engine->phase != PF_ENDED || preflight_step >= 0) engine->phase = PF_IDLE;
+    if (preflight_step >= 0 && !engine->error_code) fail(engine, PF_NO_RECORDING, "Vocal setup take could not be stored");
+    silence(engine);
+  }
   if (click_enabled(engine)) {
     engine->click_start = when;
     engine->click_accent = engine->mode == PF_PRACTICE ? downbeat : std::fmod(id - engine->click_origin - 1, 4) == 0;
@@ -1331,6 +1405,11 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
     }
     engine->tuning->process(input ? input + offset : nullptr, left ? left + offset : nullptr,
       right ? right + offset : nullptr, length, engine->microphone);
+    if (engine->preflight.stage == playing_reference && engine->tuning->snapshot().previewKind == tuner::PreviewKind::Silent) {
+      engine->tuning->close();
+      engine->preflight.stage = waiting_first_take + 2 * engine->compiled->first_missing_preflight_step();
+      emit(engine, PF_STATE, engine->processed);
+    }
     if (engine->compiled && !running(engine)) {
       const auto tuning = engine->tuning->snapshot();
       engine->compiled->process_tuning_bank(input ? input + offset : nullptr, length,
@@ -1343,7 +1422,7 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
     double start = engine->processed;
     auto render = [&](unsigned end) {
       const unsigned first = offset + cursor, count = end - cursor;
-      if (count && engine->phase == PF_PLAYING && engine->mode == PF_PRACTICE) {
+      if (count && engine->phase == PF_PLAYING && !engine->preflight.stage && engine->mode == PF_PRACTICE) {
         if (!song_frames) song_offset = first;
         song_frames += count;
       }
@@ -1461,7 +1540,8 @@ void pf_light_output(pf_engine* engine, double* out) {
       playing_rows = playing_rows || channel[PF_CHANNEL_LOOPING] != 0;
     }
     double baseline = 0;
-    if (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows)))
+    if (input == performance_input::mushroom && preflight_waits_for_mushroom(engine)) baseline = .7;
+    else if (recording_rows || (rows && engine->compiled && engine->compiled->cue_warning(engine->end, rows)))
       baseline = .7 * (1 + std::cos(6.2831853071795864769 * clock[BT_S_PHASE])) / 2;
     else if (playing_rows) baseline = .7;
     auto* sample = image + PF_LIGHT_SAMPLES + light_count++ * PF_LIGHT_SAMPLE_FIELDS;
@@ -1496,6 +1576,7 @@ void pf_snapshot(const pf_engine* engine, double* out) {
   out[PF_CLOCK_BEAT_ID] = engine->clock_beat; out[PF_CLOCK_BEAT_FRAME] = engine->clock_frame;
   out[PF_ERROR] = engine->error_code; out[PF_CLICK_ENABLED] = click_enabled(engine);
   out[PF_TRACKER_DROPS] = engine->telemetry_drops; out[PF_EVENT_DROPS] = engine->event_drops;
+  out[PF_PREFLIGHT_STAGE] = engine->preflight.stage;
 }
 void pf_channel_info(const pf_engine* engine, int id, double* out) {
   if (!out) return;

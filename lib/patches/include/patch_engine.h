@@ -107,6 +107,7 @@ class Playback {
   Playback(const Playback&) = delete;
   Playback& operator=(const Playback&) = delete;
   bool start(bool loop, uint32_t start_frame = 0) noexcept;
+  bool start_printed_once(uint32_t start_frame) noexcept;
   bool start_at_capture_end(bool loop) noexcept;
   bool start_window(bool loop, uint32_t begin, uint32_t end, uint32_t period, const Rack& initial) noexcept;
   bool start_window_at_capture_end(bool loop, uint32_t begin, uint32_t end, uint32_t period) noexcept;
@@ -137,7 +138,7 @@ class Playback {
   uint64_t release_remaining_ = 0, iteration_ = 0;
   void finish() noexcept;
   bool loop_ = false;
-  bool printed_history_valid_ = true;
+  bool printed_history_valid_ = true, printed_once_ = false;
   struct Grains {
     double outgoing = 0, incoming = 0, last_phase = 0;
     uint32_t hop = 0, elapsed = 0;

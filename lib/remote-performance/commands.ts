@@ -135,7 +135,7 @@ export function encodeCommand(input: unknown, state: PracticeState, songId?: str
 		case 'tuner': return numeric(13, [...tunerCommandValues(command.args)]);
 		case 'beginRequiredTuning': {
 			const { profile, slots, target } = command.args;
-			if (state.phase !== 'idle' && state.phase !== 'ended') throw new Error('Stop the song before recording the tuning scale');
+			if (state.preflightStage || state.phase !== 'idle' && state.phase !== 'ended') throw new Error('Stop the song before recording the tuning scale');
 			if (!tuning || tuning.run > BigInt(Number.MAX_SAFE_INTEGER)
 				|| !tuning.compiled?.noteBanks?.some(({ capture }) => capture?.requiredBeforeStart && capture.profile === profile
 					&& capture.target?.root === target.root && capture.target.scale === target.scale

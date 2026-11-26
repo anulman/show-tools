@@ -633,8 +633,90 @@ void ordered_batch_checks() {
   require(second[PF_TAKE_READY] == 1, "missed commit still completes incoming capture");
   require(!playing(engine, 0) && !playing(engine, 1), "missed play remains manual");
 }
+std::vector<double> vocal_preflight_program() {
+  return {
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 6, 120, 6, 25, 25, 2, 4, 2, 0, 0, 1, 2, 3,
+    2, 0, 3.5, 3, 0, 1, 3, 0, 0,
+    3, 0, 3.25, 3, 0, 1, 3, 0, 1,
+    2, 2, 0, -1, PF_ARM, 2, 3.5, 0, -1, -1, 0, PF_AUTOPLAY, PF_ONESHOT_MODE, 0, -1, 0,
+    3, 3, 0, -1, PF_ARM, 2, 3.25, 1, -1, -1, 0, PF_AUTOPLAY, PF_ONESHOT_MODE, 0, -1, 0,
+    2, 2, 3, -1, PF_COMMIT, 2, 0, -1, 0, 0, 0, PF_STORE_ONLY, PF_ONESHOT_MODE, 0, -1, 0,
+    3, 3, 3, -1, PF_COMMIT, 2, 0, -1, 1, 1, 0, PF_STORE_ONLY, PF_ONESHOT_MODE, 0, -1, 0,
+    0, 0, 1, 1, 1, 1,
+    PF_COMPILED_PREFLIGHT_MAGIC, 2, 64, 0, 1,
+  };
+}
+bool render_preflight(pf_engine* engine) {
+  std::array<float, 128> input{}, left{}, right{};
+  input.fill(.25f);
+  uint32_t offset = 0, song_frames = 0;
+  ok(engine, pf_process_stems_with_song_span(engine, input.data(), left.data(), right.data(), nullptr, nullptr, 128, &offset, &song_frames));
+  require(song_frames == 0, "preflight PCM is not published as song audio");
+  return std::any_of(left.begin(), left.end(), [](float value) { return std::abs(value) > .001f; });
+}
+bool advance_preflight_to(pf_engine* engine, int stage) {
+  bool heard = false;
+  for (int attempt = 0; attempt < 600 && pf_preflight_stage(engine) != stage; ++attempt)
+    heard = render_preflight(engine) || heard;
+  require(pf_preflight_stage(engine) == stage, "expected preflight stage reached");
+  double snapshot[PF_FIELDS]; pf_snapshot(engine, snapshot);
+  require(snapshot[PF_PREFLIGHT_STAGE] == stage, "preflight stage available in snapshots");
+  return heard;
+}
+void vocal_preflight_checks() {
+  Engine engine;
+  const auto program = vocal_preflight_program();
+  auto duplicate = program; duplicate.back() = 0;
+  require(pf_configure_compiled(engine, duplicate.data(), uint32_t(duplicate.size())) < 0, "duplicate setup take rejected");
+  load(engine, program);
+  require(pf_start(engine, 120, 1, 4, 5, 0, 0) < 0, "preflight needs a microphone");
+  ok(engine, pf_set_microphone(engine, 1));
+  attach(engine, 0, 17, PF_INPUT_PHYSICAL, 1u << 5);
+  attach(engine, 1, 18, PF_INPUT_POINTER, 1u << 4);
+  ok(engine, pf_start(engine, 120, 1, 4, 5, 0, 0));
+  require(pf_preflight_stage(engine) == 1 && pf_audio_needed(engine) == 1, "Start waits with audio running for reference press");
+  require(pf_input_is_panic(engine, 0, 17, generation(engine), 1, 5, 1) == 0, "waiting mushroom is a setup advance");
+  event(engine, 0, 17, 1, 5, 1);
+  require(pf_preflight_stage(engine) == 2, "mushroom starts one reference");
+  double tuning[PF_TUNER_FIELDS]; pf_tuner_info(engine, tuning);
+  require(tuning[PF_TUNER_ROOT] == 64 && tuning[PF_TUNER_PREVIEW_KIND] == 1, "E4 plays as a single reference");
+  require(advance_preflight_to(engine, 3), "the reference is audible");
+  event(engine, 0, 17, 2, 5, 1);
+  require(pf_preflight_stage(engine) == 3, "held mushroom cannot advance twice");
+  event(engine, 0, 17, 3, 5, 0);
+  event(engine, 0, 17, 4, 5, 1);
+  require(pf_preflight_stage(engine) == 4, "next press begins take 1 count-in");
+  require(advance_preflight_to(engine, 5), "take 1 has audible count-in");
+  require(take_ready(engine, 0) && !take_ready(engine, 1), "only the first take commits");
+  double take[PF_TAKE_FIELDS]; pf_compiled_take_info(engine, 0, take);
+  require(take[PF_TAKE_LENGTH] == 34000, "4& pickup and two full bars are captured");
+  require(pf_input_is_panic(engine, 1, 18, generation(engine), 1, 4, 1) == 0, "virtual mushroom can advance too");
+  event(engine, 1, 18, 1, 4, 1);
+  require(pf_preflight_stage(engine) == 6, "next press begins take 2 count-in");
+  until(engine, 1);
+  event(engine, 0, 17, 5, 5, 0);
+  require(pf_input_is_panic(engine, 0, 17, generation(engine), 6, 5, 1) == 1, "mushroom is Panic during recording");
+  event(engine, 0, 17, 6, 5, 1);
+  require(!pf_preflight_stage(engine) && take_ready(engine, 0) && !take_ready(engine, 1), "Panic discards only the active draft");
+  event(engine, 1, 18, 2, 4, 0);
+  ok(engine, pf_start(engine, 120, 1, 4, 5, 0, 0));
+  event(engine, 1, 18, 3, 4, 1);
+  advance_preflight_to(engine, 5);
+  event(engine, 1, 18, 4, 4, 0);
+  event(engine, 1, 18, 5, 4, 1);
+  advance_preflight_to(engine, 0);
+  pf_compiled_take_info(engine, 1, take);
+  require(take[PF_TAKE_READY] == 1 && take[PF_TAKE_LENGTH] == 35000, "4e pickup and two full bars are captured");
+  until(engine, 4);
+  pf_stop(engine);
+  ok(engine, pf_start(engine, 120, 1, 1, 6, 0, 0));
+  require(!pf_preflight_stage(engine) && take_ready(engine, 0) && take_ready(engine, 1), "restart at bar 1 retains the preparation takes");
+  until(engine, 4);
+  require(take_ready(engine, 0) && take_ready(engine, 1), "synthetic preparation cues are inactive in chart playback");
+}
 }  // namespace
 int main() {
+  vocal_preflight_checks();
   dedicated_pedal_checks();
   pedal_tempo_waits_for_the_next_downbeat(0, false);
   pedal_tempo_waits_for_the_next_downbeat(1, false);

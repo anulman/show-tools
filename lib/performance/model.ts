@@ -128,6 +128,7 @@ export interface PracticeState extends TransportState {
   tempoHits?: TempoHitState;
   compiledTakes?: readonly CompiledTakeState[];
   inputRouting?: InputRoutingState;
+  preflightStage?: number;
 }
 export interface StartOptions {
   bpm?: number;

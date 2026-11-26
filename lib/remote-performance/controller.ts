@@ -121,7 +121,8 @@ export class PersistentDesk implements DeskController {
     const rejected = (error: string): AudioDecision => ({ outcome: 'rejected', error, view: this.view });
     if (this.closing || this.publishingChart || this.configuration.kind !== 'idle') return rejected('Wait for the current desk operation to finish');
     const audio = this.view.audio;
-    const stopped = audio.kind === 'ready' && (audio.performance.state.phase === 'idle' || audio.performance.state.phase === 'ended');
+    const stopped = audio.kind === 'ready' && !audio.performance.state.preflightStage
+      && (audio.performance.state.phase === 'idle' || audio.performance.state.phase === 'ended');
     const attempt = selecting && stopped ? this.attempt : undefined;
     if (audio.kind !== 'off' && !attempt)
       return rejected(selecting ? 'Stop practice before switching songs' : 'Switch to Standby before changing desk configuration');
