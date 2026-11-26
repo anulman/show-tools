@@ -5,10 +5,19 @@
 #include <cmath>
 #include <cstring>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 namespace native_host {
 namespace {
+bool sync_directory(const std::string& path) {
+  const int fd = open(path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+  if (fd < 0) return false;
+  const bool synced = fsync(fd) == 0;
+  const int closed = close(fd);
+  return synced && closed == 0;
+}
+
 bool write_all(int fd, const uint8_t* data, size_t bytes) {
   while (bytes) {
     const auto written = ::write(fd, data, bytes);
@@ -34,9 +43,9 @@ std::array<uint8_t, 44> wave_header(uint32_t rate, uint32_t bytes) {
 }
 }
 
-DemoRecording::DemoRecording(std::string draft, std::string output, uint32_t sample_rate)
-  : draft_(std::move(draft)), output_(std::move(output)), sample_rate_(sample_rate) {
-  if (!output_.empty()) writer_ = std::thread(&DemoRecording::write, this);
+DemoRecording::DemoRecording(std::string draft, std::string output, uint32_t sample_rate, std::string archive_root)
+  : draft_(std::move(draft)), output_(std::move(output)), archive_root_(std::move(archive_root)), sample_rate_(sample_rate) {
+  if (!output_.empty() || !archive_root_.empty()) writer_ = std::thread(&DemoRecording::write, this);
 }
 
 DemoRecording::~DemoRecording() {
@@ -89,6 +98,7 @@ void DemoRecording::write() {
   int file = -1;
   uint32_t bytes = 0;
   bool error = false, created = false;
+  std::string directory, draft = draft_, output = output_;
   Block block;
   std::array<uint8_t, block_frames * 4> pcm{};
   for (;;) {
@@ -96,7 +106,13 @@ void DemoRecording::write() {
     while (queue_.pop(block)) {
       if (error) continue;
       if (file < 0) {
-        file = open(draft_.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
+        if (!archive_root_.empty()) {
+          directory = archive_root_ + "/take-XXXXXX";
+          if (!mkdtemp(directory.data())) { directory.clear(); error = true; continue; }
+          draft = directory + "/recording.part";
+          output = directory + "/recording.wav";
+        }
+        file = open(draft.c_str(), O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC | O_NOFOLLOW, 0600);
         created = file >= 0;
         const auto header = wave_header(sample_rate_, 0);
         if (!created || !write_all(file, header.data(), header.size())) { error = true; continue; }
@@ -116,11 +132,15 @@ void DemoRecording::write() {
       if (file >= 0) {
         const auto header = wave_header(sample_rate_, bytes);
         if (!error && (lseek(file, 0, SEEK_SET) != 0 || !write_all(file, header.data(), header.size()))) error = true;
+        if (!error && !directory.empty() && fsync(file) != 0) error = true;
         if (close(file) != 0) error = true;
-        if (!error && rename(draft_.c_str(), output_.c_str()) != 0) error = true;
+        if (!error && rename(draft.c_str(), output.c_str()) != 0) error = true;
+        if (!error && !directory.empty() && (!sync_directory(directory) || !sync_directory(archive_root_))) error = true;
         file = -1;
       }
-      if (error && created) unlink(draft_.c_str());
+      if (error && created) unlink(draft.c_str());
+      if (error && !directory.empty()) rmdir(directory.c_str());
+      directory.clear();
       state_.store(error ? State::Failed : bytes ? State::Saved : State::Idle, std::memory_order_release);
       bytes = 0;
       error = created = false;

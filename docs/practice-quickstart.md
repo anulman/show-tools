@@ -205,7 +205,11 @@ During a song, any configured button with an LED still reaches full brightness w
 
 ## Download a practice demo
 
-**Start** records a stereo demo after count-in. Press **Stop** to finish both practice and the demo. Press **Finish take** to save the demo and keep playing. When **WAV ready** appears, choose **Download take**. Turning audio off leaves the last completed demo available while the web service runs. Download it before stopping the service or finishing another demo.
+**Start** records a stereo demo after count-in. Press **Stop** to finish both practice and the demo. Press **Finish take** to save the demo and keep playing. When **WAV ready** appears, **Download take** still saves the latest completed take.
+
+To save takes automatically, use the Hardware desk in a Chromium browser on the Mac. Open **Settings → Recording → Choose recording folder…** and choose a writable folder on the external drive. Keep the desk open. After a take finishes, look for **Saved to** beside the recording controls. If access expires, use **Allow folder access**. If the drive disappears, reconnect it so the desk can retry. **Turn off automatic saving** clears this browser's chosen destination.
+
+The host profile needs a configured recording archive for automatic saving. Without it, download each demo before stopping the web service or finishing another demo. With the archive enabled, the EliteDesk keeps its WAVs and copies each pending take into a distinct file on the Mac. The selected Mac folder is specific to this browser and desk address.
 
 Use **Voice samples** after stopping transport to download individual committed chart takes.
 

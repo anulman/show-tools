@@ -14,6 +14,18 @@ import { Schema } from 'effect';
 import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type DeskView, type AudioDecision, type NativeOutcome, type NativeTarget, type SongPreview } from './session-schema.js';
 import { decodeClientInputCommand, isPriorityCommand, TambourineAudition, type ClientInputCommand } from './commands.js';
 import { InputBindingsSchema, decodeInputBindings, decodeInputAttach, type InputBindings, type InputAttach } from '../performance/input-bindings.js';
+import { decodeRecordingId } from './recording-archive-schema.js';
+
+async function sendDemo(request: IncomingMessage, response: ServerResponse, demo: { file: import('node:fs/promises').FileHandle; bytes: number }) {
+  response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': demo.bytes, 'Cache-Control': 'no-store',
+    'Content-Disposition': 'attachment; filename="practice-demo.wav"' });
+  if (request.method === 'HEAD') {
+    await demo.file.close();
+    response.end();
+    return;
+  }
+  await pipeline(demo.file.createReadStream(), response).catch(() => response.destroy());
+}
 
 export interface Observation {
 	type: 'session' | 'state' | 'event' | 'gap';
@@ -484,14 +496,35 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
       if ((request.method === 'GET' || request.method === 'HEAD') && path === '/api/demo-recording') {
         const demo = await controller.openDemo?.().catch(() => null);
         if (!demo) return json(response, 404, { error: 'No completed demo' });
-        response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': demo.bytes, 'Cache-Control': 'no-store',
-          'Content-Disposition': 'attachment; filename="practice-demo.wav"' });
-        if (request.method === 'HEAD') {
-          await demo.file.close();
-          return response.end();
+        return sendDemo(request, response, demo);
+      }
+      const archive = controller.recordingArchive;
+      if (request.method === 'GET' && path === '/api/recording-archive') {
+        if (!archive) return json(response, 404, { error: 'Recording archive is not configured' });
+        let after;
+        const cursor = url.searchParams.get('after');
+        try { after = cursor === null ? undefined : decodeRecordingId(cursor); }
+        catch { return json(response, 400, { error: 'Invalid recording cursor' }); }
+        try { return json(response, 200, await archive.pending(after)); }
+        catch { return json(response, 503, { error: 'Recording archive is unavailable' }); }
+      }
+      if (path.startsWith('/api/recording-archive/')) {
+        if (!archive) return json(response, 404, { error: 'Recording archive is not configured' });
+        let id;
+        try { id = decodeRecordingId(path.slice('/api/recording-archive/'.length)); }
+        catch { return json(response, 400, { error: 'Invalid recording identifier' }); }
+        if (request.method === 'POST') {
+          if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
+          try {
+            if (!await archive.acknowledge(id)) return json(response, 404, { error: 'No completed demo' });
+            return json(response, 200, { saved: true });
+          } catch { return json(response, 503, { error: 'Recording acknowledgement could not be saved' }); }
         }
-        await pipeline(demo.file.createReadStream(), response).catch(() => response.destroy());
-        return;
+        if (request.method === 'GET' || request.method === 'HEAD') {
+          const demo = await archive.open(id).catch(() => null);
+          if (!demo) return json(response, 404, { error: 'No completed demo' });
+          return sendDemo(request, response, demo);
+        }
       }
       if (request.method === 'POST' && path === '/api/take-audio') {
         if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });

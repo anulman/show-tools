@@ -13,7 +13,7 @@ export const DeskRevisionSchema = revision.pipe(Schema.brand('DeskRevision'));
 export const NativeRevisionSchema = revision.pipe(Schema.brand('NativeRevision'));
 export const demoStates = ['idle', 'armed', 'recording', 'finishing', 'saved', 'failed'] as const;
 const DemoStateSchema = Schema.Literals(demoStates);
-export const MAX_DEMO_BYTES = 192 * 1024 * 1024 + 44;
+export { MAX_DEMO_BYTES } from './recording-archive-schema.js';
 
 export const NativePerformanceSchema = Schema.Struct({
   hostEpoch: NativeEpochSchema,
@@ -118,6 +118,7 @@ export interface DeskController {
   command(target: NativeTarget, input: unknown): Promise<NativeOutcome>;
   takeAudio?(target: NativeTarget, request: import('../performance/take-audio.js').TakeAudioRequest): Promise<Uint8Array>;
   openDemo?(): Promise<{ file: import('node:fs/promises').FileHandle; bytes: number } | null>;
+  recordingArchive?: Pick<import('./recording-archive.js').RecordingArchive, 'pending' | 'open' | 'acknowledge'>;
   confirmedRetirement?(target: NativeTarget): NativeEngineRetirementProof | null;
   close(): Promise<void>;
 }

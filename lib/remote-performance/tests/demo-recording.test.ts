@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { PersistentDesk } from '../controller.js';
 import { createGateway } from '../gateway.js';
 import { installedPackage, sessionProfile, until } from './session-fixture.js';
+import { decodeRecordingArchive, RECORDING_ARCHIVE_BATCH } from '../recording-archive-schema.js';
 
 test('the native desk records the exact song mix and serves the last completed WAV after audio ends', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'demo-recording-'));
@@ -95,6 +96,105 @@ test('the native desk records the exact song mix and serves the last completed W
     server.closeAllConnections();
     await new Promise<void>(resolve => server.close(() => resolve()));
     assert.deepEqual(await readdir(profile.runtimeRoot), [], 'Runtime recordings are cleaned up on desk shutdown');
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('completed takes remain distinct and retryable across a hardware desk restart', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'wav-'));
+  const recordingArchiveRoot = join(directory, 'retained');
+  await mkdir(recordingArchiveRoot, { mode: 0o700 });
+  const profile = { ...sessionProfile(directory), recordingArchiveRoot };
+  const origin = 'http://127.0.0.1', key = '012345678901234567890123456789ab';
+  const headers = { authorization: 'Bearer ' + key, origin, 'content-type': 'application/json' };
+  const run = async (work: (controller: PersistentDesk, base: string) => Promise<void>) => {
+    const controller = new PersistentDesk(profile, installedPackage().installed);
+    const server = createGateway({ host: '127.0.0.1', port: 0, origin, token: Buffer.from(key), staticRoot: directory }, controller);
+    try {
+      server.listen(0, '127.0.0.1');
+      await once(server, 'listening');
+      const address = server.address();
+      assert(address && typeof address !== 'string');
+      await work(controller, 'http://127.0.0.1:' + address.port + '/api/');
+    } finally {
+      await controller.close();
+      server.closeAllConnections();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  };
+  const archive = 'recording-archive';
+  const pending = async (base: string) => {
+    const response = await fetch(base + archive, { headers });
+    assert.equal(response.status, 200);
+    return decodeRecordingArchive(await response.json()).pending;
+  };
+  try {
+    const originals = new Map<string, Buffer>();
+    await run(async (controller, base) => {
+      assert.equal((await fetch(base + archive)).status, 401);
+      assert.deepEqual(await pending(base), []);
+      controller.setAudio('on');
+      const audio = await until(() => {
+        const view = controller.snapshot().audio;
+        if (view.kind === 'fault') assert.fail(view.error);
+        return view.kind === 'ready' ? view : undefined;
+      });
+      const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
+      const bootstrap = await fetch(base + 'session', { headers }).then(response => response.json());
+      for (let sequence = 1; sequence <= 2; ++sequence) {
+        const start = await fetch(base + 'command', { method: 'POST', headers,
+          body: JSON.stringify({ sessionId: bootstrap.sessionId, sequence, target, command: 'start',
+            args: { bpm: 240, countInBars: 0, startBar: 1, endBar: 1, loop: false, recordDemo: true } }) });
+        assert.equal((await start.json()).outcome, 'applied');
+        await until(() => {
+          const view = controller.snapshot().audio;
+          return view.kind === 'ready' && view.performance.demo === 'saved' ? true : undefined;
+        });
+        assert.equal((await pending(base)).length, sequence);
+      }
+      for (const take of await pending(base)) {
+        assert('bytes' in take, 'Native writer publishes valid PCM');
+        const endpoint = base + archive + '/' + take.id;
+        assert.equal((await fetch(endpoint, { method: 'POST', headers: { authorization: headers.authorization } })).status, 403);
+        const wav = Buffer.from(await (await fetch(endpoint, { headers })).arrayBuffer());
+        assert.equal(wav.length, take.bytes);
+        assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+        originals.set(take.id, wav);
+      }
+      assert.equal(originals.size, 2);
+    });
+    await run(async (_controller, base) => {
+      assert.deepEqual((await pending(base)).map(take => take.id), [...originals.keys()]);
+      for (const [id, wav] of originals) {
+        const endpoint = base + archive + '/' + id;
+        assert.deepEqual(Buffer.from(await (await fetch(endpoint, { headers })).arrayBuffer()), wav);
+        assert.equal((await fetch(endpoint, { method: 'POST', headers })).status, 200);
+        assert.equal((await fetch(endpoint, { method: 'POST', headers })).status, 200, 'Lost ACK can be retried');
+      }
+      assert.deepEqual(await pending(base), []);
+      assert.equal((await fetch(base + 'demo-recording', { method: 'HEAD', headers })).status, 200);
+    });
+    await run(async (_controller, base) => {
+      assert.deepEqual(await pending(base), [], 'Receipts survive restart');
+      assert.equal((await fetch(base + 'demo-recording', { method: 'HEAD', headers })).status, 200);
+
+      const source = originals.values().next().value;
+      assert(source);
+      for (let index = 0; index <= RECORDING_ARCHIVE_BATCH; index++) {
+        const name = 'take-Z' + String(index).padStart(5, '0');
+        const directory = join(recordingArchiveRoot, name);
+        await mkdir(directory, { mode: 0o700 });
+        await writeFile(join(directory, 'recording.wav'), index === 0 ? Buffer.alloc(0) : source, { mode: 0o600 });
+      }
+      const page = decodeRecordingArchive(await (await fetch(base + archive, { headers })).json());
+      assert.equal(page.pending.length, RECORDING_ARCHIVE_BATCH);
+      assert.deepEqual(page.pending[0], { id: 'take-Z00000', kind: 'unavailable' });
+      assert.equal(page.next, 'take-Z00015');
+      const later = decodeRecordingArchive(await (await fetch(base + archive + '?after=' + page.next, { headers })).json());
+      assert.deepEqual(later, { pending: [{ id: 'take-Z00016', bytes: source.length }] });
+      assert.equal((await fetch(base + archive + '?after=../invalid', { headers })).status, 400);
+    });
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });

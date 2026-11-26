@@ -35,6 +35,7 @@ const common = {
   }),
 };
 export const SessionProfileSchema = Schema.Struct({ schemaVersion: Schema.Literal(2), ...common,
+  recordingArchiveRoot: Schema.optionalKey(path),
   restartPolicy: Schema.Literals(['no', 'on-failure']), catalog: SongCatalogOptionsSchema, authoringDatabase: path,
   peripheralProfile: Schema.optionalKey(path),
 });

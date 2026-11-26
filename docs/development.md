@@ -478,6 +478,10 @@ Build the current fake host and set `NATIVE_FAKE_HOST` to its absolute executabl
 
 The [peripheral guide](../lib/peripherals/README.md#persistent-device-host) defines version-two installation profiles and explicit migration facts. Both adapters reject anonymous historical key defaults. Empty LED maps support input-only attachment without an output interface. Actual Linux CI must execute the multi-interface pipe fixtures; cross-compilation is insufficient. Physical acceptance still requires observed input maps and electrical confirmation. Source installer verification does not install or expand a host delegation.
 
+## Verify automatic take saving
+
+The native demo writer publishes the WAV. The gateway lists pending recordings and records acknowledgements. The Hardware desk owns the selected folder and copies completed WAVs. Run `lib/remote-performance/tests/demo-recording.test.ts` against the built fake native host to verify the handoff across multiple takes and a service restart. Check permission, interrupted writes, remount, and retry behavior on Chromium with a disposable folder before relying on a physical drive.
+
 ## Verify voice sample downloads
 
 Build the WASM and native host first. Run `node --import tsx --test ui/practice/tests/sample-downloads.test.ts` for real captured stereo WAV and layered-take exports at 8/48 kHz. Run `NATIVE_FAKE_HOST=build/native-host/native_fake_host node --import tsx --test lib/remote-performance/tests/take-audio.test.ts` for authenticated HTTP reads through the real native host, stopped-only admission and stale revision/target rejection. Neither test opens devices.
