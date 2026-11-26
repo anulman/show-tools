@@ -5,6 +5,7 @@ import { compileSheetsSong, decodeCompiledSong, inspectCompiledSong, type SongMa
 import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { readMusicXmlSong, writeMusicXmlSong } from '../musicxml-song.js';
 import { readFile } from 'node:fs/promises';
+import { terseCaptureInput } from './fixtures/terse-capture.js';
 
 test('real Drunk Girls cues separate silent press anchors, source names and execution', () => {
   assert.deepEqual(parseSheetCues('(3)&r4 (4)&cr1'), { kind: 'parsed', actions: [
@@ -30,6 +31,33 @@ test('bar-end padding requires an explicit in-bar commit beat', () => {
   for (const cue of ['r4~b', 'cr4~b', 'p4~b', 'cx~b', 'cxb~b', 'cx1~b', 'cx4~1..3~b']) {
     assert.equal(parseSheetCues(cue).kind, 'invalid', cue);
   }
+});
+
+test('playback phrase ranges use only labels from the selected take', async () => {
+  const { source, mapping } = terseCaptureInput();
+  const values = source.values.map(row => [...row]);
+  for (const control of mapping.controls) values[control.cueRow - 1].fill('');
+  values[19][2] = 'r(strum)1';
+  values[19][5] = 'cx(strum)b';
+  values[19][7] = 'p~2';
+  values[19][8] = 'pb~1..2';
+  values[11].splice(2, 4, '/1/-', '/1/-', '/2/-', '/2/-');
+  values[11][7] = '/9/-';
+  const { xml } = await importSheetMusicXml({ source: { ...source, values }, mapping });
+  const { song } = await readMusicXmlSong(xml);
+  assert(song.executable, JSON.stringify(song.diagnostics));
+  const play = song.cues.filter(cue => cue.kind === 'play');
+  assert.deepEqual(play.map(cue => song.selections.find(selection => selection.id === cue.selectionId)?.window), [
+    { kind: 'slice', beginCount: 8, endCount: 16, loopCounts: 8 },
+    { kind: 'slice', beginCount: 0, endCount: 16, loopCounts: 16 },
+  ]);
+  assert.deepEqual(play[1].execution, { kind: 'next-bar' });
+
+  values[11][4] = '/1/-';
+  values[11][5] = '/3/-';
+  const missing = await compileSheetsSong({ ...source, values }, mapping);
+  assert.equal(missing.executable, false);
+  assert(missing.diagnostics.some(issue => issue.code === 'playback-phrases' && issue.source.a1 === 'H20'));
 });
 
 test('complete terse language survives canonical MusicXML with capability blocks and no source archive', async () => {

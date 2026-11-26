@@ -35,6 +35,7 @@ const AuthoredCueSchema = Schema.Struct({
   bar: Schema.Int, buttonId: ButtonSchema, voiceId: Schema.String, source: SourceRefSchema,
   actions: list(Schema.Struct({ group: Schema.optionalKey(Schema.Int), operation: Schema.Literals(['cr', 'cx', 'ru', 'r', 'c', 'x', 'pp', 'p', 'g', 'h']), pressBeat: Schema.NullOr(Finite), sourceName: Schema.NullOr(Schema.String),
     padToBarEnd: Schema.optionalKey(Schema.Literal(true)),
+    playbackPhrases: Schema.optionalKey(Schema.Struct({ first: Schema.Int, last: Schema.Int })),
     repeatBars: Schema.optionalKey(Schema.Struct({ first: Schema.Int, last: Schema.Int, overlapFinalEighth: Schema.optionalKey(Schema.Literal(true)) })),
     execution: Schema.Union([Schema.Struct({ kind: Schema.Literal('now') }), Schema.Struct({ kind: Schema.Literal('next-bar') }),
       Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite, barOffset: Schema.Literals([0, 1]) })]) })),
@@ -183,6 +184,18 @@ function validRepeatCapture(take: CompiledTake, beats: number, endCount: number,
   const captured = pointCount(take.captureEnd, beats) - pointCount(take.begin, beats);
   if (overlapFinalEighth) return take.begin.beat === beats - .5 && take.captureEnd.beat === 0 && captured === endCount + .5;
   return take.begin.beat === take.captureEnd.beat && (take.begin.beat === 0 || take.begin.beat >= beats - 1) && endCount <= captured;
+}
+function capturePhraseWindow(take: CompiledTake, range: NonNullable<SheetCue['playbackPhrases']>, beats: number): Extract<typeof SelectionWindowSchema.Type, { kind: 'slice' }> | undefined {
+  if (take.begin.beat !== 0 || take.captureEnd?.beat !== 0) return;
+  const labels = take.phrase.split('|').slice(0, take.captureEnd.bar - take.begin.bar)
+    .map(phrase => Number(/^\/([1-9]\d*)\//.exec(phrase)?.[1]));
+  const selected = labels.flatMap((label, index) => label >= range.first && label <= range.last ? [{ label, index }] : []);
+  const first = selected[0], last = selected.at(-1);
+  if (first?.label !== range.first || last?.label !== range.last
+    || selected.some(({ label, index }, i) => i > 0 && (index !== selected[i - 1].index + 1
+      || label < selected[i - 1].label || label > selected[i - 1].label + 1))) return;
+  const beginCount = first.index * beats, endCount = (last.index + 1) * beats;
+  return { kind: 'slice', beginCount, endCount, loopCounts: endCount - beginCount };
 }
 function samePoint(a: typeof PointSchema.Type, b: typeof PointSchema.Type): boolean { return a.bar === b.bar && a.beat === b.beat; }
 function loopCounts(take: CompiledTake, beats: number): number | null { return take.loopEnd ? pointCount(take.loopEnd, beats) - pointCount(take.begin, beats) : null; }
@@ -347,7 +360,15 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
         const loweredActions = cell.actions.filter(action => action.operation !== 'pp');
         if (native.length !== loweredActions.length || loweredActions.some(action => {
           const expected = lowerSheetCue(action);
-          return !native.some(cue => (cue.sourceName !== null || cue.voiceId === cell.voiceId) && cue.source.a1 === cell.source.a1 && cue.kind === expected.kind && cue.captureTail === expected.captureTail && cue.cueBeat === expected.cueBeat && canonicalSongJson(cue.execution) === canonicalSongJson(expected.execution) && cue.sourceName === action.sourceName && cue.launchPolicy === (action.operation === 'cx' ? 'store' : 'autoplay') && cue.groupId === (action.group === undefined ? null : `${cell.source.a1}/group-${action.group}`) && (action.operation !== 'h' || cue.playbackMode === 'held') && (action.operation !== 'g' || cue.playbackMode === 'gated'));
+          const matchesPhrase = (cue: CompiledCue) => {
+            if (!action.playbackPhrases) return true;
+            const selection = song.selections.find(candidate => candidate.id === cue.selectionId);
+            const take = selection?.takeIds.length === 1 ? song.takes.find(take => take.id === selection.takeIds[0]) : undefined;
+            const window = take && capturePhraseWindow(take, action.playbackPhrases, song.meter.numerator);
+            return cue.playbackMode === 'loop' && window !== undefined
+              && canonicalSongJson(selection?.window) === canonicalSongJson(window);
+          };
+          return !native.some(cue => matchesPhrase(cue) && (cue.sourceName !== null || cue.voiceId === cell.voiceId) && cue.source.a1 === cell.source.a1 && cue.kind === expected.kind && cue.captureTail === expected.captureTail && cue.cueBeat === expected.cueBeat && canonicalSongJson(cue.execution) === canonicalSongJson(expected.execution) && cue.sourceName === action.sourceName && cue.launchPolicy === (action.operation === 'cx' ? 'store' : 'autoplay') && cue.groupId === (action.group === undefined ? null : `${cell.source.a1}/group-${action.group}`) && (action.operation !== 'h' || cue.playbackMode === 'held') && (action.operation !== 'g' || cue.playbackMode === 'gated'));
         })) throw new Error('Authored cues disagree with native lowering.');
       }
     }
@@ -838,6 +859,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     leadInCues: padRow(mapping.leadInColumn), controlNames: { L1: nameFor('L1'), L2: nameFor('L2'), R1: nameFor('R1'), R2: nameFor('R2') }, annotatedThroughBar: finalBar };
   const cues: CompiledCue[] = [];
   const repeatBarsByCue = new Map<string, NonNullable<SheetCue['repeatBars']>>();
+  const playbackPhrasesByCue = new Map<string, NonNullable<SheetCue['playbackPhrases']>>();
   const authoredCues: (typeof AuthoredCueSchema.Type)[] = [];
   const usedOverrides = new Set<string>();
   const tunedNotes = mapping.tunedNotes;
@@ -891,8 +913,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       const actions: (Action & { authored?: SheetCue })[] = [];
       if (override) actions.push(override);
       else if (parsed.kind === 'parsed') for (const cue of parsed.actions) {
-        if (mapping.notationVersion !== 'terse-v2' && (cue.operation === 'ru' || cue.operation === 'pp' || cue.padToBarEnd)) {
-          issue('edge-cue-notation', 'Release capture, paired playback and written loop padding require terse-v2.', location);
+        if (mapping.notationVersion !== 'terse-v2' && (cue.operation === 'ru' || cue.operation === 'pp' || cue.padToBarEnd || cue.playbackPhrases)) {
+          issue('edge-cue-notation', 'Release capture, paired playback, written loop padding and phrase selection require terse-v2.', location);
           continue;
         }
         if (cue.operation === 'pp') continue;
@@ -919,6 +941,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
         groupId: action.authored?.group === undefined ? null : `${location.a1}/group-${action.authored.group}`,
         takeId: null, commitTakeId: null, selectionId: null, source: location });
       if (action.authored?.repeatBars) repeatBarsByCue.set(id, action.authored.repeatBars);
+      if (action.authored?.playbackPhrases) playbackPhrasesByCue.set(id, action.authored.playbackPhrases);
       }
     }
   }
@@ -1173,6 +1196,20 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       candidates = matching;
     }
     const previous = candidates.at(-1);
+    const phrases = playbackPhrasesByCue.get(cue.id);
+    if (phrases) {
+      const parent = previous && selections.find(selection => selection.takeIds.includes(previous.id));
+      const window = previous && capturePhraseWindow(previous, phrases, mapping.meter.numerator);
+      if (playbackMode !== 'loop' || !previous || parent?.takeIds.length !== 1 || !window) {
+        const sourceCell = previous ? takeSource(previous).a1 : 'this voice';
+        issue('playback-phrases', `Select consecutive, numbered phrases from one committed loop with whole captured bars. Check the voice markers inside the take armed at ${sourceCell}.`, cue.source);
+        continue;
+      }
+      const id = `${parent.id}/phrases-${phrases.first}-${phrases.last}`;
+      if (!selections.some(selection => selection.id === id)) selections.push({ ...parent, id, window });
+      cues[i] = { ...cue, voiceId, playbackMode, selectionId: id };
+      continue;
+    }
     let selectionId = (cue.sourceName === null && cue.playbackMode === 'loop' ? playback.find(entry => entry.voiceId === cue.voiceId && entry.bar === boundary.bar)?.selectionId : undefined)
       ?? selections.find(selection => previous && selection.takeIds.includes(previous.id))?.id ?? null;
     if ((playbackMode === 'held' || playbackMode === 'gated') && previous && selectionId !== null) {
