@@ -50,6 +50,7 @@
   <section id="recording-controls" class="utility" aria-label="Recording and stop controls">
     <button id="record-demo" class="secondary" type="button"><span class="record-dot" aria-hidden="true"></span><span>Record demo</span></button>
     <span id="recording-hint" role="status">Ready to record.</span><a id="download-demo" hidden download>Download take ↗</a>
+    <span id="take-archive-progress" role="status" hidden></span>
     <button id="mushroom" class="panic" type="button" aria-label="Panic stop all audio">Panic <kbd>ESC</kbd></button>
   </section>
   <section id="chart-source" class="chart-source" aria-label="Chart source and inspection"></section>
@@ -83,6 +84,15 @@
     <label class="field"><span>Chart update</span><input id="chart-update-file" type="file" accept=".musicxml,.xml"></label>
     <button id="chart-update-publish" type="button" class="secondary" disabled>Publish chart</button>
     <p id="chart-update-status" role="status">Export the selected song as MusicXML, then publish it in Standby.</p>
+  </section>
+  <section id="take-archive" class="hardware-audio" aria-label="Recording" hidden>
+    <h3>Recording</h3>
+    <div class="hardware-audio-actions">
+      <button id="take-archive-choose" type="button" class="secondary">Choose recording folder…</button>
+      <button id="take-archive-access" type="button" class="secondary" hidden>Allow folder access</button>
+      <button id="take-archive-disable" type="button" class="secondary" disabled>Turn off automatic saving</button>
+    </div>
+    <p id="take-archive-status" role="status">Automatic saving is off.</p>
   </section>
   <div class="settings-options">
     <div class="transport-switches"><label class="switch"><input id="loop" type="checkbox"><span>Loop range</span></label><label class="switch"><input id="click" type="checkbox"><span>Song click</span></label></div>

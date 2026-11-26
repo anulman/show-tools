@@ -26,6 +26,7 @@ import { parseControlCue } from '../../lib/performance/chart-controls.js';
 import { createChartFollower } from './open-chart.js';
 import { createSampleDownloads } from './sample-downloads.js';
 import { recordingToMp3 } from './recording-export.js';
+import { enableTakeArchive } from './take-archive.js';
 import { installChartPanel } from './chart-panel.js';
 import { decodeCompiledSong } from '../../lib/performance/compiled-song.js';
 import type { CompiledSong } from '../../lib/performance/compiled-song.js';
@@ -406,6 +407,18 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   tunerDialog.addEventListener('cancel', event => { event.preventDefault(); dismissTuner(); }, { signal: mountSignal });
 
   const settingsDialog = requiredElement('#settings-dialog', HTMLDialogElement);
+  if (remote) {
+    requiredElement('#take-archive', HTMLElement).hidden = false;
+    enableTakeArchive({
+      choose: requiredElement('#take-archive-choose', HTMLButtonElement),
+      access: requiredElement('#take-archive-access', HTMLButtonElement),
+      disable: requiredElement('#take-archive-disable', HTMLButtonElement),
+      status: requiredElement('#take-archive-status', HTMLElement),
+      progress: requiredElement('#take-archive-progress', HTMLElement),
+      desk: () => remoteDesk,
+      signal: mountSignal,
+    });
+  }
   requiredElement('#open-settings', HTMLButtonElement).addEventListener('click', () => settingsDialog.showModal(), { signal: mountSignal });
   requiredElement('#close-settings', HTMLButtonElement).addEventListener('click', () => settingsDialog.close(), { signal: mountSignal });
   dismissOnBackdrop(settingsDialog, () => settingsDialog.close());

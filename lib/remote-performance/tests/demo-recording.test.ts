@@ -136,7 +136,7 @@ test('completed takes remain distinct and retryable across a hardware desk resta
       controller.setAudio('on');
       const audio = await until(() => {
         const view = controller.snapshot().audio;
-        assert.notEqual(view.kind, 'fault', view.kind === 'fault' ? view.error : undefined);
+        if (view.kind === 'fault') assert.fail(view.error);
         return view.kind === 'ready' ? view : undefined;
       });
       const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };

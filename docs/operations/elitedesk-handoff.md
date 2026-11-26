@@ -83,6 +83,8 @@ After release and takeover approval, demonstrate remote Start, pads, signed knob
 
 Operator authoring data still needs a consistent SQLite backup independent of Git and a tested restore. Host, destination, cadence, and retention remain unconfigured. Browser demo recording and MP3 export do not imply a native recording service. Follow [the retention policy](../data-retention.md).
 
+To enable automatic copying of Hardware-mode WAVs, set the session profile’s optional `recordingArchiveRoot` to an absolute path on persistent EliteDesk storage. Create the dedicated directory with mode `0700` and ownership matching the desk service user before starting the service. Keep it separate from the static root, runtime root, and authoring data. Verify a completed WAV and its saved receipt survive a gateway restart. Host copies remain after acknowledgement. Monitor free space and remove a host copy only after confirming the Mac copy.
+
 Hardware Manager coordinates the physical installation and operator decisions. Hardware - EliteDesk owns host inventory, device adapters, deployment packaging, and recovery. Performance Engine owns shared C++ semantics, ABI, song compilation, and clock contracts. Chief coordinates reviewed integration artifacts. Pi coordinates on-device infrastructure and prepares scoped actions for operator approval.
 
 ## Proposed retained consent bootstrap
