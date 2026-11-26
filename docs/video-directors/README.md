@@ -8,11 +8,13 @@ Use the [song workspace directory](index.md) to open a page. Read [the registry]
 
 The shared Figma Design file is `QWreOYAnaje2LlywefJFiK`. Each director owns one `Song NN` page. Keep song-specific scene frames, storyboards, composition studies, and approved scene revisions there. Reuse existing component instances and tokens. Keep exploratory work clearly identified and remove exact superseded studies after the operator chooses a direction.
 
-Art owns the shared pages: `00 System` (`31:50`), `01 Characters` (`31:51`), `02 Scene Assets` (`31:52`), `03 Frameworks` (`31:53`), and `04 Motion review & studies` (`54:1383`). Request changes to these pages through Art. Do not detach shared character instances, repaint a shared model, change shared tokens, delete another song's work, or promote a new global component independently.
+Art owns the shared pages: `00 System` (`31:50`), `01 Characters` (`31:51`), `02 Scene Assets` (`31:52`), `03 Frameworks` (`31:53`), and `04 Motion review & studies` (`54:1383`). Request changes to these pages through Art. Keep shared masters intact and ordinary cast instances linked. For an Art-approved blocking puppet, you may create an instance on your assigned page and detach only that new working copy into an editable frame. Do not repaint a shared model, change shared tokens, delete another song's work, or promote a new global component independently.
 
 The existing framework components are NoteHighway (`39:174`), SideScroller (`39:501`), JRPG (`39:704`), and Composer (`39:884`). Inspect current source nodes before reuse. These are starting frameworks, not a limit of four worlds or four screen types. Close-ups, lyric scenes, guest entrances, and other formats can develop with the operator and Art. Figma template availability does not establish renderer support.
 
 Use the Figma skills for every applicable MCP call. A resting screenshot proves composition, not animation. Keep reference assets in Figma; local PNGs and short review movies support authoring and verification. Do not substitute PDFs for sprite work.
+
+When the operator wants to arrange a scene directly, use pixel-storyboard's [manual staging workflow](../../skills/pixel-storyboard/references/manual-staging.md). Deliver separate editable actors, locked scenery, useful pose alternatives, and actual control verification. After delivery, the operator owns that workspace. Read current placements and duplicated endpoints before using them. Produce subsequent animation in a separate frame, and preserve the working stage unless the operator explicitly requests a bounded edit.
 
 ## Keep Figma calls sequential
 
