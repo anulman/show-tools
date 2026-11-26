@@ -614,7 +614,7 @@ int main(int argc,char** argv) {
   if (argc < positional) { std::cerr << "Missing native host arguments\n"; return 2; }
   pid_t owner_pid=0;
   bool idle_monitor=false;
-  std::string demo_output;
+  std::string demo_output, demo_archive;
   for (int index = positional; index < argc;) {
     const std::string option=argv[index];
     if (option == "--owner-pid") {
@@ -627,6 +627,9 @@ int main(int argc,char** argv) {
     } else if (option == "--demo-output") {
       if (!demo_output.empty() || index + 1 >= argc || argv[index+1][0]!='/')return 2;
       demo_output=argv[index+1]; index+=2;
+    } else if (option == "--demo-archive") {
+      if (!demo_archive.empty() || index + 1 >= argc || argv[index+1][0]!='/') return 2;
+      demo_archive=argv[index+1]; index+=2;
     } else if (option == "--idle-monitor") {
       if(idle_monitor)return 2;
       idle_monitor=true; ++index;
@@ -656,7 +659,14 @@ int main(int argc,char** argv) {
   }
   char* end=nullptr;
   double rate=std::strtod(argv[2],&end); if(*end || !std::isfinite(rate) || rate<8000 || rate>192000)return 2;
-  if(!demo_output.empty() && std::floor(rate)!=rate) return 2;
+  if ((!demo_output.empty() || !demo_archive.empty()) && std::floor(rate)!=rate) return 2;
+  if (!demo_archive.empty()) {
+    struct stat directory{};
+    if (!demo_output.empty() || lstat(demo_archive.c_str(), &directory) != 0 || !S_ISDIR(directory.st_mode)
+        || directory.st_uid != geteuid() || (directory.st_mode & 077)) {
+      std::cerr << "demo archive directory must be owned by the caller and private\n"; return 2;
+    }
+  }
   unsigned long block=std::strtoul(argv[3],&end,10); if(*end || block<1 || block>16384)return 2;
   long voices=std::strtol(argv[4],&end,10); if(*end || voices<1 || voices>256)return 2;
   double seconds=std::strtod(argv[5],&end); if(*end || !std::isfinite(seconds) || seconds<=0 || seconds>3600)return 2;
@@ -681,7 +691,7 @@ int main(int argc,char** argv) {
   mode_t old=umask(0077); int bound=bind(server,reinterpret_cast<sockaddr*>(&addr),sizeof(addr)); umask(old);
   if(bound<0 || listen(server,1)<0) { close(server); return 1; }
   signal(SIGPIPE,SIG_IGN); signal(SIGINT,signal_stop); signal(SIGTERM,signal_stop);
-  DemoRecording demo(parent+"/demo.part",demo_output,uint32_t(rate));
+  DemoRecording demo(parent+"/demo.part",demo_output,uint32_t(rate),demo_archive);
   Shared shared; InstrumentConfig config{rate,int(voices),seconds,uint32_t(block),true,idle_monitor};
   std::thread audio(owner,std::ref(shared),config,uint32_t(block),float(level),stepped,std::ref(demo)
 #ifdef NATIVE_ALSA_HOST

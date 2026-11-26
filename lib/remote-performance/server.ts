@@ -9,11 +9,14 @@ import { peripheralConfigurationDirectory } from '../peripherals/maintenance.js'
 import { Effect } from 'effect';
 import { decodeSessionProfile, type SessionProfile } from './session-profile.js';
 import type { SongPreview } from './session-schema.js';
+import { validateRecordingArchive } from './recording-archive.js';
 
 export async function serveProfile(input: SessionProfile) {
-  const profile = decodeSessionProfile(input);
+  const decoded = decodeSessionProfile(input);
+  const root = await realpath(decoded.staticRoot);
+  const archive = await validateRecordingArchive(decoded, root);
+  const profile = archive ? { ...decoded, recordingArchiveRoot: archive } : decoded;
   if (profile.peripheralProfile) await peripheralConfigurationDirectory(profile.peripheralProfile);
-  const root = await realpath(profile.staticRoot);
   const privateFile = async (path: string) => {
     const actual = await realpath(path);
     const info = await stat(actual);

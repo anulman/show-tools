@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { constants } from 'node:fs';
-import { chmod, mkdir, mkdtemp, open, readFile, rm, stat } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { Effect, Fiber, Schema, Stream } from 'effect';
@@ -19,7 +18,8 @@ import { prepareSongBindings, type SongBindingAuthority } from './song-bindings.
 import type { InputBindings } from '../performance/input-bindings.js';
 import { chartMetadata } from '../performance/chart.js';
 import { requireLegacyMonitorInactive } from './legacy-monitor.js';
-import { MAX_DEMO_BYTES, AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
+import { openDemoFile, RecordingArchive } from './recording-archive.js';
+import { AttemptSchema, DeskRevisionSchema, ServerEpochSchema, NativePerformanceSchema, NativeOutcomeSchema,
   type DeskController, type DeskView, type DeskPublication, type NativeTarget, type AudioGoal, type AudioDecision, type NativeOutcome, type NativeEngineRetirementProof, type SongPreview } from './session-schema.js';
 
 const performance = Schema.decodeUnknownSync(NativePerformanceSchema);
@@ -42,6 +42,7 @@ export class PersistentDesk implements DeskController {
   private view: DeskView;
   private eventChart: ReturnType<typeof chartMetadata>;
   private readonly demoPath: string;
+  readonly recordingArchive?: RecordingArchive;
   private readonly listeners = new Set<(value: DeskPublication) => void>();
   private attempt: Attempt | undefined;
   private closing = false;
@@ -61,6 +62,7 @@ export class PersistentDesk implements DeskController {
       song: Schema.decodeUnknownSync(SongSchema)(installed.song), defaultVoiceEffects: installed.defaultVoiceEffects, audio: { kind: 'off' } };
     this.eventChart = chartMetadata(this.view.song.chart);
     this.demoPath = join(profile.runtimeRoot, 'demo-latest.wav');
+    if (profile.recordingArchiveRoot) this.recordingArchive = new RecordingArchive(profile.recordingArchiveRoot);
     this.loadedChart = songs?.initialChart;
   }
   songChoices() {
@@ -306,7 +308,8 @@ export class PersistentDesk implements DeskController {
     const args = [socket, String(native.sampleRate), String(native.blockFrames), String(native.maxVoices), String(native.maxSeconds),
       ...(driver.kind === 'fake' ? [String(driver.inputLevel), '--idle-monitor'] : [`hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, `hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, String(driver.captureChannels), String(driver.inputChannel), String(driver.periodFrames), String(driver.bufferFrames), driver.format,
         '--usb-identity', driver.identity.byId, driver.identity.usbSerial, driver.identity.usbVendor, driver.identity.usbProduct, driver.identity.alsaCardId, String(driver.identity.pcmDevice), driver.identity.monitorOff, '--idle-monitor']),
-      '--owner-pid', String(process.pid), '--demo-output', this.demoPath];
+      '--owner-pid', String(process.pid), ...(this.profile.recordingArchiveRoot
+        ? ['--demo-archive', this.profile.recordingArchiveRoot] : ['--demo-output', this.demoPath])];
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     attempt.child = { kind: 'pending' };
     const child = yield* spawner.spawn(ChildProcess.make(native.executable, args, { shell: false, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', killSignal: 'SIGTERM', forceKillAfter: 1000 }));
@@ -352,20 +355,7 @@ export class PersistentDesk implements DeskController {
     );
   });
   async openDemo() {
-    const file = await open(this.demoPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(error => {
-      if (error?.code === 'ENOENT') return null;
-      throw error;
-    });
-    if (!file) return null;
-    try {
-      const info = await file.stat();
-      if (!info.isFile() || info.nlink !== 1 || info.uid !== process.getuid?.() || (info.mode & 0o077)
-        || info.size <= 44 || info.size > MAX_DEMO_BYTES) throw new Error('Invalid demo file');
-      return { file, bytes: info.size };
-    } catch (error) {
-      await file.close();
-      throw error;
-    }
+    return this.recordingArchive ? this.recordingArchive.latest() : openDemoFile(this.demoPath);
   }
   async takeAudio(target: NativeTarget, request: import('../performance/take-audio.js').TakeAudioRequest) {
     const attempt = this.attempt, audio = this.view.audio;
