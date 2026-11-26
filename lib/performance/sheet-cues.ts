@@ -8,6 +8,7 @@ export interface SheetCue {
   sourceName: string | null;
   execution: CueExecution;
   padToBarEnd?: true;
+  playbackPhrases?: { first: number; last: number };
   repeatBars?: { first: number; last: number; overlapFinalEighth?: true };
 }
 export type CueParse = { kind: 'parsed'; actions: SheetCue[] } | { kind: 'invalid'; token: string; message: string };
@@ -38,7 +39,7 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
     const grouped = tokens.length > 1 || /x\([^()]*\+/.test(word);
     if (grouped) group++;
     for (const [tokenIndex, token] of tokens.entries()) {
-      const match = /^(?:\(([1-9]\d*)\))?([1-9]\d*(?:[e&a])?|[e&a])?(cr|cx|ru|r|c|x|pp|p|g|h)(?:\(([A-Za-z][A-Za-z0-9_-]*(?:\+[A-Za-z][A-Za-z0-9_-]*)*)\))?(b|[1-9]\d*(?:[e&a])?|[e&a])?(?:~(?:(b)|([1-9]\d*)\.\.([1-9]\d*)(\^&)?))?$/.exec(token);
+      const match = /^(?:\(([1-9]\d*)\))?([1-9]\d*(?:[e&a])?|[e&a])?(cr|cx|ru|r|c|x|pp|p|g|h)(?:\(([A-Za-z][A-Za-z0-9_-]*(?:\+[A-Za-z][A-Za-z0-9_-]*)*)\))?(b|[1-9]\d*(?:[e&a])?|[e&a])?(?:~(?:(b)|([1-9]\d*)(?:\.\.([1-9]\d*)(\^&)?)?))?$/.exec(token);
       if (!match) return { kind: 'invalid', token, message: 'Expected [press] operation [(source)] [execution], separated by whitespace.' };
       if (match[1] && match[2] && /^\d/.test(match[2])) return { kind: 'invalid', token, message: 'Use one numeric press anchor.' };
       if (match[1]) anchor = Number(match[1]) - 1;
@@ -61,10 +62,14 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
       const padToBarEnd = match[6] === 'b';
       if (padToBarEnd && ((op !== 'c' && op !== 'cx') || execution.kind !== 'beat' || execution.beat === 0))
         return { kind: 'invalid', token, message: 'Use ~b after a commit beat inside the bar, for example cx4~b.' };
-      const repeatBars: SheetCue['repeatBars'] = match[7]
-        ? { first: Number(match[7]), last: Number(match[8]), ...(match[9] ? { overlapFinalEighth: true } : {}) } : undefined;
-      if (repeatBars && ((op !== 'c' && op !== 'cx') || !Number.isSafeInteger(repeatBars.last) || repeatBars.first > repeatBars.last))
-        return { kind: 'invalid', token, message: 'Use an inclusive recorded-bar range on c or cx, for example c4&~2..3.' };
+      const range = match[7] ? { first: Number(match[7]), last: Number(match[8] ?? match[7]) } : undefined;
+      if (range && (!Number.isSafeInteger(range.last) || range.first > range.last))
+        return { kind: 'invalid', token, message: 'Use an ascending range of positive integers.' };
+      const playbackPhrases = op === 'p' && !match[9] ? range : undefined;
+      const repeatBars: SheetCue['repeatBars'] = range && (op === 'c' || op === 'cx') && match[8]
+        ? { ...range, ...(match[9] ? { overlapFinalEighth: true } : {}) } : undefined;
+      if (range && !playbackPhrases && !repeatBars)
+        return { kind: 'invalid', token, message: 'Use a recorded-bar range on c or cx, or a phrase selection on p, for example p~2.' };
       const names = match[4]?.split('+') ?? [null];
       if (op === 'pp') {
         if (pressBeat === null || execution.kind !== 'now' || grouped || names.length !== 2 || names[0] === names[1])
@@ -75,7 +80,7 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
       if (op === 'ru' && (pressBeat === null || execution.kind !== 'now' || names.length !== 1 || names[0] === null))
         return { kind: 'invalid', token, message: 'Use a release count and one name, for example 4ru(drunk).' };
       if (names.length > 1 && op !== 'x') return { kind: 'invalid', token, message: 'A source list is supported only for stop.' };
-      for (const sourceName of names) actions.push({ operation: op, pressBeat, sourceName, execution, ...(padToBarEnd ? { padToBarEnd: true } : {}), ...(repeatBars ? { repeatBars } : {}), ...(grouped ? { group } : {}) });
+      for (const sourceName of names) actions.push({ operation: op, pressBeat, sourceName, execution, ...(padToBarEnd ? { padToBarEnd: true } : {}), ...(repeatBars ? { repeatBars } : {}), ...(playbackPhrases ? { playbackPhrases } : {}), ...(grouped ? { group } : {}) });
     }
   }
   return { kind: 'parsed', actions };

@@ -480,6 +480,42 @@ test('Tribulations uses the same four recorded samples for Audition and chart pl
   } finally { native.dispose(); }
 });
 
+test('phrase play switches between the second phrase and the full capture', async () => {
+  const { source, mapping } = terseCaptureInput();
+  const values = source.values.map(row => [...row]);
+  for (const control of mapping.controls) values[control.cueRow - 1].fill('');
+  values[19][2] = 'r(strum)1';
+  values[19][5] = 'c(strum)b';
+  values[19][6] = 'p~2';
+  values[19][9] = 'pb~1..2';
+  values[11].splice(2, 4, '/1/-', '/1/-', '/2/-', '/2/-');
+  const song = await compileSheetsSong({ ...source, values }, mapping);
+  assert(song.executable, JSON.stringify(song.diagnostics));
+  const native = engine(Array.from(encodeCompiledProgram(song)));
+  try {
+    native.prepareLiveEffects([]);
+    native.setMicrophone(true);
+    native.start({ runId: 'phrase-play', bpm: 120, countInBars: 0, startBar: 1, endBar: 10 });
+    const framesPerBar = 16000;
+    function advance(frames: number, input = 0) {
+      for (let remaining = frames; remaining > 0; remaining -= 512) render(native, Math.min(remaining, 512), input);
+    }
+    advance(2 * framesPerBar, .125);
+    advance(2 * framesPerBar, .375);
+    until(native, 5);
+    native.control({ id: 'L1' });
+    assert(render(native, 64, 0).every(value => Math.abs(value - .375) < 1e-6), 'phrase 2 begins with the second capture segment');
+    advance(3 * framesPerBar - 64);
+    until(native, 8);
+    native.control({ id: 'L1' });
+    assert(render(native, 64, 0).every(value => Math.abs(value - .375) < 1e-6), 'the existing phrase continues until the next bar');
+    advance(framesPerBar - 64);
+    until(native, 9);
+    const full = render(native, 64, 0);
+    assert(full.every(value => Math.abs(value - .125) < 1e-6), `the next-bar cue starts the full capture at phrase 1: ${[...new Set(full)]}`);
+  } finally { native.dispose(); }
+});
+
 test('a written bar-end tail repeats eight bars with a silent final beat', async () => {
   const { source, mapping } = terseCaptureInput();
   const values = source.values.map(row => [...row]);

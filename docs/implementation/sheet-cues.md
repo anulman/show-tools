@@ -22,6 +22,8 @@ For a voice with a sampled-variant mapping, `cxb` stores a whole-bar variant cap
 
 Add `~b` to an explicit in-bar loop commit to fill the rest of the measure with silence. For an eight-bar loop, write `r(steady)1` in the first bar and `cx(steady)4~b` in bar eight. This records 31 beats and loops for 32. The written padding determines the loop period. Effects may ring through the silence. Use `c` instead of `cx` to launch at the commit point.
 
+Use `p~2` or `p~1..2` to loop numbered phrases from one committed take. Label the whole captured bars on the mapped voice row with prefixes such as `/1/-` and `/2/-`. Each requested phrase must occupy a contiguous set of bars, and a range must run in order without gaps. The compiler reads the captured bars. Later arrangement labels can describe the performance freely. For example, two captured bars marked `/1/` followed by two marked `/2/` let `p~2` loop the last two bars and `pb~1..2` launch all four at the next bar line.
+
 The legacy `dyc-v1` ingestion path explicitly migrates `clb`, `1p*`, and numeric capture cutoffs before the same parser. Cutoffs retain `silence-to-bar-end`; terse numeric suffixes preserve the full source through their actual endpoint. Existing canonical documents remain typed data and are never recompiled from archived JSON. The legacy version remains accepted for existing songs; this milestone does not rewrite their canonical files or the live chart.
 
 ## Verification
