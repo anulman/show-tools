@@ -230,7 +230,7 @@ class Node {
   remove() { if (this.parent) this.parent.children = this.parent.children.filter(node => node !== this); }
 }
 
-const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
 const wrapper = source.slice(source.indexOf('function sharedTuner('), source.indexOf('requiredElement("#open-tuner"'));
 const unavailableStart = source.indexOf('if (!connected || status.kind !== "ready")');
 assert.ok(unavailableStart >= 0);
@@ -316,7 +316,7 @@ for (const outcome of ['applied', 'rejected', 'unknown']) test(`same-engine reau
   const old = await RemoteDesk.connect('secret');
   const candidate = await RemoteDesk.connect('secret');
   void old.listen(); await tick();
-  const context = vm.createContext({ remoteDesk: old, audio: old.performance() });
+  const context = vm.createContext({ remoteDesk: old, audio: old.performance(), mountSignal: new AbortController().signal, transportGeneration: 0, tuningStart: undefined });
   const keyboard = createMusicalInputProducer({ kind: 'keyboard', endpoint: async () => context.remoteDesk.performance(), releasedMask: 0 });
   const pointer = createMusicalInputProducer({ kind: 'pointer', endpoint: async () => context.remoteDesk.performance(), releasedMask: 223 });
   Object.assign(context, { keyboardProducer: keyboard, pointerProducer: pointer });
@@ -436,7 +436,7 @@ for (const scenario of ['sse', 'blur', 'lost-attach-reply', 'pending-attach', 'p
   void old.listen();
   for (let count = 0; count < 100 && old.connection.kind !== 'connected'; count++) await tick();
   assert(['connected'].includes(old.connection.kind));
-  const context = vm.createContext({ remoteDesk: old, audio: old.performance() });
+  const context = vm.createContext({ remoteDesk: old, audio: old.performance(), mountSignal: new AbortController().signal, transportGeneration: 0, tuningStart: undefined });
   const keyboard = createMusicalInputProducer({ kind: 'keyboard', endpoint: async () => context.remoteDesk.performance(), releasedMask: 0 });
   const pointer = createMusicalInputProducer({ kind: 'pointer', endpoint: async () => context.remoteDesk.performance(), releasedMask: 223 });
   Object.assign(context, { keyboardProducer: keyboard, pointerProducer: pointer });

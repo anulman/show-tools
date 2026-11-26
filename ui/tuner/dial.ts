@@ -2,7 +2,7 @@ import type { TunerState } from '../../lib/tuner/model.js';
 import ballManifest from '../../assets/video/tuner/manifest.json';
 import { paintTunerScene, type BallAsset, type TunerSceneAspect } from './scene.js';
 
-export function createTunerDial() {
+export function createTunerDial(assetBase?: URL) {
   const element = document.createElement('div');
   element.className = 'tuner-dial';
   const canvas = document.createElement('canvas');
@@ -47,7 +47,7 @@ export function createTunerDial() {
   }
   const resize = new ResizeObserver(schedule);
   resize.observe(element);
-  image.src = new URL(`./assets/tuner/${ballManifest.file}`, document.baseURI).href;
+  image.src = new URL(`./assets/tuner/${ballManifest.file}`, assetBase ?? document.baseURI).href;
   void image.decode().then(() => {
     if (disposed) return;
     if (image.naturalWidth !== ballManifest.width || image.naturalHeight !== ballManifest.height) {

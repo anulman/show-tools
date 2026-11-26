@@ -1,11 +1,34 @@
 import type { SongScript } from '../lib/performance/model.js';
+import { SET_SONGS, type RehearsalSong, type SetSong } from './routes.js';
 
-export const SONGS: readonly { id: string; title: string; load: () => Promise<{ default: SongScript }> }[] = [
-  { id: 'dance-yrself-clean', title: '01 · Dance Yrself Clean', load: () => import('./dance-yrself-clean.js') },
-  { id: 'drunk-girls', title: '02 · Drunk Girls', load: () => import('./drunk-girls.js') },
-  { id: 'i-can-change', title: '03 · I Can Change', load: () => import('./i-can-change.js') },
-  { id: 'tribulations', title: '04 · Tribulations', load: () => import('./tribulations.js') },
-];
+const loaders = {
+  'dance-yrself-clean': () => import('./dance-yrself-clean.js'),
+  'drunk-girls': () => import('./drunk-girls.js'),
+  'i-can-change': () => import('./i-can-change.js'),
+  tribulations: () => import('./tribulations.js'),
+} satisfies Record<Extract<SetSong, { rehearsal: false }>['id'], () => Promise<{ default: SongScript }>>;
+
+export async function loadSongPreview(id: RehearsalSong['id']) {
+  const [{ readBundledMusicXml, musicXmlSongScript }, { readMusicXmlSong }] = await Promise.all([
+    import('./load-musicxml.js'),
+    import('../lib/performance/musicxml-song.js'),
+  ]);
+  const document = await readMusicXmlSong(await readBundledMusicXml(id));
+  const song = musicXmlSongScript(document);
+  if (song.id !== id || song.compiled?.executable !== false) throw new Error(`Incorrect chart preview for ${id}.`);
+  return { song, archive: document.source };
+}
+
+export const SONGS = SET_SONGS.map(entry => ({
+  id: entry.id,
+  title: `${String(entry.number).padStart(2, '0')} · ${entry.title}${entry.rehearsal ? ' · Rehearsal' : ''}`,
+  load: entry.rehearsal ? async () => {
+    const [{ song }, { rehearsalProgram }] = await Promise.all([loadSongPreview(entry.id), import('./rehearsal.js')]);
+    if (!song.compiled) throw new Error('The rehearsal chart is missing its source program.');
+    const compiled = rehearsalProgram(song.compiled);
+    return { default: { ...song, chart: compiled.chart, compiled, description: 'Timing rehearsal chart. Draft cues are disabled.' } };
+  } : loaders[entry.id],
+}));
 
 export async function loadSong(id: string): Promise<SongScript> {
   const entry = SONGS.find(song => song.id === id);

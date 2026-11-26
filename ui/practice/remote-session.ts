@@ -4,7 +4,7 @@ import type { TunerPort, TunerState } from '../../lib/tuner/model.js';
 import { HardwareKeyRejectedError } from './hardware-auth.js';
 import { VOICE_PROFILE_COUNT } from '../../lib/performance/model.js';
 import { decodeSongChoices, decodeDeskBootstrap, decodeDeskPublication, decodeAudioDecision, decodeNativeOutcome, decodeInputAttachOutcome, decodeInputIntentStatus } from './remote-schema.js';
-import { MAX_DEMO_BYTES } from '../../lib/remote-performance/session-schema.js';
+import { decodeSongPreview, MAX_DEMO_BYTES } from '../../lib/remote-performance/session-schema.js';
 import type { DeskView, NativePerformance, NativeTarget, InputIntentStatus, InputAttachOutcome, NativeOutcome, InputLeaseReceipt } from '../../lib/remote-performance/session-schema.js';
 import type { ChannelId, ChannelSettings, ChartMetadata, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
@@ -28,8 +28,8 @@ export class RemoteDesk {
   private disposed = false;
   private endpoint: RemoteSession | undefined;
   private constructor(private readonly token: string, private readonly sessionId: string, private readonly inputOwnerToken: string, private latest: DeskView) { this.updateEndpoint(); }
-  static async connect(token: string) {
-    const response = await fetch('/api/session', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store' });
+  static async connect(token: string, signal?: AbortSignal) {
+    const response = await fetch('/api/session', { headers: { Authorization: `Bearer ${token}` }, cache: 'no-store', signal });
     if (response.status === 401 || response.status === 403) throw new HardwareKeyRejectedError();
     if (!response.ok) throw new Error(`Remote desk failed (${response.status})`);
     const bootstrap = decodeDeskBootstrap(await readJson(response));
@@ -113,6 +113,15 @@ export class RemoteDesk {
     const response = await fetch('/api/songs', { headers: { Authorization: `Bearer ${this.token}` }, cache: 'no-store' });
     if (!response.ok) throw new Error(`Installed song list unavailable (${response.status})`);
     return decodeSongChoices(await readJson(response)).songs;
+  }
+  async previewSong(songId: string, signal?: AbortSignal) {
+    const response = await fetch(`/api/songs/${encodeURIComponent(songId)}`, {
+      headers: { Authorization: `Bearer ${this.token}` },
+      cache: 'no-store',
+      signal: signal ? AbortSignal.any([signal, this.abort.signal]) : this.abort.signal,
+    });
+    if (!response.ok) throw new Error(`Song preview unavailable (${response.status})`);
+    return decodeSongPreview(await readJson(response));
   }
   async selectSong(songId: string) {
     const decision = decodeAudioDecision(await this.post('/api/song', { songId, expectedRevision: this.latest.revision }));

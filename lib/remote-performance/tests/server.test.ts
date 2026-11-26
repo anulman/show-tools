@@ -7,13 +7,14 @@ import { networkInterfaces, tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { decodePeripheralInputMap, runPeripheralBridge, type PeripheralDevice } from '../../peripherals/bridge.js';
+import { withPeripheralMaintenance } from '../../peripherals/maintenance.js';
 import type { HelperInput } from '../../peripherals/browser-protocol.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
 import { DEFAULT_BUTTON_BINDINGS, decodeInputBindings } from '../../performance/input-bindings.js';
 import type { LiveEffectDefinition, VoiceEffectConfiguration } from '../../performance/model.js';
 import { decodeSessionProfile } from '../session-profile.js';
 import { serveProfile } from '../server.js';
-import { decodeDeskBootstrap, decodeDeskPublication } from '../session-schema.js';
+import { decodeDeskBootstrap, decodeDeskPublication, decodeSongPreview } from '../session-schema.js';
 import { installedPackage, sessionProfile, until } from './session-fixture.js';
 import { buildSessionBundles } from '../../../scripts/session-bundles.js';
 
@@ -37,6 +38,30 @@ async function fixture() {
   const headers = { authorization: 'Bearer 0123456789abcdef0123456789abcdef', origin: profile.origin, 'content-type': 'application/json' };
   return { directory, profile, headers };
 }
+
+test('peripheral maintenance keeps an authenticated client from enabling audio or editing the chart', async () => {
+  const { directory, profile, headers } = await fixture();
+  const peripheralProfile = join(await realpath(directory), 'peripheral.json');
+  const app = await serveProfile({ ...profile, peripheralProfile });
+  try {
+    const session = decodeDeskBootstrap(await (await fetch(profile.origin + '/api/session', { headers })).json());
+    const request = (path: string, sequence: number, body: Record<string, unknown>) =>
+      fetch(profile.origin + path, { method: 'POST', headers, body: JSON.stringify({
+        sessionId: session.sessionId, sequence, ...body,
+      }) }).then(response => response.json());
+    const baseline = await readFile(join(profile.catalog.entries[0].path, 'source.musicxml'), 'utf8');
+    await withPeripheralMaintenance(peripheralProfile, async () => {
+      const result = await request('/api/audio', 1, { goal: 'on' });
+      assert.equal(result.outcome, 'rejected');
+      assert.equal(result.error, 'Peripheral maintenance is in progress');
+      assert.equal((await request('/api/chart', 2, { musicXml: baseline, expectedRevision: session.view.revision })).outcome, 'rejected');
+      assert.equal(app.controller.snapshot().audio.kind, 'off');
+      assert.equal((await request('/api/audio', 3, { goal: 'off' })).outcome, 'accepted');
+    });
+    assert.equal((await request('/api/chart', 4, { musicXml: baseline, expectedRevision: session.view.revision })).outcome, 'accepted');
+    assert.equal((await request('/api/audio', 5, { goal: 'on' })).outcome, 'accepted');
+  } finally { await app.close(); await rm(directory, { recursive: true, force: true }); }
+});
 
 test('a Standby chart publish updates the running desk and survives restart', async () => {
   const { directory, profile, headers } = await fixture();
@@ -86,7 +111,14 @@ test('a Standby chart publish updates the running desk and survives restart', as
       assert.equal(app.controller.snapshot().revision, session.view.revision);
     }
     const list = () => fetch(origin + '/api/songs', { headers }).then(response => response.json());
+    const preview = async () => {
+      const response = await fetch(origin + '/api/songs/dance-yrself-clean', { headers });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('cache-control'), 'no-store');
+      return decodeSongPreview(await response.json());
+    };
     const before = (await list()).songs[0];
+    assert.equal((await preview()).packageDigest, before.packageDigest);
     const accepted = await publish(musicXml);
     assert.equal(accepted.result.outcome, 'accepted', JSON.stringify(accepted.result.error));
     assert.equal(accepted.result.view.song.chart.title, title);
@@ -104,6 +136,10 @@ test('a Standby chart publish updates the running desk and survives restart', as
     const after = (await list()).songs[0];
     assert.equal(after.title, title);
     assert.notEqual(before.packageDigest, after.packageDigest);
+    const previewAfterPublish = await preview();
+    assert.equal(previewAfterPublish.packageDigest, after.packageDigest);
+    assert.equal(previewAfterPublish.song.chart.title, title);
+    assert.equal(app.controller.snapshot().revision, accepted.result.view.revision);
     assert.equal(await readFile(path, 'utf8'), baseline);
     await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
 
@@ -121,6 +157,7 @@ test('a Standby chart publish updates the running desk and survives restart', as
     assert.equal(app.controller.snapshot().song.chart.title, title);
     assert.equal(app.controller.snapshot().audio.kind, 'off');
     assert.deepEqual((await list()).songs[0], after);
+    assert.deepEqual(await preview(), previewAfterPublish);
   } finally { await stream?.cancel(); await app.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
@@ -181,6 +218,14 @@ test('killing the foreground server also releases its real owned fake native hos
     }
     const bootstrap = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
     assert.equal(bootstrap.view.audio.kind, 'off');
+    const named = `${profile.origin}/api/charts/dance-yrself-clean`;
+    const before = await (await fetch(named, { headers })).json();
+    const publish = (musicXml: string) => fetch(named, { method: 'PUT', headers,
+      body: JSON.stringify({ musicXml, expectedChartVersion: before.chartVersion }) });
+    assert.equal((await publish('<invalid/>')).status, 409);
+    const published = await publish('\uFEFF' + before.musicXml);
+    assert.equal(published.status, 200);
+    assert.deepEqual(await published.json(), await (await fetch(named, { headers })).json());
     await fetch(`${profile.origin}/api/audio`, { method: 'POST', headers, body: JSON.stringify({ sessionId: bootstrap.sessionId, sequence: 1, goal: 'on' }) });
     for (let count = 0; ; count++) {
       const status = await (await fetch(`${profile.origin}/api/status`, { headers })).json();
@@ -284,6 +329,20 @@ test('installed catalog switches all three songs while stopped without replacing
     const songs = await (await fetch(`${profile.origin}/api/songs`, { headers })).json();
     assert.deepEqual(songs.songs.map((value: { id: string }) => value.id), ['dance-yrself-clean', 'drunk-girls', 'tribulations']);
     assert.equal((await fetch(`${profile.origin}/api/songs`)).status, 401);
+    const previewPath = `${profile.origin}/api/songs/drunk-girls`;
+    assert.equal((await fetch(previewPath)).status, 401);
+    assert.equal((await fetch(previewPath, { headers: { ...headers, origin: 'https://other.example' } })).status, 403);
+    assert.equal((await fetch(`${profile.origin}/api/songs/i-can-change`, { headers })).status, 404);
+    const beforePreview = app.controller.snapshot();
+    const previewResponse = await fetch(previewPath, { headers });
+    assert.equal(previewResponse.status, 200);
+    const preview = decodeSongPreview(await previewResponse.json());
+    assert.equal(preview.song.id, 'drunk-girls');
+    assert.equal(preview.song.compiled?.authoredCues, undefined);
+    assert.equal(preview.packageDigest, songs.songs[1].packageDigest);
+    assert.deepEqual(preview.defaultVoiceEffects, defaults.get('drunk-girls'));
+    assert.equal(app.controller.snapshot(), beforePreview);
+    await assert.rejects(stat(profile.runtimeRoot), { code: 'ENOENT' });
     const bootstrap = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
     let sequence = 0;
     const post = async (route: string, body: object) => (await fetch(`${profile.origin}${route}`, { method: 'POST', headers,

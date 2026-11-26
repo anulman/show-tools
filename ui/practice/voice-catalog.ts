@@ -10,17 +10,22 @@ import { discoverSheetVoices, discoverCueRows, loadedCommandRows, type SheetCueR
 import { reconcileCatalog, resolveVoice, withVoice } from '../../lib/voice-catalog/session.js';
 import { createCatalogClient, CatalogClientConflictError, type CatalogClient } from './catalog-client.js';
 import { installVoiceLibrary } from './voice-library.js';
-import { initialVoiceEffects, type createVoiceEffectsEditor } from './voice-effects.js';
+import type { createVoiceEffectsEditor } from './voice-effects.js';
+import { initialVoiceEffects } from '../../lib/performance/vocal-effects.js';
 
 type Drafts = ReturnType<typeof createVoiceEffectsEditor>;
 export function installVoiceCatalog(root: HTMLElement, options: {
   drafts: Drafts;
   remote?: boolean;
+  assetBase?: URL;
+  signal?: AbortSignal;
   apply: (configurations: readonly VoiceEffectConfiguration[]) => Promise<void>;
   isBusy: () => boolean;
   onError: (error: unknown) => void;
   onBusyChange: () => void;
 }) {
+  const lifetime = new AbortController();
+  const signal = options.signal ? AbortSignal.any([lifetime.signal, options.signal]) : lifetime.signal;
   let client: CatalogClient | undefined;
   let document: CatalogDocument = { version: 2, revision: 0, voices: [], bindings: [] };
   let rows: SheetVoiceRow[] = [];
@@ -29,18 +34,17 @@ export function installVoiceCatalog(root: HTMLElement, options: {
   let availability: string | undefined = 'Opening local voice library…';
   let current: Pick<PracticeState, 'bar' | 'voiceEffects'> = { bar: null };
   let pendingSave = false;
-  let effectMode: 'compiled' | 'dry' = 'compiled';
+  let defaults = initialVoiceEffects();
   let loadedDigest: string | undefined;
-  let sourceProfiles: readonly number[] = [];
   function savedConfigurations(): readonly VoiceEffectConfiguration[] {
-    return initialVoiceEffects(effectMode, sourceProfiles).map(configuration => {
+    return defaults.map(configuration => {
       const row = rows.find(row => row.profile === configuration.profile);
       return { ...configuration, effects: (row ? resolveVoice(document, row)?.effects ?? configuration.effects : configuration.effects).map(effect => ({ ...effect })) };
     });
   }
   const ui = installVoiceLibrary(root, {
     characters: registry.characters.map(character => ({ ...character,
-      publishedAvatarPath: 'publishedAvatarPath' in character ? new URL('./' + character.publishedAvatarPath, window.document.baseURI).pathname : undefined,
+      publishedAvatarPath: 'publishedAvatarPath' in character ? new URL('./' + character.publishedAvatarPath, options.assetBase ?? window.document.baseURI).pathname : undefined,
     })),
     onSave: save,
     onExport: format => { void exportLibrary(format).catch(options.onError); },
@@ -62,9 +66,13 @@ export function installVoiceCatalog(root: HTMLElement, options: {
       return row ? options.drafts.configurations().find(item => item.profile === row.profile)?.effects ?? [] : document.voices.find(voice => voice.id === id)?.effects ?? [];
     },
   });
-  const ready = options.remote ? Promise.resolve().then(() => { availability = 'Voice library is unavailable in remote mode.'; }) : createCatalogClient().then(async value => {
-    client = value; document = await value.snapshot(); availability = undefined;
-  }).catch(error => { client?.close(); client = undefined; availability = `Voice library unavailable: ${error instanceof Error ? error.message : String(error)}`; }).finally(() => update(current));
+  const ready = options.remote ? Promise.resolve().then(() => { availability = 'Voice library is unavailable in remote mode.'; })
+    : createCatalogClient({ assetBase: options.assetBase, signal }).then(async value => {
+      client = value; document = await value.snapshot(); availability = undefined;
+    }).catch(error => {
+      client?.close(); client = undefined;
+      if (!signal.aborted) availability = `Voice library unavailable: ${error instanceof Error ? error.message : String(error)}`;
+    }).finally(() => { if (!signal.aborted) update(current); });
   function update(state: Pick<PracticeState, 'bar' | 'voiceEffects'>) {
     current = state;
     ui.update({ document, rows, cueRows, commandRows, state, locked: options.isBusy() || pendingSave, availability });
@@ -79,10 +87,8 @@ export function installVoiceCatalog(root: HTMLElement, options: {
     update(current);
   }
   function loadDrafts() {
-    for (const row of rows) {
-      const voice = resolveVoice(document, row);
-      if (row.profile !== null) options.drafts.setEffects(row.profile, voice?.effects ?? []);
-    }
+    if (options.remote) return;
+    for (const { profile, effects } of savedConfigurations()) options.drafts.setEffects(profile, effects);
   }
   async function save(voice: Voice, binding: SheetBinding | undefined, expectedRevision: number): Promise<{ message: string }> {
     if (expectedRevision !== document.revision) throw new Error('The library changed. Close and reopen this voice before saving.');
@@ -120,20 +126,19 @@ export function installVoiceCatalog(root: HTMLElement, options: {
     async exportSongVoices(song: CompiledSong, source: SongSource) {
       await ready;
       const latest = loadedDigest === song.source.digest || !client ? document : await client.snapshot();
-      const defaults = new Map(initialVoiceEffects('compiled', song.sourceProfiles?.map(source => source.profile)).map(item => [item.profile, item.effects]));
+      const defaults = new Map(initialVoiceEffects(song).map(item => [item.profile, item.effects]));
       return snapshotSongVoices(latest, discoverSheetVoices(song, source), defaults);
     },
     async load(song: SongScript) {
       await ready;
-      effectMode = song.compiled ? 'compiled' : 'dry';
-      sourceProfiles = song.compiled?.sourceProfiles?.map(source => source.profile) ?? [];
+      signal.throwIfAborted();
+      defaults = initialVoiceEffects(song.compiled);
       rows = song.compiled ? discoverSheetVoices(song.compiled, song.source) : [];
       cueRows = song.compiled ? discoverCueRows(song.compiled, song.source) : [];
       commandRows = new Map(rows.map(row => [row.key, song.compiled && row.partId ? loadedCommandRows(song.compiled, row.partId) : []]));
       loadedDigest = song.compiled?.source.digest;
       if (client) document = await client.snapshot();
-      const defaults = new Map(initialVoiceEffects(song.compiled ? 'compiled' : 'dry', sourceProfiles).map(item => [item.profile, item.effects]));
-      let next = reconcileCatalog(document, rows, defaults, () => crypto.randomUUID());
+      let next = reconcileCatalog(document, rows, new Map(defaults.map(item => [item.profile, item.effects])), () => crypto.randomUUID());
       if (song.voiceMetadata) next = mergeSongVoices(next, song.voiceMetadata, rows);
       if (client && next !== document) {
         try { await persist(next); }
@@ -169,6 +174,6 @@ export function installVoiceCatalog(root: HTMLElement, options: {
       }
       await persist(next);
     },
-    dispose() { client?.close(); ui.dispose(); },
+    dispose() { lifetime.abort(); client?.close(); ui.dispose(); },
   };
 }

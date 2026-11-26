@@ -29,9 +29,10 @@
   </header>
   <div id="error" class="error" role="alert" hidden></div>
   <noscript><p class="error">Enable JavaScript to use the Performance Desk.</p></noscript>
+  <span id="song-loading-status" role="status" class="transport-status"></span>
   <section class="transport" aria-label="Song transport">
     <div class="position-block">
-      <div class="position-labels"><span id="phase-label">READY</span><span id="range-label">BARS 1–76</span></div>
+      <div class="position-labels"><span id="phase-label">READY</span><span class="transport-loading-label" aria-hidden="true">LOADING SONG</span><span id="range-label">BARS 1–76</span></div>
       <div class="position"><div><span id="bar-number">01</span><span class="unit">BAR</span></div><span class="position-divider">/</span><div><span id="beat-number">1</span><span class="unit">BEAT</span></div><div id="beat-dots" class="beat-dots" aria-label="Four beats"><i></i><i></i><i></i><i></i></div></div>
     </div>
     <div class="transport-actions"><button id="start" class="primary" type="button"><span aria-hidden="true">▶</span><span>Start</span></button><button id="stop" class="secondary stop" type="button" disabled>■ Stop</button></div>

@@ -1,7 +1,8 @@
+import { PeripheralMaintenanceBusy, withPeripheralMaintenance } from '../peripherals/maintenance.js';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
-import { MAX_CHART_BYTES } from './chart-overrides.js';
+import { MAX_CHART_BYTES, type PublishedChart } from './chart-overrides.js';
 import { DESK_HEARTBEAT_MS } from './event-liveness.js';
-import { BROWSER_DESK_PATH, HARDWARE_DESK_PATH, PRACTICE_ASSET_PATH, isDeskEntry } from './desk-paths.js';
+import { BROWSER_DESK_PATH, HARDWARE_DESK_PATH, PRACTICE_ASSET_PATH, TANSTACK_ASSET_PATH, TANSTACK_STATIC_PATH, isDeskEntry, isTanstackDeskDocument } from './desk-paths.js';
 import type { TunerState } from '../tuner/model.js';
 import { createReadStream } from 'node:fs';
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -10,7 +11,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { extname, resolve, sep } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Schema } from 'effect';
-import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type DeskView, type AudioDecision, type NativeOutcome, type NativeTarget } from './session-schema.js';
+import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, type InputIntentStatus, type InputAttachOutcome, type DeskController, type DeskView, type AudioDecision, type NativeOutcome, type NativeTarget, type SongPreview } from './session-schema.js';
 import { decodeClientInputCommand, isPriorityCommand, TambourineAudition, type ClientInputCommand } from './commands.js';
 import { InputBindingsSchema, decodeInputBindings, decodeInputAttach, type InputBindings, type InputAttach } from '../performance/input-bindings.js';
 
@@ -31,6 +32,7 @@ export interface GatewayConfig {
 	origin: string;
 	token: Buffer;
 	staticRoot: string;
+	peripheralProfile?: string;
 	tls?: { cert: Buffer; key: Buffer };
 }
 
@@ -247,13 +249,17 @@ function json(response: ServerResponse, status: number, value: unknown) {
 	response.end(JSON.stringify(value));
 }
 
+class BodyTooLarge extends Error {}
+// A JSON string can use six wire bytes per decoded character (Unicode escape).
+const MAX_CHART_BODY = MAX_CHART_BYTES * 6 + MAX_BODY;
+
 async function readBody(request: IncomingMessage, limit = MAX_BODY): Promise<unknown> {
 	const chunks: Buffer[] = [];
 	let length = 0;
 	for await (const chunk of request) {
 		const bytes = Buffer.from(chunk);
 		length += bytes.length;
-		if (length > limit) throw new Error('Body too large');
+		if (length > limit) throw new BodyTooLarge();
 		chunks.push(bytes);
 	}
 	return JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -263,13 +269,31 @@ const contentTypes: Record<string, string> = {
 	'.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
 	'.css': 'text/css; charset=utf-8', '.json': 'application/json', '.wasm': 'application/wasm',
 	'.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json',
 };
+
+const deskShell = TANSTACK_STATIC_PATH + '/_shell.html';
+const deskManifest = TANSTACK_STATIC_PATH + '/offline-manifest.json';
+const deskWorkerPath = '/browser/sw.js';
+
+function tanstackFile(path: string, serviceWorker: boolean): string | undefined {
+  if (path === deskWorkerPath) return TANSTACK_STATIC_PATH + path;
+  if (serviceWorker) return;
+  if (isTanstackDeskDocument(path)) return deskShell;
+  if (path === '/browser/manifest.webmanifest') return TANSTACK_STATIC_PATH + path;
+  if (path.startsWith(TANSTACK_ASSET_PATH) && /^[A-Za-z0-9_.-]+\.[A-Za-z0-9]+$/.test(path.slice(TANSTACK_ASSET_PATH.length))) {
+    return TANSTACK_STATIC_PATH + path;
+  }
+}
 
 export interface SongActions {
   choices(): readonly { id: string; title: string; packageDigest: string }[];
+  preview(id: string): SongPreview | undefined;
   select(id: string, expectedRevision: string): Promise<AudioDecision>;
   bindings(expectedRevision: string, values: InputBindings): Promise<AudioDecision>;
   publishChart?(expectedRevision: string, xml: string): Promise<AudioDecision>;
+  readChart?(id: string): Promise<PublishedChart | undefined>;
+  publishInstalledChart?(id: string, xml: string, expectedChartVersion: string): Promise<PublishedChart>;
 }
 const configurationFields = { ...requestFields, expectedRevision: Schema.String.check(Schema.isPattern(/^(0|[1-9][0-9]{0,19})$/)) };
 const decodeSongSelection = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields, songId: Schema.NonEmptyString.check(Schema.isMaxLength(256)) }), { onExcessProperty: 'error' });
@@ -278,11 +302,21 @@ const decodeButtonBindings = Schema.decodeUnknownSync(Schema.Struct({ ...configu
 const decodeChartUpdate = Schema.decodeUnknownSync(Schema.Struct({ ...configurationFields,
   musicXml: Schema.NonEmptyString }), { onExcessProperty: 'error' });
 
-function deskWireView(view: DeskView): DeskView {
-  const { compiled } = view.song;
-  if (!compiled?.authoredCues) return view;
+const decodeInstalledChartUpdate = Schema.decodeUnknownSync(Schema.Struct({
+  musicXml: Schema.NonEmptyString,
+  expectedChartVersion: Schema.String.check(Schema.isPattern(/^[a-f0-9]{64}$/)),
+}), { onExcessProperty: 'error' });
+
+function deskWireSong(song: DeskView['song']): DeskView['song'] {
+  const { compiled } = song;
+  if (!compiled?.authoredCues) return song;
   const { authoredCues: _, ...runtime } = compiled;
-  return { ...view, song: { ...view.song, compiled: runtime } };
+  return { ...song, compiled: runtime };
+}
+
+function deskWireView(view: DeskView): DeskView {
+  const song = deskWireSong(view.song);
+  return song === view.song ? view : { ...view, song };
 }
 
 function deskWireOutcome(outcome: Outcome | AudioDecision | NativeOutcome) {
@@ -409,6 +443,44 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         return json(response, 200, original ? await inputs.readStatus(original.owner, input.intentId) : { kind: 'unknown' });
       }
 			if (request.method === 'GET' && path === '/api/songs') return songs ? json(response, 200, { songs: songs.choices() }) : json(response, 404, { error: 'Song catalog is not configured' });
+      if (request.method === 'GET' && path.startsWith('/api/songs/')) {
+        let id: string;
+        try { id = decodeURIComponent(path.slice('/api/songs/'.length)); }
+        catch { return json(response, 400, { error: 'Invalid song ID' }); }
+        const preview = songs?.preview(id);
+        return preview ? json(response, 200, { ...preview, song: deskWireSong(preview.song) })
+          : json(response, 404, { error: 'Song is not installed' });
+      }
+      if ((request.method === 'GET' || request.method === 'PUT') && path.startsWith('/api/charts/')) {
+        if (request.method === 'PUT' && request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
+        let id: string;
+        try { id = decodeURIComponent(path.slice('/api/charts/'.length)); }
+        catch { return json(response, 400, { error: 'Invalid song ID' }); }
+        if (!id || !songs?.choices().some(choice => choice.id === id) || !songs.readChart)
+          return json(response, 404, { error: 'Song is not installed' });
+        if (request.method === 'GET') {
+          try {
+            const chart = await songs.readChart(id);
+            return chart ? json(response, 200, chart) : json(response, 404, { error: 'Song is not installed' });
+          } catch { return json(response, 409, { error: 'Chart is unavailable' }); }
+        }
+        const publish = songs.publishInstalledChart;
+        if (!publish) return json(response, 404, { error: 'Chart updates are unavailable' });
+        if (receivingChart) return json(response, 409, { error: 'A chart upload is already in progress' });
+        receivingChart = true;
+        try {
+          let body: ReturnType<typeof decodeInstalledChartUpdate>;
+          try { body = decodeInstalledChartUpdate(await readBody(request, MAX_CHART_BODY)); }
+          catch (error) { return json(response, error instanceof BodyTooLarge ? 413 : 400, { error: 'Invalid chart body' }); }
+          if (Buffer.byteLength(body.musicXml) > MAX_CHART_BYTES) return json(response, 413, { error: 'MusicXML exceeds 4 MiB' });
+          const run = () => publish(id, body.musicXml, body.expectedChartVersion);
+          const chart = await (config.peripheralProfile ? withPeripheralMaintenance(config.peripheralProfile, run) : run());
+          return json(response, 200, chart);
+        } catch (error) {
+          return json(response, 409, { error: error instanceof PeripheralMaintenanceBusy ? 'Peripheral maintenance is in progress'
+            : error instanceof Error ? error.message : 'Chart publication failed' });
+        } finally { receivingChart = false; }
+      }
       if ((request.method === 'GET' || request.method === 'HEAD') && path === '/api/demo-recording') {
         const demo = await controller.openDemo?.().catch(() => null);
         if (!demo) return json(response, 404, { error: 'No completed demo' });
@@ -456,11 +528,11 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         let body: ReturnType<typeof decodeCommand> | ReturnType<typeof decodeAudio> | ReturnType<typeof decodeSongSelection>
           | ReturnType<typeof decodeButtonBindings> | ReturnType<typeof decodeChartUpdate>;
         try {
-          const input = await readBody(request, chart ? MAX_CHART_BYTES * 2 + MAX_BODY : MAX_BODY);
+          const input = await readBody(request, chart ? MAX_CHART_BODY : MAX_BODY);
           body = chart ? decodeChartUpdate(input) : path === '/api/audio' ? decodeAudio(input) : path === '/api/song' ? decodeSongSelection(input)
             : path === '/api/button-bindings' ? decodeButtonBindings(input) : decodeCommand(input);
           if ('musicXml' in body && Buffer.byteLength(body.musicXml) > MAX_CHART_BYTES) return json(response, 413, { error: 'MusicXML exceeds 4 MiB' });
-        } catch { return json(response, 400, { error: 'Invalid body' }); }
+        } catch (error) { return json(response, error instanceof BodyTooLarge ? 413 : 400, { error: 'Invalid body' }); }
         finally { if (chart) receivingChart = false; }
 				const session = sessions.get(body.sessionId);
 				if (!session) return json(response, 409, { error: 'Session expired' });
@@ -478,14 +550,20 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 				if (!("goal" in body && body.goal === 'off') && session.inFlight >= MAX_RESULTS + (priority ? 1 : 0)) return json(response, 503, { error: 'Command capacity reached' });
 				session.highWater = sequence;
 				session.inFlight++;
-				const result: Promise<Outcome | AudioDecision | NativeOutcome> = ('goal' in body
+				const run = (): Promise<Outcome | AudioDecision | NativeOutcome> => 'goal' in body
 					? Promise.resolve(controller.setAudio(body.goal))
           : 'musicXml' in body ? songs?.publishChart?.(body.expectedRevision, body.musicXml) ?? Promise.resolve({ outcome: 'rejected' as const, error: 'Chart updates are unavailable on this desk', view: controller.snapshot() })
           : 'expectedRevision' in body ? songs ? 'bindings' in body ? songs.bindings(body.expectedRevision, decodeInputBindings(body.bindings)) : songs.select(body.songId, body.expectedRevision) : Promise.resolve({ outcome: 'rejected' as const, error: 'Song configuration is unavailable', view: controller.snapshot() })
 					: body.command === 'auditionTambourine' ? commandAudition(session, body.target, body.args)
 					: body.command.startsWith('input') ? inputs.command(session, body.target, { command: body.command, args: body.args })
-						: controller.command(body.target, { command: body.command, args: body.args })).catch(
-					() => ({ outcome: 'unknown' } as const),
+						: controller.command(body.target, { command: body.command, args: body.args });
+				const exclusive = 'goal' in body ? body.goal === 'on' : 'expectedRevision' in body;
+				const result = (exclusive && config.peripheralProfile
+					? withPeripheralMaintenance(config.peripheralProfile, run)
+					: run()).catch(
+					(error): Outcome | AudioDecision => error instanceof PeripheralMaintenanceBusy
+						? { outcome: 'rejected', error: 'Peripheral maintenance is in progress', view: controller.snapshot() }
+						: { outcome: 'unknown' },
 				).finally(() => { session.inFlight--; });
 				session.results.set(sequence, { request: requestKey, result });
 				if (session.results.size > MAX_RESULTS) session.results.delete(session.results.keys().next().value!);
@@ -500,9 +578,22 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
     const pin = pins[0];
     if (pins.length > 1 || (pin !== undefined && !/^[a-f0-9]{64}$/.test(pin)))
       return json(response, 400, { error: 'Invalid build identity' });
+    const root = await realpath(config.staticRoot);
+    const worker = request.headers['service-worker'] === 'script';
+    const previousPreview = relative === TANSTACK_STATIC_PATH || relative.startsWith(TANSTACK_STATIC_PATH + '/');
     const browserEntry = isDeskEntry(relative, BROWSER_DESK_PATH);
     const selectedBrowser = !url.searchParams.has('remote') && (browserEntry || url.searchParams.has('browser'));
-    if (pin === undefined && (browserEntry || isDeskEntry(relative, HARDWARE_DESK_PATH) || isDeskEntry(relative, PRACTICE_ASSET_PATH))) {
+    const legacyEntry = browserEntry || isDeskEntry(relative, HARDWARE_DESK_PATH) || isDeskEntry(relative, PRACTICE_ASSET_PATH);
+    const deskInstalled = (relative === '/' || legacyEntry)
+      && await stat(resolve(root, '.' + deskShell)).then(file => file.isFile(), () => false);
+    const deskFile = relative === '/' && !deskInstalled ? undefined : tanstackFile(relative, worker);
+    const deskAsset = deskFile !== undefined;
+    if ((legacyEntry && deskInstalled) || previousPreview || (!deskFile && relative.startsWith(TANSTACK_ASSET_PATH))
+      || (worker && isTanstackDeskDocument(relative) && (relative !== '/' || deskInstalled))) {
+      return json(response, 404, { error: 'Not found' });
+    }
+    if (deskFile) relative = deskFile;
+    if (pin === undefined && legacyEntry) {
       const destination = selectedBrowser ? BROWSER_DESK_PATH : HARDWARE_DESK_PATH;
       if (relative !== destination && relative !== destination + 'index.html') {
         response.writeHead(302, { location: destination + url.search, 'cache-control': 'no-store' });
@@ -517,11 +608,11 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
         return json(response, 404, { error: 'Not found' });
       relative = PRACTICE_ASSET_PATH + asset;
     }
-		const root = await realpath(config.staticRoot);
     if (pin !== undefined) {
       try {
-        const manifest = await realpath(resolve(root, '.' + PRACTICE_ASSET_PATH + 'offline-manifest.json'));
-        if (!manifest.startsWith(root + sep)) return json(response, 409, { error: 'Requested build is unavailable' });
+        const manifest = await realpath(resolve(root, '.' + (deskAsset ? deskManifest : PRACTICE_ASSET_PATH + 'offline-manifest.json')));
+        const manifestRoot = deskAsset ? resolve(root, '.' + TANSTACK_STATIC_PATH) : root;
+        if (!manifest.startsWith(manifestRoot + sep)) return json(response, 409, { error: 'Requested build is unavailable' });
         const value: unknown = JSON.parse(await readFile(manifest, 'utf8'));
         if (!value || typeof value !== 'object' || !('cacheId' in value) || value.cacheId !== pin)
           return json(response, 409, { error: 'Requested build is unavailable' });
@@ -532,7 +623,9 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 		if (!file.startsWith(root + sep)) return json(response, 404, { error: 'Not found' });
 		try {
       const actual = await realpath(file);
-      if (!actual.startsWith(root + sep) || (live && actual === resolve(root, '.' + PRACTICE_ASSET_PATH + 'sw.js')) || !(await stat(actual)).isFile())
+      const assetRoot = deskAsset ? resolve(root, '.' + TANSTACK_STATIC_PATH) : root;
+      if (!actual.startsWith(assetRoot + sep) || (live && actual === resolve(root, '.' + PRACTICE_ASSET_PATH + 'sw.js'))
+        || (deskAsset && actual === resolve(root, '.' + TANSTACK_STATIC_PATH + deskWorkerPath) && relative !== TANSTACK_STATIC_PATH + deskWorkerPath) || !(await stat(actual)).isFile())
         return json(response, 404, { error: 'Not found' });
 			response.writeHead(200, { 'content-type': contentTypes[extname(file)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' });
 			if (request.method === 'HEAD') return response.end();

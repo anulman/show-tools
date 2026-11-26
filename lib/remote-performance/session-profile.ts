@@ -36,6 +36,7 @@ const common = {
 };
 export const SessionProfileSchema = Schema.Struct({ schemaVersion: Schema.Literal(2), ...common,
   restartPolicy: Schema.Literals(['no', 'on-failure']), catalog: SongCatalogOptionsSchema, authoringDatabase: path,
+  peripheralProfile: Schema.optionalKey(path),
 });
 const SessionProfileV1Schema = Schema.Struct({ schemaVersion: Schema.Literal(1), ...common,
   package: Schema.Struct({ manifest: path, packet: path, effects: path }),

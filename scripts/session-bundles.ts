@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 export const SESSION_BUNDLES = {
   'server.mjs': 'scripts/serve-hardware-desk.ts', 'session-cli.mjs': 'scripts/session-cli.ts',
-  'prepare.mjs': 'scripts/prepare-native.ts', 'peripheral-cli.mjs': 'scripts/peripheral-cli.ts',
+  'prepare.mjs': 'scripts/prepare-native.ts', 'chart-worker.mjs': 'lib/remote-performance/chart-worker.ts', 'peripheral-cli.mjs': 'scripts/peripheral-cli.ts',
 };
 
 export async function writeSessionLaunchers(output: string) {

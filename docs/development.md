@@ -300,6 +300,23 @@ Local browser disposal releases monitoring, microphone acquisition and output co
 
 Use [the session CLI guide](implementation/session-cli.md) for `./show-tools session start`, `stop`, `status`, and `audio on|off|status`. Help and status acquire no device or CDP process. CLI process tests use an isolated XDG configuration directory and fake service manager; controller/server tests use actual synthetic native processes and Unix/loopback sockets. Verify a second page and reload during an existing performance, cancellation during startup, native faults with the web still available, parent death, and take retention across transport Stop versus loss across Terminate. Actual systemd and ALSA checks remain target deployment evidence.
 
+### Run the TanStack Performance Desk
+
+Install the preview dependencies and build the Performance Desk:
+
+```sh
+npm ci
+npm ci --prefix ui/desk-start
+npm run build:desk-preview
+npm --prefix ui/desk-start run typecheck
+```
+
+A session gateway serving this build handles `/` and numbered routes such as `/01-dance-yrself-clean`. Browser mode uses `/browser/` and has its own offline cache. Use a fixture profile with a loopback bind address and the fake native host for repeatable QA.
+
+Pass `--desk-preview` to the [Linux release builder](implementation/elitedesk-install.md) to include the TanStack Desk in a staged release. The Desk adds no production Node service. The existing gateway serves the static shell and authenticated APIs.
+
+For Live QA, compare the TanStack Desk with the previous release using a fixture profile. Refresh a numbered path, try an unavailable song, and open a different chart in a second tab during a run. Use **Select on Desk** when you intend to change the shared song. Verify that the next installed chart loads without changing the song. Check recording and sample download in Standby, hardware and browser controls, Tuner, chart publishing, Sheets following, and a Browser-mode reload offline.
+
 ### Publish a chart without a code release
 
 1. Export the complete song to canonical MusicXML. Use the chart import command or the configured Sheets exporter.
@@ -308,6 +325,10 @@ Use [the session CLI guide](implementation/session-cli.md) for `./show-tools ses
 4. Check the updated chart and switch to **Live** when ready.
 
 Exports must match the selected song and worksheet. Publish accepts MusicXML up to 4 MiB, uses the saved global hardware bindings and effect defaults, and rejects charts with compiler errors. Publish an earlier valid export to restore that revision. Keep the worksheet or earlier exports for recovery. The server stores the published charts in the private `<authoringDatabase>.charts` directory alongside the database. Back up that directory with the authoring data if those uploads are your only copies.
+
+For an installed song, authenticated `GET /api/charts/<id>` returns `songId`, `musicXml`, and `chartVersion`. To publish for the next load, send `PUT /api/charts/<id>` with the configured Desk `Origin` and a JSON body containing `musicXml` and the `expectedChartVersion` from GET. The XML must match the song and worksheet and fit within 4 MiB. On a version conflict, read the current chart and compare it before publishing again.
+
+Named publication updates future previews and leaves the loaded session on its current chart and takes. Explicitly load the song to use the new chart under the normal song selection rules. To reload the active song through the UI, switch songs and back while stopped. The Standby **Publish chart** action takes effect immediately and asks you to reload first if a named publication changed the chart since it was loaded.
 
 Build a relocatable Linux release after CI has produced the matching native artifact:
 
@@ -319,7 +340,7 @@ node --import tsx scripts/build-session-release.ts --native-artifact NATIVE_ARTI
 
 The peripheral artifact builder uses Zig to cross-compile a static Linux x86-64 helper from committed source. It records all compiled repository inputs, compiler identity, flags, source revision, and file checksums. It does not execute the resulting ELF or open hardware. Pass `--compiler PATH` to select the Zig executable.
 
-The release builder requires committed source and an output basename of `show-tools-session-release-<HEAD7>`. It verifies native and peripheral hashes and source equivalence, the reviewed standalone Linux Node executable, and song package integrity. The catalog spec explicitly names each canonical MusicXML input and effects file. Missing effects fail the build; the packager does not choose presets. Production Drunk Girls and Tribulations packaging requires the operator's effects choice or qualified saved effects. Synthetic empty-effects test fixtures are not deployment authoring data.
+The release builder requires committed source and an output basename of `show-tools-session-release-<HEAD7>`. It verifies native and peripheral hashes and source equivalence, the reviewed standalone Linux Node executable, and song package integrity. The catalog spec names each canonical MusicXML input. Omit the song’s `effects` field to use the standard stacks for voices named Vocals and Backup Vocals and dry profiles elsewhere. Supply an `effects` file for a song with explicit overrides, including an intentional dry stack.
 
 The version-two release contains `catalog/catalog.json` and all three song packages, including their canonical `source.musicxml`. It rebuilds the shared WASM and browser UI, bundles server/CLI/preparation tools and the three foreground commissioning readers, includes full lifecycle/native review sources, licenses and build provenance, refuses an existing output directory, and writes full file/archive checksums. Optional `--reviewed-revision FULL_SHA` requires the reviewed commit and packaged source to have identical Git trees. Private profiles, tokens and TLS files are installed separately and never enter the archive. The installed `bin/show-tools-session` accepts session subcommands directly. `bin/show-tools-peripheral` supplies peripheral commands without checkout dependencies. Explicit `profile migrate` writes a new V2 profile with the selected release paths; it does not activate that profile or alter services.
 
@@ -378,6 +399,8 @@ Verify explicit app connection routing with `node --import tsx --test lib/remote
 Run `node --import tsx --test lib/remote-performance/tests/client-ca.test.ts` to verify client trust independently of server certificate configuration. The test generates an owned root, intermediate and leaf, serves only the leaf/intermediate fullchain, and exercises default trust and explicit CA bundles in fresh Node processes.
 
 ### Verify managed peripheral reconnection
+
+For a hardware desk that supports remote peripheral maintenance, set `peripheralProfile` in the session profile to the canonical path used by the peripheral setup command and service. Test the boundary with the authenticated gateway test in `lib/remote-performance/tests/server.test.ts`. The host still owns the Standby check, service operation, and readback under the shared lock.
 
 The separate fixed peripheral admission packet lives in `lib/peripherals/delegation/`. Freeze it with `python3 -I lib/peripherals/delegation/freeze.py`, then run `python3 -I -m unittest discover -s lib/peripherals/delegation/tests -v`. These tests exercise real signatures, audit locks and local filesystem boundaries without root or hardware; ownership IDs alone are adapted in bootstrap fixtures. A change here never updates the old web delegation bundle. Exact operator bootstrap, fresh host admission and actual peripheral activation are separate from these local checks; follow the packet README.
 

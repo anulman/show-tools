@@ -6,7 +6,7 @@ import { importSheetMusicXml } from '../sheet-musicxml.js';
 import { readMusicXmlSong } from '../musicxml-song.js';
 import { terseCaptureInput } from './fixtures/terse-capture.js';
 import { discoverSheetVoices } from '../../voice-catalog/sheet-voices.js';
-import { initialVoiceEffects } from '../../../ui/practice/voice-effects.js';
+import { initialVoiceEffects } from '../vocal-effects.js';
 
 function input() {
   const fixture = terseCaptureInput();
@@ -47,8 +47,8 @@ test('a source cannot silently claim another voice profile and declared source d
   assert(compiled.diagnostics.some(diagnostic => diagnostic.code === 'source-profile'));
   const duplicateLabel = { ...mapping, sourceBindings: mapping.sourceBindings?.map(binding => binding.sourceName === 'pick' ? { ...binding, sourceCell: 'A10' } : binding) };
   assert((await compileSheetsSong(source, duplicateLabel)).diagnostics.some(diagnostic => diagnostic.code === 'source-profile'));
-  assert.deepEqual(initialVoiceEffects('compiled', [5]).find(profile => profile.profile === 5)?.effects, []);
-  assert.equal(initialVoiceEffects('compiled').find(profile => profile.profile === 5)?.effects.length, 2, 'legacy rotation profile defaults remain unchanged');
+  const song = await compileSheetsSong(source, mapping);
+  assert.deepEqual(initialVoiceEffects(song)[4]?.effects, []);
 });
 
 

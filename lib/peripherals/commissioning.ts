@@ -1,10 +1,11 @@
 import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { constants, type Stats } from 'node:fs';
-import { link, lstat, mkdir, open, readFile, realpath, rename, unlink } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { link, mkdir, open, readFile, rename, unlink } from 'node:fs/promises';
+import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { Schema } from 'effect';
+import { peripheralConfigurationDirectory, withPeripheralMaintenance } from './maintenance.js';
 import { PHYSICAL_SWITCH_IDS } from '../performance/model.js';
 import { boundedLines, decodePeripheralBridgeConfig, decodePeripheralInputMap, type PeripheralBridgeConfig, type PeripheralInputMap } from './bridge.js';
 
@@ -63,38 +64,6 @@ export interface CommissioningService { inspect(): Promise<{ readonly active: bo
 export type CommissioningMaintenance = (operation: () => Promise<PeripheralBridgeConfig>) => Promise<PeripheralBridgeConfig>;
 export interface CommissioningIo { question(prompt: string): Promise<string>; write(message: string): void }
 export class CommissioningSaveUncertain extends Error {}
-
-async function configurationDirectory(path: string) {
-  if (resolve(path) !== path) throw new Error('Peripheral profile path must be canonical and absolute.');
-  const parent = dirname(path);
-  if (await realpath(parent) !== parent) throw new Error('Peripheral configuration directory must be canonical.');
-  const info = await lstat(parent);
-  if (!info.isDirectory() || (info.mode & 0o022) || (process.getuid && info.uid !== process.getuid()))
-    throw new Error('Peripheral configuration directory must be caller-owned and not writable by other users.');
-  return parent;
-}
-
-async function withCommissioningLock<T>(path: string, operation: () => Promise<T>): Promise<T> {
-  await configurationDirectory(path);
-  const name = path + '.commissioning.lock';
-  let lock: Awaited<ReturnType<typeof open>>;
-  try { lock = await open(name, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); }
-  catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'EEXIST')
-      throw new Error(`Commissioning is already active or left a lock at ${name}. Close the other setup terminal; inspect a leftover lock before removing it.`);
-    throw error;
-  }
-  const identity = await lock.stat();
-  try {
-    await lock.writeFile(JSON.stringify({ pid: process.pid }) + '\n');
-    return await operation();
-  } finally {
-    await lock.close();
-    const current = await lstat(name);
-    if (current.dev !== identity.dev || current.ino !== identity.ino) throw new Error('Commissioning lock changed; refusing to remove it.');
-    await unlink(name);
-  }
-}
 
 function hash(bytes: Uint8Array) { return createHash('sha256').update(bytes).digest('hex'); }
 function owner(info: Stats) {
@@ -339,10 +308,10 @@ interface MotionCaptureOptions {
   signal?: AbortSignal; python?: string; timeoutMs?: number;
 }
 async function observeMotion({ readerPath, publisherPath, stagingRoot, direction, captureSeconds, onArmed,
-  signal, python, timeoutMs }: MotionCaptureOptions) {
+  signal, python, timeoutMs }: MotionCaptureOptions, mode: 'mapping' | 'diagnostic' = 'mapping') {
   Schema.decodeUnknownSync(integer(1, 30))(captureSeconds);
   const result = await foregroundTrial({ readerPath, publisherPath, stagingRoot, trialPrefix: 'setup-knob',
-    readerArgs: ['--direction', direction, '--capture-seconds', String(captureSeconds)], signal, python, timeoutMs,
+    readerArgs: ['--direction', direction, '--capture-seconds', String(captureSeconds), ...(mode === 'diagnostic' ? ['--diagnostic-only'] : [])], signal, python, timeoutMs,
     onArmed: () => onArmed(direction, captureSeconds), phase: (value, type) => {
       const phase = type === 'ready' ? decodeMotionReady(value) : decodeMotionPhase(value);
       if (phase.type !== type || phase.operatorDirection !== direction) throw new Error('Motion capture direction or phase differs.');
@@ -355,7 +324,8 @@ async function observeMotion({ readerPath, publisherPath, stagingRoot, direction
   const durableReady = result.values.filter(value => decodeTag(value).type === 'ready');
   if (durableReady.length !== 1 || JSON.stringify(ready) !== JSON.stringify(decodeMotionReady(durableReady[0])))
     throw new Error('Public and durable motion attachment records differ.');
-  return { axes, attachment: JSON.stringify([ready.usbParent, ...ready.instance]), evidencePath: result.evidencePath };
+  return { axes, attachment: JSON.stringify([ready.usbParent, ...ready.instance]), evidencePath: result.evidencePath,
+    outsideWindow: result.values.filter(value => decodeTag(value).type === 'out-of-window-motion').length };
 }
 
 export async function captureAxis({ chooseAxis, ...options }: MotionCaptureOptions & {
@@ -369,34 +339,58 @@ export async function captureAxis({ chooseAxis, ...options }: MotionCaptureOptio
   return { source: axis.source, type: 2, code: axis.code, evidencePath, observations: axes, direction: options.direction };
 }
 
-export async function checkDialMotion({ profilePath, io, ...capture }: Omit<MotionCaptureOptions, 'direction' | 'captureSeconds' | 'onArmed'> & {
-  profilePath: string; io: CommissioningIo;
-}) {
+type DialObservation = Awaited<ReturnType<typeof observeMotion>>;
+type DialDirectionsOptions = Omit<MotionCaptureOptions, 'direction' | 'onArmed'> & { io: CommissioningIo };
+
+export function matchingDialAxes(clockwise: Pick<DialObservation, 'attachment' | 'axes'>, counterclockwise: Pick<DialObservation, 'attachment' | 'axes'>) {
+  if (clockwise.attachment !== counterclockwise.attachment) throw new Error('USB attachment changed between the two dial captures.');
+  const matches = clockwise.axes.flatMap(cw => counterclockwise.axes.filter(ccw => cw.code === ccw.code && cw.device === ccw.device
+    && sourceSignature(cw.source) === sourceSignature(ccw.source) && Math.sign(cw.delta) === -Math.sign(ccw.delta) && cw.delta !== 0)
+    .map(ccw => ({ axis: cw, counterclockwiseDelta: ccw.delta })));
+  if (!matches.length) throw new Error('No common axis reported opposite signed motion.');
+  return matches;
+}
+
+async function observeDialDirections({ io, ...capture }: DialDirectionsOptions, verifyProfile?: () => Promise<void>, firstDirection: MotionDirection = 'clockwise') {
+  const turn = async (direction: MotionDirection) => {
+    await io.question(`Leave all buttons released and the dial still. Press Enter to prepare the ${direction} turn. `);
+    await verifyProfile?.();
+    const observation = await observeMotion({ ...capture, direction,
+      onArmed: (direction, seconds) => io.write(`ARMED: turn the dial ${direction} briefly, then let it settle. Capture lasts ${seconds} seconds.\n`) }, 'diagnostic');
+    if (observation.outsideWindow) io.write(`Outside the capture window: ${observation.outsideWindow} motion records excluded.\n`);
+    io.write(`Capture evidence: ${observation.evidencePath}\n`);
+    await verifyProfile?.();
+    return observation;
+  };
+  const first = await turn(firstDirection);
+  const second = await turn(firstDirection === 'clockwise' ? 'counterclockwise' : 'clockwise');
+  const [clockwise, counterclockwise] = firstDirection === 'clockwise' ? [first, second] : [second, first];
+  const matches = matchingDialAxes(clockwise, counterclockwise);
+  for (const { axis, counterclockwiseDelta } of matches)
+    io.write(`Interface ${axis.interfaceNumber}, relative axis ${axis.code}: clockwise ${axis.delta}, counterclockwise ${counterclockwiseDelta}.\n`);
+  return { axes: matches.map(match => match.axis), evidencePath: clockwise.evidencePath };
+}
+
+export async function captureVerifiedDial({ chooseAxis, firstDirection, ...options }: DialDirectionsOptions & {
+  chooseAxis: (axes: readonly ObservedMotionAxis[]) => Promise<number>;
+  firstDirection?: MotionDirection;
+}): Promise<CapturedMotionAxis> {
+  const { axes, evidencePath } = await observeDialDirections(options, undefined, firstDirection);
+  const selected = axes.length === 1 ? 0 : await chooseAxis(axes);
+  if (!Number.isInteger(selected) || selected < 0 || selected >= axes.length)
+    throw new Error('Choose one of the axes verified in both directions.');
+  const axis = axes[selected];
+  return { source: axis.source, type: 2, code: axis.code, evidencePath, observations: axes, direction: 'clockwise' };
+}
+
+export async function checkDialMotion({ profilePath, ...capture }: Omit<DialDirectionsOptions, 'captureSeconds'> & { profilePath: string }) {
   const original = await profileSnapshot(profilePath);
   if (!original) throw new Error('Capture and save the button map before checking the dial.');
   const profile = decodePeripheralBridgeConfig(JSON.parse(original.toString('utf8')));
   if (profile.inputMap.axis || profile.jiggle !== null) throw new Error('This check requires a profile without a dial mapping and with jiggle disabled.');
-  const verifyProfile = async () => {
+  await observeDialDirections({ ...capture, captureSeconds: 5 }, async () => {
     if (!(await profileSnapshot(profilePath))?.equals(original)) throw new Error('Peripheral profile changed during the dial check.');
-  };
-  const turn = async (direction: MotionDirection) => {
-    await io.question(`Leave all buttons released and the dial still. Press Enter to prepare the ${direction} turn. `);
-    await verifyProfile();
-    const observation = await observeMotion({ ...capture, direction, captureSeconds: 5,
-      onArmed: (direction, seconds) => io.write(`ARMED: turn only the dial ${direction} for ${seconds} seconds.\n`) });
-    io.write(`Capture evidence: ${observation.evidencePath}\n`);
-    await verifyProfile();
-    return observation;
-  };
-  const clockwise = await turn('clockwise');
-  const counterclockwise = await turn('counterclockwise');
-  if (clockwise.attachment !== counterclockwise.attachment) throw new Error('USB attachment changed between the two dial captures.');
-  const matches = clockwise.axes.flatMap(cw => counterclockwise.axes.filter(ccw => cw.code === ccw.code && cw.device === ccw.device
-    && sourceSignature(cw.source) === sourceSignature(ccw.source) && Math.sign(cw.delta) === -Math.sign(ccw.delta) && cw.delta !== 0)
-    .map(ccw => ({ interfaceNumber: cw.interfaceNumber, code: cw.code, clockwiseDelta: cw.delta, counterclockwiseDelta: ccw.delta })));
-  if (!matches.length) throw new Error('No common axis reported opposite signed motion.');
-  for (const axis of matches)
-    io.write(`Interface ${axis.interfaceNumber}, relative axis ${axis.code}: clockwise ${axis.clockwiseDelta}, counterclockwise ${axis.counterclockwiseDelta}.\n`);
+  });
 }
 
 export async function profileSnapshot(path: string): Promise<Buffer | null> {
@@ -409,7 +403,7 @@ export async function saveCommissionedProfile(path: string, expected: Buffer | n
   const valid = decodePeripheralBridgeConfig(profile);
   const encoded = Buffer.from(JSON.stringify(valid, null, 2) + '\n');
   if (encoded.length > 16384) throw new Error('The installation profile exceeds the runtime 16 KiB limit. Reduce the configured source set before saving.');
-  const parent = await configurationDirectory(path);
+  const parent = await peripheralConfigurationDirectory(path);
   const current = await profileSnapshot(path);
   if ((expected === null) !== (current === null) || (expected && current && hash(expected) !== hash(current)))
     throw new Error('Peripheral profile changed during commissioning. The previous configuration was preserved; run setup again.');
@@ -444,7 +438,7 @@ export interface HardwareCommissioningOptions {
   includeAxis: boolean; retainedAxis?: CapturedAxis; startAfterSave?: boolean; signal?: AbortSignal; maintenance?: CommissioningMaintenance;
 }
 export async function commissionHardware(options: HardwareCommissioningOptions) {
-  return withCommissioningLock(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionHardwareUnderLock(options)) : commissionHardwareUnderLock(options));
+  return withPeripheralMaintenance(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionHardwareUnderLock(options)) : commissionHardwareUnderLock(options));
 }
 async function commissionHardwareUnderLock({ profilePath, baseProfile, service, audioOff, io, capture, captureAxis, includeAxis, retainedAxis, startAfterSave = false, signal }: HardwareCommissioningOptions) {
   signal?.throwIfAborted();
@@ -478,8 +472,6 @@ async function commissionHardwareUnderLock({ profilePath, baseProfile, service, 
     if (includeAxis) {
       if (!captureAxis) throw new Error('Dial capture is unavailable in this installation. Install the reviewed motion reader before using setup with the dial.');
       await audioOff();
-      signal?.throwIfAborted();
-      await io.question('Leave the dial still. Press Enter when ready for dial capture. ');
       signal?.throwIfAborted();
       axis = await captureAxis();
       signal?.throwIfAborted();
@@ -528,7 +520,7 @@ export interface DialCommissioningOptions {
   jiggle?: PeripheralBridgeConfig['jiggle']; signal?: AbortSignal; maintenance?: CommissioningMaintenance;
 }
 export async function commissionDial(options: DialCommissioningOptions) {
-  return withCommissioningLock(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionDialUnderLock(options)) : commissionDialUnderLock(options));
+  return withPeripheralMaintenance(options.profilePath, () => options.maintenance ? options.maintenance(() => commissionDialUnderLock(options)) : commissionDialUnderLock(options));
 }
 async function commissionDialUnderLock({ profilePath, service, audioOff, io, captureAxis, jiggle, signal }: DialCommissioningOptions) {
   signal?.throwIfAborted();

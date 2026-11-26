@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "files": {
     "check.py": {
-      "bytes": 29004,
-      "sha256": "c9e67248a7656956b1c67bded435b760caec543d8ad734cdc8583b82a0508143"
+      "bytes": 29046,
+      "sha256": "eb3f1dfaa7bf57b03cd23d2f842d4cdb61c058480b0fa5c75da1e003aaa37347"
     },
     "allowed_signers": {
       "bytes": 140,
@@ -14,8 +14,8 @@
       "sha256": "18c5ccd4d1c3def67c78b00d6f9a2eae7d65fbc3a1876ae2f473099a3be13ff5"
     },
     "grant.inactive.json": {
-      "bytes": 4468,
-      "sha256": "d019294829ef4d0a5e1da5fa6cb24061842062b23bef17652db2af43170b544c"
+      "bytes": 4510,
+      "sha256": "56c53d1b704be796ac9a5fc4ea6caa5f294d920bf6d1025adacf70fe27b60afc"
     }
   },
   "activeGrantSha256": null

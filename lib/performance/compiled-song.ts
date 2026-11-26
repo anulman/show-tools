@@ -389,7 +389,11 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   const labels = song.chart.bars.filter(bar => bar.label !== undefined);
   if (labels.length && (labels.length !== bars || new Set(labels.map(bar => bar.label)).size !== bars)) throw new Error('Invalid executable measure labels.');
   if ([song.cueWindow.earlyMs, song.cueWindow.lateMs].some(value => !Number.isFinite(value) || value < 0 || value > 100)) throw new Error('Invalid executable cue window; use 0 through 100 milliseconds.');
-  if (song.voices.length < 1 || song.voices.length > 4 || new Set(song.voices.map(voice => voice.buttonId)).size !== song.voices.length) throw new Error('Invalid executable button bindings.');
+  if (song.voices.length > 4 || new Set(song.voices.map(voice => voice.buttonId)).size !== song.voices.length
+    || song.voices.length === 0 && (song.cues.length || song.takes.length || song.selections.length || song.playback.length
+      || song.noteBanks?.length || song.externalSamples?.length || song.terminalStops?.length || song.rotation
+      || [song.chart.leadInCues, ...song.chart.bars.map(bar => bar.cues)].some(cues => Object.values(cues).some(cue => cue.trim()))))
+    throw new Error('Invalid executable button bindings.');
   const validGain = (value: number) => Number.isFinite(value) && value >= 0 && value <= 4;
   const validBeat = (value: number) => Number.isFinite(value) && value >= 0 && value < beats && Number.isInteger(value * 960);
   const validPoint = (point: typeof PointSchema.Type, end: boolean) => Number.isSafeInteger(point.bar) && point.bar >= 1

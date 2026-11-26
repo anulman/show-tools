@@ -6,7 +6,7 @@ type ScaleSelection = Extract<WithoutRevision<TunerCommand>, { kind: 'configure'
 type NoteCapture = TuningBankOptions & { target?: Omit<ScaleSelection, 'kind'> };
 type TunerAction = WithoutRevision<TunerCommand> | { kind: 'prepare-bank'; capture: NoteCapture };
 export type TunerCaptureBank = { readonly id: string; readonly label: string; readonly capture: NoteCapture };
-type TunerPanelOptions = { connect: () => Promise<TunerPort>; banks?: readonly TunerCaptureBank[]; required?: { rotate: (delta: number) => void } };
+type TunerPanelOptions = { connect: () => Promise<TunerPort>; banks?: readonly TunerCaptureBank[]; assetBase?: URL; required?: { rotate: (delta: number) => void } };
 export type TunerPanel = {
   setSession(port: TunerPort | null): void;
   close(): Promise<void>;
@@ -132,7 +132,7 @@ export function mountTuner(root: HTMLElement, options: TunerPanelOptions): Tuner
   const sungNote = element('div', 'tuner-pitch', '—');
   sungNote.setAttribute('aria-label', 'Detected note');
   const pitchStatus = element('p', 'tuner-muted', 'Listening is off.');
-  const dial = createTunerDial();
+  const dial = createTunerDial(options.assetBase);
   const measurement = element('p', 'tuner-measurement', 'No pitch detected');
   sungCard.append(sungHeader, dial.element, sungNote, pitchStatus, measurement);
   if (options.required) {

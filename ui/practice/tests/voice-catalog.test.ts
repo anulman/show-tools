@@ -8,7 +8,8 @@ import { parseCatalogDocument, type CatalogDocument, type Voice } from '../../..
 import { discoverSheetVoices, discoverCueRows, loadedCommandRows } from '../../../lib/voice-catalog/sheet-voices.js';
 import { reconcileCatalog, resolveVoice, withVoice } from '../../../lib/voice-catalog/session.js';
 import { CatalogClientConflictError, type CatalogClient } from '../catalog-client.js';
-import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.js';
+import { createVoiceEffectsEditor } from '../voice-effects.js';
+import { initialVoiceEffects } from '../../../lib/performance/vocal-effects.js';
 import type { VoiceEffectConfiguration } from '../../../lib/performance/model.js';
 import type { VoiceLibraryOptions, VoiceLibraryUpdate } from '../voice-library.js';
 import type { installVoiceCatalog } from '../voice-catalog.js';
@@ -51,7 +52,7 @@ async function harness() {
   };
   const context = vm.createContext({
     registry: { characters: [] }, parseCatalogDocument, discoverSheetVoices, discoverCueRows, loadedCommandRows, reconcileCatalog, resolveVoice, withVoice,
-    CatalogClientConflictError, initialVoiceEffects, crypto: webcrypto, Blob, Error, URL: {
+    CatalogClientConflictError, initialVoiceEffects, AbortController, AbortSignal, crypto: webcrypto, Blob, Error, URL: {
       createObjectURL(blob: Blob) { downloads.push(blob); return 'blob:test'; }, revokeObjectURL() {},
     }, setTimeout: () => 0,
     window: { document: { baseURI: 'http://localhost/', createElement: () => ({ href: '', download: '', click() {} }) } },

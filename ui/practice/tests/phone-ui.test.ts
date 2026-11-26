@@ -23,7 +23,7 @@ class Node {
 }
 
 test('actual shake UI enables input without audio startup and sends scoped typed external hits to the existing session', async () => {
-  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
   let listener: ((reading: MotionReading) => void) | undefined, pending = Promise.resolve(); let group: Node | undefined, removed = 0;
   const surface: MotionSurface = { secure: true, available: true, async permission() { return 'granted'; },
     listen(receive) { listener = receive; return () => { removed++; listener = undefined; }; }, hide() { return () => {}; } };
@@ -58,7 +58,7 @@ test('actual shake UI enables input without audio startup and sends scoped typed
 
 for (const { remote, running } of [{ remote: false, running: false }, { remote: false, running: true }, { remote: true, running: true }]) {
   test(`Tambourine audition routes to ${remote ? 'Hardware' : 'Browser'} audio when ${running ? 'playing' : 'stopped'}`, async () => {
-    const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+    const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
     const commands: (number | [number, number])[] = [], errors: unknown[] = [];
     let listener: ((reading: MotionReading) => void) | undefined;
     let hide: (() => void) | undefined;
@@ -163,7 +163,7 @@ for (const { remote, running } of [{ remote: false, running: false }, { remote: 
 }
 
 test('actual source rows display Spit as its independent prepared voice rather than Backup Vocals', async () => {
-  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
   const live = new Node(), mounted: { id: string; profile: number; name: string }[] = [];
   const pads = new Map(['L1', 'L2', 'R1', 'R2'].map(id => [id, { button: new Node(), shell: new Node() }]));
   const context = { song: tribulations, pads, remote: false, HTMLElement: Node,

@@ -13,6 +13,10 @@ import tempfile
 
 MAX_EXPANDED = 256 * 1024 * 1024
 MAX_MEMBERS = 2048
+SET_SONG_IDS = frozenset({
+    "dance-yrself-clean", "drunk-girls", "i-can-change", "tribulations",
+    "daft-punk", "all-i-want", "you-wanted-a-hit",
+})
 MAX_JSON = 1024 * 1024
 MAX_CHECKSUMS = 128 * 1024
 CHUNK = 1024 * 1024
@@ -227,8 +231,8 @@ def validate_catalog(extracted, files):
     if not isinstance(catalog, dict) or set(catalog) != {"schemaVersion", "initialSongId", "entries"} or type(catalog.get("schemaVersion")) is not int or catalog["schemaVersion"] != 1:
         raise RuntimeError("Invalid song catalog schema")
     entries = catalog.get("entries")
-    if not isinstance(entries, list) or len(entries) != 3:
-        raise RuntimeError("Release requires three song catalog entries")
+    if not isinstance(entries, list) or len(entries) != len(SET_SONG_IDS):
+        raise RuntimeError("Release requires all seven set songs")
     ids, required = set(), {"catalog/catalog.json"}
     for entry in entries:
         if not isinstance(entry, dict) or set(entry) != {"id", "path", "title", "packageDigest", "files"}:
@@ -253,7 +257,7 @@ def validate_catalog(extracted, files):
         effects = read_json(extracted / ("catalog/" + entry["path"] + "/effects.json"))
         if not isinstance(manifest, dict) or manifest.get("id") != identity or not isinstance(effects, list):
             raise RuntimeError("Invalid catalog song JSON identity")
-    if ids != {"dance-yrself-clean", "drunk-girls", "tribulations"} or catalog["initialSongId"] not in ids:
+    if ids != SET_SONG_IDS or catalog["initialSongId"] not in ids:
         raise RuntimeError("Invalid release song set or initial song")
     if {path for path in files if path.startswith("catalog/")} != required:
         raise RuntimeError("Unexpected catalog members")

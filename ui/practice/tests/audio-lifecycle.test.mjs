@@ -6,18 +6,19 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import { PF } from '../../../lib/performance/wasm-abi.ts';
 import { webcrypto } from 'node:crypto';
-import { createVoiceEffectsEditor, initialVoiceEffects } from '../voice-effects.ts';
+import { createVoiceEffectsEditor } from '../voice-effects.ts';
+import { chorus, initialVoiceEffects, slapback } from '../../../lib/performance/vocal-effects.ts';
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.ts';
 import { audioMode, canChangeAudioMode, changeAudioMode } from '../audio-mode.ts';
 
 function prepareUIContext(context) {
-  for (const [key, value] of Object.entries({ postPerformanceEvent() {}, dismissOnBackdrop() {}, createMusicalInputProducer, createMusicalInputPolicy, CONTROL_IDS: ['L1', 'L2', 'R1', 'R2'], chartBarLabel, chartBarOrdinal, URL, URLSearchParams, AbortController, preparationAbort: undefined, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
+  for (const [key, value] of Object.entries({ postPerformanceEvent() {}, dismissOnBackdrop() {}, createMusicalInputProducer, createMusicalInputPolicy, SONGS, CONTROL_IDS: ['L1', 'L2', 'R1', 'R2'], chartBarLabel, chartBarOrdinal, URL, URLSearchParams, AbortController, mountSignal: new AbortController().signal, options: {}, remote: false, preparationAbort: undefined, location: { href: 'https://example.test/', search: '' }, audioMode, canChangeAudioMode, changeAudioMode, crypto: webcrypto, createVoiceEffectsEditor, initialVoiceEffects, keyboardFocusBlocksShortcut, installVoiceCatalog: () => ({ savedConfigurations: () => initialVoiceEffects(), async saveDrafts() {}, update() {}, async load() {}, openProfile() {} }) })) if (!(key in context)) context[key] = value;
   context.createInputBindingPanel ??= () => ({ element: {}, update() {} });
   context.createSampleDownloads ??= () => ({ render() {}, busy: false });
   if (context.HTMLElement) context.HTMLElement.prototype.after ??= () => {};
   vm.createContext(context);
 }
-import { loadSong } from '../../../songs/index.ts';
+import { SONGS, loadSong, loadSongPreview } from '../../../songs/index.ts';
 import { PracticeAudio } from '../audio.js';
 import { BeatTracker } from '../runtime/beat-tracker.js';
 import { NativePerformance } from '../../../lib/performance/wasm-performance.ts';
@@ -55,8 +56,11 @@ for (const gate of ['resume']) for (const action of ['stop', 'panic', 'physical-
   });
 }
 
-const uiSource = (await sourceForVM(new URL('../app.ts', import.meta.url)))
-  .replace(/^import .*;\n/gm, '').replace('const defaultMode = await defaultAudioMode(deskURL);', 'const defaultMode = "browser";').replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })').split('elements.start.addEventListener(')[0];
+const deskSource = await sourceForVM(new URL('../desk.ts', import.meta.url));
+const uiSource = deskSource.slice(deskSource.indexOf('function requiredElement('), deskSource.indexOf('export async function mountDesk('))
+  + 'const mode = "browser"; const remote = false; const defaultMode = mode; const deskURL = new URL(location.href);\n'
+  + deskSource.slice(deskSource.indexOf('const elements ='), deskSource.indexOf('elements.start.addEventListener('))
+    .replace(/import\(["']\.\/audio\.js["']\)/g, 'Promise.resolve({ PracticeAudio })');
 
 for (const action of ['stopPractice', 'panic']) {
   test(`UI ${action} cancels initial audio preparation before launch`, async () => {
@@ -198,7 +202,8 @@ function voiceEditorHarness() {
   const roots = new Map(), applied = [];
   const editor = createVoiceEffectsEditor(profile => applied.push(profile));
   // Explicit non-default stacks exercise field validation for otherwise dry capture voices.
-  for (const profile of [0, 1]) editor.setEffects(profile, [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }]);
+  for (const profile of [0, 1]) editor.setEffects(profile, [slapback()]);
+  editor.setEffects(5, [slapback(), chorus()]);
   const original = globalThis.document;
   try {
     globalThis.document = { createElement: tag => new Element(tag) };
@@ -469,13 +474,13 @@ for (const stage of ['transition', 'detach']) for (const acknowledgement of ['de
 }
 
 test('Escape triggers Panic with an input focused while pad shortcuts still ignore editing', async () => {
-  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
   const keyboardSource = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('window.addEventListener("keyup"'));
   let keydown;
   let panicCalls = 0;
   let padCalls = 0;
   class Element { closest() { return true; } }
-  const context = { Element, Map, Set, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+  const context = { Element, Map, Set, acceptsRouteInput: () => true, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
     document: { querySelector: () => null },
     window: { addEventListener(_type, listener) { keydown = listener; } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: () => padCalls++,
@@ -490,14 +495,16 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   assert.equal(panicCalls, 1);
 });
 
-for (const policy of ['unselected', 'native-controls']) {
+for (const policy of ['unselected', 'native-controls', 'inactive-song-preview']) {
   test(`${policy} guards every musical DOM path before Escape, transport, pads and wheel`, async () => {
-    const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+    const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
     const handlers = source.slice(source.indexOf('window.addEventListener("wheel"'), source.indexOf('function postPerformanceEvent'));
     const listeners = new Map();
     let commands = 0;
     class Element { closest() { return null; } }
-    const context = vm.createContext({ Element, inputPolicy: { allowsDomInput: () => false },
+    const context = vm.createContext({ Element, mountSignal: new AbortController().signal,
+      acceptsRouteInput: () => policy !== 'inactive-song-preview',
+      inputPolicy: { allowsDomInput: () => policy === 'inactive-song-preview' },
       window: { addEventListener: (type, listener) => listeners.set(type, listener) },
       panic() { commands++; }, triggerPad() { commands++; }, releasePad() { commands++; },
       rotate() { commands++; }, startPractice() { commands++; }, stopPractice() { commands++; } });
@@ -512,7 +519,7 @@ for (const policy of ['unselected', 'native-controls']) {
 }
 
 test('keyboard forwards fresh observations after focus loss while native admission owns release barriers', async () => {
-  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
   const listeners = new Map();
   const commands = [];
   const releases = [];
@@ -522,7 +529,7 @@ test('keyboard forwards fresh observations after focus loss while native admissi
     closest() { return this.editing; }
   }
   const controls = [{ key: 'KeyQ', id: 'L1' }, { key: 'KeyW', id: 'R1' }, { key: 'KeyA', id: 'L2' }, { key: 'KeyS', id: 'R2' }];
-  const context = { Element, Map, Set, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: controls,
+  const context = { Element, Map, Set, acceptsRouteInput: () => true, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: controls,
     document: { querySelector: () => null, querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
     act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }), releasePad: (id, commandId) => releases.push({ id, commandId }),
@@ -598,7 +605,7 @@ test('Stop cancels a start waiting for effects preparation', async () => {
 });
 
 test('Space on an effect disclosure, action button or link never toggles transport', async () => {
-  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
   const keyboardSource = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('window.addEventListener("keyup"'));
   const adapterSource = '';
   let keydown;
@@ -607,7 +614,7 @@ test('Space on an effect disclosure, action button or link never toggles transpo
     constructor(kind) { this.kind = kind; }
     closest(selector) { return selector.split(',').includes(this.kind) ? this : null; }
   }
-  const context = { Element, Map, Set, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
+  const context = { Element, Map, Set, acceptsRouteInput: () => true, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
     document: { querySelector: () => null },
     window: { addEventListener(_type, callback) { keydown = callback; } },
     act: action => action(), flash() {}, isRunning: () => false, startPractice: () => starts++, stopPractice() {}, panic: () => panics++, triggerPad: () => pads++,
@@ -625,17 +632,22 @@ test('Space on an effect disclosure, action button or link never toggles transpo
   assert.equal(panics, 1);
 });
 
-for (const id of ['i-can-change']) {
-  test(`${id} starts with dry identity processing in every profile, including hidden live routes`, async () => {
-    const song = await loadSong(id);
-    assert.equal(song.compiled, undefined, 'this source has no compiled per-voice capture support');
-    const h = startupHarness(undefined, { loadedSong: song, voiceConfigurations: initialVoiceEffects() });
-    await h.controls.startPractice();
-    assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), initialVoiceEffects('dry'));
-    assert(h.audio.configuredEffects.every(configuration => configuration.effects.length === 0));
-    assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
-  });
-}
+test('timing-only sessions start with dry identity processing in every profile', async () => {
+  const h = startupHarness(undefined, { compiled: false, voiceConfigurations: initialVoiceEffects() });
+  await h.controls.startPractice();
+  assert.deepEqual(JSON.parse(JSON.stringify(h.audio.configuredEffects)), initialVoiceEffects('dry'));
+  assert(h.audio.configuredEffects.every(configuration => configuration.effects.length === 0));
+  assert.deepEqual(h.commands.slice(0, 2), ['effects', 'microphone']);
+});
+
+test('an unfinished chart cannot prepare audio or start transport', async () => {
+  const { song } = await loadSongPreview('daft-punk');
+  const h = startupHarness(undefined, { loadedSong: song, catalogSave: async () => assert.fail('Unexpected draft save') });
+  await assert.rejects(h.controls.ensureAudio(), /Audio is unavailable/);
+  await assert.rejects(h.controls.startPractice(), /Audio is unavailable/);
+  assert.deepEqual(h.creationOptions, []);
+  assert.deepEqual(h.commands, []);
+});
 
 for (const action of ['startPractice', 'applyVoiceEffects']) {
   test(`${action} persists voice drafts before configuring audio`, async () => {
@@ -829,7 +841,7 @@ for (const failure of ['context-close', 'microphone-notification', 'track-stop']
 });
 
 test('only pointerup emits a musical release and cancellation retires pointer input', async () => {
-  const source = await sourceForVM(new URL('../app.ts', import.meta.url));
+  const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
   const controls = [{ id: 'L1', key: 'KeyQ' }, { id: 'R2', key: 'KeyS' }];
   const commands = [];
   const windowEvents = new Map(), documentEvents = new Map();

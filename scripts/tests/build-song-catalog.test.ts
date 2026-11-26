@@ -37,7 +37,7 @@ test('canonical MusicXML roundtrip, all three native packages, and exact source/
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 
-test('duplicate IDs, mismatched identities, unsafe IDs and missing effects fail closed', async () => {
+test('duplicate IDs, mismatched identities, unsafe IDs and invalid effects paths fail closed', async () => {
   const f = await fixture();
   try {
     const only = f.spec.songs[0]!;
@@ -45,7 +45,23 @@ test('duplicate IDs, mismatched identities, unsafe IDs and missing effects fail 
     await assert.rejects(buildSongCatalog({ ...f.spec, songs: [{ ...only, id: '../escape' }] }, f.output));
     await assert.rejects(buildSongCatalog({ ...f.spec, songs: [{ ...only, id: 'other' }] }, f.output), /identity mismatch/);
     await assert.rejects(buildSongCatalog({ ...f.spec, songs: [{ ...only, effects: 'missing-file' }] }, f.output));
-    await assert.rejects(buildSongCatalog({ ...f.spec, songs: [{ id: only.id, musicXml: only.musicXml }] }, f.output));
     await assert.rejects(readFile(join(f.output, 'catalog.json')), { code: 'ENOENT' });
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('omitting a song effects file packages the named vocal defaults', async () => {
+  const f = await fixture();
+  try {
+    await buildSongCatalog({ ...f.spec, songs: f.spec.songs.map(({ id, musicXml }) => ({ id, musicXml })) }, f.output);
+    const { files } = await readSongCatalog(f.output);
+    const profiles = (id: string) => JSON.parse(files.get(`songs/${id}/effects.json`)!.toString());
+    const slap = { kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 };
+    const chorus = { kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: .35 };
+    const expected = (backup: boolean) => Array.from({ length: 6 }, (_, profile) => ({
+      profile, effects: profile === 4 ? [slap] : profile === 5 && backup ? [slap, chorus] : [],
+    }));
+    assert.deepEqual(profiles('dance-yrself-clean'), expected(true));
+    assert.deepEqual(profiles('drunk-girls'), expected(false));
+    assert.deepEqual(profiles('tribulations'), expected(false));
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });

@@ -47,10 +47,11 @@ def decode(data, device):
 
 
 class MotionGate:
-    def __init__(self, now, seconds, sources):
+    def __init__(self, now, seconds, sources, *, diagnostic_only=False):
         raw.require(type(seconds) is int and 1 <= seconds <= raw.CAPTURE_SECONDS, 'Capture seconds must be explicit integer1..30')
         self.ready_deadline = now + raw.READY_SECONDS * 1000000000
         self.seconds, self.sources = seconds, sources
+        self.diagnostic_only = diagnostic_only
         self.armed_at = self.deadline = None
         self.axes, self.last_time = {}, {}
         self.motion_records = 0
@@ -60,17 +61,23 @@ class MotionGate:
         self.armed_at, self.deadline = now, now + self.seconds * 1000000000
 
     def observe(self, event, now):
-        raw.require(self.armed_at is not None and now < self.deadline, 'Motion before ARM or after deadline')
         stamp = event['deviceSeconds'] * 1000000000 + event['deviceMicroseconds'] * 1000
         device = event['device']
-        raw.require(self.armed_at <= stamp <= now and stamp >= self.last_time.get(device, self.armed_at), 'Motion timestamp outside current capture')
+        if self.diagnostic_only:
+            earliest = self.last_time.get(device, 0)
+        else:
+            raw.require(self.armed_at is not None and now < self.deadline, 'Motion before ARM or after deadline')
+            earliest = self.last_time.get(device, self.armed_at)
+        raw.require(earliest <= stamp <= now, 'Motion timestamp outside current capture')
         self.last_time[device] = stamp
         source = self.sources.get(device)
         raw.require(source is not None and 2 in source['eventTypes'] and event['code'] in source['relativeAxes'], 'Motion absent from qualified capabilities')
         raw.require(self.motion_records < raw.MAX_RAW_RECORDS, 'Motion record cap reached')
         self.motion_records += 1
+        if self.diagnostic_only and (self.armed_at is None or not self.armed_at <= stamp < self.deadline):
+            return False
         if event['value'] == 0:
-            return
+            return True
         key = device, event['code']
         raw.require(key in self.axes or len(self.axes) < raw.MAX_SIGNATURES, 'Motion axis cap reached')
         row = self.axes.setdefault(key, {'device': device, 'interfaceNumber': source['interfaceNumber'], 'eventType': 2,
@@ -78,6 +85,7 @@ class MotionGate:
         row['samples'] += 1
         row['delta'] += event['value']
         row['positiveCounts' if event['value'] > 0 else 'negativeCounts'] += abs(event['value'])
+        return True
 
     def result(self):
         return {'complete': self.armed_at is not None and bool(self.axes),
@@ -96,11 +104,12 @@ def drain(records, gate, evidence):
             evidence.raw_records += len(data) // raw.EVENT.size
             for event in decode(data, path):
                 now = raw.time.monotonic_ns()
-                gate.observe(event, now)
-                evidence.emit({**event, 'receivedMonotonicNs': str(now)})
+                counted = gate.observe(event, now)
+                evidence.emit({**event, 'type': 'motion' if counted else 'out-of-window-motion',
+                               'receivedMonotonicNs': str(now)})
 
 
-def run(directory, trial, direction, capture_seconds):
+def run(directory, trial, direction, capture_seconds, *, diagnostic_only=False):
     raw.RUNNING = True
     raw.require(raw.re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,79}', trial), 'Invalid trial identity')
     raw.require(direction in DIRECTIONS, 'Choose an explicit operator direction')
@@ -139,7 +148,7 @@ def run(directory, trial, direction, capture_seconds):
                 evidence.emit({'type': 'snapshot', 'phase': phase, **row})
             raw.require_released(rows)
         snapshot('initial')
-        gate = MotionGate(raw.time.monotonic_ns(), capture_seconds, sources)
+        gate = MotionGate(raw.time.monotonic_ns(), capture_seconds, sources, diagnostic_only=diagnostic_only)
         drain(records, gate, evidence)
         evidence.emit({'type': 'ready', **context, 'nonce': nonce, 'usbParent': str(parent), 'instance': instance,
                        'readyExpiresMonotonicNs': gate.ready_deadline, 'captureStarted': False, 'evidence': str(directory / 'trial.ndjson')})
@@ -208,12 +217,13 @@ def main():
     parser.add_argument('--trial', required=True)
     parser.add_argument('--direction', choices=DIRECTIONS, required=True)
     parser.add_argument('--capture-seconds', type=int, required=True)
+    parser.add_argument('--diagnostic-only', action='store_true', help='Keep out-of-window motion as separate, uncounted evidence')
     args = parser.parse_args()
     raw.require(sys.platform == 'linux' and raw.EVENT.size == 24 and raw.struct.calcsize('P') == 8, 'Need Linux64-bit input_event layout')
     raw.require((os.getuid(), os.geteuid(), os.getgid(), os.getegid()) == (1000, 1000, 1000, 1000), 'Run as anulman UID/GID1000, never root')
     for number in (signal.SIGTERM, signal.SIGHUP, signal.SIGINT):
         signal.signal(number, raw.stop)
-    return run(args.directory, args.trial, args.direction, args.capture_seconds)
+    return run(args.directory, args.trial, args.direction, args.capture_seconds, diagnostic_only=args.diagnostic_only)
 
 
 if __name__ == '__main__':

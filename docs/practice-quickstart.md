@@ -130,7 +130,7 @@ Setup stops the named peripheral service, saves the complete validated map, and 
 
 To preview the default capture plan, run `hardware --dry-run`. To add buttons later, rerun `hardware --start --stop-performance` and include every connected identity you want to retain. Setup replaces the saved button and LED map.
 
-Releases with `bin/show-tools-config` also support `"$PRACTICE_RELEASE/bin/show-tools-config"` for the standard installed profile. With no arguments it captures the buttons and dial together, then saves the complete map and starts the peripheral service. Follow the dial prompt and turn clockwise only after `ARMED`. It uses a five-second capture and starts musical jiggle at 4 travel and 2 reversal counts unless the profile already has thresholds. The command stops the web service and discards remaining takes. For a combined setup with explicit settings, pass `--with-dial --stop-performance --start` and your dial options.
+Releases with `bin/show-tools-config` also support `"$PRACTICE_RELEASE/bin/show-tools-config"` for the standard installed profile. With no arguments it captures the buttons and dial together, then saves the complete map and starts the peripheral service. Follow the clockwise and counterclockwise prompts. Each direction gets a five-second capture after `ARMED`. Setup saves only an axis verified in both directions. Setup starts musical jiggle at 4 travel and 2 reversal counts unless the profile already has thresholds. The command stops the web service and discards remaining takes. For a combined setup with explicit settings, pass `--with-dial --stop-performance --start` and your dial options.
 
 ## Check the LEDs with audio off
 
@@ -144,7 +144,7 @@ The test asks you to observe real LEDs. A successful capture or active service d
 
 ## Capture and test the dial
 
-If you captured only the buttons, you can add the dial without recapturing them. Before mapping the dial, run `hardware --check-knob`. Turn in each prompted direction after `ARMED`. The read-only check reports axes that moved in opposite directions on the same USB attachment and prints the evidence paths.
+If you captured only the buttons, you can add the dial without recapturing them. Before mapping the dial, run `hardware --check-knob`. Turn the dial briefly in each prompted direction after `ARMED`, then let it settle. The read-only check keeps motion outside the capture window in the evidence without counting it. It reports axes that moved in opposite directions on the same USB attachment and prints the evidence paths.
 
 Keep audio off. Run:
 
