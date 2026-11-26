@@ -351,15 +351,22 @@ void Playback::seek_phase(uint32_t phase) noexcept {
   phase %= window_period_;
   while (phase_ < phase) next();
 }
+void Playback::set_warped_phase(double phase) noexcept {
+  phase_ = phase;
+  grains_ = {};
+  printed_history_valid_ = false;
+}
 void Playback::stop() noexcept {
   if (state_ != PlaybackState::playing) return;
-  if (printed_once_) {
-    printed_once_ = false;
-    if (phase_ < window_period_ || !shadow_->copy_state(*take_.end_)) { finish(); return; }
-  }
+  if (printed_once_ && (phase_ < window_period_ || !shadow_->copy_state(*take_.end_))) { finish(); return; }
   release_remaining_ = shadow_->maximum_tail_frames();
   if (release_remaining_) state_ = PlaybackState::releasing;
   else finish();
+}
+uint64_t Playback::printed_once_remaining_frames() const noexcept {
+  if (!printed_once_) return 0;
+  if (state_ == PlaybackState::releasing) return release_remaining_;
+  return uint64_t(window_period_ - std::min(window_period_, uint32_t(phase_))) + shadow_->maximum_tail_frames();
 }
 void Playback::reset() noexcept { rate_ = 1; shadow_->reset(); finish(); phase_ = 0; iteration_ = 0; clear_source_end(); printed_history_valid_ = true; }
 Stereo Playback::repeat_tail(double phase) const noexcept {
@@ -382,9 +389,9 @@ Stereo Playback::next() noexcept {
   }
   if (state_ == PlaybackState::playing) {
     if (printed_once_) {
-      const auto frame = uint32_t(phase_);
-      ++phase_;
-      return take_.printed_[frame];
+      const auto output = take_.printed_[uint32_t(phase_)];
+      if (++phase_ >= window_period_) stop();
+      return output;
     }
     uint32_t source_frame = source_begin_ + uint32_t(phase_);
     bool suppressed = source_frame >= source_end_;

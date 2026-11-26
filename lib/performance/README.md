@@ -40,7 +40,7 @@ Configuration and pattern definitions are copied. Active and queued pattern vers
 
 ## Keep processing separate from preparation
 
-The browser module has a fixed 256 MiB heap and disables growth. `pf_process()` and native beat dispatch use prepared buffers and fixed queues. Song configuration, pattern definition, capture preparation, and file loading are command-time operations that may allocate. Native reset operations that replace analyzer state also belong outside the audio callback.
+The browser module has a fixed 448 MiB heap and disables growth. `pf_process()` and native beat dispatch use prepared buffers and fixed queues. Song configuration, pattern definition, capture preparation, and file loading are command-time operations that may allocate. Native reset operations that replace analyzer state also belong outside the audio callback.
 
 The C header defines query layouts and the performance ABI version. The build generates `wasm-abi.ts` from that header and derives exported function names from the public headers. The browser checks `pf_abi_version()` before constructing the engine. Rebuild both the WASM artifact and browser bundle after an interface change.
 

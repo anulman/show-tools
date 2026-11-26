@@ -4,7 +4,7 @@ const setList = [
   { number: 3, id: 'i-can-change', title: 'I Can Change', rehearsal: false },
   { number: 4, id: 'tribulations', title: 'Tribulations', rehearsal: false },
   { number: 5, id: 'daft-punk', title: 'Daft Punk Is Playing at My House', rehearsal: true },
-  { number: 6, id: 'all-i-want', title: 'All I Want', rehearsal: true },
+  { number: 6, id: 'all-i-want', title: 'All I Want', rehearsal: false },
   { number: 7, id: 'you-wanted-a-hit', title: 'You Wanted a Hit', rehearsal: true },
 ] as const;
 

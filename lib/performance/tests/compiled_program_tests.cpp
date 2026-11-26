@@ -115,6 +115,106 @@ void quantized_one_shot_starts_in_phase_and_ends_without_looping() {
   until(engine, 4, 2); render(engine, 1200, 0);
   require(press(engine, 0) < 0 && render(engine, 1, 0).left.front() == 0, "one-shot cannot recover outside the bounded window");
 }
+void final_printed_one_shot_drains_into_the_song_capture() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 1, 3, 1, 0, 0, 1, 2, 3,
+    0, 1, 0, 3, 0, 1, 3, 0, 0,
+    0, 0, 0, -1, PF_ARM, 1, 0, 0, -1, -1, 0, PF_AUTOPLAY, PF_ONESHOT_MODE, 0, -1, 0,
+    0, 0, 2, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0, PF_STORE_ONLY, PF_ONESHOT_MODE, 0, -1, 0,
+    0, 0, 4, 3, PF_PLAY, 2, 3, -1, -1, 0, 0, PF_AUTOPLAY, PF_QUANTIZED_ONESHOT_MODE, 0, -1, 0,
+    0, 0, 1
+  };
+  Engine engine;
+  ok(engine, pf_prepare_live_effects(engine, nullptr, 0, 1));
+  ok(engine, pf_configure_compiled(engine, song.data(), song.size()));
+  ok(engine, pf_set_click_gain(engine, 0)); ok(engine, pf_set_microphone(engine, 1));
+  ok(engine, pf_start(engine, 120, 1, 1, 5, 0, 0));
+  until(engine, 1); render(engine, 32032);
+  require(take(engine, 0)[PF_TAKE_READY], "final one-shot fixture has a recorded vocal");
+  pf_stop(engine);
+
+  const auto start_tail = [&] {
+    ok(engine, pf_start(engine, 120, 0, 4, 5, 0, 0));
+    until(engine, 4, 4); ok(engine, press(engine, 0));
+    render(engine, 20096, 0);
+    require(state(engine)[PF_PHASE] == PF_PLAYING && pf_audio_needed(engine), "transport remains active during the final vocal");
+  };
+  start_tail();
+  std::vector<float> left(32000), right(left.size());
+  uint32_t offset = 0, frames = 0;
+  ok(engine, pf_process_stems_with_song_span(engine, nullptr, left.data(), right.data(), nullptr, nullptr, left.size(), &offset, &frames));
+  require(offset == 0 && frames > 11000 && frames < 12000, "song capture includes exactly the post-boundary vocal body");
+  require(std::all_of(left.begin(), left.begin() + frames, [](float value) { return value == .25f; })
+    && std::all_of(left.begin() + frames, left.end(), [](float value) { return value == 0; }), "song span stops where the vocal ends");
+  require(state(engine)[PF_PHASE] == PF_ENDED && !pf_audio_needed(engine), "natural finish follows the vocal playout");
+
+  for (bool panic : {false, true}) {
+    start_tail();
+    if (panic) ok(engine, press(engine, 4)); else pf_stop(engine);
+    require(!pf_audio_needed(engine) && render(engine, 32, 0).left.front() == 0,
+      "explicit Stop and Panic immediately kill a draining final one-shot");
+  }
+  ok(engine, pf_start(engine, 120, 0, 4, 4, 0, 0));
+  until(engine, 4, 4); ok(engine, press(engine, 0)); render(engine, 4096, 0);
+  require(state(engine)[PF_PHASE] == PF_ENDED && !pf_audio_needed(engine), "a short practice range ends at its boundary");
+
+  auto explicit_tail = song;
+  explicit_tail.insert(explicit_tail.end(), {PF_COMPILED_TAIL_MAGIC, 1, 5});
+  ok(engine, pf_configure_compiled(engine, explicit_tail.data(), explicit_tail.size()));
+  ok(engine, pf_start(engine, 120, 1, 1, 5, 0, 0));
+  until(engine, 1); render(engine, 32032);
+  pf_stop(engine);
+  ok(engine, pf_start(engine, 120, 0, 4, 5, 0, 0));
+  until(engine, 4, 4); ok(engine, press(engine, 0)); until(engine, 5);
+  require(render(engine, 32, 0).left.front() == 0, "explicit Tail stop-all still cuts a playing one-shot");
+}
+void written_backing_follows_sample_boundaries_and_resume() {
+  const std::vector<double> song{
+    PF_COMPILED_MAGIC, PF_COMPILED_VERSION, 4, 5, 120, 5, 25, 25, 1, 2, 3, 0, 0, 1, 2, 3,
+    0, 1, 0, 2, 0, 1, 2, 0, 0,
+    0, 0, 1, -1, PF_ARM, 2, 0, 0, -1, -1, 0, PF_AUTOPLAY, PF_LOOP_MODE, 0, -1, 0,
+    0, 0, 1, -1, PF_COMMIT, 1, 0, -1, 0, 0, 0, PF_STORE_ONLY, PF_LOOP_MODE, 0, -1, 0,
+    0, 0, 1, 1, 0, 1, 2, 0, 1,
+    PF_COMPILED_WINDOW_MAGIC, 2, 1, 0, 1, 1, 2, 1, 3, 2,
+    PF_COMPILED_FOLLOW_MAGIC, 3, 2, 0, 0, 1, 2, 1.5, 0, 2, 4, 0, 0, -1,
+  };
+  auto profile = patches::Rack::create(nullptr, 0), backup = patches::Rack::create(nullptr, 0);
+  auto early = song; early[early.size() - 12] = 1;
+  require(!compiled::Program::create(early.data(), early.size(), 2000, *profile, 1), "backing cannot launch before its source records");
+  auto duplicate = song; duplicate[duplicate.size() - 7] = 0;
+  require(!compiled::Program::create(duplicate.data(), duplicate.size(), 2000, *profile, 1), "duplicate backing voice at one position is rejected");
+  auto wrong_voice = song; wrong_voice[wrong_voice.size() - 10] = 1;
+  require(!compiled::Program::create(wrong_voice.data(), wrong_voice.size(), 2000, *profile, 1), "backing source belongs to the written voice");
+
+  std::vector<float> source(12500), expected(source.size());
+  std::fill(source.begin(), source.begin() + 1000, .25f);
+  std::fill(source.begin() + 1000, source.begin() + 2000, .375f);
+  std::fill(source.begin() + 2000, source.begin() + 3000, .5f);
+  source[0] = .875f;
+  for (uint32_t frame = 4000; frame < 5500; ++frame) expected[frame] = source[(frame - 4000) % 1000];
+  for (uint32_t frame = 5500; frame < 12000; ++frame) expected[frame] = source[1000 + (frame - 5500) % 2000];
+  for (uint32_t block : {1u, 127u, 1024u}) {
+    auto program = compiled::Program::create(song.data(), song.size(), 2000, *profile, 1);
+    require(bool(program), "written backing fixture loads");
+    std::vector<float> output(source.size());
+    heap_allocations = heap_frees = 0; watch_heap = true;
+    program->start(1, 0, 0, 120);
+    program->beat(PF_PLAYING, 1, 1, 0, 0, 120);
+    for (uint32_t frame = 0; frame < output.size(); frame += block)
+      program->render(source.data() + frame, output.data() + frame, nullptr, nullptr, nullptr,
+        std::min(block, uint32_t(output.size()) - frame), frame, 120, true, *profile, *backup);
+    program->stop();
+    std::array<float, 32> resumed{};
+    program->start(3, 0, 16000, 120);
+    program->beat(PF_PLAYING, 3, 1, 0, 16000, 120);
+    program->render(nullptr, resumed.data(), nullptr, nullptr, nullptr, resumed.size(), 16000, 120, false, *profile, *backup);
+    watch_heap = false;
+    require(output == expected, "written backing starts at commit, switches at a fractional beat, loops, and releases on exact samples");
+    require(std::all_of(resumed.begin(), resumed.end(), [](float sample) { return sample == .375f; }),
+      "mid-song playback resumes the active recorded slice at its elapsed phase");
+    require(!heap_allocations && !heap_frees, "backing dispatch and resume perform no heap work");
+  }
+}
 void tambourine_audition_uses_sample_output() {
   Engine engine(48000);
   require(pf_audition_tambourine(engine, 0, -1) < 0, "audition needs a compiled song");
@@ -1656,4 +1756,4 @@ void chart_knob_cues_and_tail() {
 }
 
 }
-int main() { quantized_one_shot_starts_in_phase_and_ends_without_looping(); chart_knob_cues_and_tail(); tambourine_audition_uses_sample_output(); committed_sample_exports_are_bounded_and_owned(); jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); song_lead_in_cue_belongs_to_bar_one(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); full_capture_plays_on_the_commit_frame(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); pedal_bar_boundary_preserves_capture_at_device_rate(); tempo_change_preserves_layered_capture(); layer_can_join_after_returning_to_capture_tempo(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); tempo_change_preserves_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }
+int main() { final_printed_one_shot_drains_into_the_song_capture(); written_backing_follows_sample_boundaries_and_resume(); quantized_one_shot_starts_in_phase_and_ends_without_looping(); chart_knob_cues_and_tail(); tambourine_audition_uses_sample_output(); committed_sample_exports_are_bounded_and_owned(); jiggle_reconnect_preserves_partial_gesture_and_clock(); cue_warning_reads_preserve_state_without_heap_work(); song_lead_in_cue_belongs_to_bar_one(); jiggle_filters_small_motion_in_bounded_musical_buckets(); unified_button_reports_independent_failures(); unified_button_and_light_priority(); prefix_late_arm_zero_cut(); prefix_effected_source_oracle(); prefix_capture_maps_and_selection(); authored_capture_end_finishes_without_finish_press(); automatic_finish_matches_manual_pcm(); missing_play_and_stop_remain_manual(); early_capture_admission_has_bounded_source_capacity(); loop_wrap_discards_unfinished_capture_and_preserves_latest(); rotation_releases_after_inactivity(); rotation_refresh_at_boundary_has_continuous_pcm(); rotation_metadata_rejects_invalid_programs_atomically(); independent_profiles_and_reload_have_real_graphs(); rotation_graph_order_and_tail_pcm(); rotation_uses_musical_time_and_preserves_capture(); capture_layers_and_boundaries(); load_atomicity_and_six_counts(); malformed_capture_graphs_preserve_loaded_take(); stale_bank_rejection_preserves_looping_transport(); joined_capture_suffix_and_phase(); full_capture_plays_on_the_commit_frame(); actual_rate_quantization_join(); tempo_intent_proximity_and_ties(); pedal_bar_boundary_preserves_capture_at_device_rate(); tempo_change_preserves_layered_capture(); layer_can_join_after_returning_to_capture_tempo(); joined_path_and_tempo_have_no_heap_work(); tempo_provenance_retry_and_blank_cell(); tempo_hits_require_active_practice(); stopped_partial_capture_preserves_latest(); disjoint_reservation_handoff_both_orders(); missed_commit_finishes_before_reserved_start(); detached_tail_three_impulse_oracle(); crb_history_has_one_audible_owner(); commit_preflights_entire_selection_before_publication(); tempo_change_preserves_same_boundary_start(); crb_unavailable_start_preserves_old_capture(); independent_unavailable_arm_does_not_rollback_commit(); prepared_capture_reuses_banks_without_heap_work(); automatic_finish_preserves_same_voice_armed_route(); std::puts("Compiled native program tests passed."); return 0; }

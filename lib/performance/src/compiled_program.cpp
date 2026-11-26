@@ -127,6 +127,8 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
   uint64_t edge_offset = 0, knob_offset = 0;
   int knob_count = 0, tail_bar = 0, preflight_count = 0, preflight_midi = -1;
   uint64_t preflight_offset = 0;
+  int follow_count = 0;
+  uint64_t follow_offset = 0;
   int edge_captures = 0, edge_playbacks = 0;
   bool input_extension = false;
   performance_input::Binding input_bindings[PF_INPUT_SWITCHES];
@@ -148,6 +150,12 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       if (offset || fields - cursor < 2 || !whole(data[cursor + 1], data[8])) return nullptr;
       offset = cursor; count = int(data[cursor + 1]);
       cursor += 2 + uint64_t(count) * PF_COMPILED_INTRO_LOOP_FIELDS;
+    } else if (data[cursor] == PF_COMPILED_FOLLOW_MAGIC) {
+      if (follow_offset || data[1] != PF_COMPILED_VERSION || fields - cursor < 2
+        || !whole(data[cursor + 1], PF_MAX_EVENTS) || data[cursor + 1] < 1) return nullptr;
+      follow_offset = cursor;
+      follow_count = int(data[cursor + 1]);
+      cursor += 2 + uint64_t(follow_count) * PF_COMPILED_FOLLOW_FIELDS;
     } else if (data[cursor] == PF_COMPILED_PREFLIGHT_MAGIC) {
       if (preflight_offset || data[1] != PF_COMPILED_VERSION || fields - cursor < 3
         || !whole(data[cursor + 1], data[8]) || data[cursor + 1] < 1 || !whole(data[cursor + 2] + 1, 116)) return nullptr;
@@ -423,7 +431,7 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
     }
     arm_a.edge_capture = arm_b.edge_capture = cut_a.edge_capture = cut_b.edge_capture = true;
   }
-  if (pcm_bytes > 180ULL * 1024 * 1024) return nullptr;
+  if (pcm_bytes > (follow_count ? 224ULL : 180ULL) * 1024 * 1024) return nullptr;
   for (int id = 0; id < program->member_count_; ++id, offset += PF_COMPILED_MEMBER_FIELDS) {
     const double* row = data + offset;
     if (!whole(row[0], PF_MAX_EVENTS - 1) || !index(row[1], program->take_count_) || !std::isfinite(row[2]) || row[2] < 0 || row[2] > 4) return nullptr;
@@ -520,6 +528,39 @@ std::unique_ptr<Program> Program::create(const double* data, uint32_t fields, do
       found = true;
     }
     if (!found) return nullptr;
+  }
+  if (follow_count) {
+    program->follow_.reset(new (std::nothrow) FollowCue[follow_count]);
+    if (!program->follow_) return nullptr;
+  }
+  program->follow_count_ = follow_count;
+  double previous_follow_at = -1;
+  uint32_t voices_at_position = 0;
+  for (int id = 0; id < follow_count; ++id) {
+    const double* row = data + follow_offset + 2 + id * PF_COMPILED_FOLLOW_FIELDS;
+    if (!whole(row[0], program->bars_) || row[0] < 1 || !point(row[1], program->beats_)
+      || !index(row[2], PF_CHANNELS) || !whole(row[3] + 1, PF_MAX_EVENTS)) return nullptr;
+    auto& follow = program->follow_[id];
+    follow.at = (row[0] - 1) * program->beats_ + row[1];
+    follow.voice = int(row[2]);
+    const uint32_t voice_bit = 1u << follow.voice;
+    if (follow.at < previous_follow_at) return nullptr;
+    if (follow.at > previous_follow_at) voices_at_position = 0;
+    if (voices_at_position & voice_bit) return nullptr;
+    voices_at_position |= voice_bit;
+    previous_follow_at = follow.at;
+    for (int play = 0; play < program->playback_count_; ++play)
+      if (program->playback_[play].voice == follow.voice) return nullptr;
+    if (row[3] < 0) continue;
+    for (int window = 0; window < window_count; ++window)
+      if (program->selection_windows_[window].selection == int(row[3])) follow.window = window;
+    if (follow.window < 0) return nullptr;
+    const auto& view = program->selection_windows_[follow.window];
+    const auto& take = program->takes_[view.take];
+    if (take.preflight || take.anchor != view.take || take.voice != follow.voice || take.end > follow.at) return nullptr;
+    for (int member = 0; member < program->member_count_; ++member)
+      if (program->members_[member].selection == int(row[3])) follow.member = member;
+    if (follow.member < 0) return nullptr;
   }
   auto full_take = [&](int selection, int voice) {
     for (int index = 0; index < program->window_count_; ++index)
@@ -619,6 +660,7 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
   auto scans = std::unique_ptr<std::unique_ptr<patches::Rack>[]>(new (std::nothrow) std::unique_ptr<patches::Rack>[window_count_ * 2]);
   auto checkpoints = std::unique_ptr<std::unique_ptr<patches::Rack>[]>(new (std::nothrow) std::unique_ptr<patches::Rack>[window_count_ * 2]);
   if (!checkpoints || !scans) return false;
+  const uint64_t budget = (follow_count_ ? 444ULL : 200ULL) * 1024 * 1024;
   uint64_t estimated = 0;
   for (int id = 0; id < take_count_; ++id) for (int bank = 0; bank < 2; ++bank)
     if (takes_[id].cache[bank]) estimated += takes_[id].cache[bank]->memory_bytes() + takes_[id].playback[bank]->memory_bytes();
@@ -638,7 +680,7 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
     players[id][bank] = patches::Playback::create(*caches[id][bank], patches::PlaybackMode::evolving);
     if (!players[id][bank]) return false;
     estimated += caches[id][bank]->memory_bytes() + players[id][bank]->memory_bytes();
-    if (estimated > 200ULL * 1024 * 1024) return false;
+    if (estimated > budget) return false;
   }
   for (int id = 0; id < window_count_; ++id) for (int bank = 0; bank < 2; ++bank) {
     auto& window = selection_windows_[id];
@@ -651,7 +693,7 @@ bool Program::prepare_effects(const patches::Rack* const* definitions, const uin
     if (!checkpoints[id * 2 + bank]) return false;
     estimated += checkpoints[id * 2 + bank]->memory_bytes();
     if (scans[id * 2 + bank]) estimated += scans[id * 2 + bank]->memory_bytes();
-    if (estimated > 200ULL * 1024 * 1024) return false;
+    if (estimated > budget) return false;
   }
   for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) {
     if (voices[voice]) { voices_[voice] = std::move(voices[voice]); tails_[voice] = std::move(tails[voice]); }
@@ -683,6 +725,7 @@ void Program::start(int start_bar, int count_in_beats, double frame, double bpm,
   if (preflight_step >= 0 && preflight_step < preflight_count_) active_preflight_take_ = preflight_takes_[preflight_step];
   reset_edge_pairs(); bpm_ = bpm; run_end_ = end_bar > 0 ? end_bar : end_; captures_cancelled_ = false;
   start_ = start_bar; phase_ = count_in_beats ? PF_COUNT_IN : PF_PLAYING; bar_ = count_in_beats ? 0 : start_bar;
+  reset_follow();
   if (start_ > 1) reset_reachable_takes(count_in_beats != 0);
   for (int id = 0; id < note_count_; ++id) notes_[id].played = false;
   for (int id = 0; id < knob_count_; ++id) knob_cues_[id].state = KnobCue::State::waiting;
@@ -723,7 +766,7 @@ void Program::reset_reachable_takes(bool count_in) noexcept {
     take.latest = take.active_selection = -1;
   }
 }
-void Program::stop() noexcept {
+void Program::stop(bool finish_printed) noexcept {
   pause_tuning_bank();
   cancel_edge_capture();
   if (active_preflight_take_ >= 0) {
@@ -742,13 +785,15 @@ void Program::stop() noexcept {
   for (auto& voice : external_playback_) voice = {};
   for (auto& launch : overlap_launch_) launch = {};
   active_capture_ = {}; live_route_ = -1; monitor_route_ = default_route; rotation_deadline_frame_ = -1; clear_gesture(); phase_ = PF_IDLE;
+  std::fill(std::begin(follow_active_), std::end(follow_active_), -1);
 
   for (int button = 0; button < PF_CHANNELS; ++button) { gated_[button] = held_[button] = -1; button_down_[button] = false; input_owner_[button] = 0; } error_ = PF_OK;
   for (int id = 0; id < cue_count_; ++id) pending_[id] = {};
   for (int voice = 0; voice < PF_VOICE_PROFILES; ++voice) { if (voices_[voice]) voices_[voice]->reset(); if (tails_[voice]) tails_[voice]->reset(); drain_[voice] = 0; detached_tail_[voice] = false; tail_generation_[voice] = 0; }
   drain_[default_route] = 0; drain_[backup_route] = 0;
   std::fill(handed_off_, handed_off_ + PF_VOICE_PROFILES, false);
-  for (int id = 0; id < take_count_; ++id) for (auto& playback : takes_[id].playback) if (playback) playback->reset();
+  for (int id = 0; id < take_count_; ++id) for (auto& playback : takes_[id].playback)
+    if (playback && (!finish_printed || !playback->printed_once_remaining_frames())) playback->reset();
 }
 void Program::microphone_lost() noexcept {
   pause_tuning_bank();
@@ -1393,6 +1438,12 @@ void Program::stop_voice(int voice, bool hard) noexcept {
     if (hard) playback->reset(); else playback->stop();
   }
 }
+uint64_t Program::printed_tail_frames() const noexcept {
+  uint64_t remaining = 0;
+  for (int id = 0; id < take_count_; ++id) for (const auto& playback : takes_[id].playback)
+    if (playback) remaining = std::max(remaining, playback->printed_once_remaining_frames());
+  return remaining;
+}
 bool Program::start_intro_loop(Take& take, const SelectionWindow& window, bool capture_handoff) noexcept {
   const int bank = take.latest;
   if (window.repeat_frame[bank] < 0 || window.cut[bank] <= window.repeat_frame[bank]
@@ -1846,6 +1897,68 @@ void Program::apply_pending(double frame, double bpm, bool live) noexcept {
     if (!select(voice, launch.selection, false)) { stop(); error_ = PF_ACTION_FAILED; return; }
     if (observer_) observer_(observer_context_, frame);
   }
+  apply_follow(frame, now);
+}
+void Program::reset_follow() noexcept {
+  const double start = (start_ - 1) * beats_;
+  follow_cursor_ = 0;
+  std::fill(std::begin(follow_before_start_), std::end(follow_before_start_), -1);
+  while (follow_cursor_ < follow_count_ && follow_[follow_cursor_].at < start) {
+    follow_before_start_[follow_[follow_cursor_].voice] = follow_cursor_;
+    ++follow_cursor_;
+  }
+  for (int voice = 0; voice < PF_CHANNELS; ++voice) if (follow_active_[voice] >= 0) {
+    stop_selection(follow_active_[voice], true);
+    follow_active_[voice] = -1;
+  }
+}
+void Program::play_follow(const FollowCue& cue, double elapsed) noexcept {
+  const int previous = follow_active_[cue.voice];
+  const auto release_previous = [&] { if (previous >= 0) stop_selection(previous); };
+  follow_active_[cue.voice] = -1;
+  if (cue.window < 0) { release_previous(); return; }
+
+  const auto& view = selection_windows_[cue.window];
+  auto& take = takes_[view.take];
+  const int bank = take.latest;
+  if (bank < 0 || view.start[bank] < 0 || view.cut[bank] <= view.start[bank]) { release_previous(); return; }
+  const bool full_period = view.begin == 0 && view.period == take.loop_end - take.begin;
+  if (!full_period && view.finish[bank] <= view.start[bank]) { release_previous(); return; }
+  const uint32_t first = uint32_t(view.start[bank]);
+  const uint32_t period = full_period ? take.cache[bank]->period() : uint32_t(view.finish[bank] - view.start[bank]);
+  auto& player = *take.playback[bank];
+  if (!player.start_window(true, first, uint32_t(view.cut[bank]), period, *view.initial[bank])) { release_previous(); return; }
+  if (previous >= 0 && !selections_overlap(previous, view.selection)) release_previous();
+  auto& clock = take.clock[bank];
+  clock = {take.begin + view.begin, view.period, 0, first, period, false};
+  clock.phase = clock.wrap(elapsed);
+  if (clock.phase > epsilon) {
+    const auto& grid = take.grid[bank];
+    const double source = grid.interpolate(clock.first_count + clock.phase, false, rate_ * 60 / grid.initial_bpm) - first;
+    clock.warped = true;
+    player.set_warped_phase(std::clamp(source, 0.0, std::nextafter(double(period), 0.0)));
+  }
+  take.active_selection = view.selection;
+  take.playback_gain[bank] = take.gain * members_[cue.member].gain;
+  follow_active_[cue.voice] = selection_[cue.voice] = view.selection;
+}
+void Program::apply_follow(double frame, double now) noexcept {
+  if (!follow_count_ || active_preflight_take_ >= 0 || phase_ != PF_PLAYING || bar_ < start_) return;
+  const double start = (start_ - 1) * beats_;
+  while (follow_cursor_ < follow_count_) {
+    const auto& follow = follow_[follow_cursor_];
+    if (follow.at >= run_end_ * beats_ || frame < boundary_frame(frame_at(follow.at))) break;
+    follow_before_start_[follow.voice] = -1;
+    play_follow(follow, 0);
+    ++follow_cursor_;
+    if (observer_) observer_(observer_context_, frame);
+  }
+  for (int& index : follow_before_start_) if (index >= 0 && frame >= boundary_frame(frame_at(start))) {
+    const auto& follow = follow_[index];
+    index = -1;
+    play_follow(follow, std::max(start, now) - follow.at);
+    if (observer_) observer_(observer_context_, frame);
+  }
 }
 void Program::beat(int phase, int bar, int beat, int count_remaining, double frame, double bpm, bool live) noexcept {
   remember_cues(frame, bpm);
@@ -1858,6 +1971,7 @@ void Program::beat(int phase, int bar, int beat, int count_remaining, double fra
     clear_gesture();
     rotation_deadline_frame_ = -1;
     apply_pending(boundary_frame(frame), bpm, live);
+    reset_follow();
     captures_cancelled_ = false;
     if (active_capture_.take >= 0) {
       int cue = takes_[active_capture_.take].commit_cue;

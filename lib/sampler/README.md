@@ -18,7 +18,7 @@ Loop playback keeps the source speed. It does not stretch after a tempo change. 
 
 One caller owns each `st_engine`; its functions are not thread-safe. Native capture, rendering, triggering, starting, and committing do not allocate or free sample memory. Preparation and loading allocate buffers and reclaim retired buffers. Active voices retain the old take when another take replaces the channel's current sample.
 
-The browser module has a fixed 256 MiB heap with memory growth disabled. Allocation failure reports an error instead of aborting the module. A failed load or preparation preserves the installed sample and prepared slot. The four practice channels share this memory with the clock, retained variants, and staging buffers.
+The browser module has a fixed 448 MiB heap with memory growth disabled. Allocation failure reports an error instead of aborting the module. A failed load or preparation preserves the installed sample and prepared slot. The four practice channels share this memory with the clock, retained variants, and staging buffers.
 
 Native diagnostic queries expose borrowed PCM pointers. The TypeScript bridge can wrap them in `Float32Array` views of WASM memory. These are not JavaScript-owned sample copies. Preparation, loading, or engine disposal can invalidate a borrowed view, so do not retain it as UI state.
 

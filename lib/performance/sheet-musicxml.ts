@@ -94,7 +94,7 @@ export async function importSheetMusicXml(options: { source: unknown; mapping: u
         return { cell, bar: bar.bar, text, reading };
       }) })),
   });
-  const tailColumn = song.tail && song.chart.bars[song.tail.bar - 1]?.column;
+  const tailColumn = song.chart.bars.find(bar => bar.label === 'Tail')?.column;
   const boundaryCues: NonNullable<MusicXmlReport['annotations']['boundaryCues']> = report.parts.flatMap(part =>
     (source.values[mapping.barRow - 1] ?? []).flatMap((label, index) => {
       const position = label.trim() === 'Lead-in' || index + 1 === mapping.leadInColumn ? 'lead-in'

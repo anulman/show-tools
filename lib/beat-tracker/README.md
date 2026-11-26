@@ -12,7 +12,7 @@ npm run build:wasm
 
 The build writes `ui/practice/wasm/manual-clock.wasm` and runs its real-WASM clock tests. That module contains the [complete C++ performance engine](../performance/README.md), including the clock, sequencer, sampler, song transport, and click renderer. This target uses a no-op detector and does not link or download aubio. Microphone capture remains available in the Performance Desk, but it does not infer tempo from microphone input.
 
-The Performance Desk passes this WASM URL explicitly to its browser adapter. Native `pf_start()` selects manual tempo and applies the starting BPM. The combined WASM heap is fixed at 256 MiB. The audio callback does not grow memory. Sample preparation and loading report allocation failure without aborting the module or replacing the prior take.
+The Performance Desk passes this WASM URL explicitly to its browser adapter. Native `pf_start()` selects manual tempo and applies the starting BPM. The combined WASM heap is fixed at 448 MiB. The audio callback does not grow memory. Sample preparation and loading report allocation failure without aborting the module or replacing the prior take.
 
 ## Build the optional tempo follower
 

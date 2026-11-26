@@ -137,7 +137,7 @@ test('native byte artifact and failed replacement preserve an existing prepared 
       assert.equal(native.state().endBar, state.endBar);
       native.prepareLiveEffects([{ kind: 'slapback', delayMs: 100, feedback: .2, wet: .25 }]);
       assert.equal(native.liveEffects().captureSupported, true);
-      assert.equal(native.memory.buffer.byteLength, 268435456);
+      assert.equal(native.memory.buffer.byteLength, 448 * 1024 * 1024);
     } finally { native.invoke('free', pointer); }
   } finally { native.dispose(); }
 });

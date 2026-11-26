@@ -33,7 +33,8 @@ class Program {
   int preflight_reference_midi() const noexcept { return preflight_reference_midi_; }
   int preflight_bars(int step) const noexcept;
   bool preflight_ready(int step) const noexcept;
-  void stop() noexcept;
+  void stop(bool finish_printed = false) noexcept;
+  uint64_t printed_tail_frames() const noexcept;
   void microphone_lost() noexcept;
   int press(int button, double frame, double bpm, bool microphone) noexcept;
   void release(int button) noexcept;
@@ -86,6 +87,7 @@ class Program {
   struct Cue;
   struct Member;
   struct PlaybackCue;
+  struct FollowCue { double at = 0; int voice = 0, window = -1, member = -1; };
   struct Pending;
   struct Due;
   struct InstrumentNote { int button = 0; uint32_t slot = 0; double at = 0, tolerance = 0; bool played = false; };
@@ -170,6 +172,9 @@ class Program {
   double position(double frame, double bpm) const noexcept;
   double frame_at(double position) const noexcept;
   void apply_pending(double frame, double bpm, bool live) noexcept;
+  void reset_follow() noexcept;
+  void apply_follow(double frame, double position) noexcept;
+  void play_follow(const FollowCue& cue, double elapsed) noexcept;
   double cue_frame(const Cue& cue, double bpm) const noexcept;
   void remember_cues(double frame, double bpm) noexcept;
   double loop_phase(const Take& take, int bank) const noexcept;
@@ -203,6 +208,11 @@ class Program {
   bool detached_tail_[PF_VOICE_PROFILES]{};
   uint64_t tail_generation_[PF_VOICE_PROFILES]{}, capture_generation_ = 0;
   int take_count_ = 0, cue_count_ = 0, member_count_ = 0, playback_count_ = 0;
+  std::unique_ptr<FollowCue[]> follow_;
+  int follow_count_ = 0, follow_cursor_ = 0;
+  int follow_before_start_[PF_CHANNELS]{-1, -1, -1, -1};
+  int follow_active_[PF_CHANNELS]{-1, -1, -1, -1};
+
   int beats_ = 4, bars_ = 1, end_ = 1, start_ = 1, run_end_ = 1, phase_ = PF_IDLE, bar_ = 0;
   int binding_[PF_CHANNELS]{0, 1, 2, 3}, selection_[PF_CHANNELS]{-1, -1, -1, -1};
   int gated_[PF_CHANNELS]{-1, -1, -1, -1}, held_[PF_CHANNELS]{-1, -1, -1, -1};
