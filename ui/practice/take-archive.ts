@@ -72,6 +72,7 @@ async function sameBytes(left: Blob, right: Blob) {
 }
 
 class ArchiveProblem extends Error {}
+class TakeProblem extends Error {}
 
 async function checkFolder(folder: Folder) {
   const file = await getFile(folder.handle, marker);
@@ -99,15 +100,15 @@ async function saveRecording(db: IDBDatabase, folder: Folder, desk: RemoteDesk, 
     return name;
   }
   if (previous && (previous.size !== 0 || !wasCreatedByArchive))
-    throw new ArchiveProblem('A different file already exists: ' + name);
+    throw new TakeProblem('A different file already exists: ' + name + '.');
   await preference(db, 'readwrite', store => store.put(true, claim));
   if (!handle) {
     handle = await folder.handle.getFileHandle(name, { create: true });
-    if ((await handle.getFile()).size !== 0) throw new ArchiveProblem('A different file already exists: ' + name);
+    if ((await handle.getFile()).size !== 0) throw new TakeProblem('A different file already exists: ' + name + '.');
   }
   await writeFile(handle, wav);
   await checkFolder(folder);
-  if (!await sameBytes(await handle.getFile(), wav)) throw new ArchiveProblem('Could not verify ' + name + '.');
+  if (!await sameBytes(await handle.getFile(), wav)) throw new TakeProblem('Could not verify ' + name + '.');
   await desk.acknowledgeRecording(recording);
   await preference(db, 'readwrite', store => store.delete(claim));
   return name;
@@ -140,6 +141,14 @@ export function enableTakeArchive(options: {
   let folder: Folder | undefined;
   let busy = false;
   let lastSaved = '';
+  let cursor: string | undefined;
+  let issueThisPass = '';
+  let issueLastPass = '';
+  let lastDesk: RemoteDesk | undefined;
+  function resetScan() {
+    cursor = undefined;
+    issueThisPass = issueLastPass = '';
+  }
   function show(text: string, permissionNeeded = false) {
     if (signal.aborted) return;
     if (status.textContent !== text) status.textContent = text;
@@ -167,13 +176,20 @@ export function enableTakeArchive(options: {
         const db = await preferences;
         const value = await preference<unknown>(db, 'readonly', store => store.get('folder'));
         const selected = isFolder(value) ? value : undefined;
-        if (folder?.id !== selected?.id) lastSaved = '';
+        if (folder?.id !== selected?.id) {
+          lastSaved = '';
+          resetScan();
+        }
         folder = selected;
         if (!selected) {
           message = 'Automatic saving is off.';
           return;
         }
         const remote = desk();
+        if (lastDesk !== remote) {
+          lastDesk = remote;
+          resetScan();
+        }
         if (!remote || remote.connection.kind !== 'connected') {
           message = 'Waiting for the hardware desk.';
           return;
@@ -184,17 +200,40 @@ export function enableTakeArchive(options: {
           return;
         }
         await checkFolder(selected);
-        const pending = await remote.pendingRecordings();
-        if (!pending) {
+        const page = await remote.pendingRecordings(cursor);
+        if (!page) {
           message = 'Automatic saving is not configured on the EliteDesk.';
           return;
         }
-        for (const recording of pending) {
+        for (const recording of page.pending) {
           signal.throwIfAborted();
+          if (!('bytes' in recording)) {
+            issueThisPass ||= 'Could not read ' + filename(recording.id) + ' on the EliteDesk. Take remains queued.';
+            continue;
+          }
           show('Saving takes to ' + selected.handle.name + '…');
-          lastSaved = await saveRecording(db, selected, remote, recording);
+          try { lastSaved = await saveRecording(db, selected, remote, recording); }
+          catch (error) {
+            signal.throwIfAborted();
+            if (error instanceof ArchiveProblem || remote.connection.kind !== 'connected') throw error;
+            if (await permission(selected.handle, 'queryPermission') !== 'granted') {
+              permissionNeeded = true;
+              message = 'Folder access needed for ' + selected.handle.name + '.';
+              return;
+            }
+            await checkFolder(selected);
+            const failure = error instanceof TakeProblem ? error.message : 'Could not save ' + filename(recording.id) + '.';
+            issueThisPass ||= failure + ' Take remains queued.';
+          }
         }
-        message = lastSaved ? 'Saved to ' + selected.handle.name + ': ' + lastSaved : 'Ready to save to ' + selected.handle.name + '.';
+        cursor = page.next;
+        if (!cursor) {
+          issueLastPass = issueThisPass;
+          issueThisPass = '';
+        }
+        const issue = issueThisPass || issueLastPass;
+        const saved = lastSaved ? 'Saved to ' + selected.handle.name + ': ' + lastSaved : '';
+        message = [issue, saved].filter(Boolean).join(' ') || 'Ready to save to ' + selected.handle.name + '.';
       });
     } catch (error) {
       busy = false;
@@ -221,6 +260,7 @@ export function enableTakeArchive(options: {
       });
       folder = selected;
       lastSaved = '';
+      resetScan();
     } catch (error) {
       busy = false;
       if (error instanceof DOMException && error.name === 'AbortError') return;
@@ -245,6 +285,7 @@ export function enableTakeArchive(options: {
       busy = false;
       folder = undefined;
       lastSaved = '';
+      resetScan();
       show('Automatic saving is off.');
     }, error => { busy = false; report(error); });
   }, { signal });

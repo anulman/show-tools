@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
 import { lstat, open, opendir, realpath } from 'node:fs/promises';
 import { basename, dirname, join, resolve, sep } from 'node:path';
-import { decodeRecordingId, MAX_DEMO_BYTES, RECORDING_ARCHIVE_BATCH, type ArchivedRecording } from './recording-archive-schema.js';
+import { decodeRecordingId, MAX_DEMO_BYTES, RECORDING_ARCHIVE_BATCH, type ArchivedRecording, type PendingRecording } from './recording-archive-schema.js';
 import type { SessionProfile } from './session-profile.js';
 
 function absent(error: unknown) {
@@ -85,19 +85,22 @@ export class RecordingArchive {
     return true;
   }
 
-  async pending(): Promise<{ pending: ArchivedRecording[] }> {
-    const entries: Entry[] = [];
-    for await (const entry of this.entries(true)) {
-      entries.push(entry);
-      entries.sort((a, b) => a.completedAt - b.completedAt || a.id.localeCompare(b.id));
-      if (entries.length > RECORDING_ARCHIVE_BATCH) entries.pop();
+  async pending(after?: string): Promise<{ pending: PendingRecording[]; next?: string }> {
+    const queue: PendingRecording[] = [];
+    for await (const entry of this.entries(true, after)) {
+      queue.push('bytes' in entry ? { id: entry.id, bytes: entry.bytes } : entry);
+      queue.sort((a, b) => a.id < b.id ? -1 : a.id === b.id ? 0 : 1);
+      if (queue.length > RECORDING_ARCHIVE_BATCH + 1) queue.pop();
     }
-    return { pending: entries.map(({ id, bytes }) => ({ id, bytes })) };
+    const pending = queue.slice(0, RECORDING_ARCHIVE_BATCH);
+    const next = queue.length > pending.length ? pending.at(-1)?.id : undefined;
+    return next ? { pending, next } : { pending };
   }
 
   async latest() {
     let latest: Entry | undefined;
     for await (const entry of this.entries(false)) {
+      if (!('bytes' in entry)) continue;
       if (!latest || entry.completedAt > latest.completedAt || (entry.completedAt === latest.completedAt && entry.id > latest.id))
         latest = entry;
     }
@@ -117,27 +120,32 @@ export class RecordingArchive {
     return take;
   }
 
-  private async *entries(pendingOnly: boolean) {
+  private async *entries(pendingOnly: boolean, after?: string): AsyncGenerator<Entry | { id: string; kind: 'unavailable' }> {
     const directory = await opendir(this.root);
     for await (const child of directory) {
-      if (!child.isDirectory() || !/^take-[A-Za-z0-9]{6}$/.test(child.name)) continue;
-      const take = await this.takeDirectory(child.name);
-      if (!take) continue;
-      if (pendingOnly) {
-        const saved = await lstat(join(take, 'saved')).catch(error => {
-          if (absent(error)) return null;
-          throw error;
-        });
-        if (saved) {
-          if (!saved.isFile() || saved.nlink !== 1 || saved.uid !== process.getuid?.() || (saved.mode & 0o077) || saved.size)
-            throw new Error('Invalid recording receipt');
-          continue;
+      if (!child.isDirectory() || child.name.length !== 11 || !/^take-[A-Za-z0-9]{6}$/.test(child.name)
+        || (after !== undefined && child.name <= after)) continue;
+      try {
+        const take = await this.takeDirectory(child.name);
+        if (!take) continue;
+        if (pendingOnly) {
+          const saved = await lstat(join(take, 'saved')).catch(error => {
+            if (absent(error)) return null;
+            throw error;
+          });
+          if (saved) {
+            if (!saved.isFile() || saved.nlink !== 1 || saved.uid !== process.getuid?.() || (saved.mode & 0o077) || saved.size)
+              throw new Error('Invalid recording receipt');
+            continue;
+          }
         }
+        const file = await openDemoFile(join(take, 'recording.wav'));
+        if (!file) continue;
+        await file.file.close();
+        yield { id: child.name, bytes: file.bytes, completedAt: file.completedAt };
+      } catch {
+        yield { id: child.name, kind: 'unavailable' };
       }
-      const file = await openDemoFile(join(take, 'recording.wav'));
-      if (!file) continue;
-      await file.file.close();
-      yield { id: child.name, bytes: file.bytes, completedAt: file.completedAt };
     }
   }
 }

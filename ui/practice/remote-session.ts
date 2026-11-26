@@ -172,11 +172,11 @@ export class RemoteDesk {
     return fetch('/api/recording-archive' + path, { method, headers: { Authorization: 'Bearer ' + this.token },
       cache: 'no-store', signal: this.abort.signal });
   }
-  async pendingRecordings() {
-    const response = await this.archiveRequest('');
+  async pendingRecordings(after?: string) {
+    const response = await this.archiveRequest(after ? '?after=' + encodeURIComponent(after) : '');
     if (response.status === 404) return null;
     if (!response.ok) throw new Error('Recording archive is unavailable.');
-    return decodeRecordingArchive(await readJson(response)).pending;
+    return decodeRecordingArchive(await readJson(response));
   }
   async readRecording(recording: ArchivedRecording) {
     const response = await this.archiveRequest('/' + recording.id);

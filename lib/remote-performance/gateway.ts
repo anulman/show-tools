@@ -501,7 +501,11 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
       const archive = controller.recordingArchive;
       if (request.method === 'GET' && path === '/api/recording-archive') {
         if (!archive) return json(response, 404, { error: 'Recording archive is not configured' });
-        try { return json(response, 200, await archive.pending()); }
+        let after;
+        const cursor = url.searchParams.get('after');
+        try { after = cursor === null ? undefined : decodeRecordingId(cursor); }
+        catch { return json(response, 400, { error: 'Invalid recording cursor' }); }
+        try { return json(response, 200, await archive.pending(after)); }
         catch { return json(response, 503, { error: 'Recording archive is unavailable' }); }
       }
       if (path.startsWith('/api/recording-archive/')) {
