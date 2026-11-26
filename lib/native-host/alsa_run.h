@@ -7,7 +7,7 @@ class AlsaRun {
  public:
   template<class Device>
   int start(Instrument& instrument, Device& device, const Start& start) {
-    if (finishing_ || !instrument.can_start()) return -1;
+    if ((finishing_ && !instrument.has_idle_utility_output()) || !instrument.can_start()) return -1;
     const bool reset = active_ && !instrument.idle_monitor_only();
     if (!instrument.start(start)) return -1;
     if (reset && drop(device) < 0) return -2;

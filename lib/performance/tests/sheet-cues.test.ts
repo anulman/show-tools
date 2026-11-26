@@ -166,6 +166,40 @@ test('explicit per-note fixture order is canonical data and encodes manual nativ
   assert.throws(() => decodeCompiledSong({ ...song, noteBanks: [{ ...song.noteBanks?.[0], notes: [{ slot: 8, at: { bar: 9, beat: 0 } }, { slot: 9, at: { bar: 8, beat: 0 } }] }] }), /note order/);
 });
 
+test('sheet tap rhythms use the declared captured notes and retain ordinary actions through MusicXML', async () => {
+  const { terseCaptureInput } = await import('./fixtures/terse-capture.js');
+  const { source, mapping } = terseCaptureInput();
+  const values = source.values.map(row => [...row]);
+  values[18][5] = '4';
+  values[18][6] = '1&2&';
+  values[20][6] = '(4)&';
+  const capture = { profile: 0, root: 52, scale: 'major', slots: [0, 1, 2, 3, 4, 5, 6, 7] } satisfies NonNullable<SongMapping['tunedNotes']>['capture'];
+  const tunedNotes = {
+    capture, toleranceMs: 100,
+    bindings: [
+      { buttonId: 'R2', patterns: [{ notation: '4', slot: 2 }, { notation: '1&2&', slot: 3 }] },
+      { buttonId: 'L2', slot: 4 },
+    ],
+  } satisfies NonNullable<SongMapping['tunedNotes']>;
+  const authoredMapping = { ...mapping, tunedNotes };
+  const imported = await importSheetMusicXml({ source: { ...source, values }, mapping: authoredMapping });
+  const { song } = await readMusicXmlSong(imported.xml);
+  assert.equal(song.executable, true, JSON.stringify(song.diagnostics));
+  assert.deepEqual(song.noteBanks?.map(bank => [bank.buttonId, bank.notes.map(note => [note.at.bar, note.at.beat, note.slot])]), [
+    ['R2', [[4, 3, 2], [5, 0, 3], [5, .5, 3], [5, 1, 3], [5, 1.5, 3]]],
+    ['L2', [[5, 3.5, 4]]],
+  ]);
+  assert.deepEqual(song.noteBanks?.flatMap(bank => bank.capture ? [bank.capture] : []),
+    [{ profile: 0, target: { root: 52, scale: 'major' }, slots: capture.slots }]);
+  assert(song.cues.some(cue => cue.buttonId === 'R2' && cue.kind === 'stop'));
+  await assert.rejects(readMusicXmlSong(imported.xml.replace('command-R2-4">4<', 'command-R2-4">3<')), /Authored rhythm disagrees/);
+
+  values[18][5] = '2';
+  const blocked = await compileSheetsSong({ ...source, values }, authoredMapping);
+  assert.equal(blocked.executable, false);
+  assert(blocked.diagnostics.some(diagnostic => diagnostic.code === 'tuned-note-pattern' && diagnostic.source.a1 === 'F19'));
+});
+
 test('pickup source instructions fail visibly until their chart timeline is represented', async () => {
   const { terseCaptureInput } = await import('./fixtures/terse-capture.js');
   const { source, mapping } = terseCaptureInput();

@@ -35,6 +35,10 @@ export class PracticeAudio {
   private latestTuningBank: TuningBankState | null = null;
   readonly tuner: TunerPort = {
     prepareBank: options => this.prepareTuningBank(options),
+    beginRequiredBank: async capture => {
+      await this.request('practice.required-tuning', { capture });
+      return this.tuner.snapshot();
+    },
     snapshot: () => {
       if (this.disposed || !this.latestTuner) throw new Error('Shared audio tuner is unavailable');
       return this.latestTuner;

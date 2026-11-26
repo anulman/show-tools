@@ -6,10 +6,10 @@ import { playableBars } from '../../../lib/performance/chart.ts';
 test('loadable scripts keep song tempo, sheet columns, and trigger patterns separate', async () => {
   const loaded = await Promise.all(SONGS.map(entry => loadSong(entry.id)));
   assert.deepEqual(loaded.map(song => song.id), ['dance-yrself-clean', 'drunk-girls', 'i-can-change', 'tribulations', 'daft-punk', 'all-i-want', 'you-wanted-a-hit']);
-  assert.deepEqual(loaded.map(song => song.chart.bpm), [98, 144, 117, 132, 154, 137, 127]);
+  assert.deepEqual(loaded.map(song => song.chart.bpm), [98, 144, 117.1, 132, 154, 137, 127]);
   assert.deepEqual(loaded.map(song => song.chart.bars[0].column), [3, 4, 5, 3, 4, 3, 2]);
-  assert.deepEqual(loaded.map(song => song.practice.endBar), [218, 137, 168, 160, 192, 217, 244]);
-  assert.deepEqual(loaded.map(song => playableBars(song.chart)), [218, 137, 168, 160, 192, 217, 244]);
+  assert.deepEqual(loaded.map(song => song.practice.endBar), [218, 137, 169, 160, 192, 217, 244]);
+  assert.deepEqual(loaded.map(song => playableBars(song.chart)), [218, 137, 169, 160, 192, 217, 244]);
   assert.equal(loaded[0].chart.sections[0].label, 'Instrumental A1');
   assert.equal(loaded[1].chart.sections[0].label, 'Intro');
   assert.equal(loaded[2].chart.sections[0].label, 'Intro 1');
@@ -18,7 +18,9 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   assert.equal(loaded[1].chart.bars[9].label, '1', 'numbered bar 1 follows nine full pickup measures');
   assert.equal(loaded[1].chart.bars[16].partial, false, 'starred section changes are not partial bars');
   assert.equal(loaded[1].compiled.executable, true);
-  for (const index of [2, 4, 5, 6]) {
+  assert.equal(loaded[2].compiled.executable, true);
+  assert.ok(loaded[2].compiled.cues.length > 0);
+  for (const index of [4, 5, 6]) {
     assert.equal(loaded[index].compiled?.executable, true);
     assert.deepEqual(loaded[index].compiled.cues, []);
     assert.deepEqual(loaded[index].compiled.takes, []);

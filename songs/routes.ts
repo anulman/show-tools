@@ -1,7 +1,7 @@
 const setList = [
   { number: 1, id: 'dance-yrself-clean', title: 'Dance Yrself Clean', rehearsal: false },
   { number: 2, id: 'drunk-girls', title: 'Drunk Girls', rehearsal: false },
-  { number: 3, id: 'i-can-change', title: 'I Can Change', rehearsal: true },
+  { number: 3, id: 'i-can-change', title: 'I Can Change', rehearsal: false },
   { number: 4, id: 'tribulations', title: 'Tribulations', rehearsal: false },
   { number: 5, id: 'daft-punk', title: 'Daft Punk Is Playing at My House', rehearsal: true },
   { number: 6, id: 'all-i-want', title: 'All I Want', rehearsal: true },

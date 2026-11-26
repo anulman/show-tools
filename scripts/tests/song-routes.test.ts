@@ -9,10 +9,10 @@ test('numbered routes use the existing song registry and preserve absent slots',
   assert.equal(songRoute('i-can-change'), '03-i-can-change');
   assert.equal(songRoute('tribulations'), '04-tribulations');
   assert.deepEqual(SET_SONGS.filter(song => song.rehearsal).map(song => songRoute(song.id)), [
-    '03-i-can-change', '05-daft-punk', '06-all-i-want', '07-you-wanted-a-hit',
+    '05-daft-punk', '06-all-i-want', '07-you-wanted-a-hit',
   ]);
   assert.deepEqual(SET_SONGS.filter(song => !song.rehearsal).map(song => song.id), [
-    'dance-yrself-clean', 'drunk-girls', 'tribulations',
+    'dance-yrself-clean', 'drunk-girls', 'i-can-change', 'tribulations',
   ]);
   assert.equal(songForRoute('03-tribulations'), undefined);
   assert.equal(songForRoute('4-tribulations'), undefined);

@@ -50,9 +50,10 @@ class Program {
   bool tuning_bank_configured() const noexcept { return note_capture_count_ > 0; }
   bool tuning_bank_ready(uint32_t step) const noexcept;
   bool lock_tuning_note(uint32_t step, double midi) noexcept;
-  bool tuning_motion(double value, double frame) noexcept;
+  bool tuning_motion(double value, double frame, bool require_reversal) noexcept;
   void pause_tuning_bank() noexcept;
   void cancel_tuning_bank() noexcept { pause_tuning_bank(); note_capture_count_ = 0; }
+  void discard_tuning_bank() noexcept;
   void tuning_bank_info(double* out) const noexcept;
   bool set_bend_parameters(double velocity_per_semitone, double stale_ms) noexcept;
   bool prepare_external_sample(uint32_t slot, const float* left, const float* right, uint32_t frames) noexcept;
@@ -86,7 +87,7 @@ class Program {
   struct InstrumentNote { int button = 0; uint32_t slot = 0; double at = 0, tolerance = 0; bool played = false; };
   std::unique_ptr<InstrumentNote[]> notes_;
   int note_count_ = 0;
-  int play_note(int button) noexcept;
+  InstrumentNote* due_note(int button) noexcept;
   int launch_external(uint32_t slot, bool audition = false) noexcept;
   struct ExternalWindow { uint32_t slot = 0; double begin = 0, end = 0; };
   struct ExternalSample { std::unique_ptr<patches::Stereo[]> pcm; uint32_t frames = 0, capacity = 0; double midi = -1; };
@@ -102,8 +103,21 @@ class Program {
   bool note_capture_listening_ = false;
   std::unique_ptr<patches::Stereo[]> note_capture_scratch_;
 
+  struct KnobCue {
+    enum class State { waiting, scheduled, applied };
+    int bar = 0, direction = 0;
+    double at = 0;
+    uint32_t voices = 0;
+    bool resume = false, next_bar = false;
+    State state = State::waiting;
+  };
+  std::unique_ptr<KnobCue[]> knob_cues_;
+  int knob_count_ = 0, tail_bar_ = 0;
+  void apply_knob_cue(KnobCue& cue) noexcept;
+  void set_backing_voice(int voice, bool resume) noexcept;
+
   struct RotationWindow { double begin = 0, end = 0; };
-  struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2], scan_initial[2]; bool automatic = false; uint32_t scan_begin[2]{}; double quality[2]{}; };
+  struct SelectionWindow { int selection = -1, take = -1; double begin = 0, end = 0, period = 0; int64_t start[2]{-1, -1}, cut[2]{-1, -1}, finish[2]{-1, -1}; std::unique_ptr<patches::Rack> initial[2], scan_initial[2]; bool automatic = false, overlap_final_eighth = false; double repeat_begin = -1; int64_t repeat_frame[2]{-1, -1}; uint32_t scan_begin[2]{}; double quality[2]{}; };
   struct CommitPlan { uint32_t period = 0; bool invalid_draft = false; };
   struct ActiveCapture { int take = -1, bank = -1; uint64_t generation = 0; };
   struct EdgeCapturePair { int button = -1, takes[2]{}, arms[2]{}; bool used = false; };
@@ -121,6 +135,9 @@ class Program {
   Program() = default;
   int resolve(int button, double frame, double bpm) noexcept;
   int recoverable_playback(int button, double frame, double bpm) const noexcept;
+  bool prior_capture_loop(const Cue& cue) const noexcept;
+  bool restart_pickup(const Cue& arm) const noexcept;
+  void reset_reachable_takes(bool count_in) noexcept;
   int press_buttons(uint32_t rows, uint64_t owner, double frame, double bpm, bool microphone, bool report_rows, uint64_t source) noexcept;
   int press_selected(int cue, double frame, double bpm, bool microphone, bool recovering) noexcept;
   bool reservation_available(int take, int button, int committing) const noexcept;
@@ -135,9 +152,10 @@ class Program {
   bool selection_profiles_overlap(int first, int second) const noexcept;
   bool selection_profile(int selection, int profile) const noexcept;
   bool selection_ready(int selection, int voice) const noexcept;
+  bool start_intro_loop(Take& take, const SelectionWindow& window, bool capture_handoff) noexcept;
   void observe_sustain(SelectionWindow& window) noexcept;
   void observe_windows(double frame) noexcept;
-  bool select(int voice, int selection, bool automatic, int mode = PF_LOOP_MODE, bool retrigger = false, bool additive = false) noexcept;
+  bool select(int voice, int selection, bool automatic, int mode = PF_LOOP_MODE, bool retrigger = false, bool additive = false, bool resume_intro = false) noexcept;
   int gate_press(int button, double frame, bool microphone) noexcept;
   void stop_selection(int selection, bool hard = false) noexcept;
   bool play_take(int take, double gain = 1) noexcept;
@@ -161,6 +179,7 @@ class Program {
   int rotation_count_ = 0, monitor_route_ = PF_VOICE_PROFILES;
   double rotation_inactivity_ = .25, rotation_deadline_frame_ = -1;
   int minimum_travel_ = 4, minimum_reversal_ = 2, gesture_direction_ = 0, gesture_window_ = -1;
+  bool tuning_turn_armed_ = false;
   double gesture_travel_ = 0, gesture_reversal_ = 0, gesture_bucket_end_ = -1;
   void clear_gesture() noexcept;
   bool meaningful_motion(double value, double frame) noexcept;
@@ -170,6 +189,8 @@ class Program {
   std::unique_ptr<Member[]> members_;
   std::unique_ptr<PlaybackCue[]> playback_;
   std::unique_ptr<Pending[]> pending_;
+  struct OverlapLaunch { int selection = -1; double position = 0; };
+  OverlapLaunch overlap_launch_[PF_CHANNELS]{};
   std::unique_ptr<Due[]> due_;
   std::unique_ptr<patches::Rack> voices_[PF_VOICE_PROFILES], tails_[PF_VOICE_PROFILES];
   bool detached_tail_[PF_VOICE_PROFILES]{};

@@ -35,6 +35,7 @@ public:
   int set_click_gain(double gain);
   int set_jiggle_thresholds(double travel, double reversal);
   int prepare_external_wave(uint32_t slot, const uint8_t* bytes, uint32_t length);
+  int begin_required_tuning(uint32_t expected_revision, uint32_t profile, const double* slots, uint32_t count, int root, int scale);
   int tuner(int operation, uint32_t expected_revision, int value, int scale);
   bool audio_needed() const;
   bool idle_monitor_only() const;
@@ -42,6 +43,7 @@ public:
   int audition_profile() const { return audition_profile_; }
   int audition(int profile);
   int audition_tambourine(int32_t velocity, int32_t slot = -1);
+  bool has_idle_utility_output() const { return output_ == Output::IdleUtility; }
   bool has_tambourine_output() const { return output_ == Output::Tambourine; }
   int render(const float* input, uint32_t frames);
   int64_t write(AudioPump::Write sink, void* context);

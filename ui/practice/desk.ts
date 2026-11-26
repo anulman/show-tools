@@ -35,6 +35,7 @@ import { takePresentation } from './take-presentation.js';
 import { createMusicalInputProducer } from './peripheral-input.js';
 import { createMusicalInputPolicy } from './musical-input-policy.js';
 import { mountTuner, type TunerPanel } from '../tuner/panel.js';
+import { matchesTuningBank, recordRequiredTuningBank } from '../tuner/required-bank.js';
 import type { TunerPort } from '../../lib/tuner/model.js';
 
 function requiredElement<T extends Element>(selector: string, constructor: { new(): T }, root: ParentNode = document): T {
@@ -124,6 +125,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   const voiceAvatars = new Map<number, { root: HTMLElement; name: string }>();
   const liveVoiceStates = new Map<number, HTMLSpanElement>();
   const rotationControls: HTMLButtonElement[] = [];
+  let chartKnobCue: HTMLElement | undefined;
   let effectsApplying = false;
   const voiceEffects = createVoiceEffectsEditor(profile => { void act(() => applyVoiceEffects(profile)); }, scheduleAuditionEffect);
   const auditionButtons: { button: HTMLButtonElement; profile: number }[] = [];
@@ -140,6 +142,8 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   let tunerPanel: TunerPanel | undefined;
   let tunerSession: PerformanceSession | undefined;
   let tunerPort: TunerPort | undefined;
+  let tuningStart: AbortController | undefined;
+  const tunedSessions = new WeakSet<PerformanceSession>();
   const tunerDialog = requiredElement('#tuner-dialog', HTMLDialogElement);
   let remoteDesk: RemoteDesk | undefined;
   let remoteDemoChanging = false;
@@ -341,7 +345,54 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     syncTunerSession();
     tunerDialog.showModal();
   }, { signal: mountSignal });
+  async function tuneBeforeStart(instance: PerformanceSession, startBar: number) {
+    const capture = song?.compiled?.noteBanks?.find(bank => bank.capture?.requiredBeforeStart)?.capture;
+    if (!capture?.target) return;
+    const bank = { profile: capture.profile, slots: capture.slots, target: capture.target };
+    if (startBar > 1 && tunedSessions.has(instance)) {
+      const current = instance.tuner.snapshot();
+      if (current.complete && matchesTuningBank(current, bank)) return;
+    }
+    tunedSessions.delete(instance);
+    const controller = new AbortController();
+    tuningStart = controller;
+    tunerPanel?.dispose();
+    const port = instance.tuner;
+    tunerSession = instance;
+    tunerPort = port;
+    const panel = mountTuner(requiredElement('#tuner-root', HTMLElement), {
+      assetBase: options.assetBase,
+      connect: async () => port,
+      required: { rotate: direction => {
+        if (audio === instance) void act(() => rotate(direction * 4));
+      } },
+    });
+    tunerPanel = panel;
+    panel.setSession(port);
+    if (!tunerDialog.open) tunerDialog.showModal();
+    try {
+      await recordRequiredTuningBank(port, bank, controller.signal);
+      tunedSessions.add(instance);
+    } catch (cause) {
+      if (instance === audio) {
+        await Promise.resolve().then(() =>
+          port.command({ kind: 'close', expectedRevision: port.snapshot().revision })).catch(() => {});
+      }
+      if (!controller.signal.aborted) throw cause;
+      return false;
+    } finally {
+      if (tuningStart === controller) tuningStart = undefined;
+      if (tunerPanel === panel) {
+        panel.dispose();
+        tunerPanel = undefined;
+        tunerSession = undefined;
+        tunerPort = undefined;
+        if (tunerDialog.open) tunerDialog.close();
+      }
+    }
+  }
   function dismissTuner() {
+    if (tuningStart) { tuningStart.abort(); return; }
     void act(async () => {
       await tunerPanel?.close();
       tunerPanel = undefined;
@@ -470,7 +521,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }
 
   async function rotate(value: number, source: 'keyboard' | 'pointer' = 'pointer') {
-    if (!audio || !isRunning()) return;
+    if (!audio || (!isRunning() && !tuningStart)) return;
     await (source === 'keyboard' ? keyboardProducer : pointerProducer).event(5, value);
   }
 
@@ -479,6 +530,10 @@ export async function mountDesk(options: DeskMountOptions = {}) {
       case 'unknown': case 'different-devices': case 'same-usb-interface': case 'same-non-usb': return value;
       default: throw new Error('Choose the physical input/output relationship.');
     }
+  }
+
+  function acceptsRouteInput() {
+    return options.allowSongInput?.(song?.id) ?? true;
   }
 
   async function startPractice() {
@@ -494,9 +549,11 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     if (remote) {
       const instance = remoteDesk?.performance();
       if (!instance) throw new Error('Enable hardware audio first.');
+      const generation = ++transportGeneration;
       starting = true;
       render(state);
       try {
+        if (await tuneBeforeStart(instance, startBar) === false || generation !== transportGeneration || !acceptsRouteInput()) return;
         await instance.start({ bpm, countInBars: Number(elements['count-in'].value), startBar, endBar, loop: elements.loop.checked, automatic: false });
       } finally { starting = false; render(state); }
       return;
@@ -517,6 +574,10 @@ export async function mountDesk(options: DeskMountOptions = {}) {
       if (generation !== transportGeneration) return;
       microphoneGeneration = await instance.enableMicrophone();
       if (generation !== transportGeneration) { await instance.disableMicrophone(microphoneGeneration); return; }
+      if (await tuneBeforeStart(instance, startBar) === false || generation !== transportGeneration || !acceptsRouteInput()) {
+        await instance.disableMicrophone(microphoneGeneration);
+        return;
+      }
       if (outputCapture === 'idle') { await toggleOutputRecording(); startedRecording = true; }
       if (generation !== transportGeneration) { finishOutputRecording(); await instance.disableMicrophone(microphoneGeneration); return; }
       await instance.setClick(elements.click.checked);
@@ -533,6 +594,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   async function stopPerformance(command: 'stop' | 'panic', commandId?: string) {
     preparationAbort?.abort(new Error('Audio preparation canceled'));
     phoneMotionAbort?.abort();
+    tuningStart?.abort();
     transportGeneration++;
     chartFollower?.stop();
     finishOutputRecording();
@@ -570,6 +632,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     }
     if (event.type === 'control' && event.applied && event.control?.id === 'mushroom') {
       preparationAbort?.abort(new Error('Audio preparation canceled'));
+      tuningStart?.abort();
       phoneMotionAbort?.abort(); transportGeneration++; chartFollower?.stop();
       finishOutputRecording(); releasePresses();
       if (audio && !remote) void audio.disableMicrophone().catch(showError);
@@ -645,7 +708,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }
 
   function mountVoiceRows() {
-    voiceEffects.reset(initialVoiceEffects(remote ? undefined : song?.compiled)); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0;
+    voiceEffects.reset(initialVoiceEffects(remote ? undefined : song?.compiled)); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0; chartKnobCue = undefined;
     for (const pad of pads.values()) {
       const avatar = requiredElement('.performance-avatar', HTMLElement, pad.button);
       avatar.hidden = true; delete avatar.dataset.avatar;
@@ -676,13 +739,19 @@ export async function mountDesk(options: DeskMountOptions = {}) {
       const status = document.createElement('span'); status.className = 'voice-state'; status.textContent = 'STANDBY';
       liveVoiceStates.set(part.profile, status); tools.append(status);
       if (remote) addAuditionButton(tools, part.profile, part.name);
-      if (part.role.kind === 'rotation-live') {
+      const chartKnob = part.role.kind === 'default-live' && Boolean(song?.compiled?.knobCues?.length);
+      if (part.role.kind === 'rotation-live' || chartKnob) {
         const rotations = document.createElement('div'); rotations.className = 'rotation-controls';
         for (const [value, text] of [[-1, '↶'], [1, '↷']] satisfies readonly [number, string][]) {
           const button = document.createElement('button'); button.type = 'button'; button.className = 'rotation'; button.textContent = text;
           button.setAttribute('aria-label', `Rotate ${value > 0 ? 'clockwise' : 'counterclockwise'}`);
           button.title = 'Knob rotation'; button.disabled = true;
-          button.addEventListener('click', () => { void act(() => rotate(value)); }); rotations.append(button); rotationControls.push(button);
+          button.addEventListener('click', () => { void act(() => rotate(chartKnob ? value * 4 : value)); }); rotations.append(button); rotationControls.push(button);
+        }
+        if (chartKnob) {
+          chartKnobCue = document.createElement('span');
+          chartKnobCue.className = 'voice-state';
+          tools.append(chartKnobCue);
         }
         tools.append(rotations);
       }
@@ -965,8 +1034,13 @@ export async function mountDesk(options: DeskMountOptions = {}) {
       label.dataset.activity = preview === profile ? 'live' : applied?.activity || 'standby';
       if (applied?.rotationEligible) label.textContent += applied.rotationRemainingBeats > 0 ? ` · ${applied.rotationRemainingBeats.toFixed(2)} BEAT` : ' · KNOB CUE';
     }
-    const canRotate = audio && isRunning() && observed?.voiceEffects?.some(voice => voice.rotationEligible);
+    const canRotate = audio && isRunning() && (song?.compiled?.knobCues?.length || observed?.voiceEffects?.some(voice => voice.rotationEligible));
     for (const button of rotationControls) button.disabled = !canRotate;
+    if (chartKnobCue) {
+      const cue = song?.compiled?.knobCues?.find(cue => cue.at.bar === observed?.bar);
+      chartKnobCue.textContent = cue ? `KNOB · ${cue.source.text}` : '';
+      chartKnobCue.hidden = !cue;
+    }
   }
   function renderPads(displayBar: number, observed?: DisplayState) {
     const inCountIn = observed?.phase === 'count-in';
@@ -1221,9 +1295,8 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }, { signal: mountSignal });
   for (const element of [elements['count-in'], elements['end-bar']]) element.addEventListener('change', () => render(state), { signal: mountSignal });
 
-  const acceptsRouteInput = () => options.allowSongInput?.(song?.id) ?? true;
   window.addEventListener('wheel', event => {
-    if (!acceptsRouteInput() || !inputPolicy.allowsDomInput() || !audio || !isRunning() || !song?.compiled?.rotation || !Number.isFinite(event.deltaY) || event.deltaY === 0
+    if (!acceptsRouteInput() || !inputPolicy.allowsDomInput() || !audio || !isRunning() || (!song?.compiled?.rotation && !song?.compiled?.knobCues?.length) || !Number.isFinite(event.deltaY) || event.deltaY === 0
       || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
     const target = event.target instanceof Element ? event.target : null;
     if (target?.closest('input,select,textarea,[contenteditable=true],details[open]')
@@ -1291,7 +1364,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     phoneMotionAbort?.abort();
   }, { signal: mountSignal });
   window.addEventListener('beforeunload', event => {
-    if (isRunning() && !changingAudioMode) { event.preventDefault(); event.returnValue = ''; }
+    if ((isRunning() || tuningStart) && !changingAudioMode) { event.preventDefault(); event.returnValue = ''; }
   }, { signal: mountSignal });
   window.addEventListener('pagehide', event => {
     if (!event.persisted) { abortMount(); return; }
@@ -1326,6 +1399,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     if (outputCapture !== 'idle') throw new Error('Finish the output recording before switching songs.');
     chartFollower?.stop();
     phoneMotionAbort?.abort();
+    tuningStart?.abort();
     tunerPanel?.dispose(); tunerPanel = undefined; tunerSession = undefined; tunerPort = undefined;
     if (tunerDialog.open) tunerDialog.close();
     const generation = ++songGeneration;
@@ -1486,7 +1560,11 @@ export async function mountDesk(options: DeskMountOptions = {}) {
 
   async function changeHardwareAudio(desk: RemoteDesk, live: boolean) {
     if (audioSwitchPending) return;
-    if (!live) phoneMotionAbort?.abort();
+    if (!live) {
+      phoneMotionAbort?.abort();
+      tuningStart?.abort();
+      transportGeneration++;
+    }
     audioSwitchPending = true;
     renderHardwareAudio();
     try {
@@ -1498,6 +1576,8 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }
 
   async function replaceHardwareDesk(desk: RemoteDesk) {
+    tuningStart?.abort();
+    transportGeneration++;
     try {
       const releases = await Promise.allSettled([keyboardProducer.pause(), pointerProducer.pause()]);
       for (const release of releases) if (release.status === 'rejected') throw release.reason;
@@ -1544,6 +1624,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     retirePageInputs();
     phoneMotionAbort?.abort();
     preparationAbort?.abort();
+    tuningStart?.abort();
     tunerPanel?.dispose();
     tunerPanel = undefined;
     tunerSession = undefined;
@@ -1640,6 +1721,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
           const connected = desk.connection.kind === 'connected';
           renderHardwareAudio();
           if (!connected || status.kind !== 'ready') {
+            tuningStart?.abort();
             audio = undefined;
             phoneMotionAbort?.abort();
             syncTunerSession();
@@ -1657,6 +1739,8 @@ export async function mountDesk(options: DeskMountOptions = {}) {
           elements.click.disabled = false;
           elements.mushroom.disabled = false;
           if (audio !== session) {
+            tuningStart?.abort();
+            transportGeneration++;
             audio = session;
             syncRemoteTransport(session.snapshot());
             for (const voice of session.snapshot().voiceEffects ?? []) voiceEffects.setEffects(voice.profile, voice.effects);

@@ -4,6 +4,7 @@ import { SET_SONGS, type RehearsalSong, type SetSong } from './routes.js';
 const loaders = {
   'dance-yrself-clean': () => import('./dance-yrself-clean.js'),
   'drunk-girls': () => import('./drunk-girls.js'),
+  'i-can-change': () => import('./i-can-change.js'),
   tribulations: () => import('./tribulations.js'),
 } satisfies Record<Extract<SetSong, { rehearsal: false }>['id'], () => Promise<{ default: SongScript }>>;
 

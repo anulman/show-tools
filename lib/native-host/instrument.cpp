@@ -1,5 +1,6 @@
 #include "instrument.h"
 #include <cmath>
+#include <array>
 
 namespace native_host {
 namespace {
@@ -91,6 +92,13 @@ int Instrument::set_click_gain(double gain) { return engine_ && lifecycle_ != Li
 int Instrument::set_jiggle_thresholds(double travel, double reversal) {
   return engine_ && (lifecycle_ == Lifecycle::Prepared || lifecycle_ == Lifecycle::Running)
     ? pf_set_jiggle_thresholds(engine_.get(), travel, reversal) : -1;
+}
+int Instrument::begin_required_tuning(uint32_t expected_revision, uint32_t profile, const double* slots, uint32_t count, int root, int scale) {
+  if (lifecycle_ != Lifecycle::Prepared || (pending() && output_ == Output::Performance)) return -1;
+  std::array<double, PF_TUNER_FIELDS> state{};
+  pf_tuner_info(engine_.get(), state.data());
+  if (state[PF_TUNER_REVISION] != expected_revision) return -1;
+  return pf_begin_tuning_bank(engine_.get(), profile, slots, count, root, scale);
 }
 int Instrument::tuner(int operation, uint32_t expected_revision, int value, int scale) {
   return engine_ && (lifecycle_ == Lifecycle::Prepared || ((operation == PF_TUNER_CLOSE || operation == PF_TUNER_SILENCE) && lifecycle_ == Lifecycle::Running))

@@ -15,14 +15,14 @@ const channels: ChannelState[] = CONTROL_IDS.map(id => ({ id, ready: false, mute
 test('DG capture plans and playback name the authored pickup and numbered bars', () => {
   const current = drunkGirls.compiled;
   assert(current);
-  assert.match(takePresentation(current, 'L2', { channels }).plan, /bar Pickup–0\.7/);
+  assert.match(takePresentation(current, 'L2', { channels }).plan, /bar Pickup–0\.8/);
   const girls = takePresentation(current, 'R2', { channels }).plan;
   assert.match(girls, /bar 4 /);
   assert.match(girls, /bar 5 /);
-  assert.match(takePresentation(current, 'R1', { channels }).plan, /bar 89–92 /);
+  assert.match(takePresentation(current, 'R1', { channels }).plan, /bar 88–92 /);
   const readings: CompiledTakeState[] = current.takes.map((take, index) => ({ index, ready: true, frames: 32000, period: 32000,
     playback: take.voiceId === 'guitar' ? 'playing' : 'idle', sourceEndFrames: null, selectionIndex: null }));
-  assert.match(takePresentation(current, 'L2', { channels, compiledTakes: readings }).summary ?? '', /bar Pickup–0\.7/);
+  assert.match(takePresentation(current, 'L2', { channels, compiledTakes: readings }).summary ?? '', /bar Pickup–0\.8/);
 });
 function readback(channelId: ChannelId, playback: CompiledTakeState['playback'], readyCount: number) {
   const voice = compiled.voices.find(voice => voice.buttonId === channelId);
@@ -92,7 +92,7 @@ test('trimmed playback is reported from native source admission without adding a
 test('current DYC describes five capture parents and eleven distinct reusable Cowbell bar views', () => {
   const current = song.compiled;
   assert.equal(current.takes.length, 5);
-  assert.equal(takePresentation(current, 'R1', { channels }).plan, 'Record bars 1–2 · 2-bar loop');
+  assert.equal(takePresentation(current, 'R1', { channels }).plan, 'Record bars 1–3 with pickup · play section 1 once · repeat sections 2–3');
   assert.equal(takePresentation(current, 'L2', { channels }).plan, 'Record bars 5–6 · 2-bar loop');
   assert.equal(takePresentation(current, 'R2', { channels }).plan, '2 captures · bars 8–12 + 79–84 · 11 reusable bar views');
 });

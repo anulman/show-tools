@@ -354,8 +354,11 @@ test('installed catalog switches all three songs while stopped without replacing
       assert.deepEqual(selected.view.defaultVoiceEffects, defaults.get(songId), 'Standby publishes the newly selected package defaults');
       if (songId === 'drunk-girls') {
         assert.equal(selected.view.song.compiled.authoredCues, undefined);
-        assert.equal(selected.view.song.compiled.playbackPairs.length, 41);
-        assert.ok(app.controller.snapshot().song.compiled?.authoredCues?.some(cell => cell.actions.some(action => action.operation === 'pp')));
+        assert.equal(selected.view.song.compiled.playbackPairs, undefined);
+        const operations = app.controller.snapshot().song.compiled?.authoredCues?.flatMap(cell => cell.actions.map(action => action.operation));
+        assert.ok(operations?.includes('ru'));
+        assert.ok(operations?.includes('cx'));
+        assert.ok(operations?.includes('p'));
         const status = await (await fetch(`${profile.origin}/api/status`, { headers })).json();
         assert.deepEqual(status.song.compiled, selected.view.song.compiled);
         const fresh = decodeDeskBootstrap(await (await fetch(`${profile.origin}/api/session`, { headers })).json());
@@ -462,11 +465,14 @@ test('installed catalog switches all three songs while stopped without replacing
       if (songId === 'tribulations') {
         const strum = tribulations.compiled?.takes.findIndex(take => take.id === 'tribulations/guitar/take-1');
         assert.ok(strum !== undefined && strum >= 0);
-        assert.equal((await command('start', { bpm: 240, startBar: 14, endBar: 21, countInBars: 0 })).outcome, 'applied');
+        assert.equal((await command('start', { bpm: 240, startBar: 13, endBar: 21, countInBars: 0 })).outcome, 'applied');
         assert.equal((await command('configureJiggle', { minimumTravel: 8, minimumReversal: 3 })).outcome, 'applied',
           'the board’s calibrated thresholds survive replacement');
-        await until(() => performance().bar === 18 ? true : undefined);
-        assert.equal(performance().compiledTakes?.[strum]?.ready, true, 'the real Tribulations chart recorded its guitar take');
+        await until(() => performance().compiledTakes?.[strum]?.ready ? true : undefined,
+          'the real Tribulations chart did not record its guitar take');
+        assert.equal((await command('stop', {})).outcome, 'applied');
+        assert.equal((await command('start', { bpm: 240, startBar: 40, endBar: 43, countInBars: 0 })).outcome, 'applied');
+        await until(() => performance().bar === 40 ? true : undefined);
         await button(true);
         assert.equal(performance().compiledTakes?.[strum]?.playback, 'idle', 'holding through selection does not launch a new-song cue');
         await button(false);

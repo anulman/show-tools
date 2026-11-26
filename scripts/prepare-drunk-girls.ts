@@ -40,7 +40,7 @@ const mapping: SongMapping = {
     { buttonId: 'R2', sourceName: 'drunk-g', playbackMode: 'one-shot' },
     { buttonId: 'R2', sourceName: 'girls', default: true, playbackMode: 'one-shot' },
     { buttonId: 'L1', sourceName: 'drunk-b', playbackMode: 'one-shot' },
-    { buttonId: 'L1', sourceName: 'boys', default: true, playbackMode: 'one-shot', sustain: { kind: 'periodic' } },
+    { buttonId: 'L1', sourceName: 'b', default: true, playbackMode: 'one-shot', sustain: { kind: 'periodic' } },
     { buttonId: 'L2', sourceName: 'guitar', default: true, playbackMode: 'loop', captureReplacement: true, loopCounts: 32, sustain: { kind: 'periodic' } },
   ], cueWindow: { earlyMs: 25, lateMs: 25, ties: 'reject' },
   capturePolicies: ['day', 'girls', 'boys', 'guitar'].map(voiceId => ({ voiceId, retention: 'variant' as const, gain: 1 })),

@@ -53,6 +53,8 @@ const Performance = Schema.Struct({
   noteBanks: CompiledSongSchema.fields.noteBanks,
   externalSamples: CompiledSongSchema.fields.externalSamples,
   terminalStops: CompiledSongSchema.fields.terminalStops,
+  tail: CompiledSongSchema.fields.tail,
+  knobCues: CompiledSongSchema.fields.knobCues,
   authoredCues: CompiledSongSchema.fields.authoredCues,
   releaseCapturePairs: CompiledSongSchema.fields.releaseCapturePairs,
   playbackPairs: CompiledSongSchema.fields.playbackPairs,
@@ -222,6 +224,8 @@ export async function writeMusicXmlSong(options: WriteMusicXmlSong): Promise<str
     ...(song.externalSamples === undefined ? {} : { externalSamples: song.externalSamples }),
     source: song.source, mappingDigest: song.mappingDigest, voices: song.voices, parts: partBindings,
     ...(song.terminalStops === undefined ? {} : { terminalStops: song.terminalStops }),
+    ...(song.tail === undefined ? {} : { tail: song.tail }),
+    ...(song.knobCues === undefined ? {} : { knobCues: song.knobCues }),
     ...(song.authoredCues === undefined ? {} : { authoredCues: song.authoredCues }),
     ...(song.releaseCapturePairs === undefined ? {} : { releaseCapturePairs: song.releaseCapturePairs }),
     ...(song.playbackPairs === undefined ? {} : { playbackPairs: song.playbackPairs }),
@@ -515,7 +519,8 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     }
     for (const bar of chart.bars) for (const button of buttons) {
       if (bar.cues[button] && !performance.cues.some(cue => cue.bar === bar.bar && cue.buttonId === button)
-        && !performance.authoredCues?.some(cell => cell.bar === bar.bar && cell.buttonId === button && cell.actions.some(action => action.operation === 'pp')))
+        && !performance.authoredCues?.some(cell => cell.bar === bar.bar && cell.buttonId === button && cell.actions.some(action => action.operation === 'pp'))
+        && !(performance.notationVersion === 'terse-v2' && performance.noteBanks?.some(bank => bank.buttonId === button && bank.notes.some(note => note.at.bar === bar.bar))))
         throw new MusicXmlValidationError(`MusicXML command ${button} at bar ${bar.bar} lacks a typed action.`);
     }
   }
@@ -525,6 +530,8 @@ export async function readMusicXmlSong(input: string): Promise<MusicXmlSong> {
     ticksPerQuarter: 960, meter, source: { ...performance.source, digest }, mappingDigest: digest, chart,
     ...(performance.inputBindings === undefined ? {} : { inputBindings: performance.inputBindings }),
     ...(performance.terminalStops === undefined ? {} : { terminalStops: performance.terminalStops }),
+    ...(performance.tail === undefined ? {} : { tail: performance.tail }),
+    ...(performance.knobCues === undefined ? {} : { knobCues: performance.knobCues }),
     ...(performance.sourceProfiles === undefined ? {} : { sourceProfiles: performance.sourceProfiles }),
     ...(performance.noteBanks === undefined ? {} : { noteBanks: performance.noteBanks }),
     ...(performance.externalSamples === undefined ? {} : { externalSamples: performance.externalSamples }),

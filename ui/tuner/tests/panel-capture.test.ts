@@ -104,16 +104,21 @@ test('real panel Record and Confirm prepare and lock a sung source in the shared
   native.prepareLiveEffects([]); native.setMicrophone(true);
   const port: TunerPort = { snapshot: () => native.tunerState(), subscribe: () => () => {},
     prepareBank: async options => native.prepareTuningBank(options), command: async command => native.tunerCommand(command) };
-  const panel = fixture([bank], port);
+  const panel = fixture([{ ...bank, capture: { ...bank.capture, target: { root: 52, scale: 'major' } } }], port);
   try {
-    panel.byText('Record selected scale').click(); await tick();
-    assert.equal(native.tunerState().listening, true);
+    assert.notEqual(native.tunerState().root, 52);
+    panel.byText('Record E3 major scale').click(); await tick();
+    const tuning = native.tunerState();
+    assert.equal(tuning.listening, true);
+    assert.deepEqual(tuning.targets.map(note => note.midi), [52, 54, 56, 57, 59, 61, 63, 64]);
     for (let frame = 0; frame < 10000; frame += 250) {
-      const input = Float32Array.from({ length: 250 }, (_, index) => .2 * Math.sin(2 * Math.PI * 130.81278265 * (frame + index) / 8000));
+      const input = Float32Array.from({ length: 250 }, (_, index) => .2 * Math.sin(2 * Math.PI * 164.81377846 * (frame + index) / 8000));
       native.process(input, [new Float32Array(250), new Float32Array(250)], 250);
     }
     assert.equal(native.tuningBankState().ready, true);
     panel.byText('Confirm').click(); await tick();
-    assert.equal(native.tunerState().step, 1); assert.equal(native.tuningBankState().capturedFrames[0], 2000);
+    assert.equal(native.tunerState().step, 1);
+    assert.equal(native.tuningBankState().capturedFrames[0], 2000);
+    assert.equal(native.tuningBankState().midi[0], 52);
   } finally { panel.dispose(); native.dispose(); }
 });

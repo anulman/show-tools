@@ -1,6 +1,6 @@
 import { InputIntentIdSchema } from './session-schema.js';
 import { Schema } from 'effect';
-import { TunerCommandSchema } from '../tuner/schema.js';
+import { RequiredTuningBankSchema, TunerCommandSchema } from '../tuner/schema.js';
 import { tunerCommandValues } from '../tuner/observation.js';
 import { CONTROL_IDS, type PracticeState, type VoiceEffectsState } from '../performance/model.js';
 import { PF } from '../performance/wasm-abi.js';
@@ -25,11 +25,18 @@ export const TambourineAudition = Schema.Struct({
   velocity: Schema.Int.check(Schema.isBetween({ minimum: -1, maximum: 127 })),
   slot: Schema.optionalKey(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 63 }))),
 }).check(Schema.makeFilter(({ velocity, slot }) => slot === undefined || velocity > 0));
+type TuningContext = {
+  readonly run: bigint;
+  readonly tunerRevision: number;
+  readonly compiled: import('../performance/compiled-song.js').CompiledSong | undefined;
+};
+
 const Commands = Schema.Union([
 	Schema.Struct({ command: Schema.Literal('inputAttach'), args: InputAttachSchema }),
 	Schema.Struct({ command: Schema.Literal('inputEvent'), args: InputEventSchema }),
 	Schema.Struct({ command: Schema.Literal('inputRevoke'), args: InputRevokeSchema }),
 	Schema.Struct({ command: Schema.Literal('tuner'), args: TunerCommandSchema }),
+	Schema.Struct({ command: Schema.Literal('beginRequiredTuning'), args: RequiredTuningBankSchema }),
 	Schema.Struct({ command: Schema.Literal('configureJiggle'), args: Schema.Struct({ minimumTravel: Finite, minimumReversal: Finite }) }),
 	Schema.Struct({ command: Schema.Literal('start'), args: Schema.Struct({ bpm: Schema.optionalKey(Finite), countInBars: Schema.optionalKey(Schema.Int), startBar: Schema.optionalKey(Schema.Int), endBar: Schema.optionalKey(Schema.Int), loop: Schema.optionalKey(Schema.Boolean), automatic: Schema.optionalKey(Schema.Boolean), recordDemo: Schema.optionalKey(Schema.Boolean), runId: Schema.optionalKey(Schema.String) }) }),
 	Schema.Struct({ command: Schema.Literal('stop'), args: Schema.Struct({}) }),
@@ -113,7 +120,7 @@ export function encodeInitialProfiles(configurations: unknown) {
 	return prepareInitialProfiles(configurations).bytes;
 }
 
-export function encodeCommand(input: unknown, state: PracticeState, songId?: string) {
+export function encodeCommand(input: unknown, state: PracticeState, songId?: string, tuning?: TuningContext) {
 	const command = decode(input);
 	switch (command.command) {
 		case 'inputAttach': {
@@ -126,6 +133,17 @@ export function encodeCommand(input: unknown, state: PracticeState, songId?: str
 		}
 		case 'inputRevoke': return numeric(17, [command.args.producer, command.args.session]);
 		case 'tuner': return numeric(13, [...tunerCommandValues(command.args)]);
+		case 'beginRequiredTuning': {
+			const { profile, slots, target } = command.args;
+			if (state.phase !== 'idle' && state.phase !== 'ended') throw new Error('Stop the song before recording the tuning scale');
+			if (!tuning || tuning.run > BigInt(Number.MAX_SAFE_INTEGER)
+				|| !tuning.compiled?.noteBanks?.some(({ capture }) => capture?.requiredBeforeStart && capture.profile === profile
+					&& capture.target?.root === target.root && capture.target.scale === target.scale
+					&& capture.slots.length === slots.length && capture.slots.every((slot, index) => slot === slots[index])))
+				throw new Error('The requested tuning bank does not match the loaded chart');
+			const [, revision, root, scale] = tunerCommandValues({ kind: 'configure', expectedRevision: tuning.tunerRevision, ...target });
+			return numeric(24, [Number(tuning.run), revision, profile, root, scale, ...slots]);
+		}
 		case 'configureJiggle': {
 			const { minimumTravel, minimumReversal } = command.args;
 			if (!Number.isInteger(minimumTravel) || !Number.isInteger(minimumReversal) || minimumTravel < 1 || minimumTravel > 32767 || minimumReversal < 1 || minimumReversal > minimumTravel) throw new Error('Invalid jiggle thresholds');

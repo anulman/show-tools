@@ -5,7 +5,7 @@ import type { ChildProcess } from 'node:child_process';
 import { SONGS, loadSong } from '../songs/index.js';
 import { rangeForBar } from '../lib/performance/chart.js';
 import { chartSettings, LOCAL_PRACTICE_ORIGINS } from './chart-settings.js';
-import { createChartHelper, inspectCDP, openChart, openSetList } from './open-chart.js';
+import { createChartHelper, inspectCDP, openChart, openSetList, parseChartSelection } from './open-chart.js';
 import { configureDeskChartSource, followDeskCharts } from './desk-chart-follower.js';
 import { spawnCDP } from './start-cdp.js';
 import { chiefHandoff, commandFailureExitCode, formatCommandFailure, parseCommandFailure } from './lib/command-diagnostics.js';
@@ -43,6 +43,7 @@ Set SHOW_TOOLS_DESK_ORIGIN to an exact HTTPS origin to follow the hardware desk 
 Set SHOW_TOOLS_DESK_TOKEN_FILE to your private token file if it lives outside
 ~/.config/show-tools/desk-token.
 SHOW_TOOLS_SET_LIST_URL selects the spreadsheet opened when no song is given.
+SHOW_TOOLS_SHEETS_COPY_URL follows a copy of that workbook with the same worksheet IDs.
 Ctrl+C stops this helper and any browser it launched. Reused browsers stay open.
 `;
 
@@ -89,9 +90,17 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
 }: { env?: NodeJS.ProcessEnv; signal?: AbortSignal; port?: number; log?: (message: string) => void;
   inspect?: typeof inspectCDP; launch?: typeof spawnCDP; select?: typeof openChart; openList?: typeof openSetList; request?: typeof fetch } = {}) {
   const settings = chartSettings(env);
+  const redirect = settings.spreadsheetRedirect;
+  const selectChart: typeof openChart = redirect
+    ? (address, input, connect, signal) => {
+      const selection = parseChartSelection(input);
+      const target = selection.spreadsheetId === redirect.source ? redirect.target : selection.spreadsheetId;
+      return select(address, { ...selection, spreadsheetId: target }, connect, signal);
+    }
+    : select;
   const song = command.songId ? await loadSong(command.songId) : undefined;
   const desk = await configureDeskChartSource(env);
-  const helper = desk ? undefined : createChartHelper({ cdp: settings.cdp, origins: [...LOCAL_PRACTICE_ORIGINS, settings.practiceOrigin], select });
+  const helper = desk ? undefined : createChartHelper({ cdp: settings.cdp, origins: [...LOCAL_PRACTICE_ORIGINS, settings.practiceOrigin], select: selectChart });
   let browser: { child: ChildProcess; exited: Promise<Error> } | undefined;
   const lifetime = new AbortController();
   const cancelled = AbortSignal.any([signal, lifetime.signal]);
@@ -138,7 +147,7 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
       log(`Helper    listening http://127.0.0.1:${address && typeof address === 'object' ? address.port : port}`);
     }
     if (song && command.open) {
-      const result = await select(settings.cdp, { spreadsheetId: song.chart.spreadsheetId, sheetId: song.chart.sheetId,
+      const result = await selectChart(settings.cdp, { spreadsheetId: song.chart.spreadsheetId, sheetId: song.chart.sheetId,
         range: rangeForBar(song.chart, song.practice.startBar, 'count-in'), activate: true }, undefined, cancelled);
       log(`Chart     ${song.chart.title} · ${result.selectedRange} selected`);
     } else if (command.open) {
@@ -147,7 +156,7 @@ export async function runSheets(command: Extract<Command, { kind: 'sheets' }>, {
     }
     cancelled.throwIfAborted();
     log(`Waiting for practice events. Ctrl+C stops the ${desk ? 'follower' : 'helper'}${browser ? ' and the browser launched here.' : '; the reused browser stays open.'}`);
-    if (desk) await followDeskCharts({ ...desk, cdp: settings.cdp, select, signal: cancelled, log, request });
+    if (desk) await followDeskCharts({ ...desk, cdp: settings.cdp, select: selectChart, signal: cancelled, log, request });
     else await new Promise<void>(done => {
       if (cancelled.aborted) done();
       else cancelled.addEventListener('abort', () => done(), { once: true });

@@ -4,6 +4,9 @@ import { readFile } from 'node:fs/promises';
 import { terseCaptureFixture } from './fixtures/terse-capture.js';
 import { prepareDeclaredExternalAssets } from '../external-assets.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
+import { compileSheetsSong } from '../compiled-song.js';
+import { importSheetMusicXml } from '../sheet-musicxml.js';
+import { readMusicXmlSong } from '../musicxml-song.js';
 import { NativePerformance } from '../wasm-performance.js';
 import { PF } from '../wasm-abi.js';
 import tribulations from '../../../songs/tribulations.js';
@@ -408,22 +411,29 @@ test('live periodic preparation trims silence and sustains native h/g; silence, 
   }
 });
 
-test('canonical Drunk Girls pickup loop restarts at Pickup8 phase and crosses numbered one without resetting', async () => {
-  const { readMusicXmlSong } = await import('../musicxml-song.js');
+test('canonical Drunk Girls pickup loop restarts in 0.8 and crosses numbered one without resetting', async () => {
   const { song } = await readMusicXmlSong(await readFile(new URL('../../../songs/drunk-girls.musicxml', import.meta.url), 'utf8'));
   assert(song.executable); assert.equal(song.chart.bars.length, 137);
-  assert.equal(song.chart.bars[8].label, 'Pickup 8'); assert.equal(song.chart.bars[9].label, '1');
+  assert.equal(song.chart.bars[8].label, '0.8'); assert.equal(song.chart.bars[9].label, '1');
   assert.equal(song.terminalStops?.[0].text, 'x');
+  assert.equal(song.releaseCapturePairs?.length, 2);
+  assert.equal(song.playbackPairs?.length ?? 0, 0);
+  const hold = song.cues.find(cue => cue.source.a1 === 'BF22' && cue.playbackMode === 'held');
+  const selection = song.selections.find(entry => entry.id === hold?.selectionId);
+  assert.equal(hold?.sourceName, 'b');
+  assert.equal(selection?.window.kind, 'sustain');
+  assert.equal(song.takes.find(take => take.id === selection?.takeIds[0])?.sourceName, 'b');
   const native = engine(Array.from(encodeCompiledProgram(song)));
   try {
     native.prepareLiveEffects([]); native.setMicrophone(true);
     native.start({ runId: 'dg-pickup', bpm: 144, countInBars: 1, startBar: 1, endBar: 10 });
-    until(native, 9); render(native, 1); native.setMicrophone(false);
-    const guitar = native.compiledTake(6);
-    assert(guitar.ready); assert(Math.abs(guitar.frames - 98333) <= 1); assert.equal(guitar.period, 106667);
-    assert(render(native, 100, 0).every(value => value === 0), 'virtual source rest preserves the 3& pickup offset');
-    until(native, 9, 3); render(native, 1668, 0);
-    assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'captured source begins again at Pickup8 3&');
+    until(native, 9, 3);
+    const guitarIndex = song.takes.findIndex(take => take.voiceId === 'guitar');
+    assert(!native.compiledTake(guitarIndex).ready, 'capture continues through the last pickup');
+    render(native, 1668); native.setMicrophone(false);
+    const guitar = native.compiledTake(guitarIndex);
+    assert(guitar.ready); assert(Math.abs(guitar.frames - 106667) <= 1); assert.equal(guitar.period, 106667);
+    assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'captured source begins again at 0.8 beat 3&');
     until(native, 10); assert(render(native, 100, 0).some(value => Math.abs(value) > .1), 'numbered one keeps the ongoing eight-bar loop');
   } finally { native.dispose(); }
 });
@@ -467,5 +477,79 @@ test('Tribulations uses the same four recorded samples for Audition and chart pl
       assert.deepEqual(render(native, 2048, 0), auditions[slot]);
       native.stop();
     }
+  } finally { native.dispose(); }
+});
+
+test('Drunk Girls layers the recorded final eighth only at four-bar repeat seams', async () => {
+  const { source, mapping } = await readMusicXmlSong(await readFile(new URL('../../../songs/drunk-girls.musicxml', import.meta.url), 'utf8'));
+  assert(source && mapping);
+  const edited = { ...source, values: source.values.map(row => [...row]) };
+  // Use sections 0.1–0.4 in a local copy of the Guitar row.
+  edited.values[20][3] = 'r4&';
+  edited.values[20][7] = 'cb~1..4^&';
+  edited.values[20][11] = '';
+  edited.values[20][43] = 'p4&';
+  const { xml } = await importSheetMusicXml({ source: edited, mapping });
+  const { song } = await readMusicXmlSong(xml);
+  assert(song.executable, JSON.stringify(song.diagnostics));
+  const guitar = song.takes.find(take => take.voiceId === 'guitar');
+  assert(guitar);
+  assert.deepEqual([guitar.begin, guitar.captureEnd], [{ bar: 1, beat: 3.5 }, { bar: 6, beat: 0 }]);
+  assert.deepEqual(song.selections.find(selection => selection.id === song.cues.find(cue => cue.source.a1 === 'H21')?.selectionId)?.window,
+    { kind: 'intro-loop', repeatBeginCount: 0, endCount: 16, overlapFinalEighth: true });
+
+  const invalid = structuredClone(edited);
+  invalid.values[20][7] = 'c4&~1..4^&';
+  const rejected = await compileSheetsSong(invalid, mapping);
+  assert(!rejected.executable);
+  assert(rejected.diagnostics.some(issue => issue.code === 'repeat-range' && issue.source.a1 === 'H21'));
+
+  const sampleRate = 14400;
+  const native = engine(Array.from(encodeCompiledProgram(song)), undefined, sampleRate);
+  let frame = 0, framesPerCount = 0;
+  function renderUntil(count: number, input: (elapsedCounts: number) => number = () => 0) {
+    const end = Math.ceil(count * framesPerCount);
+    let last: number | undefined;
+    while (frame < end) {
+      const size = Math.min(end - frame, 512);
+      const pcm = Float32Array.from({ length: size }, (_, index) => input((frame + index) / framesPerCount));
+      const out = [new Float32Array(size), new Float32Array(size)];
+      native.process(pcm, out, size, [new Float32Array(size), new Float32Array(size)]);
+      last = out[0].at(-1);
+      frame += size;
+      for (const event of native.events()) assert.notEqual(event.type, 'fault', event.error ?? 'native fault');
+    }
+    return last;
+  }
+  function start(bpm: number, startBar: number, endBar: number) {
+    frame = 0; framesPerCount = sampleRate * 60 / bpm;
+    native.start({ runId: `overlap-${startBar}`, bpm, countInBars: 0, startBar, endBar, loop: false, automatic: false });
+  }
+  function check(count: number, expected: number) {
+    const actual = renderUntil(count);
+    assert(actual !== undefined && Math.abs(actual - expected) < 1e-6, `count ${count}: expected ${expected}, got ${actual}`);
+  }
+  try {
+    native.prepareLiveEffects([]); native.setMicrophone(true);
+    start(144, 1, 15);
+    renderUntil(21, elapsed => elapsed < 5 ? .125 : elapsed < 20.5 ? .25 : .375);
+    assert.equal(native.compiledTake(song.takes.indexOf(guitar)).frames, framesPerCount * 16.5);
+    check(24.25, 0);
+    check(24.65, .125);
+    check(25.25, .25);
+    check(40.4, .25);
+    check(40.65, .5);
+    check(41.25, .25);
+    check(56.65, .5);
+    native.stop();
+
+    start(180, 41, 51);
+    renderUntil(2);
+    native.control({ id: 'L2' });
+    check(4.65, .125);
+    check(5.25, .25);
+    check(20.65, .5);
+    check(21.25, .25);
+    check(36.65, .5);
   } finally { native.dispose(); }
 });

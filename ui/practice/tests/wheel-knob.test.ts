@@ -15,7 +15,7 @@ async function fixture() {
     document: { activeElement: null, querySelector(selector: string) {
       assert.equal(selector, 'dialog[open]'); return context.modalOpen ? {} : null;
     } },
-    audio: {},
+    audio: {}, tuningStart: undefined,
     keyboardProducer: { event(input: number, value: number) { commands.push({ input, value }); } },
     pointerProducer: { event() { assert.fail('DOM wheel must use its keyboard source'); } },
     isRunning: () => context.running,
@@ -42,6 +42,15 @@ test('vertical scrolling forwards signed knob movement without choosing a musica
   assert.deepEqual(commands.map(command => command.value), [12, -3, 2, -1]);
   assert.deepEqual(commands.map(command => command.input), [5, 5, 5, 5]);
   assert.equal(prevented, 4);
+});
+
+test('chart knob cues use the wheel even without a rotation voice', async () => {
+  const { wheel, commands, Element, context } = await fixture();
+  context.song = { compiled: { knobCues: [{}] } };
+  let prevented = false;
+  wheel({ deltaY: 4, target: new Element(), preventDefault() { prevented = true; } });
+  assert.deepEqual(commands, [{ input: 5, value: 4 }]);
+  assert.equal(prevented, true);
 });
 
 test('wheel proxy preserves editing, zoom gestures, horizontal scroll and stopped-page scrolling', async () => {

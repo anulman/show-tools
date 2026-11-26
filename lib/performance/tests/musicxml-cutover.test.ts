@@ -94,7 +94,7 @@ test('unsupported authored notation fails visibly instead of disappearing from t
 
 test('a displayed performance command cannot contradict its executable application instruction', async () => {
   const xml = await fixture();
-  const edited = xml.replace('<words id="command-R1-2">cb</words>', '<words id="command-R1-2">xb</words>');
+  const edited = xml.replace('<words id="command-R1-3">c4&amp;~2..3</words>', '<words id="command-R1-3">xb</words>');
   assert.notEqual(edited, xml);
   await assert.rejects(readMusicXmlSong(edited));
 });
@@ -120,9 +120,10 @@ test('every bundled song exposes the canonical instructions, metadata and source
 
 test('displayed commands cannot silently enter the timing-only practice path', async () => {
   const { musicXmlSongScript } = await import('../../../songs/load-musicxml.js');
-  const xml = await readFile(new URL('../../../songs/i-can-change.musicxml', import.meta.url), 'utf8');
+  const { rehearsalProgram } = await import('../../../songs/rehearsal.js');
+  const xml = await readFile(new URL('../../../songs/daft-punk.musicxml', import.meta.url), 'utf8');
   const document = await readMusicXmlSong(xml);
-  const blank = { ...document, song: { ...document.song, diagnostics: [], parts: [] } };
+  const blank = { ...document, song: { ...rehearsalProgram(document.song), executable: false, cueWindow: null, parts: [] } };
   assert.equal(musicXmlSongScript(blank).compiled, undefined);
   const [first, ...rest] = blank.song.chart.bars;
   const edited = { ...blank, song: { ...blank.song, chart: { ...blank.song.chart,

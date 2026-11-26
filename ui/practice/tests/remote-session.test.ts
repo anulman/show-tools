@@ -258,11 +258,12 @@ for (const reason of ['off', 'fault', 'disconnected']) {
         },
       } };
       const root = new Node();
+      const tuningStart = new AbortController();
       const context = vm.createContext({ root, audio: session, tunerSession: session, tunerPort: null, tunerPanel: null,
         document: { createElement: () => new Node() }, isRunning: () => false, starting: false, outputCapture: 'idle',
         connected: reason !== 'disconnected', status: { kind: reason === 'fault' ? 'fault' : 'off' },
         createTunerDial: () => ({ element: new Node(), update() {}, dispose() { dialDisposals++; } }),
-        transportGeneration: 0, phoneMotionAbort: undefined, releasePresses() {}, chartFollower: null, renderHardwareUnavailable() {} });
+        transportGeneration: 0, phoneMotionAbort: undefined, tuningStart, releasePresses() {}, chartFollower: null, renderHardwareUnavailable() {} });
       vm.runInContext(`${panelSource}\n${wrapper}\n
         tunerPort = sharedTuner(audio);
         tunerPanel = mountTuner(root, { connect: async () => tunerPort });
@@ -272,6 +273,7 @@ for (const reason of ['off', 'fault', 'disconnected']) {
       const closing = pendingClose ? vm.runInContext('tunerPanel.close()', context) : null;
       if (pendingClose) await new Promise(resolve => setImmediate(resolve));
       vm.runInContext('disconnect()', context);
+      assert.equal(tuningStart.signal.aborted, true);
       const closed = closing ?? vm.runInContext('tunerPanel.close()', context);
       const result = await Promise.race([Promise.resolve(closed).then(() => 'closed'),
         new Promise(resolve => setTimeout(() => resolve('timeout'), 100))]);
@@ -314,7 +316,7 @@ for (const outcome of ['applied', 'rejected', 'unknown']) test(`same-engine reau
   const old = await RemoteDesk.connect('secret');
   const candidate = await RemoteDesk.connect('secret');
   void old.listen(); await tick();
-  const context = vm.createContext({ remoteDesk: old, audio: old.performance(), mountSignal: new AbortController().signal });
+  const context = vm.createContext({ remoteDesk: old, audio: old.performance(), mountSignal: new AbortController().signal, transportGeneration: 0, tuningStart: undefined });
   const keyboard = createMusicalInputProducer({ kind: 'keyboard', endpoint: async () => context.remoteDesk.performance(), releasedMask: 0 });
   const pointer = createMusicalInputProducer({ kind: 'pointer', endpoint: async () => context.remoteDesk.performance(), releasedMask: 223 });
   Object.assign(context, { keyboardProducer: keyboard, pointerProducer: pointer });
@@ -434,7 +436,7 @@ for (const scenario of ['sse', 'blur', 'lost-attach-reply', 'pending-attach', 'p
   void old.listen();
   for (let count = 0; count < 100 && old.connection.kind !== 'connected'; count++) await tick();
   assert(['connected'].includes(old.connection.kind));
-  const context = vm.createContext({ remoteDesk: old, audio: old.performance(), mountSignal: new AbortController().signal });
+  const context = vm.createContext({ remoteDesk: old, audio: old.performance(), mountSignal: new AbortController().signal, transportGeneration: 0, tuningStart: undefined });
   const keyboard = createMusicalInputProducer({ kind: 'keyboard', endpoint: async () => context.remoteDesk.performance(), releasedMask: 0 });
   const pointer = createMusicalInputProducer({ kind: 'pointer', endpoint: async () => context.remoteDesk.performance(), releasedMask: 223 });
   Object.assign(context, { keyboardProducer: keyboard, pointerProducer: pointer });

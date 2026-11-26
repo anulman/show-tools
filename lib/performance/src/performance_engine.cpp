@@ -68,7 +68,7 @@ struct pf_engine {
   performance_input::Router inputs;
   std::unique_ptr<tuner::Engine> tuning;
   std::unique_ptr<patches::ShakePercussion> percussion;
-  bool tambourine_armed = false;
+  bool tambourine_armed = false, required_tuning = false;
   bt_tracker* tracker = nullptr;
   st_engine* sampler = nullptr;
   sq_engine* sequencer = nullptr;
@@ -245,10 +245,33 @@ void reset_tambourine(pf_engine* engine) {
   if (engine->percussion) engine->percussion->reset();
   if (engine->compiled) engine->compiled->end_external_audition();
 }
+void cancel_required_tuning(pf_engine* engine) {
+  if (!engine->required_tuning) return;
+  engine->required_tuning = false;
+  engine->compiled->discard_tuning_bank();
+}
+int advance_tuning_note(pf_engine* engine) {
+  const auto state = engine->tuning->snapshot();
+  const bool capturing = engine->compiled && engine->compiled->tuning_bank_configured();
+  if (capturing && !engine->compiled->tuning_bank_ready(state.step))
+    return fail(engine, PF_NO_SAMPLE, "Sing the selected target steadily before locking its note");
+  if (!engine->tuning->confirm(state.commandRevision))
+    return fail(engine, PF_INVALID_PROGRAM, "Invalid tuner command or scale selection");
+  if (capturing && !engine->compiled->lock_tuning_note(state.step, state.targets[state.step].midi))
+    return fail(engine, PF_ACTION_FAILED);
+  if (engine->required_tuning) {
+    if (state.step + 1 == state.targetCount) {
+      engine->required_tuning = false;
+      engine->tuning->close();
+    } else engine->tuning->cue();
+  }
+  return accepted(engine);
+}
 void silence(pf_engine* engine, int reason = 3) {
   bt_cancel_pedal_tempo(engine->tracker);
   engine->pedal_tempo_beat = -1;
   engine->restart_at_end = false;
+  cancel_required_tuning(engine);
   if (engine->tuning) engine->tuning->close();
   reset_tambourine(engine);
   engine->cue_button_held = false;
@@ -572,6 +595,10 @@ int pf_configure(pf_engine* engine, double bpm, int beats, int bars, int end, in
     cue.kind = int(item[PF_CUE_KIND]); cue.timing = int(item[PF_CUE_TIMING]); cue.capture = int(item[PF_CUE_CAPTURE]); cue.variant = int(item[PF_CUE_VARIANT]); cue.hits = int(item[PF_CUE_HITS]); cue.radius = item[PF_CUE_RADIUS];
     std::copy(item + PF_CUE_POSITIONS, item + PF_CUE_POSITIONS + cue.hits, cue.positions);
   }
+  if (engine->required_tuning) {
+    cancel_required_tuning(engine);
+    engine->tuning->close();
+  }
   reset_tambourine(engine);
   engine->compiled.reset();
   performance_input::Binding unbound[PF_INPUT_SWITCHES]; engine->inputs.replace(unbound);
@@ -639,10 +666,35 @@ int pf_load_compiled_bytes(pf_engine* engine, const uint8_t* data, uint32_t byte
 }
 int pf_prepare_tuning_bank(pf_engine* engine, uint32_t profile, const double* slots, uint32_t count,
   uint32_t clip_frames, uint32_t stable_frames, double confidence, double tolerance_cents) {
-  if (!engine || !engine->compiled || running(engine) || engine->tuning->snapshot().step != 0
+  if (!engine || !engine->compiled || running(engine) || engine->required_tuning || engine->tuning->snapshot().step != 0
     || count != engine->tuning->snapshot().targetCount) return fail(engine, PF_INVALID_PROGRAM, "Select a scale and matching ordered note slots while stopped");
   return engine->compiled->prepare_tuning_bank(profile, slots, count, clip_frames, stable_frames, confidence, tolerance_cents)
     ? accepted(engine) : fail(engine, PF_INVALID_PROGRAM, "Invalid tuning bank preparation");
+}
+int pf_begin_tuning_bank(pf_engine* engine, uint32_t profile, const double* slots, uint32_t count,
+  int root, int scale) {
+  if (!engine || !engine->compiled || running(engine) || engine->required_tuning)
+    return fail(engine, PF_INVALID_PROGRAM, "Begin a tuning bank while stopped");
+  if (!engine->microphone) return fail(engine, PF_MICROPHONE_REQUIRED);
+  const auto target_scale = static_cast<tuner::Scale>(scale);
+  if (root < 0 || root > 115 || (target_scale != tuner::Scale::Major && target_scale != tuner::Scale::NaturalMinor
+      && target_scale != tuner::Scale::Chromatic) || count != (target_scale == tuner::Scale::Chromatic ? 13u : 8u))
+    return fail(engine, PF_INVALID_PROGRAM, "Select a valid scale and matching ordered note slots");
+  // Leave enough revisions for configure, listening, and every reference and lock.
+  if (engine->tuning->snapshot().commandRevision > std::numeric_limits<uint32_t>::max() - 2 * count - 3)
+    return fail(engine, PF_COMMAND_CONFLICT);
+  const uint32_t clip_frames = std::ceil(engine->rate * .25);
+  const uint32_t stable_frames = std::ceil(engine->rate * .15);
+  if (!engine->compiled->prepare_tuning_bank(profile, slots, count, clip_frames, stable_frames, .9, 35))
+    return fail(engine, PF_INVALID_PROGRAM, "Invalid tuning bank preparation");
+  engine->tuning->configure(root, target_scale);
+  engine->tuning->setListening(true);
+  engine->tuning->cue();
+  engine->required_tuning = true;
+  if (engine->phase == PF_ENDED) engine->phase = PF_IDLE;
+  accepted(engine);
+  emit(engine, PF_STATE, engine->processed);
+  return 0;
 }
 void pf_tuning_bank_info(const pf_engine* engine, double* out) {
   if (!out) return;
@@ -727,6 +779,7 @@ void pf_compiled_take_info(const pf_engine* engine, uint32_t take, double* out) 
 int pf_start(pf_engine* engine, double bpm, int count, int start, int end, int loop, int automatic) {
   if (!engine) return -1;
   if (engine->phase == PF_PLAYING || engine->phase == PF_COUNT_IN) return fail(engine, PF_INVALID_START, "Stop before starting another run");
+  if (engine->required_tuning) return fail(engine, PF_INVALID_START, "Lock every note before starting");
   if (!std::isfinite(bpm) || bpm < 40 || bpm > 240 || count < 0 || count > 4 || start < 1 || end < start || end > engine->song->bars || !flag(loop) || !flag(automatic)) return fail(engine, PF_INVALID_START);
   double snapshot[BT_S_COUNT]; bt_snapshot(engine->tracker, snapshot);
   double sequence = engine->clock_sequence + 1;
@@ -756,25 +809,19 @@ int pf_tuner_command_apply(pf_engine* engine, int command, uint32_t expected, in
   if (!engine || !engine->tuning) return -1;
   if (engine->tuning->snapshot().commandRevision != expected) return fail(engine, PF_COMMAND_CONFLICT, "Tuner changed. Refresh its state and retry.");
   if (command != PF_TUNER_CLOSE && command != PF_TUNER_SILENCE && running(engine)) return fail(engine, PF_ACTION_FAILED, "Stop the performance before using the tuner.");
+  if (engine->required_tuning && command != PF_TUNER_CLOSE)
+    return fail(engine, PF_ACTION_FAILED, "Sing the note and turn clockwise then counterclockwise to lock it");
   bool applied = false;
   switch (command) {
     case PF_TUNER_CONFIGURE: applied = engine->tuning->configure(value, static_cast<tuner::Scale>(scale)); break;
     case PF_TUNER_CUE: applied = engine->tuning->cue(); break;
     case PF_TUNER_PLAY_SCALE: applied = engine->tuning->playScale(); break;
     case PF_TUNER_SILENCE: applied = engine->tuning->silence(); break;
-    case PF_TUNER_CONFIRM: {
-      const auto state = engine->tuning->snapshot();
-      if (engine->compiled && engine->compiled->tuning_bank_configured() && !engine->compiled->tuning_bank_ready(state.step))
-        return fail(engine, PF_NO_SAMPLE, "Sing the selected target steadily before locking its note");
-      applied = engine->tuning->confirm(expected);
-      if (applied && engine->compiled && engine->compiled->tuning_bank_configured()
-        && !engine->compiled->lock_tuning_note(state.step, state.targets[state.step].midi)) return fail(engine, PF_ACTION_FAILED);
-      break;
-    }
+    case PF_TUNER_CONFIRM: return advance_tuning_note(engine);
     case PF_TUNER_LISTEN:
       if (!flag(value) || (value && !engine->microphone)) return fail(engine, PF_MICROPHONE_REQUIRED);
       applied = engine->tuning->setListening(value != 0); break;
-    case PF_TUNER_CLOSE: applied = engine->tuning->close(); break;
+    case PF_TUNER_CLOSE: cancel_required_tuning(engine); applied = engine->tuning->close(); break;
     default: return fail(engine, PF_INVALID_PROGRAM, "Unknown tuner command");
   }
   if (!applied) return fail(engine, PF_INVALID_PROGRAM, "Invalid tuner command or scale selection");
@@ -861,6 +908,7 @@ int pf_set_microphone(pf_engine* engine, int enabled) {
   if (!engine || !flag(enabled)) return fail(engine, PF_INVALID_PROGRAM, "Microphone state must be boolean");
   engine->microphone = enabled;
   if (!enabled) {
+    cancel_required_tuning(engine);
     engine->tuning->close();
     if (engine->compiled) engine->compiled->microphone_lost();
     clear_live(engine);
@@ -979,8 +1027,8 @@ int pf_control(pf_engine* engine, int control, double value, const uint16_t* com
   else if (control == 5) {
     if (!std::isfinite(value)) result = fail(engine, PF_INVALID_KNOB);
     else if (engine->compiled && !running(engine) && engine->tuning->snapshot().listening) {
-      if (engine->compiled->tuning_motion(value, engine->processed))
-        result = pf_tuner_command_apply(engine, PF_TUNER_CONFIRM, engine->tuning->snapshot().commandRevision, 0, 0);
+      if (engine->compiled->tuning_motion(value, engine->processed, engine->required_tuning))
+        result = advance_tuning_note(engine);
     } else if (engine->compiled && live_active(engine)) {
       int code = engine->compiled->rotate(value, engine->processed, engine->bpm);
       if (code != PF_OK) result = fail(engine, code);
@@ -1272,6 +1320,15 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
   unsigned block = unsigned(std::max(1.0, std::min(1024.0, std::floor(engine->rate * 0.25))));
   for (unsigned offset = 0; offset < frames;) {
     unsigned length = std::min(block, frames - offset), cursor = 0;
+    auto preview_before = tuner::PreviewKind::Silent;
+    auto pitch_before = tuner::PitchStatus::Off;
+    bool tuning_ready_before = false, tuning_changed = false;
+    if (engine->required_tuning) {
+      const auto tuning = engine->tuning->snapshot();
+      preview_before = tuning.previewKind;
+      pitch_before = tuning.detector.status;
+      tuning_ready_before = engine->compiled->tuning_bank_ready(tuning.step);
+    }
     engine->tuning->process(input ? input + offset : nullptr, left ? left + offset : nullptr,
       right ? right + offset : nullptr, length, engine->microphone);
     if (engine->compiled && !running(engine)) {
@@ -1279,6 +1336,9 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
       engine->compiled->process_tuning_bank(input ? input + offset : nullptr, length,
         engine->microphone && tuning.listening && !tuning.complete && tuning.detector.status == tuner::PitchStatus::Pitched,
         tuning.detector.confidence, tuning.detector.midi, tuning.targets[tuning.step].midi, tuning.step);
+      tuning_changed = engine->required_tuning && (preview_before != tuning.previewKind
+        || pitch_before != tuning.detector.status
+        || tuning_ready_before != engine->compiled->tuning_bank_ready(tuning.step));
     }
     double start = engine->processed;
     auto render = [&](unsigned end) {
@@ -1309,6 +1369,7 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
       }
     } while (count == 64);
     render(length);
+    if (tuning_changed) emit(engine, PF_STATE, engine->processed);
     publish_beat_prediction_if_changed(engine);
     offset += length;
   }
