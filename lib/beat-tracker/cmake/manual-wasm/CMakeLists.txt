@@ -6,6 +6,9 @@ endif()
 if(NOT DEFINED MANUAL_WASM_EXPORTS OR MANUAL_WASM_EXPORTS STREQUAL "")
   message(FATAL_ERROR "Generate MANUAL_WASM_EXPORTS from the public headers first")
 endif()
+if(NOT DEFINED MANUAL_WASM_INITIAL_MEMORY)
+  message(FATAL_ERROR "Specify the fixed manual WASM heap budget")
+endif()
 get_filename_component(repo_dir "${CMAKE_CURRENT_LIST_DIR}/../../../.." ABSOLUTE)
 add_executable(manual-clock
   "${repo_dir}/lib/beat-tracker/src/beat_tracker.cpp"
@@ -28,4 +31,4 @@ target_include_directories(manual-clock PRIVATE
   "${repo_dir}/lib/peripherals/include" "${repo_dir}/lib/patches/include" "${repo_dir}/lib/tuner/include")
 target_link_options(manual-clock PRIVATE -O3 -fno-exceptions --no-entry
   -sSTANDALONE_WASM=1 -sFILESYSTEM=0 -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0
-  -sINITIAL_MEMORY=268435456 -sSTACK_SIZE=1048576 "-sEXPORTED_FUNCTIONS=${MANUAL_WASM_EXPORTS}")
+  "-sINITIAL_MEMORY=${MANUAL_WASM_INITIAL_MEMORY}" -sSTACK_SIZE=1048576 "-sEXPORTED_FUNCTIONS=${MANUAL_WASM_EXPORTS}")

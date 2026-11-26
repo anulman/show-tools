@@ -2,6 +2,7 @@ import { Schema } from 'effect';
 import { CONTROL_IDS, type Chart, type ChartBar, type ChartSection } from './model.js';
 import { PF } from './wasm-abi.js';
 import { parsePreflightCue, parseSheetCues, type SheetCue } from './sheet-cues.js';
+import { compileSheetFollow } from './sheet-follow.js';
 import { columnName } from './columns.js';
 import { ExternalSampleAssetSchema, decodeExternalSampleWav } from './external-assets.js';
 import { SongSourceSchema } from './song-source.js';
@@ -75,11 +76,11 @@ export const SongMappingSchema = Schema.Struct({
   startBar: Schema.Int, endBar: Schema.Int,
   inputBindings: Schema.optionalKey(InputBindingsSchema),
   terminalStops: Schema.optionalKey(list(Schema.String)),
-  tail: Schema.optionalKey(Schema.Struct({ stopAllCell: Schema.NonEmptyString })),
+  tail: Schema.optionalKey(Schema.Union([Schema.Struct({ stopAllCell: Schema.NonEmptyString }), Schema.Struct({ barCell: Schema.NonEmptyString })])),
   knobCues: Schema.optionalKey(list(Schema.Struct({ ...KnobActionFields, cell: Schema.String }))),
   prelude: Schema.optionalKey(list(Schema.Struct({ label: Schema.NonEmptyString, counts: Schema.Int }))),
   meter: Schema.Struct({ numerator: Schema.Int, denominator: Schema.Int }),
-  controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String, playbackMode: Schema.optionalKey(Schema.Literals(['loop', 'one-shot'])) })),
+  controls: list(Schema.Struct({ buttonId: ButtonSchema, voiceId: Schema.String, cueRow: Schema.Int, arrangementRow: Schema.Int, nameNoteCell: Schema.String, follow: Schema.optionalKey(Schema.Literals(['piano', 'guitar'])), playbackMode: Schema.optionalKey(Schema.Literals(['loop', 'one-shot'])) })),
   tunedNotes: Schema.optionalKey(Schema.Struct({
     capture: Schema.Struct({ ...NoteCaptureFields, ...TunerTargetSchema.fields }),
     toleranceMs: Finite,
@@ -159,6 +160,10 @@ export const CompiledSongSchema = Schema.Struct({
   knobCues: Schema.optionalKey(list(KnobCueSchema)),
   authoredCues: Schema.optionalKey(list(AuthoredCueSchema)),
   preflight: Schema.optionalKey(PreflightSchema),
+  followTracks: Schema.optionalKey(list(Schema.Struct({
+    buttonId: ButtonSchema, voiceId: Schema.String, source: SourceRefSchema,
+    events: list(Schema.Struct({ at: PointSchema, selectionId: Schema.NullOr(Schema.String) })),
+  }))),
   releaseCapturePairs: Schema.optionalKey(list(ReleaseCapturePairSchema)),
   playbackPairs: Schema.optionalKey(list(PlaybackPairSchema)),
   cues: list(CueSchema), takes: list(TakeSchema),
@@ -366,7 +371,8 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
       if (shown !== cell.source.text.trim() || parsed.kind !== 'parsed' || canonicalSongJson(parsed.actions) !== canonicalSongJson(cell.actions)) throw new Error('Authored cue display or semantics disagree.');
       if (song.executable) {
         const native = song.cues.filter(cue => cue.bar === cell.bar && cue.buttonId === cell.buttonId && !isPreparationCue(cue));
-        const loweredActions = cell.actions.filter(action => action.operation !== 'pp');
+        const follows = song.followTracks?.some(track => track.buttonId === cell.buttonId);
+        const loweredActions = cell.actions.filter(action => action.operation !== 'pp' && !(follows && isFollowMarker(action)));
         if (native.length !== loweredActions.length || loweredActions.some(action => {
           const expected = lowerSheetCue(action);
           const matchesPhrase = (cue: CompiledCue) => {
@@ -377,7 +383,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
             return cue.playbackMode === 'loop' && window !== undefined
               && canonicalSongJson(selection?.window) === canonicalSongJson(window);
           };
-          return !native.some(cue => matchesPhrase(cue) && (cue.sourceName !== null || cue.voiceId === cell.voiceId) && cue.source.a1 === cell.source.a1 && cue.kind === expected.kind && cue.captureTail === expected.captureTail && cue.cueBeat === expected.cueBeat && canonicalSongJson(cue.execution) === canonicalSongJson(expected.execution) && cue.sourceName === action.sourceName && cue.launchPolicy === (action.operation === 'cx' ? 'store' : 'autoplay') && cue.groupId === (action.group === undefined ? null : `${cell.source.a1}/group-${action.group}`) && (action.operation !== 'h' || cue.playbackMode === 'held') && (action.operation !== 'g' || cue.playbackMode === 'gated') && (action.operation === 'po') === (cue.playbackMode === 'quantized-one-shot'));
+          return !native.some(cue => matchesPhrase(cue) && (cue.sourceName !== null || cue.voiceId === cell.voiceId) && cue.source.a1 === cell.source.a1 && cue.kind === expected.kind && cue.captureTail === expected.captureTail && cue.cueBeat === expected.cueBeat && canonicalSongJson(cue.execution) === canonicalSongJson(expected.execution) && cue.sourceName === action.sourceName && cue.launchPolicy === (action.operation === 'cx' || (follows && action.operation === 'c') ? 'store' : 'autoplay') && cue.groupId === (action.group === undefined ? null : `${cell.source.a1}/group-${action.group}`) && (action.operation !== 'h' || cue.playbackMode === 'held') && (action.operation !== 'g' || cue.playbackMode === 'gated') && (action.operation === 'po') === (cue.playbackMode === 'quantized-one-shot'));
         })) throw new Error('Authored cues disagree with native lowering.');
       }
     }
@@ -392,7 +398,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     }
     for (const bar of [{ bar: 0, cues: song.chart.leadInCues }, ...song.chart.bars]) for (const button of ['L1', 'L2', 'R1', 'R2'] satisfies (keyof typeof bar.cues)[]) {
       const key = `${bar.bar}/${button}`, text = bar.cues[button];
-      if (bar.bar === 0 && preparation.some(entry => entry.buttonId === button)) continue;
+      if (bar.bar === 0 && (preparation.some(entry => entry.buttonId === button) || song.followTracks?.some(track => track.buttonId === button))) continue;
       const parsed = parseSheetCues(text, song.meter.numerator);
       const beats = noteCells.get(key);
       if (beats) {
@@ -643,6 +649,35 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
   });
   if (song.cues.some(cue => cue.selectionId !== null && !selectionReady(cue.selectionId, cueBoundary(cue)))
     || song.playback.some(playback => !selectionReady(playback.selectionId, { bar: playback.bar, beat: 0 }))) throw new Error('An executable selection cannot precede its captures.');
+  const followed = new Set<string>();
+  if ((song.followTracks?.reduce((total, track) => total + track.events.length, 0) ?? 0) > PF.MAX_EVENTS)
+    throw new Error('Too many compiled follow events.');
+  for (const track of song.followTracks ?? []) {
+    const markers = (song.authoredCues ?? []).filter(cell => cell.buttonId === track.buttonId)
+      .flatMap(cell => cell.actions.filter(isFollowMarker).map(action => ({ action, at: writtenFollowAt(cell.bar, action) })));
+    const releases = markers.filter(({ action }) => action.operation === 'x');
+    const final = track.events.at(-1);
+    const seam = followBeat(track.source.text, beats);
+    const captures = song.takes.filter(take => take.voiceId === track.voiceId);
+    if (song.notationVersion !== 'terse-v2' || followed.has(track.voiceId)
+      || song.playback.some(event => event.voiceId === track.voiceId)
+      || !song.voices.some(voice => voice.id === track.voiceId && voice.buttonId === track.buttonId)
+      || track.source.sheetId !== song.source.sheetId || coordinate(track.source.a1).column !== song.chart.leadInColumn
+      || song.chart.leadInCues[track.buttonId] !== track.source.text.trim()
+      || seam === null || captures.length !== 1 || track.events.length < 2
+      || final?.selectionId !== null || releases.length !== 1
+      || !releases[0].at || !samePoint(releases[0].at, final.at)
+      || markers.some(({ action, at }) => action.operation === 'p' && (!at || !track.events.some(event => event.selectionId && samePoint(at, event.at)))))
+      throw new Error('Invalid compiled follow track.');
+    followed.add(track.voiceId);
+    if (track.events.some(({ at, selectionId }, index) => {
+      if (!validPoint(at, false) || (index > 0 && pointCount(at, beats) <= pointCount(track.events[index - 1].at, beats))) return true;
+      if (selectionId === null) return false;
+      const slice = song.selections.find(candidate => candidate.id === selectionId);
+      return at.beat !== seam || slice?.voiceId !== track.voiceId || slice.window.kind !== 'slice'
+        || slice.takeIds.length !== 1 || slice.takeIds[0] !== captures[0].id || !selectionReady(selectionId, at);
+    })) throw new Error('Invalid compiled follow event.');
+  }
   if (overlappingCaptures(song.takes.filter(take => !preparedTakeIds.has(take.id)), beats).length) throw new Error('Executable recording intervals must not overlap. Future arming may overlap an earlier recording.');
   const edges = resolveEdgeCues(song, message => { throw new Error(message); });
   if (song.notationVersion !== 'terse-v2' && (edges.releaseCapturePairs.length || edges.playbackPairs.length))
@@ -679,6 +714,21 @@ function migrateDycCue(text: string): { text: string; captureTail: Action['captu
   if (text === 'clb') return { text: 'c', captureTail: 'none', tempoBeatHint: 0 };
   if (text === '1p*') return { text: '1p', captureTail: 'none', tempoBeatHint: 1 };
   return { text, captureTail: /^[1-9]c[1-9]$/.test(text) ? 'silence-to-bar-end' : 'none', tempoBeatHint: 0 };
+}
+function isFollowMarker(cue: SheetCue): boolean {
+  return cue.operation === 'p' || cue.operation === 'x';
+}
+function writtenFollowAt(bar: number, cue: SheetCue) {
+  if (cue.execution.kind === 'next-bar') return { bar: bar + 1, beat: 0 };
+  if (cue.execution.kind === 'beat') return { bar: bar + cue.execution.barOffset, beat: cue.execution.beat };
+  return null;
+}
+function followBeat(text: string, beats: number): number | null {
+  const match = /^follow\(([1-9]\d*)([e&a]?)\)$/.exec(text.trim());
+  if (!match) return null;
+  const fraction = { e: .25, '&': .5, a: .75 }[match[2]] ?? 0;
+  const beat = Number(match[1]) - 1 + fraction;
+  return beat < beats ? beat : null;
 }
 function lowerSheetCue(cue: SheetCue): Action {
   const execution: Execution = cue.execution.kind !== 'beat' ? cue.execution
@@ -775,19 +825,23 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     else columns.set(bar, index + 1);
   });
   let tail: CompiledSong['tail'];
+  let tailBar: number | undefined;
   if (mapping.tail) {
-    const address = coordinate(mapping.tail.stopAllCell);
+    const stopAllCell = 'stopAllCell' in mapping.tail ? mapping.tail.stopAllCell : null;
+    const address = coordinate('stopAllCell' in mapping.tail ? mapping.tail.stopAllCell : mapping.tail.barCell);
     const location = ref(address.row, address.column);
-    if (location.text.trim() !== '1x(all)' || !/^big red button$/i.test(at(source.values, address.row, 1).trim())
+    if ((stopAllCell ? location.text.trim() !== '1x(all)' || !/^big red button$/i.test(at(source.values, address.row, 1).trim()) : address.row !== mapping.barRow)
       || barRow[address.column - 1]?.trim() !== 'Tail' || barRow.filter(label => label.trim() === 'Tail').length !== 1
       || address.column <= Math.max(...columns.values()) || numberedFinalBar >= 4096) {
-      issue('tail-stop', 'Bind the Big red button cell containing 1x(all) in the single Tail column after the numbered chart.', location);
+      if (stopAllCell) issue('tail-stop', 'Bind the Big red button cell containing 1x(all) in the single Tail column after the numbered chart.', location);
+      else issue('tail-binding', 'Identify the single Tail column after the numbered chart using its bar cell.', location);
     } else {
-      tail = { bar: numberedFinalBar + 1, source: location };
-      columns.set(tail.bar, address.column);
+      tailBar = numberedFinalBar + 1;
+      if (stopAllCell) tail = { bar: tailBar, source: location };
+      columns.set(tailBar, address.column);
     }
   }
-  const finalBar = tail?.bar ?? numberedFinalBar;
+  const finalBar = tailBar ?? numberedFinalBar;
   for (let bar = 1; bar <= Math.min(finalBar, 4096); bar++) if (!columns.has(bar)) issue('missing-bar', `Measure ${bar} is missing.`, ref(mapping.barRow, 1));
   const chronological = [...columns].sort(([a], [b]) => a - b);
   if (chronological.some(([, column], index) => index > 0 && column <= chronological[index - 1][1]))
@@ -820,12 +874,12 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     let label = '';
     for (let c = previousColumn + 1; c <= column; c++) if (sectionRow[c - 1]?.trim()) label = sectionRow[c - 1].trim();
     previousColumn = column;
-    if (bar === tail?.bar) label = 'Tail';
+    if (bar === tailBar) label = 'Tail';
     if (label) { section = { id: `section-${bar}`, label, startBar: bar, endBar: bar }; sections.push(section); }
     if (!section) { issue('section', 'The first compiled bar needs a section label.', ref(mapping.sectionRow, column)); section = { id: `section-${bar}`, label: 'Unresolved section', startBar: bar, endBar: bar }; sections.push(section); }
     section.endBar = bar;
     if (barRow[column - 1]?.includes('(part)')) issue('partial-bar', 'Specify the short measure length before compiling this range.', ref(mapping.barRow, column));
-    bars.push({ bar, ...(offset || tail ? { label: barRow[column - 1].trim() } : {}), column, sectionId: section.id, section: section.label, partial: barRow[column - 1]?.includes('(part)') ?? false, cues: padRow(column) });
+    bars.push({ bar, ...(offset || tailBar ? { label: barRow[column - 1].trim() } : {}), column, sectionId: section.id, section: section.label, partial: barRow[column - 1]?.includes('(part)') ?? false, cues: padRow(column) });
   }
   const nameFor = (button: typeof ButtonSchema.Type) => {
     const control = mapping.controls.find(c => c.buttonId === button);
@@ -927,12 +981,20 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       for (const binding of tunedNotes.bindings) noteBanks.push({ buttonId: binding.buttonId, toleranceMs: tunedNotes.toleranceMs, notes: [] });
     }
   }
-  for (const { buttonId, voiceId, cueRow } of mapping.controls) {
+  type StagedFollow = { beat: number; restarts: number[]; stop?: typeof PointSchema.Type };
+  const stagedFollow = new Map<string, StagedFollow>();
+  for (const { buttonId, voiceId, cueRow, follow } of mapping.controls) {
+    const directive = ref(cueRow, mapping.leadInColumn);
+    const beat = followBeat(directive.text, mapping.meter.numerator);
+    if (follow && (mapping.notationVersion !== 'terse-v2' || beat === null))
+      issue('follow-directive', 'Use follow(count) in the lead-in for this mapped arrangement row.', directive);
+    const track: StagedFollow | null = follow && beat !== null ? { beat, restarts: [] } : null;
+    if (track) stagedFollow.set(buttonId, track);
     const noteBank = noteBanks.find(bank => bank.buttonId === buttonId);
     const binding = tunedNotes?.bindings.find(binding => binding.buttonId === buttonId);
     for (const [bar, column] of [[0, mapping.leadInColumn], ...chronological]) {
       const location = ref(cueRow, column), text = location.text.trim();
-      if (!text) continue;
+      if (!text || (bar === 0 && track)) continue;
       if (bar === 0 && mapping.notationVersion === 'terse-v2') {
         const spec = parsePreflightCue(text, mapping.meter.numerator);
         if (spec) { stagedPreparation.push({ buttonId, voiceId, source: location, spec }); continue; }
@@ -965,6 +1027,26 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
           issue('edge-cue-notation', 'Release capture, paired playback, one-shot playback, written loop padding and phrase selection require terse-v2.', location);
           continue;
         }
+        if (track) {
+          const timed = cue.pressBeat === null && cue.sourceName === null && cue.group === undefined
+            && !cue.padToBarEnd && !cue.playbackPhrases && !cue.repeatBars;
+          const at = writtenFollowAt(bar, cue);
+          if (!timed || !['r', 'c', 'p', 'x'].includes(cue.operation) || !at) {
+            issue('follow-cue', 'Use timed r, c, p or x on a follow row.', location);
+            continue;
+          }
+          if (cue.operation === 'p') {
+            if (follow !== 'guitar' || at.bar !== bar || at.beat !== track.beat)
+              issue('follow-restart', 'Put a guitar restart on the same count as its follow seam.', location);
+            else track.restarts.push(at.bar);
+            continue;
+          }
+          if (cue.operation === 'x') {
+            if (track.stop) issue('follow-stop', 'Write one final release for a follow row.', location);
+            else track.stop = at;
+            continue;
+          }
+        }
         if (cue.operation === 'pp') continue;
         if (cue.operation === 'po' && bar === 0) {
           issue('one-shot-timing', 'Put quantized one-shot playback on a playable song bar.', location);
@@ -987,7 +1069,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       cues.push({ id, bar, buttonId, voiceId, kind: action.kind,
         cueBeat: action.cueBeat, execution: action.execution, captureTail: action.captureTail, tempoBeatHint: action.tempoBeatHint,
         captureReplacement: mapping.sourceBindings?.find(binding => binding.buttonId === buttonId && (action.authored?.sourceName ? binding.sourceName === action.authored.sourceName : binding.default))?.captureReplacement ?? false,
-        launchPolicy: action.authored?.operation === 'cx' ? 'store' : 'autoplay',
+        launchPolicy: action.authored?.operation === 'cx' || (track && action.authored?.operation === 'c') ? 'store' : 'autoplay',
         playbackMode: action.authored?.operation === 'h' ? 'held' : action.authored?.operation === 'g' ? 'gated' : action.authored?.operation === 'po' ? 'quantized-one-shot' : (mapping.sourceBindings?.find(binding => binding.buttonId === buttonId && (action.authored?.sourceName ? binding.sourceName === action.authored.sourceName : binding.default))?.playbackMode ?? mapping.controls.find(control => control.buttonId === buttonId)?.playbackMode ?? 'loop'),
         sourceName: action.authored?.sourceName ?? null,
         groupId: action.authored?.group === undefined ? null : `${location.a1}/group-${action.authored.group}`,
@@ -1317,6 +1399,47 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     if (selectionId === null)
       issue(cue.kind === 'stop' ? 'stop-selection' : 'play-selection', 'The named or played cue has no resolved committed source.', cue.source);
   }
+  const followTracks: NonNullable<CompiledSong['followTracks']> = [];
+  for (const control of mapping.controls) {
+    const track = stagedFollow.get(control.buttonId);
+    if (!control.follow || !track) continue;
+    const source = ref(control.cueRow, mapping.leadInColumn);
+    const captures = takes.filter(take => take.voiceId === control.voiceId);
+    const [take] = captures;
+    const parent = take && selections.find(selection => selection.takeIds.length === 1 && selection.takeIds[0] === take.id && selection.window.kind === 'full');
+    if (captures.length !== 1 || !take.captureEnd || !parent || !track.stop || track.stop.bar > finalBar) {
+      issue('follow-span', 'A follow row needs one completed capture and one final release within the chart.', source);
+      continue;
+    }
+    const result = compileSheetFollow({
+      kind: control.follow, beat: track.beat, beatsPerBar: mapping.meter.numerator,
+      bars: chronological.map(([bar, column]) => {
+        const cell = ref(control.arrangementRow, column);
+        return { bar, a1: cell.a1, text: cell.text };
+      }),
+      take: { begin: take.begin, end: take.captureEnd }, stop: track.stop, restarts: track.restarts,
+    });
+    for (const diagnostic of result.issues) {
+      const address = diagnostic.a1 ? coordinate(diagnostic.a1) : null;
+      issue('follow-arrangement', diagnostic.message, address ? ref(address.row, address.column) : source);
+    }
+    if (!result.issues.length && result.events.length < 2)
+      issue('follow-arrangement', 'Write at least one sampled window before the final release.', source);
+    const slices = new Map<string, string>();
+    const events = result.events.map(({ at, window }) => {
+      if (window === null) return { at, selectionId: null };
+      const key = `${window.beginCount}/${window.endCount}/${window.loopCounts}`;
+      const existing = slices.get(key);
+      if (existing) return { at, selectionId: existing };
+      const id = `${take.id}/follow/${key}`;
+      selections.push({ ...parent, id, window: { kind: 'slice', ...window } });
+      slices.set(key, id);
+      return { at, selectionId: id };
+    });
+    followTracks.push({ buttonId: control.buttonId, voiceId: control.voiceId, source, events });
+  }
+  if (followTracks.reduce((total, track) => total + track.events.length, 0) > PF.MAX_EVENTS)
+    issue('follow-limit', `This song exceeds the native limit of ${PF.MAX_EVENTS} follow events.`, ref(1, 1));
   const voices = mapping.controls.map(control => ({ id: control.voiceId, buttonId: control.buttonId, arrangementRow: control.arrangementRow }));
   const { releaseCapturePairs, playbackPairs } = resolveEdgeCues({ authoredCues, cues, takes, selections, chart, voices, meter: mapping.meter },
     (message, source) => issue('edge-cue', message, source));
@@ -1329,6 +1452,7 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     ...(tail === undefined ? {} : { tail }),
     ...(knobCues.length ? { knobCues } : {}),
     ...(preparation.length ? { preflight: { referenceMidi: stagedPreparation[0].spec.referenceMidi, cues: preparation } } : {}),
+    ...(followTracks.length ? { followTracks } : {}),
     ...(releaseCapturePairs.length ? { releaseCapturePairs } : {}),
     ...(playbackPairs.length ? { playbackPairs } : {}),
     ...(sourceProfiles.length ? { sourceProfiles } : {}),
@@ -1346,6 +1470,7 @@ export function inspectCompiledSong(input: unknown): string {
   for (const cue of song.preflight?.cues ?? []) lines.push(`PRE-SONG CAPTURE\t${cue.source.a1}\t${cue.source.text}\t${cue.takeId}`);
   for (const cue of song.knobCues ?? []) lines.push(`KNOB CUE\t${cue.source.a1}\t${cue.direction}\t${cue.action} ${cue.voiceIds.join(', ')}\t${cue.execution}`);
   for (const stop of song.terminalStops ?? []) lines.push(`TERMINAL STOP\t${stop.a1}\t${stop.text}\ttransport end; no extra measure`);
+  for (const track of song.followTracks ?? []) lines.push(`FOLLOW\t${track.source.a1}\t${track.source.text}\t${track.voiceId}\t${track.events.length} events`);
   if (song.tail) lines.push(`TAIL\t${song.tail.source.a1}\t${song.tail.source.text}\tstop backing playback at Tail count 1`);
   for (const part of song.parts) lines.push(`PART\t${part.source.a1}\t${part.name}\t${part.id}\tprofile ${part.profile}\t${part.role.kind}${part.role.kind === 'pad' ? ` ${part.role.buttonId}` : ''}`);
   if (song.rotation) {

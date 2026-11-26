@@ -8,8 +8,9 @@ export function initialVoiceEffects(song?: Pick<CompiledSong, 'parts' | 'sourceP
   const names = new Map([...song?.parts ?? [], ...song?.sourceProfiles ?? []]
     .map(({ name, profile }) => [profile, name.trim().toLowerCase().replace(/\s+/g, ' ')]));
   return Array.from({ length: VOICE_PROFILE_COUNT }, (_, profile) => {
-    const name = names.get(profile);
-    const effects = name === 'vocals' ? [slapback()] : name === 'backup vocals' ? [slapback(), chorus()] : [];
+    const name = names.get(profile) ?? '';
+    const label = /^(backup )?(?:vocals|vox)(?: [1-9]\d*)?(?: \([^()]+\))?$/.exec(name);
+    const effects = label ? [slapback(), ...(label[1] ? [chorus()] : [])] : [];
     return { profile, effects };
   });
 }

@@ -9,6 +9,7 @@ sequencer_dir="$module_dir/../sequencer"
 performance_dir="$module_dir/../performance"
 patches_dir="$module_dir/../patches"
 repo_dir="$module_dir/../.."
+initial_memory=$((448 * 1024 * 1024))
 
 for tool in em++ emcmake cmake ninja node; do
     command -v "$tool" >/dev/null || { echo "Required tool missing: $tool" >&2; exit 1; }
@@ -22,13 +23,13 @@ node --import tsx "$repo_dir/scripts/generate-sampler-abi.ts" "$performance_dir/
 exports="$(node --import tsx "$repo_dir/scripts/wasm-exports.ts" "$module_dir/include/beat_tracker.h" "$sampler_dir/include/sample_engine.h" "$sequencer_dir/include/audio_sequence_engine.h" "$performance_dir/include/performance_engine.h")"
 
 emcmake cmake -S "$module_dir/cmake/manual-wasm" -B "$build_dir/cmake" -G Ninja \
-    -DCMAKE_BUILD_TYPE= -DCMAKE_CXX_FLAGS= "-DMANUAL_WASM_EXPORTS=$exports"
+    -DCMAKE_BUILD_TYPE= -DCMAKE_CXX_FLAGS= "-DMANUAL_WASM_EXPORTS=$exports" "-DMANUAL_WASM_INITIAL_MEMORY=$initial_memory"
 cmake --build "$build_dir/cmake"
 cp "$build_dir/cmake/manual-clock.wasm" "$dist_dir/manual-clock.wasm"
 
 em++ --version > "$dist_dir/manual-clock-compiler.txt"
-cat > "$dist_dir/manual-clock-build.json" <<'EOF'
-{"mode":"manual","microphoneTempoDetection":false,"aubio":null,"sampler":"cpp","performance":"cpp","thirdPartyAudioDependencies":[],"initialMemory":268435456,"memoryGrowth":false}
+cat > "$dist_dir/manual-clock-build.json" <<EOF
+{"mode":"manual","microphoneTempoDetection":false,"aubio":null,"sampler":"cpp","performance":"cpp","thirdPartyAudioDependencies":[],"initialMemory":$initial_memory,"memoryGrowth":false}
 EOF
 node --test "$module_dir/tests/manual_wasm_tests.mjs"
 echo "Built $dist_dir/manual-clock.wasm without aubio."

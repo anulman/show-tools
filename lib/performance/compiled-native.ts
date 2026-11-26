@@ -89,7 +89,12 @@ function encodeProgram(song: CompiledSong): Float64Array {
   const tail = song.tail ? [PF.COMPILED_TAIL_MAGIC, 1, song.tail.bar] : [];
   const preflight = song.preflight ? [PF.COMPILED_PREFLIGHT_MAGIC, song.preflight.cues.length, song.preflight.referenceMidi ?? -1,
     ...song.preflight.cues.map(cue => indexOf(takes, cue.takeId))] : [];
-  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...introLoops, ...external, ...notes, ...profiles, ...autoSustains, ...edges, ...knob, ...tail, ...preflight, ...inputs];
+  const follow = song.followTracks?.flatMap(track => track.events.map(event => ({
+    ...event, voice: indexOf(voices, track.voiceId),
+  }))).sort((a, b) => a.at.bar - b.at.bar || a.at.beat - b.at.beat || a.voice - b.voice) ?? [];
+  const followRows = follow.length ? [PF.COMPILED_FOLLOW_MAGIC, follow.length,
+    ...follow.flatMap(event => [event.at.bar, event.at.beat, event.voice, optionalIndex(selections, event.selectionId)])] : [];
+  const fields = [...header, ...takeRows, ...cueRows, ...members, ...playback, ...rotation, ...windows, ...introLoops, ...external, ...notes, ...profiles, ...autoSustains, ...edges, ...knob, ...tail, ...preflight, ...followRows, ...inputs];
   if (header.length !== PF.COMPILED_HEADER_FIELDS || takeRows.length !== song.takes.length * PF.COMPILED_TAKE_FIELDS
     || cueRows.length !== song.cues.length * cueFields || fields.some(value => !Number.isFinite(value))) throw new Error('Invalid compiled native program layout.');
   if (song.meter.denominator !== (song.meter.numerator === 6 ? 8 : 4)) throw new Error('This native build supports 4/4 and 6/8 compiled programs.');

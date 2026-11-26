@@ -438,6 +438,77 @@ test('canonical Drunk Girls pickup loop restarts in 0.8 and crosses numbered one
   } finally { native.dispose(); }
 });
 
+test('canonical All I Want records both backing sources and follows the written arrangement without pad presses', async () => {
+  const { song } = await readMusicXmlSong(await readFile(new URL('../../../songs/all-i-want.musicxml', import.meta.url), 'utf8'));
+  assert(song.executable);
+  const piano = song.followTracks?.find(track => track.voiceId === 'piano');
+  const guitar = song.followTracks?.find(track => track.voiceId === 'guitar');
+  assert(piano && guitar);
+  const bar = (label: string) => {
+    const point = song.chart.bars.find(measure => measure.label === label);
+    assert(point, label);
+    return point.bar;
+  };
+  const takeIndex = (voiceId: string) => song.takes.findIndex(take => take.voiceId === voiceId);
+  const selectionAt = (track: typeof guitar, label: string) =>
+    song.selections.findIndex(selection => selection.id === track.events.find(event => event.at.bar === bar(label))?.selectionId);
+  const native = engine(Array.from(encodeCompiledProgram(song)));
+  const advance = (reached: (state: ReturnType<typeof native.state>) => boolean) => {
+    const frames = 1024;
+    const input = new Float32Array(frames).fill(.25);
+    const output = [new Float32Array(frames), new Float32Array(frames)];
+    for (let attempt = 0; attempt < 4000; attempt++) {
+      if (reached(native.state())) return;
+      native.process(input, output, frames);
+    }
+    assert.fail('Chart checkpoint was never reached');
+  };
+  const at = (label: string, beat: number) =>
+    advance(state => state.phase === 'playing' && state.bar === bar(label) && state.beat === beat);
+  try {
+    native.prepareLiveEffects([]);
+    native.setMicrophone(true);
+    const start = (label: string) => native.start({ runId: 'all-i-want', bpm: song.chart.bpm, countInBars: 1, startBar: bar(label), endBar: bar('Tail') });
+    const input = { producer: 0, session: 1, bindingGeneration: native.inputRouting().bindingGeneration };
+    native.inputAttach({ ...input, kind: 'pointer', releasedMask: 1 << 4, heldMask: 0 });
+    let sequence = 0;
+    const mushroom = () => {
+      for (const value of [1, 0]) native.inputEvent({ ...input, input: 4, value, sequence: ++sequence });
+    };
+    start('0.1');
+    assert.equal(native.state().preflightStage, 1);
+    mushroom();
+    advance(state => state.preflightStage === 3);
+    mushroom();
+    advance(state => state.preflightStage === 5);
+    mushroom();
+    at('5', 1);
+    for (const voice of ['backup-vox-1', 'backup-vox-2', 'piano'])
+      assert(native.compiledTake(takeIndex(voice)).ready, voice);
+    assert.equal(native.compiledTake(takeIndex('piano')).selectionIndex, selectionAt(piano, '4'));
+    at('42', 4);
+    const guitarTake = takeIndex('guitar');
+    const guitarCapture = native.compiledTake(guitarTake);
+    assert(guitarCapture.ready);
+    assert(Math.abs(guitarCapture.frames - 80 * 8000 * 60 / song.chart.bpm) <= 1);
+    assert.equal(guitarCapture.selectionIndex, selectionAt(guitar, '42'));
+    assert.notEqual(selectionAt(guitar, '42'), selectionAt(guitar, '52'), 'long suffix and forced restart select different source windows');
+    at('52', 4);
+    assert.equal(native.compiledTake(guitarTake).selectionIndex, selectionAt(guitar, '52'));
+    at('90', 4);
+    assert.equal(native.compiledTake(guitarTake).selectionIndex, selectionAt(guitar, '52'));
+    native.stop();
+    start('214');
+    at('214', 1);
+    assert.equal(native.compiledTake(guitarTake).revision, guitarCapture.revision);
+    assert.equal(native.compiledTake(guitarTake).selectionIndex, selectionAt(guitar, '213'));
+    at('216', 4);
+    assert.equal(native.compiledTake(guitarTake).selectionIndex, selectionAt(guitar, '216'));
+    at('217', 1);
+    assert.equal(native.compiledTake(guitarTake).selectionIndex, null, 'release runs at the next downbeat');
+  } finally { native.dispose(); }
+});
+
 test('Tribulations uses the same four recorded samples for Audition and chart playback', async () => {
   assert(tribulations.compiled);
   const native = engine(Array.from(encodeCompiledProgram(tribulations.compiled)), undefined, 48000);

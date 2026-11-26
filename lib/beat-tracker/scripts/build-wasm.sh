@@ -10,6 +10,7 @@ sequencer_dir="$module_dir/../sequencer"
 performance_dir="$module_dir/../performance"
 patches_dir="$module_dir/../patches"
 repo_dir="$module_dir/../.."
+initial_memory=$((448 * 1024 * 1024))
 aubio_version=0.4.9
 aubio_sha256=d48282ae4dab83b3dc94c16cf011bcb63835c1c02b515490e1883049c3d1f3da
 archive="$deps_dir/aubio-$aubio_version.tar.bz2"
@@ -72,14 +73,14 @@ em++ -O3 -std=c++17 -fno-exceptions \
     -I"$module_dir/include" -I"$sampler_dir/include" -I"$sequencer_dir/include" -I"$performance_dir/include" -I"$performance_dir/../peripherals/include" -I"$patches_dir/include" -I"$performance_dir/../tuner/include" -I"$build_dir/include" -I"$aubio_dir/src" \
     "${sources[@]}" "$sampler_dir/src/sample_engine.cpp" "$sequencer_dir/src/audio_sequence_engine.cpp" "$performance_dir/src/performance_engine.cpp" "$performance_dir/src/compiled_program.cpp" "$performance_dir/../peripherals/src/peripheral_controls.cpp" "$patches_dir/src/patch_engine.cpp" "$patches_dir/src/shake_percussion.cpp" "$performance_dir/../tuner/src/tuner.cpp" "$build_dir/libaubio.a" \
     --no-entry -sSTANDALONE_WASM=1 -sFILESYSTEM=0 -sALLOW_MEMORY_GROWTH=0 -sABORTING_MALLOC=0 \
-    -sINITIAL_MEMORY=268435456 -sSTACK_SIZE=1048576 \
+    "-sINITIAL_MEMORY=$initial_memory" -sSTACK_SIZE=1048576 \
     "-sEXPORTED_FUNCTIONS=$exports" \
     -o "$dist_dir/beat-tracker.wasm"
 
 emcc --version > "$dist_dir/compiler.txt"
 cp "$aubio_dir/COPYING" "$dist_dir/aubio-COPYING.txt"
 cat > "$dist_dir/build.json" <<EOF
-{"aubio":"$aubio_version","aubioArchiveSha256":"$aubio_sha256","fft":"ooura","precision":"float","sampler":"cpp","performance":"cpp","initialMemory":268435456,"memoryGrowth":false}
+{"aubio":"$aubio_version","aubioArchiveSha256":"$aubio_sha256","fft":"ooura","precision":"float","sampler":"cpp","performance":"cpp","initialMemory":$initial_memory,"memoryGrowth":false}
 EOF
 node --input-type=module - "$dist_dir/beat-tracker.wasm" <<'EOF'
 import { readFileSync } from 'node:fs';

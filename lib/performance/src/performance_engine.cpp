@@ -92,6 +92,7 @@ struct pf_engine {
   int bar = -1, beat = -1, count_beats = 0, count_elapsed = 0, count_remaining = 0, position = -1;
   double last_beat = -1, run_epoch = -1, sequence = 0, clock_sequence = 0, client_sequence = -1;
   bool restart_at_end = false;
+  bool finishing_printed_run = false;
   bool loop = false, automatic = false, song_click = false, generic_click = false, microphone = false;
   bool used[PF_CHANNELS]{}, suppressed[PF_CHANNELS]{};
   int tap_position[PF_CHANNELS]{};
@@ -124,7 +125,9 @@ bool recording(const pf_engine* engine, int id) {
   double data[ST_SLOT_FIELDS]; st_slot_info(engine->sampler, id, 0, data);
   return data[ST_SLOT_RECORDING] != 0;
 }
-bool running(const pf_engine* engine) { return engine->phase == PF_COUNT_IN || engine->phase == PF_PLAYING; }
+bool running(const pf_engine* engine) {
+  return engine->phase == PF_COUNT_IN || engine->phase == PF_PLAYING || engine->finishing_printed_run;
+}
 bool preflight_waits_for_mushroom(const pf_engine* engine) {
   return engine->preflight.stage > 0 && engine->preflight.stage % 2 == 1;
 }
@@ -205,7 +208,7 @@ double next_bar(const pf_engine* engine) {
 }
 BeatForecast beat_forecast(const pf_engine* engine) {
   double clock[BT_S_COUNT]; bt_snapshot(engine->tracker, clock);
-  const bool active = running(engine) && clock[BT_S_STARTED];
+  const bool active = !engine->finishing_printed_run && running(engine) && clock[BT_S_STARTED];
   return {active ? clock[BT_S_BEAT_ID] + 1 : -1, active ? clock[BT_S_NEXT_BEAT_FRAME] : -1,
     clock[BT_S_FRAME], clock[BT_S_EPOCH], clock[BT_S_REVISION]};
 }
@@ -279,7 +282,7 @@ int advance_tuning_note(pf_engine* engine) {
   }
   return accepted(engine);
 }
-void silence(pf_engine* engine, int reason = 3, bool keep_preflight = false) {
+void silence(pf_engine* engine, int reason = 3, bool keep_preflight = false, bool finish_printed = false) {
   if (!keep_preflight) engine->preflight = {};
   bt_cancel_pedal_tempo(engine->tracker);
   engine->pedal_tempo_beat = -1;
@@ -288,7 +291,8 @@ void silence(pf_engine* engine, int reason = 3, bool keep_preflight = false) {
   if (engine->tuning) engine->tuning->close();
   reset_tambourine(engine);
   engine->cue_button_held = false;
-  if (engine->compiled) engine->compiled->stop();
+  if (engine->compiled) engine->compiled->stop(finish_printed);
+  engine->finishing_printed_run = finish_printed && engine->compiled && engine->compiled->printed_tail_frames();
   clear_live(engine);
   sq_stop(engine->sequencer);
   for (int id = 0; id < PF_CHANNELS; ++id) {
@@ -1350,13 +1354,14 @@ int pf_on_beat(pf_engine* engine, double id, double when, double epoch) {
   if (stopped) {
     if (engine->phase != PF_ENDED || preflight_step >= 0) engine->phase = PF_IDLE;
     if (preflight_step >= 0 && !engine->error_code) fail(engine, PF_NO_RECORDING, "Vocal setup take could not be stored");
-    silence(engine);
+    const bool full_song_end = engine->compiled && engine->end == engine->compiled->bars();
+    silence(engine, 3, false, engine->phase == PF_ENDED && !engine->error_code && full_song_end);
   }
   if (click_enabled(engine)) {
     engine->click_start = when;
     engine->click_accent = engine->mode == PF_PRACTICE ? downbeat : std::fmod(id - engine->click_origin - 1, 4) == 0;
   } else engine->click_start = -infinity;
-  if (running) emit(engine, engine->error_code && engine->error_code != PF_CAPTURE_EFFECTS_UNAVAILABLE ? PF_FAULT : PF_BEAT, when);
+  if (running && !engine->finishing_printed_run) emit(engine, engine->error_code && engine->error_code != PF_CAPTURE_EFFECTS_UNAVAILABLE ? PF_FAULT : PF_BEAT, when);
   if (engine->compiled && running && !stopped) engine->compiled->publish_cue_entries(engine->end);
   return stopped && engine->error_code ? -1 : running ? 1 : 0;
 }
@@ -1422,13 +1427,21 @@ static int process_stems(pf_engine* engine, const float* input, float* left, flo
     double start = engine->processed;
     auto render = [&](unsigned end) {
       const unsigned first = offset + cursor, count = end - cursor;
-      if (count && engine->phase == PF_PLAYING && !engine->preflight.stage && engine->mode == PF_PRACTICE) {
+      const bool finishing = engine->finishing_printed_run;
+      const uint32_t performed = engine->preflight.stage || engine->mode != PF_PRACTICE ? 0
+        : engine->phase == PF_PLAYING ? count
+        : finishing ? uint32_t(std::min<uint64_t>(count, engine->compiled->printed_tail_frames())) : 0;
+      if (performed) {
         if (!song_frames) song_offset = first;
-        song_frames += count;
+        song_frames += performed;
       }
       render_segment(engine, input ? input + first : nullptr, left ? left + first : nullptr,
         right ? right + first : nullptr, live_left ? live_left + first : nullptr,
         live_right ? live_right + first : nullptr, count, start + cursor);
+      if (finishing && !engine->compiled->printed_tail_frames()) {
+        engine->finishing_printed_run = false;
+        emit(engine, PF_STATE, start + cursor + performed);
+      }
     };
     bt_process(engine->tracker, input ? input + offset : nullptr, length);
     double events[64 * BT_E_COUNT]; unsigned count;
@@ -1564,7 +1577,8 @@ void pf_snapshot(const pf_engine* engine, double* out) {
   if (!out) return;
   std::fill(out, out + PF_FIELDS, 0);
   if (!engine) return;
-  out[PF_PHASE] = engine->phase; out[PF_BAR_NUMBER] = engine->bar; out[PF_BEAT_NUMBER] = engine->beat;
+  out[PF_PHASE] = engine->finishing_printed_run ? PF_PLAYING : engine->phase;
+  out[PF_BAR_NUMBER] = engine->bar; out[PF_BEAT_NUMBER] = engine->beat;
   out[PF_COUNT_IN_REMAINING] = engine->count_remaining; out[PF_BPM] = engine->bpm;
   out[PF_START_BAR] = engine->start; out[PF_END_BAR] = engine->end; out[PF_LOOP] = engine->loop;
   out[PF_AUTOMATIC] = engine->automatic; out[PF_CLICK] = engine->mode == PF_PRACTICE ? engine->song_click : engine->generic_click;
