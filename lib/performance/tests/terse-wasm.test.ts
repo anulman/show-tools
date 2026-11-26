@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { terseCaptureFixture } from './fixtures/terse-capture.js';
+import { terseCaptureFixture, terseCaptureInput } from './fixtures/terse-capture.js';
 import { prepareDeclaredExternalAssets } from '../external-assets.js';
 import { encodeCompiledProgram } from '../compiled-native.js';
 import { compileSheetsSong } from '../compiled-song.js';
@@ -477,6 +477,46 @@ test('Tribulations uses the same four recorded samples for Audition and chart pl
       assert.deepEqual(render(native, 2048, 0), auditions[slot]);
       native.stop();
     }
+  } finally { native.dispose(); }
+});
+
+test('a written bar-end tail repeats eight bars with a silent final beat', async () => {
+  const { source, mapping } = terseCaptureInput();
+  const values = source.values.map(row => [...row]);
+  for (const control of mapping.controls) values[control.cueRow - 1].fill('');
+  values[19][2] = 'r(strum)1';
+  values[19][9] = 'cx(strum)4~b';
+  values[19][10] = '1p(strum)';
+  const { xml } = await importSheetMusicXml({
+    source: { ...source, range: 'A1:T24', values: values.map((row, index) =>
+      [...row, ...Array.from({ length: 8 }, (_, bar) => index === 4 ? String(bar + 11) : '')]) },
+    mapping: { ...mapping, endBar: 18 },
+  });
+  const { song } = await readMusicXmlSong(xml);
+  assert(song.executable, JSON.stringify(song.diagnostics));
+  assert.deepEqual(song.takes.map(({ begin, captureEnd, loopEnd }) => ({ begin, captureEnd, loopEnd })), [{
+    begin: { bar: 1, beat: 0 }, captureEnd: { bar: 8, beat: 3 }, loopEnd: { bar: 9, beat: 0 },
+  }]);
+
+  const native = engine(Array.from(encodeCompiledProgram(song)));
+  try {
+    native.prepareLiveEffects([]);
+    native.setMicrophone(true);
+    const framesPerBeat = 4000;
+    function advance(frames: number, input: number) {
+      for (let remaining = frames; remaining > 0; remaining -= 512) render(native, Math.min(remaining, 512), input);
+    }
+    native.start({ runId: 'bar-end-tail', bpm: 120, countInBars: 0, startBar: 1, endBar: 18 });
+    advance(32 * framesPerBeat, .25);
+    until(native, 9);
+    assert.equal(native.compiledTake(0).frames, 31 * framesPerBeat);
+    native.control({ id: 'L1' });
+    const isAudible = (audio: Float32Array) => audio.some(value => Math.abs(value) > .01);
+    assert(isAudible(render(native, 64, 0)), 'the take plays from the written cue');
+    advance(31 * framesPerBeat - 64 + 128, 0);
+    assert(!isAudible(render(native, 64, 0)), 'the final beat is silent');
+    advance(framesPerBeat - 192 + 128, 0);
+    assert(isAudible(render(native, 64, 0)), 'the attack returns after 32 beats');
   } finally { native.dispose(); }
 });
 
