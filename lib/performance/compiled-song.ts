@@ -833,7 +833,8 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
     if ((stopAllCell ? location.text.trim() !== '1x(all)' || !/^big red button$/i.test(at(source.values, address.row, 1).trim()) : address.row !== mapping.barRow)
       || barRow[address.column - 1]?.trim() !== 'Tail' || barRow.filter(label => label.trim() === 'Tail').length !== 1
       || address.column <= Math.max(...columns.values()) || numberedFinalBar >= 4096) {
-      issue('tail-binding', 'Identify the single Tail column after the numbered chart using its bar cell or the Big red button 1x(all) cell.', location);
+      if (stopAllCell) issue('tail-stop', 'Bind the Big red button cell containing 1x(all) in the single Tail column after the numbered chart.', location);
+      else issue('tail-binding', 'Identify the single Tail column after the numbered chart using its bar cell.', location);
     } else {
       tailBar = numberedFinalBar + 1;
       if (stopAllCell) tail = { bar: tailBar, source: location };

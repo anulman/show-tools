@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
+import { promisify } from 'node:util';
+import { readMusicXmlSong } from '../../lib/performance/musicxml-song.js';
+import { rehearsalMusicXml } from '../../songs/rehearsal.js';
 import { buildSongCatalog, readSongCatalog } from '../build-song-catalog.js';
 
 const songIds = ['dance-yrself-clean', 'drunk-girls', 'tribulations'];
@@ -63,5 +67,47 @@ test('omitting a song effects file packages the named vocal defaults', async () 
     assert.deepEqual(profiles('dance-yrself-clean'), expected(true));
     assert.deepEqual(profiles('drunk-girls'), expected(false));
     assert.deepEqual(profiles('tribulations'), expected(false));
+  } finally { await rm(f.directory, { recursive: true, force: true }); }
+});
+
+test('rehearsal catalog promotes timing-only All I Want and preserves installed executable charts', async () => {
+  const f = await fixture();
+  try {
+    const firstFour = [...f.spec.songs, { id: 'i-can-change', musicXml: resolve('songs/i-can-change.musicxml'), effects: f.effects }];
+    const canonical = resolve('songs/all-i-want.musicxml');
+    const document = await readMusicXmlSong(await readFile(canonical, 'utf8'));
+    const rehearsal = join(f.directory, 'old-all-i-want.musicxml');
+    await writeFile(rehearsal, await rehearsalMusicXml({ ...document, song: { ...document.song, executable: false } }));
+    const four = join(f.directory, 'four');
+    await buildSongCatalog({ ...f.spec, songs: firstFour }, four);
+    const build = promisify(execFile);
+    const upgrade = async (base: string, name: string) => {
+      const out = join(f.directory, name);
+      await build(process.execPath, ['--import', 'tsx', 'scripts/build-rehearsal-catalog.ts', '--base', base, '--out', out]);
+      const { catalog, files } = await readSongCatalog(out);
+      assert.equal(catalog.entries.length, 7);
+      return { out, files };
+    };
+    const installed = await upgrade(four, 'installed');
+    const allIWant = (files: Map<string, Buffer>) => files.get('songs/all-i-want/source.musicxml');
+    const effects = (files: Map<string, Buffer>) => files.get('songs/all-i-want/effects.json');
+    assert.deepEqual(allIWant(installed.files), await readFile(canonical));
+    const prior = await readSongCatalog(installed.out);
+    const specs = prior.catalog.entries.map(entry => ({ id: entry.id,
+      musicXml: entry.id === 'all-i-want' ? rehearsal : join(installed.out, entry.path, 'source.musicxml'),
+      effects: join(installed.out, entry.path, 'effects.json'),
+    }));
+    const legacy = join(f.directory, 'legacy');
+    await buildSongCatalog({ ...f.spec, songs: specs }, legacy);
+    const upgraded = await upgrade(legacy, 'upgraded');
+    assert.deepEqual(allIWant(upgraded.files), allIWant(installed.files));
+    assert.deepEqual(effects(upgraded.files), effects(installed.files));
+    for (const entry of prior.catalog.entries.filter(entry => entry.id !== 'all-i-want')) {
+      assert.deepEqual(upgraded.files.get(`${entry.path}/source.musicxml`), installed.files.get(`${entry.path}/source.musicxml`));
+      assert.deepEqual(upgraded.files.get(`${entry.path}/effects.json`), installed.files.get(`${entry.path}/effects.json`));
+    }
+    const authored = join(f.directory, 'authored');
+    await buildSongCatalog({ ...f.spec, songs: specs.map(spec => spec.id === 'all-i-want' ? { ...spec, musicXml: canonical, effects: f.effects } : spec) }, authored);
+    assert.deepEqual(effects((await upgrade(authored, 'preserved')).files), f.dry);
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
