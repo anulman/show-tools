@@ -26,6 +26,14 @@ Use `p~2` or `p~1..2` to loop numbered phrases from one committed take. Label th
 
 The legacy `dyc-v1` ingestion path explicitly migrates `clb`, `1p*`, and numeric capture cutoffs before the same parser. Cutoffs retain `silence-to-bar-end`; terse numeric suffixes preserve the full source through their actual endpoint. Existing canonical documents remain typed data and are never recompiled from archived JSON. The legacy version remains accepted for existing songs; this milestone does not rewrite their canonical files or the live chart.
 
+## Counted pre-song vocal takes
+
+Write one `pre(name)4&~2b` cue in the Lead-in cell on each vocal button row. The pickup is counted from the final count-in beat. `~2b` stores the pickup plus two complete bars. An optional `ref(E4)` before the first `pre` plays one reference note. For example, write `ref(E4) pre(ahoh)4&~2b` on R1 and `pre(lala)4e~2b` on R2.
+
+Start opens the setup while a take is missing. Each mushroom press advances one waiting step, top to bottom. The reference plays once without a pitch confirmation. Each take gets its own click count-in and stores automatically. After the last take, the requested song range starts. The mushroom cancels setup while a reference, count-in, or recording is active. Completed takes survive Stop and a restart of the same song.
+
+Use `1po(ahoh)1` or `(4)&po(lala)4&` for quantized one-shot playback. The press guide and launch position must match. A press up to a quarter count early waits for the cue. A press up to a quarter count late starts at the corresponding offset in the recording. Each accepted cue plays the remaining take once.
+
 ## Verification
 
 `npm run verify:formal:cues` checks the actual parser across its bounded domain and exercises source mutations. The MusicXML verifier checks its own domain and mutations. `terse-wasm.test.ts` executes the shared C++ through real WASM and checks stored silence, finite/parity retriggers, prepared hold/gate release, grouped replacement and missed groups, source phase, external overlap, and ordered manual note hits.

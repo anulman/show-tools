@@ -6,6 +6,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { test } from 'node:test';
 import { compiledCaptureFixture } from '../../performance/tests/fixtures/compiled-capture.js';
+import { terseCaptureInput } from '../../performance/tests/fixtures/terse-capture.js';
+import { compileSheetsSong } from '../../performance/compiled-song.js';
 import { PersistentDesk } from '../controller.js';
 import { prepareHost } from '../prepare.js';
 import { HostConnection } from '../host-connection.js';
@@ -73,6 +75,56 @@ test('an unarmed physical mushroom press terminates audio without a browser', as
       () => `Physical panic failed to terminate audio (command: ${result.outcome}, audio: ${controller.snapshot().audio.kind})`);
     assert.deepEqual(await readdir(profile.runtimeRoot), []);
   } finally { await fixture.dispose(); }
+});
+
+test('physical mushroom advances counted vocal setup without retiring native hardware audio', async () => {
+  const { source, mapping } = terseCaptureInput();
+  const values = source.values.map(row => [...row]);
+  for (const control of mapping.controls) values[control.cueRow - 1].fill('');
+  values[17][1] = 'ref(E4) pre(ahoh)4&~2b';
+  values[18][1] = 'pre(lala)4e~2b';
+  values[17][2] = '1po(ahoh)1';
+  values[18][3] = '(4)&po(lala)4&';
+  const compiled = await compileSheetsSong({ ...source, values }, mapping);
+  assert.equal(compiled.executable, true, JSON.stringify(compiled.diagnostics));
+  const directory = await mkdtemp(join(tmpdir(), 'desk-preflight-'));
+  const controller = new PersistentDesk(sessionProfile(directory), installedPackage(compiled).installed);
+  try {
+    controller.setAudio('on');
+    const audio = await until(() => {
+      const current = controller.snapshot().audio;
+      if (current.kind === 'fault') throw new Error(current.error);
+      return current.kind === 'ready' ? current : undefined;
+    });
+    const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
+    const routing = audio.performance.state.inputRouting;
+    assert.ok(routing);
+    const identity = { producer: 0, session: routing.sessionHighWatermark + 1, bindingGeneration: routing.bindingGeneration };
+    const command = (command: string, args: object) => controller.command(target, { command, args });
+    assert.equal((await command('inputAttach', { ...identity, kind: 'physical', releasedMask: 32, heldMask: 0 })).outcome, 'applied');
+    const waitForStage = (stage: number, phase?: 'playing') => until(() => {
+      const current = controller.snapshot().audio;
+      if (current.kind !== 'ready') throw new Error(`Native hardware left Ready during vocal setup: ${current.kind}`);
+      if (current.performance.state.preflightStage === stage && (!phase || current.performance.state.phase === phase))
+        return current.performance.state;
+    });
+    let sequence = 0;
+    const mushroom = (value: 0 | 1) => command('inputEvent', { ...identity, input: 5, sequence: ++sequence, value });
+    const advance = async (stage: number) => {
+      assert.equal((await mushroom(1)).outcome, 'applied');
+      assert.equal((await mushroom(0)).outcome, 'applied');
+      return waitForStage(stage, stage === 0 ? 'playing' : undefined);
+    };
+    assert.equal((await command('start', { bpm: 240, startBar: 1, endBar: 10, countInBars: 0 })).outcome, 'applied');
+    await waitForStage(1);
+    await advance(3);
+    const first = await advance(5);
+    assert.equal(first.compiledTakes?.filter(take => take.ready).length, 1);
+    const playing = await advance(0);
+    assert.equal(playing.compiledTakes?.filter(take => take.ready).length, 2);
+    await mushroom(1);
+    await until(() => controller.snapshot().audio.kind === 'off' ? true : undefined);
+  } finally { await controller.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('unfinished songs run rehearsal transport and acknowledge physical pads without executing draft cues', async () => {

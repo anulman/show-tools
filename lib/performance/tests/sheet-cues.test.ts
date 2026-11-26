@@ -329,3 +329,48 @@ test('edge imports reject missing cuts, unbound clips, and overlapping or incomp
     assert(compiled.diagnostics.some(diagnostic => diagnostic.source.a1 === a1 && diagnostic.code === 'edge-cue'), JSON.stringify(compiled.diagnostics));
   }
 });
+
+test('counted pre-song takes survive archive-free MusicXML and bind quantized hits', async () => {
+  const { source, mapping } = terseCaptureInput();
+  const values = source.values.map(row => [...row]);
+  for (const control of mapping.controls) values[control.cueRow - 1].fill('');
+  values[17][1] = 'ref(e4) pre(ahoh)4&~2b';
+  values[18][1] = 'pre(lala)4e~2b';
+  values[17][2] = '1po(ahoh)1';
+  values[18][3] = '(4)&po(lala)4&';
+  values[19][2] = 'r1';
+  values[19][3] = 'cx1';
+  const imported = await importSheetMusicXml({ source: { ...source, values }, mapping });
+  const importedSong = await readMusicXmlSong(imported.xml);
+  const standalone = await writeMusicXmlSong({ song: importedSong.song, report: imported.report });
+  const { song, source: archive } = await readMusicXmlSong(standalone);
+  assert.equal(archive, null);
+  assert.equal(song.executable, true, JSON.stringify(song.diagnostics));
+  assert.equal(song.preflight?.referenceMidi, 64);
+  assert.deepEqual(song.preflight?.cues.map(entry => [entry.buttonId, entry.source.a1]), [['R1', 'B18'], ['R2', 'B19']]);
+  assert.deepEqual(song.chart.bars[2].cues, { L1: '', L2: '', R1: '', R2: '' }, 'private capture commit must not claim a song cell');
+  assert.deepEqual(song.cues.filter(cue => cue.playbackMode === 'quantized-one-shot').map(cue => {
+    const take = song.takes.find(take => song.selections.find(selection => selection.id === cue.selectionId)?.takeIds.includes(take.id));
+    return [cue.sourceName, take?.begin, take?.captureEnd];
+  }), [
+    ['ahoh', { bar: 0, beat: 3.5 }, { bar: 3, beat: 0 }],
+    ['lala', { bar: 0, beat: 3.25 }, { bar: 3, beat: 0 }],
+  ]);
+  const { encodeCompiledProgram } = await import('../compiled-native.js');
+  const program = encodeCompiledProgram(song);
+  assert.deepEqual([...program.slice(-5)], [0x50465631, 2, 64, 1, 2]);
+  assert.throws(() => decodeCompiledSong({ ...song, preflight: { ...song.preflight, referenceMidi: 65 } }), /authored lead-in/);
+  assert.throws(() => decodeCompiledSong({ ...song, cues: song.cues.map(cue => cue.playbackMode === 'quantized-one-shot' ? { ...cue, playbackMode: 'loop' } : cue) }), /native lowering/);
+
+  values[17][1] = 'pre(ahoh)4&~2b';
+  values[18][1] = 'ref(E4) pre(lala)4e~2b';
+  const invalid = await compileSheetsSong({ ...source, values }, mapping);
+  assert.equal(invalid.executable, false);
+  assert(invalid.diagnostics.some(diagnostic => diagnostic.code === 'preflight-reference' && diagnostic.source.a1 === 'B19'));
+});
+
+test('po needs one press and quantized launch on the same written count', () => {
+  assert.equal(parseSheetCues('1po(ahoh)1').kind, 'parsed');
+  assert.equal(parseSheetCues('(4)&po(lala)4&').kind, 'parsed');
+  for (const cue of ['po', '1po', '1po2', '1po1+x', '4po1', '1pob']) assert.equal(parseSheetCues(cue).kind, 'invalid', cue);
+});

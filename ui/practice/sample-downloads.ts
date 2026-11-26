@@ -3,14 +3,14 @@ import type { CompiledSong } from '../../lib/performance/compiled-song.js';
 import type { PracticeState } from '../../lib/performance/model.js';
 import { decodeTakeAudio, TAKE_AUDIO_CHUNK_FRAMES, type TakeAudioRequest } from '../../lib/performance/take-audio.js';
 
-type ExportState = Pick<PracticeState, 'phase'> & Partial<Pick<PracticeState, 'compiledTakes' | 'recording' | 'runId'>>;
+type ExportState = Pick<PracticeState, 'phase'> & Partial<Pick<PracticeState, 'compiledTakes' | 'recording' | 'runId' | 'preflightStage'>>;
 type SampleSource = { takeAudioToken(): string; takeAudio(request: TakeAudioRequest): Promise<Uint8Array> };
 const WAV_HEADER_BYTES = 58;
 const MAX_EXPORT_BYTES = 128 * 1024 * 1024;
 export function sampleFileName(value: string) { return value.normalize('NFKD').replace(/[^a-zA-Z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'voice'; }
 
 function canDownload(state: ExportState) {
-  return state.phase !== 'playing' && state.phase !== 'count-in' && !state.recording;
+  return !state.preflightStage && state.phase !== 'playing' && state.phase !== 'count-in' && !state.recording;
 }
 
 function capturedSamples(song: CompiledSong | undefined, state: ExportState) {

@@ -13,7 +13,7 @@ enum pf_mode { PF_TRACKER = 0, PF_PERFORMANCE = 1, PF_PRACTICE = 2 };
 enum pf_phase { PF_IDLE = 0, PF_COUNT_IN = 1, PF_PLAYING = 2, PF_ENDED = 3 };
 enum pf_cue_kind { PF_NONE = 0, PF_UNSUPPORTED = 1, PF_TAP = 2, PF_ARM = 3, PF_COMMIT = 4, PF_COMMIT_ARM = 5, PF_STOP = 6, PF_PLAY = 7 };
 enum pf_launch_policy { PF_AUTOPLAY = 0, PF_STORE_ONLY = 1 };
-enum pf_playback_mode { PF_LOOP_MODE = 0, PF_ONESHOT_MODE = 1, PF_HELD_MODE = 2, PF_GATED_MODE = 3 };
+enum pf_playback_mode { PF_LOOP_MODE = 0, PF_ONESHOT_MODE = 1, PF_HELD_MODE = 2, PF_GATED_MODE = 3, PF_QUANTIZED_ONESHOT_MODE = 4 };
 enum pf_timing { PF_NOW = 0, PF_BAR = 1 };
 enum pf_capture_kind { PF_CONTINUOUS = 0, PF_SPARSE = 1, PF_WHOLE_BAR = 2 };
 enum pf_light { PF_OFF = 0, PF_CUE = 1, PF_STEADY = 2, PF_RELEASING = 3 };
@@ -25,7 +25,7 @@ enum pf_error_code { PF_OK = 0, PF_CLOCK_RESTARTED = 1, PF_MISSED_BEAT = 2, PF_A
   PF_MISSING_HIT = 8, PF_UNSUPPORTED_CUE = 9, PF_INVALID_COMMAND_ID = 10, PF_COMMAND_CONFLICT = 11,
   PF_INVALID_KNOB = 12, PF_INVALID_CHANNEL = 13, PF_INVALID_START = 14, PF_ALLOCATION_FAILED = 15, PF_INVALID_PROGRAM = 16,
   PF_INVALID_EFFECTS = 17, PF_CAPTURE_EFFECTS_UNAVAILABLE = 18, PF_CAPTURE_BUSY = 19, PF_TAKE_UNAVAILABLE = 20, PF_CUE_LATE = 21, PF_CUE_AMBIGUOUS = 22, PF_LOOP_MISMATCH = 23, PF_TEMPO_REJECTED = 24, PF_INVALID_INPUT = 25, PF_STALE_INPUT = 26 };
-enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 18, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
+enum pf_limits { PF_CHANNELS = 4, PF_MAX_BARS = 4096, PF_MAX_EVENTS = 4096, PF_EVENT_CAPACITY = 512, PF_ABI_VERSION = 19, PF_MAX_LIVE_EFFECTS = 64, PF_VOICE_PROFILES = 6, PF_DEFAULT_PROFILE = 4, PF_BACKUP_PROFILE = 5 };
 enum pf_input_kind { PF_INPUT_PHYSICAL = 0, PF_INPUT_KEYBOARD = 1, PF_INPUT_POINTER = 2 };
 enum pf_input_target { PF_INPUT_CUES = 0, PF_INPUT_TEMPO = 1, PF_INPUT_PANIC = 2 };
 enum pf_input_limits { PF_INPUT_PRODUCERS = 32, PF_INPUT_SWITCHES = 6, PF_INPUT_MAGIC = 0x50464931,
@@ -47,6 +47,8 @@ enum pf_compiled_extra {
   PF_COMPILED_KNOB_MAGIC = 0x50464b31, PF_COMPILED_KNOB_FIELDS = 6, PF_COMPILED_KNOB_WINDOW_MS = 100,
   PF_COMPILED_TAIL_MAGIC = 0x50465431
 };
+/* [magic, take count, reference MIDI or -1, take indices in capture order]. */
+enum { PF_COMPILED_PREFLIGHT_MAGIC = 0x50465631 };
 enum pf_compiled_edge { PF_COMPILED_EDGE_MAGIC = 730130, PF_COMPILED_EDGE_CAPTURE_FIELDS = 2, PF_COMPILED_EDGE_PLAYBACK_FIELDS = 5,
   PF_COMPILED_EDGE_ARM_EARLY_TICKS = 960, PF_COMPILED_EDGE_ARM_LATE_TICKS = 480, PF_COMPILED_EDGE_CAPTURE_GRACE_TICKS = 1920, PF_COMPILED_EDGE_PLAYBACK_TOLERANCE_TICKS = 240 };
 enum pf_compiled_take_field { PF_TAKE_VOICE, PF_TAKE_READY, PF_TAKE_LENGTH, PF_TAKE_CAPACITY, PF_TAKE_REVISION, PF_TAKE_PHASE, PF_TAKE_PLAYBACK_STATE, PF_TAKE_PERIOD, PF_TAKE_SOURCE_END, PF_TAKE_SELECTION, PF_TAKE_FIELDS };
@@ -78,19 +80,19 @@ enum pf_snapshot_field {
   PF_SEQUENCE, PF_COUNT_IN_BEATS, PF_COUNT_IN_ELAPSED, PF_POSITION_BEAT,
   PF_LAST_BEAT_ID, PF_EPOCH, PF_BAR_COUNT, PF_BEATS_PER_BAR, PF_PROGRAM_LENGTH,
   PF_MICROPHONE, PF_FRAME, PF_CLOCK_BEAT_ID, PF_CLOCK_BEAT_FRAME, PF_ERROR,
-  PF_CLICK_ENABLED, PF_TRACKER_DROPS, PF_EVENT_DROPS, PF_FIELDS
+  PF_CLICK_ENABLED, PF_TRACKER_DROPS, PF_EVENT_DROPS, PF_PREFLIGHT_STAGE, PF_FIELDS
 };
 enum pf_channel_field { PF_CHANNEL_GAIN, PF_CHANNEL_MUTED, PF_CHANNEL_LOOPING,
   PF_CHANNEL_READY, PF_CHANNEL_STATUS, PF_CHANNEL_LIGHT, PF_CHANNEL_RELEASE_MS,
   PF_CHANNEL_PENDING_KIND, PF_CHANNEL_FIELDS };
 /* Event records include the immutable transport and four channel snapshots.
-   STATE begins at 8; CHANNELS begins at 36. */
+   STATE begins at 8; CHANNELS begins at 37. */
 enum pf_event_field { PF_EVENT_TYPE, PF_EVENT_SEQUENCE, PF_EVENT_FRAME, PF_EVENT_RATE,
   PF_EVENT_ERROR, PF_EVENT_APPLIED, PF_EVENT_CONTROL, PF_EVENT_VALUE,
-  PF_EVENT_STATE, PF_EVENT_CHANNELS = 36, PF_EVENT_CUE = 68,
-  PF_EVENT_NEXT_BEAT_FRAME = 69, PF_EVENT_NEXT_BEAT_ID, PF_EVENT_CLOCK_EPOCH, PF_EVENT_CLOCK_REVISION,
-  PF_EVENT_INPUT_SLOT = 73, PF_EVENT_INPUT_SESSION, PF_EVENT_INPUT_GENERATION, PF_EVENT_INPUT_SEQUENCE,
-  PF_EVENT_INPUT_KIND, PF_EVENT_INPUT_EDGE, PF_EVENT_FIELDS = 79 };
+  PF_EVENT_STATE, PF_EVENT_CHANNELS = 37, PF_EVENT_CUE = 69,
+  PF_EVENT_NEXT_BEAT_FRAME = 70, PF_EVENT_NEXT_BEAT_ID, PF_EVENT_CLOCK_EPOCH, PF_EVENT_CLOCK_REVISION,
+  PF_EVENT_INPUT_SLOT = 74, PF_EVENT_INPUT_SESSION, PF_EVENT_INPUT_GENERATION, PF_EVENT_INPUT_SEQUENCE,
+  PF_EVENT_INPUT_KIND, PF_EVENT_INPUT_EDGE, PF_EVENT_FIELDS = 80 };
 
 uint32_t pf_abi_version(void);
 pf_engine* pf_create(double sample_rate, int mode, int max_voices, double max_seconds, int beats_per_bar);
@@ -130,6 +132,8 @@ void pf_tempo_info(const pf_engine* engine, double* out);
 int pf_clock_command(pf_engine* engine, int type, double value, double frame, double client_sequence, double epoch);
 int pf_start(pf_engine* engine, double bpm, int count_in_bars, int start_bar, int end_bar, int loop, int automatic);
 void pf_stop(pf_engine* engine);
+/* 0 absent, 1/2 reference waiting/playing, 3+2*n waiting for take n, 4+2*n recording it. */
+int pf_preflight_stage(const pf_engine* engine);
 /* Tuning borrows this engine's existing audio session while transport is stopped.
    Every mutation names the last observed control revision. Pitch telemetry does
    not advance it. Close/Start/Stop/Panic invalidate earlier tuner controls. */

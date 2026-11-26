@@ -291,7 +291,7 @@ export class PracticeAudio {
   }
 
   async start(options: StartOptions = {}) {
-    if (this.latest?.phase === 'playing' || this.latest?.phase === 'count-in') throw new Error('Stop before starting another run');
+    if (this.latest?.preflightStage || this.latest?.phase === 'playing' || this.latest?.phase === 'count-in') throw new Error('Stop before starting another run');
     const bpm = Number(options.bpm ?? this.chart.bpm);
     if (!Number.isFinite(bpm) || bpm < 40 || bpm > 240) throw new Error('Tempo must be between 40 and 240 BPM');
     const generation = ++this.startGeneration;
@@ -312,7 +312,10 @@ export class PracticeAudio {
     const routing = this.latest.inputRouting;
     const panic = args.value === 1 && routing?.bindingGeneration === args.bindingGeneration
       && (args.kind === 'physical' ? Boolean(routing.panicMask & 1 << args.input) : args.input === 4);
-    if (panic) { this.startGeneration++; this.microphoneGeneration++; this.clearMonitoring(); }
+    const mushroom = args.input === (args.kind === 'physical' ? 5 : 4);
+    if (panic && !(this.latest.preflightStage && mushroom)) {
+      this.startGeneration++; this.microphoneGeneration++; this.clearMonitoring();
+    }
     return this.request('practice.input-event', args);
   }
   inputRevoke(args: InputRevokeArgs) { return this.request('practice.input-revoke', args); }

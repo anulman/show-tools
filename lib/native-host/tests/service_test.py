@@ -58,7 +58,8 @@ try:
  assert inputs(snapshot())[1]==1
  s.close(); time.sleep(.1)
  s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect(path); t,q,hello2=recv(); assert hello2[:16]==ident[:16] and hello2[16:32]!=ident[16:32]; send(2,0); t,q,b=recv(); assert t==5 and struct.unpack_from('<Q',b,8)[0]==1 and struct.unpack_from('<I',b,16)[0]==2; offset=20+2+32
- assert struct.unpack_from('<I',b,offset)[0]==28
+ assert struct.unpack_from('<I',b,offset)[0]==29
+ assert struct.unpack_from('<d',b,offset+4+28*8)[0]==0
  phase=struct.unpack_from('<d',b,offset+4)[0]
  assert phase in (1,2), phase
  routing=inputs(b); assert routing[0]==generation and routing[1]==0 and routing[2]==5000000 and not any(routing[4:])

@@ -56,6 +56,23 @@ for (const gate of ['resume']) for (const action of ['stop', 'panic', 'physical-
   });
 }
 
+test('identified preflight mushroom presses preserve browser monitoring until engine classifies Panic', async () => {
+  for (const [kind, input] of [['physical', 5], ['keyboard', 4], ['pointer', 4]]) {
+    const requested = [];
+    const audio = Object.assign(Object.create(PracticeAudio.prototype), {
+      latest: { preflightStage: 1, inputRouting: { bindingGeneration: 1, panicMask: 48 } },
+      startGeneration: 2, microphoneGeneration: 3,
+      request(command, args) { requested.push({ command, args }); },
+      clearMonitoring() { assert.fail('Setup press cannot clear microphone monitoring'); },
+    });
+    const args = { kind, bindingGeneration: 1, sequence: 1, input, value: 1 };
+    await audio.inputEvent(args);
+    assert.deepEqual(requested, [{ command: 'practice.input-event', args }]);
+    assert.equal(audio.startGeneration, 2);
+    assert.equal(audio.microphoneGeneration, 3);
+  }
+});
+
 const deskSource = await sourceForVM(new URL('../desk.ts', import.meta.url));
 const uiSource = deskSource.slice(deskSource.indexOf('function requiredElement('), deskSource.indexOf('export async function mountDesk('))
   + 'const mode = "browser"; const remote = false; const defaultMode = mode; const deskURL = new URL(location.href);\n'
@@ -473,6 +490,27 @@ for (const stage of ['transition', 'detach']) for (const acknowledgement of ['de
   });
 }
 
+test('the desk mushroom sends an identified tap during preflight and ordinary Panic afterward', async () => {
+  const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
+  const presses = [];
+  let stage = 3;
+  const context = vm.createContext({
+    audio: { snapshot: () => ({ preflightStage: stage }) },
+    keyboardProducer: { async event(input, value) { presses.push(['keyboard', input, value]); } },
+    pointerProducer: { async event(input, value) { presses.push(['pointer', input, value]); } },
+    panic() { presses.push(['panic']); },
+  });
+  const mushroom = source.slice(source.indexOf('async function pressMushroom('), source.indexOf('function receivePerformanceEvent('));
+  vm.runInContext(mushroom, context);
+  await context.pressMushroom('keyboard');
+  await context.pressMushroom('pointer');
+  stage = 0;
+  await context.pressMushroom('pointer');
+  assert.deepEqual(presses, [
+    ['keyboard', 4, 1], ['keyboard', 4, 0], ['pointer', 4, 1], ['pointer', 4, 0], ['panic'],
+  ]);
+});
+
 test('Escape triggers Panic with an input focused while pad shortcuts still ignore editing', async () => {
   const source = await sourceForVM(new URL('../desk.ts', import.meta.url));
   const keyboardSource = source.slice(source.indexOf('window.addEventListener("keydown"'), source.indexOf('window.addEventListener("keyup"'));
@@ -483,7 +521,7 @@ test('Escape triggers Panic with an input focused while pad shortcuts still igno
   const context = { Element, Map, Set, acceptsRouteInput: () => true, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
     document: { querySelector: () => null },
     window: { addEventListener(_type, listener) { keydown = listener; } },
-    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: () => padCalls++,
+    act: action => action(), flash() {}, pressMushroom: () => panicCalls++, triggerPad: () => padCalls++,
   };
   prepareUIContext(context);
   const adapterSource = '';
@@ -532,7 +570,7 @@ test('keyboard forwards fresh observations after focus loss while native admissi
   const context = { Element, Map, Set, acceptsRouteInput: () => true, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: controls,
     document: { querySelector: () => null, querySelectorAll: () => [] }, pads: new Map(), elements: { mushroom: { classList: { remove() {} } } },
     window: { addEventListener(type, listener) { listeners.set(type, listener); } },
-    act: action => action(), flash() {}, panic: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }), releasePad: (id, commandId) => releases.push({ id, commandId }),
+    act: action => action(), flash() {}, pressMushroom: () => panicCalls++, triggerPad: (id, commandId) => commands.push({ id, commandId }), releasePad: (id, commandId) => releases.push({ id, commandId }),
   };
   prepareUIContext(context);
   const adapterSource = '';
@@ -617,7 +655,7 @@ test('Space on an effect disclosure, action button or link never toggles transpo
   const context = { Element, Map, Set, acceptsRouteInput: () => true, heldKeys: new Set(), inputPolicy: { allowsDomInput: () => true }, pointerHeld: new Set(), keyboardProducer: { async reset() {}, async event() {} }, keyboardEpoch: 0, audio: {}, CONTROLS: [{ key: 'KeyQ', id: 'L1' }],
     document: { querySelector: () => null },
     window: { addEventListener(_type, callback) { keydown = callback; } },
-    act: action => action(), flash() {}, isRunning: () => false, startPractice: () => starts++, stopPractice() {}, panic: () => panics++, triggerPad: () => pads++,
+    act: action => action(), flash() {}, isRunning: () => false, startPractice: () => starts++, stopPractice() {}, pressMushroom: () => panics++, triggerPad: () => pads++,
   };
   prepareUIContext(context); vm.runInContext(adapterSource + keyboardSource, context);
   const event = { code: 'Space', repeat: false, timeStamp: 0, preventDefault() { prevented++; } };

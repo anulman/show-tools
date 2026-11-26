@@ -139,7 +139,8 @@ int Instrument::render(const float* input, uint32_t frames) {
   std::array<double, PF_FIELDS> state{};
   pf_snapshot(engine_.get(), state.data());
   if (state[PF_PHASE] == PF_ENDED) lifecycle_ = Lifecycle::Prepared;
-  else if (state[PF_PHASE] == PF_IDLE) lifecycle_ = state[PF_ERROR] ? Lifecycle::Faulted : Lifecycle::Prepared;
+  else if (state[PF_PHASE] == PF_IDLE && !state[PF_PREFLIGHT_STAGE])
+    lifecycle_ = state[PF_ERROR] ? Lifecycle::Faulted : Lifecycle::Prepared;
   return 0;
 }
 int64_t Instrument::write(AudioPump::Write sink, void* context) {

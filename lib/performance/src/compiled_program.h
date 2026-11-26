@@ -28,7 +28,11 @@ class Program {
   void outcomes(void* context, void (*notify)(void*, double, int, int, int)) noexcept { outcome_context_ = context; outcome_ = notify; }
   void tempo_handler(void* context, int (*hit)(void*, int)) noexcept { tempo_context_ = context; tempo_hit_ = hit; }
   void tempo_changed(double frame, double old_bpm, double new_bpm) noexcept;
-  void start(int start_bar, int count_in_beats, double frame, double bpm, int end_bar = 0) noexcept;
+  void start(int start_bar, int count_in_beats, double frame, double bpm, int end_bar = 0, int preflight_step = -1) noexcept;
+  int first_missing_preflight_step() const noexcept;
+  int preflight_reference_midi() const noexcept { return preflight_reference_midi_; }
+  int preflight_bars(int step) const noexcept;
+  bool preflight_ready(int step) const noexcept;
   void stop() noexcept;
   void microphone_lost() noexcept;
   int press(int button, double frame, double bpm, bool microphone) noexcept;
@@ -87,6 +91,8 @@ class Program {
   struct InstrumentNote { int button = 0; uint32_t slot = 0; double at = 0, tolerance = 0; bool played = false; };
   std::unique_ptr<InstrumentNote[]> notes_;
   int note_count_ = 0;
+  int preflight_takes_[PF_COMPILED_MAX_TAKES]{}, preflight_count_ = 0;
+  int preflight_reference_midi_ = -1, active_preflight_take_ = -1;
   InstrumentNote* due_note(int button) noexcept;
   int launch_external(uint32_t slot, bool audition = false) noexcept;
   struct ExternalWindow { uint32_t slot = 0; double begin = 0, end = 0; };
@@ -168,6 +174,7 @@ class Program {
   void remember_cues(double frame, double bpm) noexcept;
   double loop_phase(const Take& take, int bank) const noexcept;
   bool follows_changed_tempo(const Take& take, int bank, double bpm) const noexcept;
+  bool cue_in_pass(const Cue& cue) const noexcept;
   bool cue_on_current_bar(const Cue& cue) const noexcept;
   bool cue_visible(const Cue& cue, int end_bar) const noexcept;
   bool commit_period(int take, uint32_t& period) const noexcept;

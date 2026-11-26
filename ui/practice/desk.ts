@@ -118,7 +118,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   const pointerHeld = new Map<ChannelId, number>();
   let keyboardEpoch = 0;
   let pointerEpoch = 0;
-  const keyboardProducer = createMusicalInputProducer({ kind: 'keyboard', endpoint: () => ensureAudio(), releasedMask: 0 });
+  const keyboardProducer = createMusicalInputProducer({ kind: 'keyboard', endpoint: () => ensureAudio(), releasedMask: 1 << 4 });
   const pointerProducer = createMusicalInputProducer({ kind: 'pointer', endpoint: () => ensureAudio(), releasedMask: 223 });
   const inputPolicy = createMusicalInputPolicy({ changed: () => releasePresses() });
   elements['musical-input-select'].value = inputPolicy.selection();
@@ -232,7 +232,8 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }
 
   function isRunning() {
-    return (!remote || remoteDesk?.snapshot().audio.kind === 'ready') && (state.phase === 'playing' || state.phase === 'count-in');
+    return (!remote || remoteDesk?.snapshot().audio.kind === 'ready')
+      && (Boolean(state.preflightStage) || state.phase === 'playing' || state.phase === 'count-in');
   }
 
   function beatName(position: number): string {
@@ -637,6 +638,13 @@ export async function mountDesk(options: DeskMountOptions = {}) {
 
   function panic() { return stopPerformance('panic'); }
 
+  async function pressMushroom(source: 'keyboard' | 'pointer') {
+    if (!audio?.snapshot().preflightStage) return panic();
+    const producer = source === 'keyboard' ? keyboardProducer : pointerProducer;
+    try { await producer.event(4, 1); }
+    finally { await producer.event(4, 0); }
+  }
+
   function receivePerformanceEvent(event: PracticeEvent) {
     const input = event.identifiedInput;
     if (input?.kind === 'physical' && input.edge === 'press' && song?.compiled?.voices.length === 0 && acceptsRouteInput()) {
@@ -968,10 +976,22 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     songLoadingStatus.textContent = loading ? 'Loading song' : '';
   }
 
+  function preflightLabel(stage: number) {
+    if (stage === 1) return 'PRESS MUSHROOM TO HEAR REFERENCE';
+    if (stage === 2) return 'PLAYING REFERENCE';
+    const index = Math.floor((stage - 3) / 2);
+    const cue = song?.compiled?.preflight?.cues[index];
+    const label = cue ? controlName(cue.buttonId).toUpperCase() : `TAKE ${index + 1}`;
+    if (stage % 2) return `PRESS MUSHROOM TO COUNT IN ${label}`;
+    return state.phase === 'count-in'
+      ? `${label} · COUNT-IN · ${state.countInRemaining ?? '…'} TO GO`
+      : `${label} · RECORDING`;
+  }
+
   function render(next: Partial<PracticeState>) {
     if (mountSignal.aborted) return;
     syncTunerSession();
-    const ended = next.phase === 'ended' && state.phase !== 'ended';
+    const ended = !next.preflightStage && next.phase === 'ended' && state.phase !== 'ended';
     const newPhase = next.phase ?? state.phase;
     if ((newPhase === 'playing' || newPhase === 'count-in') !== (state.phase === 'playing' || state.phase === 'count-in')) phoneMotionAbort?.abort();
     state = { ...state, ...next };
@@ -1000,14 +1020,14 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     elements['practice-desk'].dataset.phase = state.phase;
     elements['practice-desk'].dataset.bar = state.bar === null ? '' : String(state.bar);
     elements['practice-desk'].dataset.beat = state.beat === null ? '' : String(state.beat);
-    elements['phase-label'].textContent = inCountIn ? `COUNT-IN · ${state.countInRemaining ?? '…'} TO GO` : state.phase === 'playing' ? 'PLAYING' : state.phase === 'ended' ? 'RANGE COMPLETE' : song?.compiled?.executable === false ? 'CHART PREVIEW' : 'READY TO PLAY';
+    elements['phase-label'].textContent = state.preflightStage ? preflightLabel(state.preflightStage) : inCountIn ? `COUNT-IN · ${state.countInRemaining ?? '…'} TO GO` : state.phase === 'playing' ? 'PLAYING' : state.phase === 'ended' ? 'RANGE COMPLETE' : song?.compiled?.executable === false ? 'CHART PREVIEW' : 'READY TO PLAY';
     elements['range-label'].textContent = `BARS ${chartBarLabel(chart, running ? state.startBar ?? 1 : Number(elements['start-section'].value))}–${running ? chartBarLabel(chart, state.endBar ?? chart.bars.length) : elements['end-bar'].value}`;
-    elements['bar-number'].textContent = inCountIn ? 'IN' : currentBar?.label ?? String(displayBar).padStart(2, '0');
+    elements['bar-number'].textContent = inCountIn ? 'IN' : state.preflightStage ? '··' : currentBar?.label ?? String(displayBar).padStart(2, '0');
     elements['bar-number'].classList.toggle('pickup', Boolean(currentBar?.label && !/^\d/.test(currentBar.label)));
     elements['beat-number'].textContent = String(state.beat || 1);
     elements['beat-dots'].querySelectorAll('i').forEach((dot, index) => dot.classList.toggle('active', running && index === (state.beat || 1) - 1));
     elements.start.disabled = voiceCatalog.busy || song?.compiled?.executable === false || running || starting || songChanging() || effectsApplying || Boolean(preparing) || outputCapture === 'starting' || outputCapture === 'stopping' || remoteDemoChanging || auditionTimer !== undefined || (remote && remoteDesk?.demoState() === 'finishing');
-    elements['song-select'].disabled = remote && remoteDesk?.connection.kind !== 'connected' || voiceCatalog.busy || songChanging() || starting || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
+    elements['song-select'].disabled = remote && remoteDesk?.connection.kind !== 'connected' || voiceCatalog.busy || songChanging() || starting || Boolean(state.preflightStage) || effectsApplying || Boolean(preparing) || outputCapture !== 'idle';
     if (!remote) elements['record-demo'].disabled = voiceCatalog.busy || outputCapture === 'starting' || outputCapture === 'stopping';
     const effectsLocked = running || starting || switching || Boolean(preparing) || (effectsApplying && !auditionApplying) || outputCapture !== 'idle';
     renderSongVoices(state, effectsLocked);
@@ -1121,7 +1141,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
 
 
   function beginOutputRecording(phase: PracticeState['phase']) {
-    if (outputCapture !== 'waiting' || phase !== 'playing' || !recorder) return;
+    if (outputCapture !== 'waiting' || phase !== 'playing' || state.preflightStage || !recorder) return;
     recorder.start();
     outputCapture = 'recording';
     recordLabel.textContent = 'Finish take';
@@ -1267,7 +1287,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }
 
   elements.stop.addEventListener('click', () => act(stopPractice), { signal: mountSignal });
-  elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(panic); }, { signal: mountSignal });
+  elements.mushroom.addEventListener('click', () => { flash('mushroom'); act(() => pressMushroom('pointer')); }, { signal: mountSignal });
   elements['record-demo'].addEventListener('click', () => act(toggleOutputRecording), { signal: mountSignal });
   elements['download-demo'].addEventListener('click', event => {
     if (!remote) return;
@@ -1328,7 +1348,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     if (event.repeat || heldKeys.has(event.code) || document.querySelector('dialog[open]') || (remote && !audio)) return;
     if (event.code === 'Escape') {
       event.preventDefault(); heldKeys.add(event.code); flash('mushroom', true);
-      act(panic); return;
+      act(() => pressMushroom('keyboard')); return;
     }
     const target = event.target instanceof Element ? event.target : null;
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey
@@ -1355,6 +1375,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
 
   function postPerformanceEvent(event: PracticeEvent): void {
     if (remote) return;
+    if (event.state.preflightStage) { chartFollower?.stop(); return; }
     window.postMessage({ kind: 'show-tools-performance', event }, location.origin);
     if (!['localhost', '127.0.0.1', '[::1]'].includes(location.hostname)) return;
     if (event.state.phase !== 'playing' && event.state.phase !== 'count-in') { chartFollower?.stop(); return; }

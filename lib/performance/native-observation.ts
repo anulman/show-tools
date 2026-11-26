@@ -36,6 +36,9 @@ export function decodeNativeInputRouting(info: ArrayLike<number>): InputRoutingS
 export function decodeNativeState(data: ArrayLike<number>, channelData: ArrayLike<number>, runId: string, message: (code: number) => string): PracticeState {
     const phase = PHASES[data[PF.PHASE]];
     if (!phase) throw new Error('Invalid native transport phase');
+    const preflightStage = data[PF.PREFLIGHT_STAGE];
+    if (!Number.isSafeInteger(preflightStage) || preflightStage < 0 || preflightStage > 2 + PF.COMPILED_MAX_TAKES * 2)
+      throw new Error('Invalid native preflight stage');
     const channels = CONTROL_IDS.map((id, index) => {
       const info = Array.from({ length: PF.CHANNEL_FIELDS }, (_, field) => channelData[index * PF.CHANNEL_FIELDS + field]);
       const status = STATUSES[info[PF.CHANNEL_STATUS]];
@@ -47,7 +50,7 @@ export function decodeNativeState(data: ArrayLike<number>, channelData: ArrayLik
     const active = channels.find(channel => channel.status === 'recording')
       ?? channels.find(channel => channel.status === 'armed') ?? channels.find(channel => channel.status === 'stopping');
     const recording = active && (active.status === 'armed' || active.status === 'recording' || active.status === 'stopping') ? { id: active.id, status: active.status } : null;
-    return { phase, bar: data[PF.BAR_NUMBER] < 0 ? null : data[PF.BAR_NUMBER], beat: data[PF.BEAT_NUMBER] < 0 ? null : data[PF.BEAT_NUMBER], countInRemaining: data[PF.COUNT_IN_REMAINING], bpm: data[PF.BPM],
+    return { phase, preflightStage, bar: data[PF.BAR_NUMBER] < 0 ? null : data[PF.BAR_NUMBER], beat: data[PF.BEAT_NUMBER] < 0 ? null : data[PF.BEAT_NUMBER], countInRemaining: data[PF.COUNT_IN_REMAINING], bpm: data[PF.BPM],
       startBar: data[PF.START_BAR], endBar: data[PF.END_BAR], loop: data[PF.LOOP] === 1, automatic: data[PF.AUTOMATIC] === 1, click: data[PF.CLICK] === 1, selectedChannel: CONTROL_IDS[data[PF.SELECTED_CHANNEL]],
       runId: runId, seq: data[PF.SEQUENCE], channels, looping: channels.filter(channel => channel.looping).map(channel => channel.id), recording, microphone: data[PF.MICROPHONE] === 1, error: data[PF.ERROR] ? message(data[PF.ERROR]) : null };
 }

@@ -1,5 +1,5 @@
 /** Versioned Sheets ingestion syntax. Musical execution belongs to C++. */
-export type CueOperation = 'cr' | 'cx' | 'ru' | 'r' | 'c' | 'x' | 'pp' | 'p' | 'g' | 'h';
+export type CueOperation = 'cr' | 'cx' | 'ru' | 'r' | 'c' | 'x' | 'pp' | 'po' | 'p' | 'g' | 'h';
 export type CueExecution = { kind: 'now' } | { kind: 'next-bar' } | { kind: 'beat'; beat: number; barOffset: 0 | 1 };
 export interface SheetCue {
   group?: number;
@@ -22,7 +22,7 @@ function position(text: string, anchor: number, beats: number): number | null {
 }
 function operation(text: string): CueOperation | null {
   switch (text) {
-    case 'cr': case 'cx': case 'ru': case 'r': case 'c': case 'x': case 'pp': case 'p': case 'g': case 'h': return text;
+    case 'cr': case 'cx': case 'ru': case 'r': case 'c': case 'x': case 'pp': case 'po': case 'p': case 'g': case 'h': return text;
     default: return null;
   }
 }
@@ -39,7 +39,7 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
     const grouped = tokens.length > 1 || /x\([^()]*\+/.test(word);
     if (grouped) group++;
     for (const [tokenIndex, token] of tokens.entries()) {
-      const match = /^(?:\(([1-9]\d*)\))?([1-9]\d*(?:[e&a])?|[e&a])?(cr|cx|ru|r|c|x|pp|p|g|h)(?:\(([A-Za-z][A-Za-z0-9_-]*(?:\+[A-Za-z][A-Za-z0-9_-]*)*)\))?(b|[1-9]\d*(?:[e&a])?|[e&a])?(?:~(?:(b)|([1-9]\d*)(?:\.\.([1-9]\d*)(\^&)?)?))?$/.exec(token);
+      const match = /^(?:\(([1-9]\d*)\))?([1-9]\d*(?:[e&a])?|[e&a])?(cr|cx|ru|r|c|x|pp|po|p|g|h)(?:\(([A-Za-z][A-Za-z0-9_-]*(?:\+[A-Za-z][A-Za-z0-9_-]*)*)\))?(b|[1-9]\d*(?:[e&a])?|[e&a])?(?:~(?:(b)|([1-9]\d*)(?:\.\.([1-9]\d*)(\^&)?)?))?$/.exec(token);
       if (!match) return { kind: 'invalid', token, message: 'Expected [press] operation [(source)] [execution], separated by whitespace.' };
       if (match[1] && match[2] && /^\d/.test(match[2])) return { kind: 'invalid', token, message: 'Use one numeric press anchor.' };
       if (match[1]) anchor = Number(match[1]) - 1;
@@ -71,6 +71,8 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
       if (range && !playbackPhrases && !repeatBars)
         return { kind: 'invalid', token, message: 'Use a recorded-bar range on c or cx, or a phrase selection on p, for example p~2.' };
       const names = match[4]?.split('+') ?? [null];
+      if (op === 'po' && (grouped || execution.kind !== 'beat' || execution.barOffset !== 0 || execution.beat !== pressBeat))
+        return { kind: 'invalid', token, message: 'Use one press and launch on the same written beat, for example 1po(ahoh)1.' };
       if (op === 'pp') {
         if (pressBeat === null || execution.kind !== 'now' || grouped || names.length !== 2 || names[0] === names[1])
           return { kind: 'invalid', token, message: 'Use a count and two distinct names, for example 4pp(drunk+girls).' };
@@ -84,4 +86,19 @@ export function parseSheetCues(text: string, beatsPerBar = 4): CueParse {
     }
   }
   return { kind: 'parsed', actions };
+}
+
+/** One counted take, with an optional reference placed before it in the same lead-in cell. */
+export function parsePreflightCue(text: string, beatsPerBar = 4) {
+  const match = /^(?:ref\(([A-Ga-g])([#b]?)(-?[0-9])\)\s+)?pre\(([A-Za-z][A-Za-z0-9_-]*)\)([1-9]\d*[e&a]?)~([1-4])b$/.exec(text.trim());
+  if (!match) return null;
+  const beat = position(match[5], 0, beatsPerBar);
+  if (beat === null || beat < beatsPerBar - 1) return null;
+  let referenceMidi: number | null = null;
+  if (match[1]) {
+    const natural = [0, 2, 4, 5, 7, 9, 11]['CDEFGAB'.indexOf(match[1].toUpperCase())];
+    referenceMidi = (Number(match[3]) + 1) * 12 + natural + (match[2] === '#' ? 1 : match[2] === 'b' ? -1 : 0);
+    if (referenceMidi < 0 || referenceMidi > 115) return null;
+  }
+  return { referenceMidi, sourceName: match[4], beat, bars: Number(match[6]) };
 }

@@ -39,6 +39,7 @@ const state = Schema.Struct({ phase: Schema.Literals(['idle', 'count-in', 'playi
   looping: list(channel, 4), recording: Schema.NullOr(Schema.Struct({ id: channel, status: Schema.Literals(['armed', 'recording', 'stopping']) })),
   microphone: Schema.Boolean, error: Schema.NullOr(text), lifecycle: Schema.optionalKey(text),
   inputRouting: Schema.optionalKey(InputRoutingStateSchema),
+  preflightStage: Schema.optionalKey(count),
   chart: Schema.optionalKey(Schema.Struct({ spreadsheetId: text, sheetId: count, columns: list(count, 4096), leadInColumn: count })),
   liveEffects: Schema.optionalKey(Schema.Struct({ prepared: Schema.Boolean, active: Schema.Boolean, revision: count, stageCount: count, captureSupported: Schema.Boolean })),
   voiceEffects: Schema.optionalKey(voiceProfiles(voice)),
