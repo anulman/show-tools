@@ -25,6 +25,13 @@ test('real Drunk Girls cues separate silent press anchors, source names and exec
   assert.equal(fresh.kind === 'parsed' && fresh.actions[0].pressBeat, .5);
 });
 
+test('bar-end padding requires an explicit in-bar commit beat', () => {
+  for (const cue of ['cx(strum)4~b', 'c(strum)4&~b']) assert.equal(parseSheetCues(cue).kind, 'parsed', cue);
+  for (const cue of ['r4~b', 'cr4~b', 'p4~b', 'cx~b', 'cxb~b', 'cx1~b', 'cx4~1..3~b']) {
+    assert.equal(parseSheetCues(cue).kind, 'invalid', cue);
+  }
+});
+
 test('complete terse language survives canonical MusicXML with capability blocks and no source archive', async () => {
   const source = JSON.parse(await readFile(new URL('../../../songs/dance-yrself-clean.source.json', import.meta.url), 'utf8'));
   const mapping = JSON.parse(await readFile(new URL('../../../songs/dance-yrself-clean.cutover.mapping.json', import.meta.url), 'utf8'));

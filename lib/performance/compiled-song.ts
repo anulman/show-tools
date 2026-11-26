@@ -34,6 +34,7 @@ const ActionFields = {
 const AuthoredCueSchema = Schema.Struct({
   bar: Schema.Int, buttonId: ButtonSchema, voiceId: Schema.String, source: SourceRefSchema,
   actions: list(Schema.Struct({ group: Schema.optionalKey(Schema.Int), operation: Schema.Literals(['cr', 'cx', 'ru', 'r', 'c', 'x', 'pp', 'p', 'g', 'h']), pressBeat: Schema.NullOr(Finite), sourceName: Schema.NullOr(Schema.String),
+    padToBarEnd: Schema.optionalKey(Schema.Literal(true)),
     repeatBars: Schema.optionalKey(Schema.Struct({ first: Schema.Int, last: Schema.Int, overlapFinalEighth: Schema.optionalKey(Schema.Literal(true)) })),
     execution: Schema.Union([Schema.Struct({ kind: Schema.Literal('now') }), Schema.Struct({ kind: Schema.Literal('next-bar') }),
       Schema.Struct({ kind: Schema.Literal('beat'), beat: Finite, barOffset: Schema.Literals([0, 1]) })]) })),
@@ -346,7 +347,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
         const loweredActions = cell.actions.filter(action => action.operation !== 'pp');
         if (native.length !== loweredActions.length || loweredActions.some(action => {
           const expected = lowerSheetCue(action);
-          return !native.some(cue => (cue.sourceName !== null || cue.voiceId === cell.voiceId) && cue.source.a1 === cell.source.a1 && cue.kind === expected.kind && cue.cueBeat === expected.cueBeat && canonicalSongJson(cue.execution) === canonicalSongJson(expected.execution) && cue.sourceName === action.sourceName && cue.launchPolicy === (action.operation === 'cx' ? 'store' : 'autoplay') && cue.groupId === (action.group === undefined ? null : `${cell.source.a1}/group-${action.group}`) && (action.operation !== 'h' || cue.playbackMode === 'held') && (action.operation !== 'g' || cue.playbackMode === 'gated'));
+          return !native.some(cue => (cue.sourceName !== null || cue.voiceId === cell.voiceId) && cue.source.a1 === cell.source.a1 && cue.kind === expected.kind && cue.captureTail === expected.captureTail && cue.cueBeat === expected.cueBeat && canonicalSongJson(cue.execution) === canonicalSongJson(expected.execution) && cue.sourceName === action.sourceName && cue.launchPolicy === (action.operation === 'cx' ? 'store' : 'autoplay') && cue.groupId === (action.group === undefined ? null : `${cell.source.a1}/group-${action.group}`) && (action.operation !== 'h' || cue.playbackMode === 'held') && (action.operation !== 'g' || cue.playbackMode === 'gated'));
         })) throw new Error('Authored cues disagree with native lowering.');
       }
     }
@@ -514,6 +515,7 @@ export function decodeCompiledSong(input: unknown): CompiledSong {
     if (arms.length !== 1 || commits.length !== 1 || arm.id !== take.armCueId || commit.id !== take.commitCueId
       || cueBoundary(arm).bar !== take.begin.bar || cueBoundary(arm).beat !== take.begin.beat
       || !take.captureEnd || !take.loopEnd || !samePoint(cueBoundary(commit), take.captureEnd)
+      || song.notationVersion === 'terse-v2' && commit.captureTail === 'silence-to-bar-end' && (take.periodCounts !== undefined || commit.playbackMode !== 'loop')
       || !(take.periodCounts !== undefined ? take.periodCounts > 0 && Number.isInteger(take.periodCounts * 960) && Math.abs(pointCount(take.loopEnd, beats) - pointCount(take.begin, beats) - take.periodCounts) < 1e-8 : samePoint(take.loopEnd, commit.captureTail === 'silence-to-bar-end' ? { bar: take.captureEnd.bar + 1, beat: 0 } : take.captureEnd))
       || !song.selections.some(selection => selection.id === commit.selectionId && selection.takeIds.includes(take.id)
         && (selection.window.kind === 'full' || selection.window.kind === 'intro-loop' || selection.window.kind === 'slice'
@@ -618,7 +620,7 @@ function lowerSheetCue(cue: SheetCue): Action {
   const execution: Execution = cue.execution.kind !== 'beat' ? cue.execution
     : cue.execution.barOffset === 1 && cue.execution.beat === 0 ? { kind: 'next-bar' }
     : { kind: 'beat', beat: cue.execution.beat, ...(cue.execution.barOffset ? { barOffset: cue.execution.barOffset } : {}) };
-  const fields = { cueBeat: cue.pressBeat, execution, captureTail: 'none', tempoBeatHint: 0 } satisfies Omit<Action, 'kind'>;
+  const fields = { cueBeat: cue.pressBeat, execution, captureTail: cue.padToBarEnd ? 'silence-to-bar-end' : 'none', tempoBeatHint: 0 } satisfies Omit<Action, 'kind'>;
   if (cue.operation === 'pp') throw new Error('Paired playback does not lower to an ordinary cue.');
   const kinds = { r: 'arm', ru: 'arm', c: 'commit', cr: 'commit-arm', cx: 'commit', x: 'stop', p: 'play', h: 'play', g: 'play' } satisfies Record<Exclude<SheetCue['operation'], 'pp'>, Action['kind']>;
   return { ...fields, kind: kinds[cue.operation] };
@@ -889,14 +891,14 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
       const actions: (Action & { authored?: SheetCue })[] = [];
       if (override) actions.push(override);
       else if (parsed.kind === 'parsed') for (const cue of parsed.actions) {
-        if (mapping.notationVersion !== 'terse-v2' && (cue.operation === 'ru' || cue.operation === 'pp')) {
-          issue('edge-cue-notation', 'Release capture and paired playback require terse-v2.', location);
+        if (mapping.notationVersion !== 'terse-v2' && (cue.operation === 'ru' || cue.operation === 'pp' || cue.padToBarEnd)) {
+          issue('edge-cue-notation', 'Release capture, paired playback and written loop padding require terse-v2.', location);
           continue;
         }
         if (cue.operation === 'pp') continue;
         const migratedCue: SheetCue = mapping.notationVersion === 'dyc-v1' && cue.execution.kind === 'beat' ? { ...cue, execution: { ...cue.execution, barOffset: 0 } } : cue;
         const lowered = lowerSheetCue(migratedCue);
-        actions.push({ ...lowered, captureTail: migrated.captureTail, tempoBeatHint: migrated.tempoBeatHint, authored: migratedCue });
+        actions.push({ ...lowered, captureTail: mapping.notationVersion === 'terse-v2' ? lowered.captureTail : migrated.captureTail, tempoBeatHint: migrated.tempoBeatHint, authored: migratedCue });
       }
       for (const [actionIndex, action] of actions.entries()) {
       if (action.cueBeat !== null && (!Number.isFinite(action.cueBeat) || action.cueBeat < 0 || action.cueBeat >= mapping.meter.numerator)
@@ -969,7 +971,9 @@ export async function compileSheetsSong(sourceInput: unknown, mappingInput: unkn
           const end = cueBoundary(cue);
           const sourceBinding = mapping.sourceBindings?.find(binding => binding.sourceName === open?.sourceName);
           const repeatBars = repeatBarsByCue.get(cue.id);
-          const periodCounts = repeatBars?.overlapFinalEighth ? undefined : sourceBinding?.loopCounts;
+          const explicitPad = mapping.notationVersion === 'terse-v2' && cue.captureTail === 'silence-to-bar-end';
+          if (explicitPad && cue.playbackMode !== 'loop') issue('loop-padding-mode', 'Use ~b only for a looping recording.', cue.source);
+          const periodCounts = explicitPad || repeatBars?.overlapFinalEighth ? undefined : sourceBinding?.loopCounts;
           const absoluteLoopEnd = periodCounts === undefined ? null : pointCount(open.begin, mapping.meter.numerator) + periodCounts;
           const loopEnd = absoluteLoopEnd !== null ? { bar: Math.floor(absoluteLoopEnd / mapping.meter.numerator) + 1, beat: absoluteLoopEnd % mapping.meter.numerator } : cue.captureTail === 'silence-to-bar-end' ? { bar: end.bar + 1, beat: 0 } : end;
           const begin = open.begin;
