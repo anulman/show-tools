@@ -17,7 +17,7 @@ const workspace = await mkdtemp(join(tmpdir(), 'show-tools-rehearsal-'));
 try {
   const songs = await Promise.all(SET_SONGS.map(async entry => {
     const existing = installed.get(entry.id);
-    const promoted = entry.id === 'all-i-want';
+    const promoted = entry.id === 'all-i-want' || entry.id === 'daft-punk';
     if (existing) {
       const path = join(base, existing.path);
       const source = files.get(`${existing.path}/source.musicxml`);

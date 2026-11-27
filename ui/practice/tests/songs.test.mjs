@@ -29,7 +29,16 @@ test('loadable scripts keep song tempo, sheet columns, and trigger patterns sepa
   assert.equal(loaded[1].compiled.executable, true);
   assert.equal(loaded[2].compiled.executable, true);
   assert.ok(loaded[2].compiled.cues.length > 0);
-  for (const index of [4, 6]) {
+  const daftPunk = loaded[4].compiled;
+  assert.equal(daftPunk.executable, true);
+  assert.deepEqual(daftPunk.voices.map(voice => voice.buttonId).sort(), ['L1', 'L2']);
+  const strong = daftPunk.takes.find(take => take.sourceName === 'strong');
+  assert.deepEqual(strong.begin, { bar: 17, beat: 0 });
+  assert.deepEqual(strong.captureEnd, { bar: 24, beat: 3 });
+  assert.deepEqual(strong.loopEnd, { bar: 25, beat: 0 });
+  assert.ok(daftPunk.cues.some(cue => cue.source.a1 === 'BH19' && cue.selectionId.endsWith('/phrases-2-2')));
+  assert.ok(daftPunk.cues.some(cue => cue.source.a1 === 'BP19' && cue.selectionId.endsWith('/phrases-1-2')));
+  for (const index of [6]) {
     assert.equal(loaded[index].compiled?.executable, true);
     assert.deepEqual(loaded[index].compiled.cues, []);
     assert.deepEqual(loaded[index].compiled.takes, []);

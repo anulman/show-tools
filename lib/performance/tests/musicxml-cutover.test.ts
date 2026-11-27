@@ -121,7 +121,7 @@ test('every bundled song exposes the canonical instructions, metadata and source
 test('displayed commands cannot silently enter the timing-only practice path', async () => {
   const { musicXmlSongScript } = await import('../../../songs/load-musicxml.js');
   const { rehearsalProgram } = await import('../../../songs/rehearsal.js');
-  const xml = await readFile(new URL('../../../songs/daft-punk.musicxml', import.meta.url), 'utf8');
+  const xml = await readFile(new URL('../../../songs/you-wanted-a-hit.musicxml', import.meta.url), 'utf8');
   const document = await readMusicXmlSong(xml);
   const blank = { ...document, song: { ...rehearsalProgram(document.song), executable: false, cueWindow: null, parts: [] } };
   assert.equal(musicXmlSongScript(blank).compiled, undefined);
