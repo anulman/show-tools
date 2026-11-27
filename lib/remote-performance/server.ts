@@ -64,11 +64,13 @@ export async function serveProfile(input: SessionProfile) {
   try {
     await new Promise<void>((resolve, reject) => { server.once('error', reject); server.listen(profile.port, profile.host, () => { server.removeListener('error', reject); resolve(); }); });
   } catch (error) { try { await controller.close(); } finally { bindings.close(); } throw error; }
+  controller.recordingArchive?.startRetention();
   let shutdown: Promise<void> | undefined;
   return { server, controller, close() {
     return shutdown ??= (async () => {
       try { await controller.close(); } finally {
         bindings.close(); server.closeAllConnections();
+        await controller.recordingArchive?.stopRetention();
         await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
       }
     })();

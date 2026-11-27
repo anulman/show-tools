@@ -62,7 +62,7 @@ export class PersistentDesk implements DeskController {
       song: Schema.decodeUnknownSync(SongSchema)(installed.song), defaultVoiceEffects: installed.defaultVoiceEffects, audio: { kind: 'off' } };
     this.eventChart = chartMetadata(this.view.song.chart);
     this.demoPath = join(profile.runtimeRoot, 'demo-latest.wav');
-    if (profile.recordingArchiveRoot) this.recordingArchive = new RecordingArchive(profile.recordingArchiveRoot);
+    if (profile.recordingArchiveRoot) this.recordingArchive = new RecordingArchive(profile.recordingArchiveRoot, profile.recordingArchiveReserveBytes);
     this.loadedChart = songs?.initialChart;
   }
   songChoices() {
@@ -310,7 +310,9 @@ export class PersistentDesk implements DeskController {
       ...(driver.kind === 'fake' ? [String(driver.inputLevel), '--idle-monitor'] : [`hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, `hw:CARD=${driver.identity.alsaCardId},DEV=${driver.identity.pcmDevice}`, String(driver.captureChannels), String(driver.inputChannel), String(driver.periodFrames), String(driver.bufferFrames), driver.format,
         '--usb-identity', driver.identity.byId, driver.identity.usbSerial, driver.identity.usbVendor, driver.identity.usbProduct, driver.identity.alsaCardId, String(driver.identity.pcmDevice), driver.identity.monitorOff, '--idle-monitor']),
       '--owner-pid', String(process.pid), ...(this.profile.recordingArchiveRoot
-        ? ['--demo-archive', this.profile.recordingArchiveRoot] : ['--demo-output', this.demoPath])];
+        ? ['--demo-archive', this.profile.recordingArchiveRoot] : ['--demo-output', this.demoPath]),
+      ...(this.profile.recordingArchiveReserveBytes === undefined ? []
+        : ['--demo-archive-reserve', String(this.profile.recordingArchiveReserveBytes)])];
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     attempt.child = { kind: 'pending' };
     const child = yield* spawner.spawn(ChildProcess.make(native.executable, args, { shell: false, stdin: 'ignore', stdout: 'ignore', stderr: 'pipe', killSignal: 'SIGTERM', forceKillAfter: 1000 }));

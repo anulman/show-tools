@@ -11,7 +11,7 @@ export const ServerEpochSchema = id.pipe(Schema.brand('DeskEpoch'));
 export const NativeEpochSchema = id.pipe(Schema.brand('NativeEpoch'));
 export const DeskRevisionSchema = revision.pipe(Schema.brand('DeskRevision'));
 export const NativeRevisionSchema = revision.pipe(Schema.brand('NativeRevision'));
-export const demoStates = ['idle', 'armed', 'recording', 'finishing', 'saved', 'failed'] as const;
+export const demoStates = ['idle', 'armed', 'recording', 'finishing', 'saved', 'failed', 'archive-full'] as const;
 const DemoStateSchema = Schema.Literals(demoStates);
 export { MAX_DEMO_BYTES } from './recording-archive-schema.js';
 

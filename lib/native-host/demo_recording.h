@@ -9,8 +9,9 @@
 namespace native_host {
 class DemoRecording {
 public:
-  enum class State : uint32_t { Idle, Armed, Recording, Finishing, Saved, Failed };
-  DemoRecording(std::string draft, std::string output, uint32_t sample_rate, std::string archive_root = {});
+  enum class State : uint32_t { Idle, Armed, Recording, Finishing, Saved, Failed, ArchiveFull };
+  DemoRecording(std::string draft, std::string output, uint32_t sample_rate, std::string archive_root = {},
+                uint64_t archive_reserve = 0);
   ~DemoRecording();
   bool available() const { return writer_.joinable(); }
   State state() const { return state_.load(std::memory_order_acquire); }
@@ -25,6 +26,7 @@ private:
   void write();
   const std::string draft_, output_, archive_root_;
   const uint32_t sample_rate_;
+  const uint64_t archive_reserve_;
   SpscQueue<Block, 96> queue_;
   std::atomic<State> state_{State::Idle};
   std::atomic<bool> closing_{false}, io_failed_{false};

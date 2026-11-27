@@ -480,7 +480,7 @@ The [peripheral guide](../lib/peripherals/README.md#persistent-device-host) defi
 
 ## Verify automatic take saving
 
-The native demo writer publishes the WAV. The gateway lists pending recordings and records acknowledgements. The Hardware desk owns the selected folder and copies completed WAVs. Run `lib/remote-performance/tests/demo-recording.test.ts` against the built fake native host to verify the handoff across multiple takes and a service restart. Check permission, interrupted writes, remount, and retry behavior on Chromium with a disposable folder before relying on a physical drive.
+The native demo writer publishes the WAV. The gateway lists pending recordings and records acknowledgements. The Hardware desk owns the selected folder and copies completed WAVs. Run `lib/remote-performance/tests/demo-recording.test.ts` against the built fake native host to verify the handoff across multiple takes and a service restart. Check permission, interrupted writes, remount, and retry behavior on Chromium with a disposable folder before relying on a physical drive. Run `lib/remote-performance/tests/recording-retention.test.ts` for acknowledgement age, pressure order, and pending-file protection. The fake-host integration also checks **Archive full** during playback. Use a disposable archive rather than filling the operator’s drive.
 
 ## Verify voice sample downloads
 

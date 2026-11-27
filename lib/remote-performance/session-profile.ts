@@ -36,9 +36,11 @@ const common = {
 };
 export const SessionProfileSchema = Schema.Struct({ schemaVersion: Schema.Literal(2), ...common,
   recordingArchiveRoot: Schema.optionalKey(path),
+  recordingArchiveReserveBytes: Schema.optionalKey(integer(64 * 1024 * 1024, 2 ** 50)),
   restartPolicy: Schema.Literals(['no', 'on-failure']), catalog: SongCatalogOptionsSchema, authoringDatabase: path,
   peripheralProfile: Schema.optionalKey(path),
-});
+}).check(Schema.makeFilter(profile => (profile.recordingArchiveReserveBytes === undefined || profile.recordingArchiveRoot !== undefined)
+  || 'Recording archive reserve requires a recording archive directory'));
 const SessionProfileV1Schema = Schema.Struct({ schemaVersion: Schema.Literal(1), ...common,
   package: Schema.Struct({ manifest: path, packet: path, effects: path }),
 });

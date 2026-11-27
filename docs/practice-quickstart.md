@@ -209,7 +209,7 @@ During a song, any configured button with an LED still reaches full brightness w
 
 To save takes automatically, use the Hardware desk in a Chromium browser on the Mac. Open **Settings → Recording → Choose recording folder…** and choose a writable folder on the external drive. Keep the desk open. After a take finishes, look for **Saved to** beside the recording controls. If access expires, use **Allow folder access**. If the drive disappears, reconnect it so the desk can retry. **Turn off automatic saving** clears this browser's chosen destination.
 
-The host profile needs a configured recording archive for automatic saving. Without it, download each demo before stopping the web service or finishing another demo. With the archive enabled, the EliteDesk keeps its WAVs and copies each pending take into a distinct file on the Mac. The selected Mac folder is specific to this browser and desk address.
+The host profile needs a configured recording archive for automatic saving. Without it, download each demo before stopping the web service or finishing another demo. With the archive enabled, the EliteDesk keeps its WAVs and copies each pending take into a distinct file on the Mac. The selected Mac folder is specific to this browser and desk address. If you see **Archive full**, playback can continue. Reconnect the archive drive to save pending takes or free space on the EliteDesk, then start a new take.
 
 Use **Voice samples** after stopping transport to download individual committed chart takes.
 

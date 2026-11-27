@@ -615,6 +615,7 @@ int main(int argc,char** argv) {
   pid_t owner_pid=0;
   bool idle_monitor=false;
   std::string demo_output, demo_archive;
+  uint64_t demo_archive_reserve = 0;
   for (int index = positional; index < argc;) {
     const std::string option=argv[index];
     if (option == "--owner-pid") {
@@ -630,6 +631,13 @@ int main(int argc,char** argv) {
     } else if (option == "--demo-archive") {
       if (!demo_archive.empty() || index + 1 >= argc || argv[index+1][0]!='/') return 2;
       demo_archive=argv[index+1]; index+=2;
+    } else if (option == "--demo-archive-reserve") {
+      if (demo_archive_reserve || index + 1 >= argc || argv[index+1][0] < '1' || argv[index+1][0] > '9') return 2;
+      char* end=nullptr;
+      errno = 0;
+      const auto bytes=std::strtoull(argv[index+1],&end,10);
+      if (errno || *end || bytes < 64u * 1024 * 1024 || bytes > (1ull << 50)) return 2;
+      demo_archive_reserve=bytes; index+=2;
     } else if (option == "--idle-monitor") {
       if(idle_monitor)return 2;
       idle_monitor=true; ++index;
@@ -660,6 +668,7 @@ int main(int argc,char** argv) {
   char* end=nullptr;
   double rate=std::strtod(argv[2],&end); if(*end || !std::isfinite(rate) || rate<8000 || rate>192000)return 2;
   if ((!demo_output.empty() || !demo_archive.empty()) && std::floor(rate)!=rate) return 2;
+  if (demo_archive_reserve && demo_archive.empty()) return 2;
   if (!demo_archive.empty()) {
     struct stat directory{};
     if (!demo_output.empty() || lstat(demo_archive.c_str(), &directory) != 0 || !S_ISDIR(directory.st_mode)
@@ -691,7 +700,7 @@ int main(int argc,char** argv) {
   mode_t old=umask(0077); int bound=bind(server,reinterpret_cast<sockaddr*>(&addr),sizeof(addr)); umask(old);
   if(bound<0 || listen(server,1)<0) { close(server); return 1; }
   signal(SIGPIPE,SIG_IGN); signal(SIGINT,signal_stop); signal(SIGTERM,signal_stop);
-  DemoRecording demo(parent+"/demo.part",demo_output,uint32_t(rate),demo_archive);
+  DemoRecording demo(parent+"/demo.part",demo_output,uint32_t(rate),demo_archive,demo_archive_reserve);
   Shared shared; InstrumentConfig config{rate,int(voices),seconds,uint32_t(block),true,idle_monitor};
   std::thread audio(owner,std::ref(shared),config,uint32_t(block),float(level),stepped,std::ref(demo)
 #ifdef NATIVE_ALSA_HOST
