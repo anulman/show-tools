@@ -156,6 +156,7 @@ function MountedDesk({ mode }: { mode: AudioMode }) {
         {error && <p role="alert">{error}</p>}
         <Outlet />
         <div hidden={previewing} inert={previewing} style={{ display: previewing ? 'none' : 'contents' }} dangerouslySetInnerHTML={{ __html: template.song }} />
+        <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: template.tail }} />
       </main>
       <div style={{ display: 'contents' }} dangerouslySetInnerHTML={{ __html: template.dialogs }} />
     </DeskState.Provider>

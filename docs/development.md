@@ -278,6 +278,8 @@ Keep art authoring and musical execution separate. A Figma held-pose animatic te
 
 ## Verify the remote practice instrument
 
+Run `node --import tsx --test lib/remote-performance/tests/crt-cameras.test.ts ui/practice/tests/remote-session.test.ts` for OBS authentication, cut confirmation, and client readback. In Hardware mode, check that the pads sit below the main controls on desktop and directly below the header at phone width. With both views open, select a camera on each and check that both show the camera OBS confirms.
+
 Stop and mushroom Panic share the reserved command slot and cancel older queued ordinary commands. Verify both under HTTP capacity pressure and verify that native Panic preserves its control event while canceling queued Starts. The native priority regression uses a stepped fake host with a long owner interval to fill the bounded queue before it drains.
 
 Build and test `lib/native-host` with CMake. On Linux, install the ALSA development headers in the build environment to compile the device-backed host. The native host tests include fake PCM and Unix socket integration. Then run `node --import tsx --test --test-concurrency=4 lib/remote-performance/tests/*.test.ts ui/practice/tests/remote-session.test.ts` with `NATIVE_FAKE_HOST` pointing to the built `native_fake_host`, or build it at `build/native-host/native_fake_host`. The vertical test requires local Unix and loopback sockets.

@@ -198,6 +198,25 @@
 .topline #desk-song-select{order:1}
 .topline .desk-tools{order:1}
 @media(max-width:700px){.topline #desk-song-select{order:2}}
+
+.crt-cameras{margin:0 0 16px;padding:13px 15px 15px;border:1px solid var(--line);border-radius:9px;background:var(--paper)}
+.crt-cameras-heading{display:flex;align-items:baseline;justify-content:space-between;gap:4px 12px;flex-wrap:wrap;margin-bottom:10px}
+.crt-cameras-heading h2{margin:0;font-size:14px;font-weight:680}
+.crt-cameras-heading [role=status]{color:var(--muted);font-size:12px;overflow-wrap:anywhere}
+.crt-camera-pads{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,130px),1fr));gap:8px}
+.crt-camera-pads:empty{display:none}
+.crt-camera-pad{display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;padding:8px 12px;font-size:13px;font-weight:650;line-height:1.25;overflow-wrap:anywhere}
+.crt-camera-pad[aria-pressed=true]{border-color:#8c432c;background:#8d3e29;color:white}
+.crt-camera-pad[aria-pressed=true]:hover:not([aria-disabled=true]){background:#77331f}
+.crt-camera-pad[aria-disabled=true]{cursor:default;opacity:.55}
+.crt-camera-pad[aria-disabled=true]:hover{background:#f6f8f0}
+.crt-camera-pad[aria-disabled=true][aria-pressed=true]{background:#8d3e29;opacity:1}
+.crt-camera-live{flex:none;font-size:.73em;letter-spacing:.04em}
+@media(max-width:700px){
+  .crt-cameras{margin-bottom:12px;padding:12px}
+  .crt-camera-pads{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .crt-camera-pad{min-height:64px;font-size:16px}
+}
 .chart-preview-scroll{overflow:auto;margin-top:16px}
 .chart-preview-table{border-collapse:collapse;font-size:13px}
 .chart-preview-table th,.chart-preview-table td{border:1px solid var(--line);padding:6px 9px;white-space:nowrap}

@@ -9,6 +9,7 @@ import { decodeRecordingArchive, type ArchivedRecording } from '../../lib/remote
 import type { DeskView, NativePerformance, NativeTarget, InputIntentStatus, InputAttachOutcome, NativeOutcome, InputLeaseReceipt } from '../../lib/remote-performance/session-schema.js';
 import type { ChannelId, ChannelSettings, ChartMetadata, Control, PracticeEvent, PracticeState, StartOptions, LiveEffectDefinition, VoiceEffectConfiguration } from '../../lib/performance/model.js';
 import type { InputAttachArgs, InputEventArgs, InputRevokeArgs } from './musical-input-policy.js';
+import { decodeCrtCameraSnapshot, type CrtCameraId } from '../../lib/remote-performance/crt-camera-schema.js';
 
 async function readJson(response: Response): Promise<unknown> {
   const text = await response.text();
@@ -123,6 +124,24 @@ export class RemoteDesk {
     });
     if (!response.ok) throw new Error(`Song preview unavailable (${response.status})`);
     return decodeSongPreview(await readJson(response));
+  }
+  private async crtCameraRequest(signal: AbortSignal, cut?: { cameraId: CrtCameraId }) {
+    if (this.connectionState.kind !== 'connected') throw new Error('Connect to the hardware desk first.');
+    const headers = new Headers({ Authorization: `Bearer ${this.token}` });
+    if (cut) headers.set('Content-Type', 'application/json');
+    const response = await fetch('/api/crt-cameras', {
+      method: cut ? 'POST' : 'GET', headers, cache: 'no-store', mode: 'same-origin', redirect: 'error',
+      signal: AbortSignal.any([signal, this.abort.signal]),
+      body: cut ? JSON.stringify(cut) : undefined,
+    });
+    if (!response.ok) throw new Error(`CRT camera request failed (${response.status}).`);
+    return decodeCrtCameraSnapshot(await readJson(response));
+  }
+  cameraSnapshot(signal: AbortSignal) { return this.crtCameraRequest(signal); }
+  async cutCamera(cameraId: CrtCameraId, signal: AbortSignal) {
+    const snapshot = await this.crtCameraRequest(signal, { cameraId });
+    if (snapshot.kind !== 'ready' || snapshot.selectedId !== cameraId) throw new Error('CRT camera cut unconfirmed.');
+    return snapshot;
   }
   async selectSong(songId: string) {
     const decision = decodeAudioDecision(await this.post('/api/song', { songId, expectedRevision: this.latest.revision }));

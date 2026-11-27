@@ -13,6 +13,7 @@ import { installVoiceCatalog } from './voice-catalog.js';
 import type { SongSource } from '../../lib/performance/song-source.js';
 import type { PracticeAudio } from './audio.js';
 import { RemoteDesk, RemoteSession } from './remote-session.js';
+import { mountCrtCameras } from './crt-cameras.js';
 import { arcadeButton, arcadeColorForRow, createInputBindingPanel } from './input-binding-panel.js';
 import { createHardwareAuth } from './hardware-auth.js';
 import type { RemoteConnection } from './remote-session.js';
@@ -147,6 +148,12 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   const tunedSessions = new WeakSet<PerformanceSession>();
   const tunerDialog = requiredElement('#tuner-dialog', HTMLDialogElement);
   let remoteDesk: RemoteDesk | undefined;
+  const setCameraDesk = remote ? mountCrtCameras({
+    panel: requiredElement('#crt-cameras', HTMLElement),
+    pads: requiredElement('#crt-camera-pads', HTMLElement),
+    status: requiredElement('#crt-cameras-status', HTMLElement),
+    header: requiredElement('.topline', HTMLElement, elements['practice-desk']),
+  }, mountSignal) : undefined;
   let remoteDemoChanging = false;
   let remoteDemoDownloading = false;
   let remoteDemoCheck = '';
@@ -957,7 +964,10 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     void changeAudioMode({ current: mode, next, browserBusy: false, url: deskURL, fallback: defaultMode,
       dispose: options.onModeChange ? dispose : async () => {
         await phoneAuditionTransition;
-        if (remote) await remoteDesk?.dispose();
+        if (remote) {
+          setCameraDesk?.(undefined);
+          await remoteDesk?.dispose();
+        }
         else await audio?.dispose();
       }, navigate: url => options.onModeChange ? options.onModeChange(next) : location.assign(url.href) })
       .then(changed => { if (!changed) { changingAudioMode = false; select.value = mode; select.disabled = false; } })
@@ -1741,6 +1751,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
           ? 'Saved key was rejected. Enter the hardware session key' : 'Enter the hardware session key. This browser will remember it.'));
         hardwareKeyStatus.textContent = hardwareAuth.remembered() ? 'Key remembered in this browser.' : 'Key kept for this page only. Browser storage is unavailable.';
         await replaceHardwareDesk(desk);
+        setCameraDesk?.(undefined);
         replacement = desk;
         const choices = await desk.songs();
         mountSignal.throwIfAborted();
@@ -1754,6 +1765,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
           renderButtonBindings();
           const status = view.audio;
           const connected = desk.connection.kind === 'connected';
+          setCameraDesk?.(connected ? desk : undefined);
           renderHardwareAudio();
           if (!connected || status.kind !== 'ready') {
             tuningStart?.abort();
@@ -1788,6 +1800,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
         renderRemoteDemo();
       } catch (error) {
         if (replacement) {
+          setCameraDesk?.(undefined);
           await replacement.dispose();
           remoteDesk = undefined;
           renderHardwareUnavailable();

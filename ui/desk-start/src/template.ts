@@ -10,11 +10,14 @@ function section(start: string, end: string) {
   return source.slice(begin + start.length, finish);
 }
 
+const cameraSection = '<section id="crt-cameras"';
+
 export const template = {
   header: section('<header class="topline">', '</header>').replace(
     '<select id="song-select" aria-label="Song"></select>',
     '<select id="song-select" hidden></select>',
   ),
-  song: section('</header>', '</main>').replace('href="./README.md"', 'href="/ui/practice/README.md"'),
+  song: section('</header>', cameraSection),
+  tail: (cameraSection + section(cameraSection, '</main>')).replace('href="./README.md"', 'href="/ui/practice/README.md"'),
   dialogs: section('</main>', '<script type="module"'),
 };

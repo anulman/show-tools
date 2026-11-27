@@ -183,6 +183,35 @@ Assignments persist in SQLite and apply to every song. Each song supplies the cu
 
 To replace the whole layout with a JSON array of assignments, run `practice bindings apply --bindings /path/to/buttons.json` with audio off. Each entry pairs a physical identity such as `"blue"` in `controlId` with a `target` such as `{"kind":"cue-rows","rows":["L2"]}`.
 
+## Switch the CRT camera from the Desk
+
+Use **CRT cameras** in Hardware mode. The camera pads are at the top on a phone and below the main controls on desktop. The selected pad follows OBS. If a cut cannot be confirmed, check the connection message before pressing again.
+
+### Connect OBS to the EliteDesk
+
+1. In OBS, open **Tools → WebSocket Server Settings**. Enable the server with password authentication. Use a private network path that the EliteDesk can reach. Use an encrypted private path or a TLS proxy if the connection crosses a network you do not trust.
+2. Open a fullscreen **source projector** for the `HDMI 4x3 Output` group on the CRT. Keep the desired recording scene selected for the OBS program.
+3. Put the OBS password in a file readable only by the EliteDesk web service user. Keep that file outside the Desk's static web directory.
+4. Add the following `crtCameras` entry to the installed private session profile at `/home/anulman/.config/show-tools/session.json`. Replace the URL and password path with the real values. Use the exact OBS scene collection, group, and source names. List the bottom camera in the OBS group first. It stays visible under the selected camera so the existing OBS hide shortcut returns to that view.
+
+```json
+{
+	"crtCameras": {
+		"url": "ws://obs-mac.example:4455",
+		"passwordFile": "/home/anulman/.config/show-tools/obs-password",
+		"sceneCollection": "Untitled",
+		"group": "HDMI 4x3 Output",
+		"cameras": [
+			{ "id": "phone", "label": "Phone", "sourceName": "iPWN" },
+			{ "id": "facecam", "label": "Facecam", "sourceName": "Elgato Facecam MK.2" }
+		]
+	}
+}
+```
+
+5. Apply the profile during the next Desk service restart. Open the Desk on the phone and desktop. Select each camera and check that the physical CRT and both selected pads follow the cut.
+6. To add a camera, add it to the OBS group and add a profile entry with a distinct ID. Configure its Source Record filter in OBS if you need a separate file.
+
 ## Test one capture before playing the whole song
 
 Start with Dance Yrself Clean:
