@@ -1,4 +1,4 @@
-import { initialVoiceEffects } from '../../lib/performance/vocal-effects.js';
+import { backupVocalProfiles, initialVoiceEffects } from '../../lib/performance/vocal-effects.js';
 import { dismissOnBackdrop } from './dialog.js';
 import { chartBarLabel, chartBarOrdinal } from '../../lib/performance/chart-position.js';
 import { enablePhoneMotion } from './phone-motion.js';
@@ -736,7 +736,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
   }
 
   function mountVoiceRows() {
-    voiceEffects.reset(initialVoiceEffects(remote ? undefined : song?.compiled)); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0; chartKnobCue = undefined;
+    voiceEffects.reset(initialVoiceEffects(remote ? undefined : song?.compiled), backupVocalProfiles(song?.compiled)); liveVoiceStates.clear(); voiceAvatars.clear(); rotationControls.length = 0; chartKnobCue = undefined;
     for (const pad of pads.values()) {
       const avatar = requiredElement('.performance-avatar', HTMLElement, pad.button);
       avatar.hidden = true; delete avatar.dataset.avatar;

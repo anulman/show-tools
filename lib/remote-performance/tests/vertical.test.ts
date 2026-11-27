@@ -11,7 +11,42 @@ import { installedPackage, sessionProfile, until } from './session-fixture.js';
 import { PF as LIGHT } from '../../performance/light-abi.js';
 import { decodeDeskPublication } from '../session-schema.js';
 import { followDeskCharts } from '../../../scripts/desk-chart-follower.js';
+import { ROTATION_LIVE_PROFILE, type VoiceEffectConfiguration } from '../../performance/model.js';
 import { rangeForBar } from '../../performance/chart.js';
+
+test('hardware applies full wet to an existing backup stack and keeps it fixed on edit', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'vox-'));
+  const saved = Array.from({ length: 6 }, (_, profile): VoiceEffectConfiguration => ({
+    profile,
+    effects: profile === ROTATION_LIVE_PROFILE ? [{ kind: 'slapback', delayMs: 120, feedback: .1, wet: .6 }] : [],
+  }));
+  const controller = new PersistentDesk(sessionProfile(directory), installedPackage(song.compiled, saved).installed);
+  try {
+    const armed = controller.snapshot().defaultVoiceEffects?.find(item => item.profile === ROTATION_LIVE_PROFILE);
+    assert.deepEqual(armed?.effects, [{ kind: 'slapback', delayMs: 120, feedback: .1, wet: 1 }]);
+    assert.equal(controller.setAudio('on').outcome, 'accepted');
+    const audio = await until(() => {
+      const current = controller.snapshot().audio;
+      if (current.kind === 'fault') throw new Error(current.error);
+      if (current.kind === 'ready') return current;
+    });
+    const current = audio.performance.state.voiceEffects?.find(item => item.profile === ROTATION_LIVE_PROFILE);
+    assert.ok(current);
+    assert.deepEqual(current.effects, armed?.effects);
+    const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
+    const applied = await controller.command(target, { command: 'configureVoiceProfile', args: {
+      profile: ROTATION_LIVE_PROFILE, expectedRevision: current.revision,
+      effects: [{ kind: 'slapback', delayMs: 140, feedback: .2, wet: .2 }],
+    } });
+    assert.equal(applied.outcome, 'applied');
+    if (applied.outcome !== 'applied') throw new Error('Expected applied profile');
+    assert.deepEqual(applied.state.voiceEffects?.find(item => item.profile === ROTATION_LIVE_PROFILE)?.effects,
+      [{ kind: 'slapback', delayMs: 140, feedback: .2, wet: 1 }]);
+  } finally {
+    await controller.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test('gateway commands reach the native engine and attachment does not stop it', async () => {
   const binary = resolve(process.env.NATIVE_FAKE_HOST ?? 'build/native-host/native_fake_host');

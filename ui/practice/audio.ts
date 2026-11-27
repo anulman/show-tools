@@ -1,3 +1,4 @@
+import { applyBackupVocalWetMix, backupVocalProfiles } from '../../lib/performance/vocal-effects.js';
 import { chartMetadata } from '../../lib/performance/chart.js';
 import { prepareDeclaredExternalAssets } from '../../lib/performance/external-assets.js';
 import { connectBrowserPeripheral } from './browser-peripheral.js';
@@ -22,6 +23,7 @@ export class PracticeAudio {
   readonly tracker: BeatTracker;
   readonly endpoint: AudioEndpoint;
   readonly chart: Chart;
+  private readonly fullyWetProfiles: ReadonlySet<number>;
   readonly sampler: Sampler;
   readonly sessionId: string;
   readonly chartMetadata: ChartMetadata;
@@ -100,7 +102,8 @@ export class PracticeAudio {
         wasmUrl: new URL('./wasm/manual-clock.wasm', assetBase ?? document.baseURI),
         workletUrl: new URL('./practice-worklet.js', assetBase ?? document.baseURI), processorName: 'practice', outputChannelCounts: [2, 2],
         processorOptions: { practice: { bpm: chart.bpm, beatsPerBar: chart.beatsPerBar, runId: `${sessionId}-ready`,
-          barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program, initialVoiceEffects,
+          barCount: chart.bars.length, endBar: chart.annotatedThroughBar || chart.bars.length, program,
+          initialVoiceEffects: initialVoiceEffects && applyBackupVocalWetMix(initialVoiceEffects, backupVocalProfiles(compiled)),
           compiledProgram: compiled ? Array.from(encodeCompiledProgram(compiled)) : undefined } } });
       signal?.throwIfAborted();
       const channel = new MessageChannel();
@@ -133,6 +136,7 @@ export class PracticeAudio {
     this.tracker = tracker;
     this.endpoint = endpoint;
     this.chart = chart;
+    this.fullyWetProfiles = backupVocalProfiles(compiled);
     this.sampler = new Sampler({ audioContext: tracker.context, endpoint });
     this.latest = { phase: 'idle', bar: null, beat: null, countInRemaining: 0, bpm: chart.bpm,
       startBar: 1, endBar: chart.annotatedThroughBar || chart.bars.length, loop: false, automatic: true, click: false,
@@ -320,7 +324,9 @@ export class PracticeAudio {
   }
   inputRevoke(args: InputRevokeArgs) { return this.request('practice.input-revoke', args); }
   configureLiveEffects(effects: readonly LiveEffectDefinition[]) { return this.request('practice.effects', { effects }); }
-  configureVoiceEffects(configurations: readonly VoiceEffectConfiguration[]) { return this.request('practice.voice-effects', { configurations }); }
+  configureVoiceEffects(configurations: readonly VoiceEffectConfiguration[]) {
+    return this.request('practice.voice-effects', { configurations: applyBackupVocalWetMix(configurations, this.fullyWetProfiles) });
+  }
   setChannel(channelId: ChannelId, settings: ChannelSettings) { return this.request('practice.channel', { channelId, settings }); }
   async prepareTuningBank(options: TuningBankOptions): Promise<TuningBankState> {
     await this.request('practice.tuning-bank', { options });
