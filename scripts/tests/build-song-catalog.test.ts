@@ -60,9 +60,9 @@ test('omitting a song effects file packages the named vocal defaults', async () 
     const { files } = await readSongCatalog(f.output);
     const profiles = (id: string) => JSON.parse(files.get(`songs/${id}/effects.json`)!.toString());
     const slap = { kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 };
-    const chorus = { kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: .35 };
+    const chorus = { kind: 'chorus', rateHz: .8, depthMs: 5, baseDelayMs: 20, wet: 1 };
     const expected = (backup: boolean) => Array.from({ length: 6 }, (_, profile) => ({
-      profile, effects: profile === 4 ? [slap] : profile === 5 && backup ? [slap, chorus] : [],
+      profile, effects: profile === 4 ? [slap] : profile === 5 && backup ? [{ ...slap, wet: 1 }, chorus] : [],
     }));
     assert.deepEqual(profiles('dance-yrself-clean'), expected(true));
     assert.deepEqual(profiles('drunk-girls'), expected(false));
@@ -70,7 +70,7 @@ test('omitting a song effects file packages the named vocal defaults', async () 
   } finally { await rm(f.directory, { recursive: true, force: true }); }
 });
 
-test('rehearsal catalog promotes timing-only All I Want and preserves installed executable charts', async () => {
+test('rehearsal catalog promotes timing-only Daft Punk and All I Want and preserves installed executable charts', async () => {
   const f = await fixture();
   try {
     const firstFour = [...f.spec.songs, { id: 'i-can-change', musicXml: resolve('songs/i-can-change.musicxml'), effects: f.effects }];
@@ -78,6 +78,10 @@ test('rehearsal catalog promotes timing-only All I Want and preserves installed 
     const document = await readMusicXmlSong(await readFile(canonical, 'utf8'));
     const rehearsal = join(f.directory, 'old-all-i-want.musicxml');
     await writeFile(rehearsal, await rehearsalMusicXml({ ...document, song: { ...document.song, executable: false } }));
+    const daftPunk = resolve('songs/daft-punk.musicxml');
+    const daftPunkDocument = await readMusicXmlSong(await readFile(daftPunk, 'utf8'));
+    const daftPunkRehearsal = join(f.directory, 'old-daft-punk.musicxml');
+    await writeFile(daftPunkRehearsal, await rehearsalMusicXml({ ...daftPunkDocument, song: { ...daftPunkDocument.song, executable: false } }));
     const four = join(f.directory, 'four');
     await buildSongCatalog({ ...f.spec, songs: firstFour }, four);
     const build = promisify(execFile);
@@ -92,9 +96,10 @@ test('rehearsal catalog promotes timing-only All I Want and preserves installed 
     const allIWant = (files: Map<string, Buffer>) => files.get('songs/all-i-want/source.musicxml');
     const effects = (files: Map<string, Buffer>) => files.get('songs/all-i-want/effects.json');
     assert.deepEqual(allIWant(installed.files), await readFile(canonical));
+    assert.deepEqual(installed.files.get('songs/daft-punk/source.musicxml'), await readFile(daftPunk));
     const prior = await readSongCatalog(installed.out);
     const specs = prior.catalog.entries.map(entry => ({ id: entry.id,
-      musicXml: entry.id === 'all-i-want' ? rehearsal : join(installed.out, entry.path, 'source.musicxml'),
+      musicXml: entry.id === 'all-i-want' ? rehearsal : entry.id === 'daft-punk' ? daftPunkRehearsal : join(installed.out, entry.path, 'source.musicxml'),
       effects: join(installed.out, entry.path, 'effects.json'),
     }));
     const legacy = join(f.directory, 'legacy');

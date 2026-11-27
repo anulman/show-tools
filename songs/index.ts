@@ -6,6 +6,7 @@ const loaders = {
   'drunk-girls': () => import('./drunk-girls.js'),
   'i-can-change': () => import('./i-can-change.js'),
   tribulations: () => import('./tribulations.js'),
+  'daft-punk': () => import('./daft-punk.js'),
   'all-i-want': () => import('./all-i-want.js'),
 } satisfies Record<Extract<SetSong, { rehearsal: false }>['id'], () => Promise<{ default: SongScript }>>;
 

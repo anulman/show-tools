@@ -1,6 +1,6 @@
 import { dismissOnBackdrop } from './dialog.js';
 import { createEffectKnob } from './effect-knob.js';
-import { chorus, initialVoiceEffects, slapback } from '../../lib/performance/vocal-effects.js';
+import { applyBackupVocalWetMix, chorus, fullyWetEffects, initialVoiceEffects, slapback } from '../../lib/performance/vocal-effects.js';
 import type { LiveEffectDefinition, VoiceEffectConfiguration, VoiceEffectsState } from '../../lib/performance/model.js';
 
 type Voice = { id: string; name: string; profile: number };
@@ -16,6 +16,7 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void, onC
   let baseline: readonly VoiceEffectConfiguration[] = dryDefaults;
   let drafts = baseline;
   let applied: readonly VoiceEffectsState[] = [];
+  let fullyWetProfiles: ReadonlySet<number> = new Set();
   let locked = false;
   let readOnly = false;
   const footers: Footer[] = [];
@@ -38,14 +39,15 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void, onC
         knob.setValue(knob.value());
         if (locked) knob.cancelDrag();
       }
-      for (const input of footer.controls) input.disabled = locked;
+      for (const input of footer.controls) input.disabled = locked || input.readOnly;
       for (const title of footer.titles) title.disabled = readOnly;
       for (const button of footer.buttons) button.disabled = locked || button.dataset.unavailable === 'true';
       if (footer.apply) { footer.apply.hidden = empty || locked || !dirty(footer.voice.profile); footer.apply.disabled = locked || !dirty(footer.voice.profile); }
     }
   }
   function setProfileEffects(profile: number, effects: readonly LiveEffectDefinition[]) {
-    drafts = drafts.map(item => item.profile === profile ? { ...item, effects: effects.map(effect => ({ ...effect })) } : item);
+    const next = fullyWetProfiles.has(profile) ? fullyWetEffects(effects) : effects;
+    drafts = drafts.map(item => item.profile === profile ? { ...item, effects: next.map(effect => ({ ...effect })) } : item);
     for (const footer of footers.filter(item => item.voice.profile === profile)) renderFields(footer);
     refresh();
   }
@@ -81,9 +83,11 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void, onC
       stage.dataset.effect = effect.kind; stage.append(title);
       const knobs = document.createElement('div'); knobs.className = 'fx-knobs';
       knobs.style.setProperty('--knob-count', String(effect.kind === 'slapback' ? 3 : 4)); stage.append(knobs);
+      const fullyWet = fullyWetProfiles.has(footer.voice.profile);
       function field(label: string, read: () => number, min: number, max: number, step: number, format: (value: number) => string, update: (value: number) => void) {
         const knob = createEffectKnob({ label, accessibleName: `${footer.voice.name}, ${stageName}, ${label}`,
           value: read(), min, max, step, format, onInput: update });
+        knob.input.readOnly = fullyWet && label === 'Wet';
         knobs.append(knob.root); footer.controls.push(knob.input); footer.knobs.push({ ...knob, value: read });
       }
       const ms = (value: number) => `${value} ms`;
@@ -140,10 +144,20 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void, onC
     if (restoreFocus) footer.editor.querySelector<HTMLButtonElement>('button[autofocus]')?.focus();
   }
   return {
-    reset(configurations: readonly VoiceEffectConfiguration[]) { for (const footer of footers) { for (const knob of footer.knobs) knob.cancelDrag(); footer.editor.remove(); footer.open.remove(); } baseline = configurations; drafts = baseline; applied = []; footers.length = 0; },
+    reset(configurations: readonly VoiceEffectConfiguration[], wetProfiles: ReadonlySet<number> = new Set()) {
+      for (const footer of footers) {
+        for (const knob of footer.knobs) knob.cancelDrag();
+        footer.editor.remove();
+        footer.open.remove();
+      }
+      fullyWetProfiles = wetProfiles;
+      baseline = applyBackupVocalWetMix(configurations, fullyWetProfiles);
+      drafts = baseline; applied = []; footers.length = 0;
+    },
     setEffects(profile: number, effects: readonly LiveEffectDefinition[]) {
-      baseline = baseline.map(item => item.profile === profile ? { ...item, effects } : item);
       setProfileEffects(profile, effects);
+      baseline = baseline.map(item => item.profile === profile ? { ...item, effects: draft(profile) } : item);
+      refresh();
     },
     hasChanges: dirty,
     mount(voice: Voice, container: HTMLElement, edit?: () => void) {
@@ -176,7 +190,7 @@ export function createVoiceEffectsEditor(onApply: (profile: number) => void, onC
       applied = states ?? [];
       locked = isLocked;
       readOnly = defaults !== undefined;
-      const configured = defaults?.length === 0 ? dryDefaults : defaults;
+      const configured = defaults?.length ? applyBackupVocalWetMix(defaults, fullyWetProfiles) : defaults && dryDefaults;
       if (configured && JSON.stringify(drafts) !== JSON.stringify(configured)) {
         const before = drafts;
         baseline = drafts = configured;

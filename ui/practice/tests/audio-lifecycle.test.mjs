@@ -679,7 +679,7 @@ test('timing-only sessions start with dry identity processing in every profile',
 });
 
 test('an unfinished chart cannot prepare audio or start transport', async () => {
-  const { song } = await loadSongPreview('daft-punk');
+  const { song } = await loadSongPreview('you-wanted-a-hit');
   const h = startupHarness(undefined, { loadedSong: song, catalogSave: async () => assert.fail('Unexpected draft save') });
   await assert.rejects(h.controls.ensureAudio(), /Audio is unavailable/);
   await assert.rejects(h.controls.startPractice(), /Audio is unavailable/);

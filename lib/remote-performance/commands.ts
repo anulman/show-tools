@@ -2,6 +2,7 @@ import { InputIntentIdSchema } from './session-schema.js';
 import { Schema } from 'effect';
 import { RequiredTuningBankSchema, TunerCommandSchema } from '../tuner/schema.js';
 import { tunerCommandValues } from '../tuner/observation.js';
+import { backupVocalProfiles, fullyWetEffects } from '../performance/vocal-effects.js';
 import { CONTROL_IDS, type PracticeState, type VoiceEffectsState } from '../performance/model.js';
 import { PF } from '../performance/wasm-abi.js';
 import { VoiceEffectDefinitionSchema } from './native-schema.js';
@@ -180,7 +181,8 @@ export function encodeCommand(input: unknown, state: PracticeState, songId?: str
 			const voices = state.voiceEffects ?? [];
 			const selected = voices.find(voice => voice.profile === command.args.profile);
 			if (!selected || !selected.prepared || selected.revision !== command.args.expectedRevision) throw new Error('Voice profile changed; refresh and retry');
-			return profiles(voices.map(voice => ({ profile: voice.profile, effects: voice.profile === selected.profile ? command.args.effects : voice.effects })), voices);
+			const effects = backupVocalProfiles(tuning?.compiled).has(selected.profile) ? fullyWetEffects(command.args.effects) : command.args.effects;
+			return profiles(voices.map(voice => ({ profile: voice.profile, effects: voice.profile === selected.profile ? effects : voice.effects })), voices);
 		}
 	}
 }

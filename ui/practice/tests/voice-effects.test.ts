@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { keyboardFocusBlocksShortcut } from '../keyboard-focus.js';
 import { effectSummary } from '../voice-effects.js';
-import { initialVoiceEffects } from '../../../lib/performance/vocal-effects.js';
+import { applyBackupVocalWetMix, backupVocalProfiles, initialVoiceEffects } from '../../../lib/performance/vocal-effects.js';
 import song from '../../../songs/dance-yrself-clean.js';
 import { DEFAULT_LIVE_PROFILE, ROTATION_LIVE_PROFILE, VOICE_PROFILE_COUNT } from '../../../lib/performance/model.js';
 
@@ -19,12 +19,26 @@ test('capture voices start dry while live vocals retain their approved independe
   assert.equal(configurations.length, VOICE_PROFILE_COUNT);
   assert.equal(new Set(configurations.map(configuration => configuration.profile)).size, VOICE_PROFILE_COUNT);
   const backup = configurations.find(configuration => configuration.profile === ROTATION_LIVE_PROFILE);
-  assert.deepEqual(backup?.effects.map(effect => effect.kind), ['slapback', 'chorus']);
+  assert.deepEqual(backup?.effects.map(effect => [effect.kind, effect.wet]), [['slapback', 1], ['chorus', 1]]);
   for (const configuration of configurations.filter(item => item.profile < DEFAULT_LIVE_PROFILE)) assert.deepEqual(configuration.effects, []);
   assert.notEqual(configurations[0].effects, configurations[1].effects, 'dry arrays are independent');
   const main = configurations.find(configuration => configuration.profile === DEFAULT_LIVE_PROFILE);
   assert.deepEqual(main?.effects, [{ kind: 'slapback', delayMs: 100, feedback: 0, wet: .25 }]);
   assert.notEqual(main?.effects[0], backup?.effects[0], 'live profiles do not share mutable stage objects');
+});
+
+test('saved backup vocal settings keep their other parameters with a fully wet mix', () => {
+  const saved = [
+    { profile: 0, effects: [{ kind: 'chorus', rateHz: 1.2, depthMs: 3, baseDelayMs: 18, wet: .4 }] },
+    { profile: 1, effects: [{ kind: 'slapback', delayMs: 130, feedback: .2, wet: .5 }] },
+  ] satisfies Parameters<typeof applyBackupVocalWetMix>[0];
+  const profiles = backupVocalProfiles({ parts: (song.compiled?.parts ?? [])
+    .filter(part => part.profile < 2)
+    .map(part => ({ ...part, name: part.profile === 0 ? 'Backup Vox 1' : 'Vocals' })) });
+  const [backup, lead] = applyBackupVocalWetMix(saved, profiles);
+  assert.deepEqual(backup?.effects, [{ ...saved[0].effects[0], wet: 1 }]);
+  assert.equal(lead, saved[1]);
+  assert.equal(saved[0].effects[0].wet, .4);
 });
 
 test('effect summaries retain the supplied processing order and parameter units', () => {
