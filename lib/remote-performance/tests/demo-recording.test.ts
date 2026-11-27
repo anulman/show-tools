@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, statfs, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -195,6 +195,55 @@ test('completed takes remain distinct and retryable across a hardware desk resta
       assert.equal((await fetch(base + archive + '?after=../invalid', { headers })).status, 400);
     });
   } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('archive admission can run out of space without stopping song playback', async () => {
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'wav-full-')));
+  const recordingArchiveRoot = join(directory, 'retained');
+  const pending = join(recordingArchiveRoot, 'take-PND000');
+  await mkdir(recordingArchiveRoot, { mode: 0o700 });
+  await mkdir(pending, { mode: 0o700 });
+  const previous = Buffer.alloc(48);
+  await writeFile(join(pending, 'recording.wav'), previous, { mode: 0o600 });
+
+  const volume = await statfs(recordingArchiveRoot);
+  const recordingArchiveReserveBytes = Math.max(64 * 1024 * 1024, volume.blocks * volume.bsize);
+  const profile = { ...sessionProfile(directory), recordingArchiveRoot, recordingArchiveReserveBytes };
+  const controller = new PersistentDesk(profile, installedPackage().installed);
+  const ready = () => {
+    const audio = controller.snapshot().audio;
+    if (audio.kind === 'fault') assert.fail(audio.error);
+    return audio.kind === 'ready' ? audio : undefined;
+  };
+  try {
+    assert(controller.recordingArchive);
+    await controller.recordingArchive.maintain();
+    controller.setAudio('on');
+    const audio = await until(ready);
+    const target = { attempt: audio.attempt, hostEpoch: audio.performance.hostEpoch };
+    const start = await controller.command(target, { command: 'start',
+      args: { bpm: 240, countInBars: 0, startBar: 1, endBar: 1, loop: true, recordDemo: true } });
+    assert.equal(start.outcome, 'applied');
+    const full = await until(() => {
+      const current = ready();
+      return current?.performance.demo === 'archive-full' ? current.performance : undefined;
+    });
+    assert.equal(full.state.phase, 'playing');
+    assert.deepEqual(await readdir(recordingArchiveRoot), ['take-PND000']);
+    assert.deepEqual(await readFile(join(pending, 'recording.wav')), previous);
+    const stop = await controller.command(target, { command: 'stop', args: {} });
+    assert.equal(stop.outcome, 'applied');
+    const onePass = await controller.command(target, { command: 'start',
+      args: { bpm: 240, countInBars: 0, startBar: 1, endBar: 1, loop: false, recordDemo: true } });
+    assert.equal(onePass.outcome, 'applied');
+    await until(() => {
+      const current = ready();
+      return current?.performance.demo === 'archive-full' && current.performance.state.phase === 'ended' ? true : undefined;
+    });
+  } finally {
+    await controller.close();
     await rm(directory, { recursive: true, force: true });
   }
 });

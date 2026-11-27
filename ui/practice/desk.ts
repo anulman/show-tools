@@ -1175,6 +1175,7 @@ export async function mountDesk(options: DeskMountOptions = {}) {
     elements['recording-hint'].textContent = demo === 'armed' ? 'Armed · recording starts after count-in.'
       : demo === 'recording' ? 'Recording on the EliteDesk.'
       : demo === 'finishing' ? 'Preparing WAV…'
+      : demo === 'archive-full' ? 'Archive full. Playback can continue. Save pending takes or free space on the EliteDesk.'
       : demo === 'failed' ? 'Demo recording failed. Any earlier completed demo is still available.'
       : remoteDemoAvailable ? 'WAV ready.'
       : demo === undefined ? 'Enable hardware audio to record a demo.' : 'Demo recording starts with practice.';
