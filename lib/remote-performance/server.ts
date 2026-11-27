@@ -1,6 +1,7 @@
 import { readFile, realpath, stat } from 'node:fs/promises';
 import { basename, dirname, resolve, sep } from 'node:path';
 import { createGateway } from './gateway.js';
+import { CrtCameras } from './crt-cameras.js';
 import { PersistentDesk } from './controller.js';
 import { SongBindingAuthority, prepareSongBindings } from './song-bindings.js';
 import { loadInstalledSongCatalog } from './song-catalog.js';
@@ -17,18 +18,23 @@ export async function serveProfile(input: SessionProfile) {
   const archive = await validateRecordingArchive(decoded, root);
   const profile = archive ? { ...decoded, recordingArchiveRoot: archive } : decoded;
   if (profile.peripheralProfile) await peripheralConfigurationDirectory(profile.peripheralProfile);
-  const privateFile = async (path: string) => {
+  const privateFile = async (path: string, maxBytes?: number) => {
     const actual = await realpath(path);
     const info = await stat(actual);
     if (actual === root || actual.startsWith(root + sep)) throw new Error('Secrets must be outside the static root');
     if (!info.isFile() || info.uid !== process.getuid?.() || (info.mode & 0o077) !== 0) throw new Error('Secret files must be caller-owned and private');
+    if (maxBytes !== undefined && info.size > maxBytes) throw new Error('Secret file is too large');
     return readFile(actual);
   };
   const runtime = resolve(profile.runtimeRoot);
   if (runtime === root || runtime.startsWith(root + sep)) throw new Error('Runtime root must be outside the static root');
-  const [tokenFile, catalog, tls] = await Promise.all([
+  const [tokenFile, catalog, tls, obsPassword] = await Promise.all([
     privateFile(profile.tokenFile), Effect.runPromise(loadInstalledSongCatalog(profile.catalog)),
     profile.tls ? Promise.all([readFile(profile.tls.cert), privateFile(profile.tls.key)]).then(([cert, key]) => ({ cert, key })) : undefined,
+    profile.crtCameras ? privateFile(profile.crtCameras.passwordFile, 4096).then(bytes => {
+      const password = bytes.toString('utf8').replace(/\r?\n$/, '');
+      return password && !/[\r\n\0]/.test(password) ? password : undefined;
+    }, () => undefined) : undefined,
   ]);
   const database = resolve(await realpath(dirname(profile.authoringDatabase)), basename(profile.authoringDatabase));
   if (database === root || database.startsWith(root + sep)) throw new Error('Authoring database must be outside the static root');
@@ -52,8 +58,9 @@ export async function serveProfile(input: SessionProfile) {
     if (!initial) throw new Error('Initial chart preparation did not produce a song');
   } catch (error) { bindings.close(); throw error; }
   const controller = new PersistentDesk(profile, initial.installed, { catalog, bindings, charts, chartPreviews, initialChart: initial.chart });
+  const crtCameras = profile.crtCameras && new CrtCameras(profile.crtCameras, obsPassword);
   const server = createGateway({ host: profile.host, port: profile.port, origin: profile.origin,
-    token: Buffer.from(tokenFile.toString('utf8').trim()), staticRoot: root, tls, ...(profile.peripheralProfile ? { peripheralProfile: profile.peripheralProfile } : {}) }, controller, {
+    token: Buffer.from(tokenFile.toString('utf8').trim()), staticRoot: root, tls, peripheralProfile: profile.peripheralProfile, crtCameras }, controller, {
       choices: () => controller.songChoices(), preview: id => controller.songPreview(id),
       select: (id, expected) => controller.selectSong(id, expected),
       bindings: (expected, values) => controller.configureButtonBindings(expected, values),

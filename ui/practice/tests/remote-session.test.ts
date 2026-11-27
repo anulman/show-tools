@@ -24,7 +24,8 @@ const off = { serverEpoch: 'server', revision: '1', song, audio: { kind: 'off' }
 const ready = { ...off, revision: '3', audio: { kind: 'ready', attempt: 'attempt', performance } };
 const tick = () => new Promise(resolve => setTimeout(resolve, 0));
 
-async function fixture(run: (fixture: { desk: RemoteDesk; publish: (value: unknown) => Promise<void>; calls: { url: string; body: Record<string, unknown> }[]; setInputStatus: (value: unknown) => void }) => Promise<void>) {
+async function fixture(run: (fixture: { desk: RemoteDesk; publish: (value: unknown) => Promise<void>; calls: { url: string; body: Record<string, unknown> }[]; setInputStatus: (value: unknown) => void }) => Promise<void>,
+  cameraResponse?: (init: RequestInit | undefined) => Response) {
   const previous = globalThis.fetch;
   const calls: { url: string; body: Record<string, unknown> }[] = [];
   let inputStatus: unknown = { kind: 'unknown' };
@@ -35,6 +36,7 @@ async function fixture(run: (fixture: { desk: RemoteDesk; publish: (value: unkno
     if (url === '/api/session') return Response.json({ sessionId: 'session', inputOwnerToken: 'original-input-owner', view: off });
     if (url === '/api/input-intent-status') return Response.json(inputStatus);
     if (url === '/api/events') return new Response(new ReadableStream({ start(controller) { stream = controller; } }));
+    if (url === '/api/crt-cameras' && cameraResponse) return cameraResponse(init);
     const body = JSON.parse(String(init?.body)); calls.push({ url, body });
     if (url === '/api/audio') return Response.json({ outcome: 'accepted', view: body.goal === 'on' ? { ...off, revision: '2', audio: { kind: 'starting', attempt: 'attempt' } } : { ...off, revision: '5' } });
     const revision = String(calls.length + 1);
@@ -48,6 +50,39 @@ async function fixture(run: (fixture: { desk: RemoteDesk; publish: (value: unkno
     await run({ desk, calls, setInputStatus: value => { inputStatus = value; }, publish: async value => { stream?.enqueue(new TextEncoder().encode(`data: ${JSON.stringify(value)}\n\n`)); await tick(); } });
   } finally { await desk.dispose(); stream?.close(); globalThis.fetch = previous; }
 }
+
+test('camera cuts use authenticated readback independently of hardware audio commands', async () => {
+  const cameras = [{ id: 'wide', label: 'Wide' }, { id: 'close', label: 'Close' }];
+  let rejectCut = false;
+  const lifetime = new AbortController();
+  let cameraRequest: AbortSignal | undefined;
+  await fixture(async ({ desk, calls }) => {
+    const observation = await desk.cameraSnapshot(lifetime.signal);
+    assert.equal(observation.kind, 'ready');
+    assert.equal(observation.selectedId, 'wide');
+    const cameraId = observation.cameras[1].id;
+    assert.equal((await desk.cutCamera(cameraId, lifetime.signal)).selectedId, 'close');
+    rejectCut = true;
+    await assert.rejects(desk.cutCamera(cameraId, lifetime.signal), /503/);
+    assert.equal(desk.connection.kind, 'connected');
+    assert.equal(desk.snapshot().audio.kind, 'off');
+    await desk.enableAudio();
+    assert.equal(calls[0].body.sequence, 1);
+  }, init => {
+    assert.equal(init?.mode, 'same-origin');
+    assert.equal(init?.cache, 'no-store');
+    cameraRequest = init?.signal ?? undefined;
+    if (init?.method === 'GET') {
+      assert.equal(init.body, undefined);
+      return Response.json({ kind: 'ready', cameras, selectedId: 'wide' });
+    }
+    assert.equal(init?.method, 'POST');
+    assert.deepEqual(JSON.parse(String(init.body)), { cameraId: 'close' });
+    return rejectCut ? new Response(null, { status: 503 })
+      : Response.json({ kind: 'ready', cameras, selectedId: 'close' });
+  });
+  assert.equal(cameraRequest?.aborted, true);
+});
 
 test('off desk enables without transport start and shares command sequencing across lifecycle cycles', async () => {
   await fixture(async ({ desk, calls, publish }) => {

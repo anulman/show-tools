@@ -15,6 +15,8 @@ import { InputIntentStatusRequestSchema, NativeTargetSchema, AudioGoalSchema, ty
 import { decodeClientInputCommand, isPriorityCommand, TambourineAudition, type ClientInputCommand } from './commands.js';
 import { InputBindingsSchema, decodeInputBindings, decodeInputAttach, type InputBindings, type InputAttach } from '../performance/input-bindings.js';
 import { decodeRecordingId } from './recording-archive-schema.js';
+import { decodeCrtCameraSelection } from './crt-camera-schema.js';
+import type { CrtCameras } from './crt-cameras.js';
 
 async function sendDemo(request: IncomingMessage, response: ServerResponse, demo: { file: import('node:fs/promises').FileHandle; bytes: number }) {
   response.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': demo.bytes, 'Cache-Control': 'no-store',
@@ -45,6 +47,7 @@ export interface GatewayConfig {
 	token: Buffer;
 	staticRoot: string;
 	peripheralProfile?: string;
+	crtCameras?: CrtCameras;
 	tls?: { cert: Buffer; key: Buffer };
 }
 
@@ -434,6 +437,26 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 		if (path.startsWith('/api/')) {
 			if (!authenticated(request)) return json(response, 401, { error: 'Unauthorized' });
 			if (request.headers.origin && request.headers.origin !== config.origin) return json(response, 403, { error: 'Invalid origin' });
+      if (path === '/api/crt-cameras') {
+        const cameras = config.crtCameras;
+        if (request.method === 'GET') return json(response, 200, cameras ? await cameras.snapshot() : { kind: 'disabled' });
+        if (request.method === 'POST') {
+          if (request.headers.origin !== config.origin) return json(response, 403, { error: 'Origin required' });
+          if (!cameras) return json(response, 404, { error: 'CRT camera controls are disabled' });
+          let selection: ReturnType<typeof decodeCrtCameraSelection>;
+          try { selection = decodeCrtCameraSelection(await readBody(request, 512)); }
+          catch (error) { return json(response, error instanceof BodyTooLarge ? 413 : 400, { error: 'Invalid CRT camera selection' }); }
+          const result = await cameras.select(selection.cameraId);
+          switch (result.kind) {
+            case 'applied': return json(response, 200, result.snapshot);
+            case 'invalid': return json(response, 400, { error: result.error });
+            case 'busy': return json(response, 409, { error: result.error });
+            case 'unavailable': return json(response, 503, { error: result.error, snapshot: result.snapshot });
+          }
+        }
+        response.setHeader('allow', 'GET, POST');
+        return json(response, 405, { error: 'Method not allowed' });
+      }
 			if (request.method === 'GET' && path === '/api/session') {
 				const snapshot = controller.snapshot();
 				if (sessions.size >= MAX_SESSIONS || inputOwners.size >= MAX_SESSIONS) return json(response, 503, { error: 'Session capacity reached' });
@@ -672,6 +695,6 @@ export function createGateway(config: GatewayConfig, controller: DeskController,
 		});
 	};
 	const server = config.tls ? createHttpsServer(config.tls, safeHandler) : createServer(safeHandler);
-	server.on('close', () => { clearInterval(heartbeat); unsubscribe(); for (const client of clients) client.destroy(); for (const [id, session] of sessions) closeSession(id, session); });
+	server.on('close', () => { config.crtCameras?.close(); clearInterval(heartbeat); unsubscribe(); for (const client of clients) client.destroy(); for (const [id, session] of sessions) closeSession(id, session); });
 	return server;
 }
