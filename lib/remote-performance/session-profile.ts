@@ -1,5 +1,6 @@
 import { Schema } from 'effect';
 import { ConnectAddressSchema } from './connection-options.js';
+import { CrtCameraProfileSchema } from './crt-camera-schema.js';
 import { SongCatalogOptionsSchema } from './song-catalog.js';
 
 const path = Schema.NonEmptyString.check(Schema.isPattern(/^\//), Schema.isMaxLength(4096));
@@ -39,6 +40,7 @@ export const SessionProfileSchema = Schema.Struct({ schemaVersion: Schema.Litera
   recordingArchiveReserveBytes: Schema.optionalKey(integer(64 * 1024 * 1024, 2 ** 50)),
   restartPolicy: Schema.Literals(['no', 'on-failure']), catalog: SongCatalogOptionsSchema, authoringDatabase: path,
   peripheralProfile: Schema.optionalKey(path),
+  crtCameras: Schema.optionalKey(CrtCameraProfileSchema),
 }).check(Schema.makeFilter(profile => (profile.recordingArchiveReserveBytes === undefined || profile.recordingArchiveRoot !== undefined)
   || 'Recording archive reserve requires a recording archive directory'));
 const SessionProfileV1Schema = Schema.Struct({ schemaVersion: Schema.Literal(1), ...common,
